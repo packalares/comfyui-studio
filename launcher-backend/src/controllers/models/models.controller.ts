@@ -536,7 +536,12 @@ export class ModelsController extends DownloadController {
         typeof this.updateDownloadHistory === 'function' ? this.updateDownloadHistory.bind(this) : undefined,
         this.downloadHistory,
         authHeaders
-      ).catch(err => {
+      ).then(() => {
+        // On successful completion, rescan disk so the installed flag flips immediately —
+        // otherwise the studio UI would keep reporting the model as missing until the next
+        // manual /api/models/scan. No-op if the underlying download never actually wrote a file.
+        this.refreshInstalledStatus().catch(() => { /* best effort */ });
+      }).catch(err => {
         i18nLogger.error('model.custom.download_failed', { message: err instanceof Error ? err.message : String(err), lng: logLang });
       });
       

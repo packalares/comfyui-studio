@@ -84,7 +84,10 @@ export async function seedFromComfyUI(): Promise<void> {
         name: String(m.name || m.filename || ''),
         type: String(m.type || 'other'),
         base: m.base as string | undefined,
-        save_path: String(m.save_path || m.type || 'checkpoints'),
+        // Strip vanity subfolders from ComfyUI's external-model-list (e.g. "diffusion_models/Wan2.1" → "diffusion_models").
+        // Template widget_values expect files flat under the category; subfolders break literal-match at load time.
+        // When a specific template needs a deeper path, its properties.models[].directory overwrites this later.
+        save_path: String(m.save_path || m.type || 'checkpoints').split('/')[0],
         description: m.description as string | undefined,
         reference: m.reference as string | undefined,
         url: String(m.url || ''),
@@ -120,7 +123,12 @@ export function upsertModel(entry: Omit<CatalogModel, 'size_pretty' | 'size_byte
     if (!existing.url && entry.url) existing.url = entry.url;
     if (!existing.name && entry.name) existing.name = entry.name;
     if (!existing.type && entry.type) existing.type = entry.type;
-    if (!existing.save_path && entry.save_path) existing.save_path = entry.save_path;
+    // save_path: templates are authoritative for their workflow's expected path,
+    // so let them overwrite the seed-time value. Non-template upserts (scan, catalog seed)
+    // still respect the existing value.
+    if (entry.save_path && (entry.source?.startsWith('template:') || !existing.save_path)) {
+      existing.save_path = entry.save_path;
+    }
     if (!existing.description && entry.description) existing.description = entry.description;
     if (!existing.reference && entry.reference) existing.reference = entry.reference;
     if (!existing.base && entry.base) existing.base = entry.base;

@@ -1630,6 +1630,10 @@ router.post('/check-dependencies', async (req: Request, res: Response) => {
     //    `widgets_values` filename but no `properties.models`, look the filename up in the
     //    existing catalog (seeded from ComfyUI) to still discover a URL.
     const requiredFilenames = new Set<string>();
+    // Per-filename directory as declared by the template itself (not the catalog cache).
+    // This wins over cat.save_path when we build the RequiredModelInfo response, so the
+    // launcher saves to exactly where the template's widget_values expects to find it.
+    const templateDirByFilename = new Map<string, string>();
 
     for (const node of allNodes) {
       const nodeTemplateModels = (node.properties as Record<string, unknown> | undefined)?.models;
@@ -1637,13 +1641,15 @@ router.post('/check-dependencies', async (req: Request, res: Response) => {
         for (const raw of nodeTemplateModels as Array<Record<string, unknown>>) {
           const name = raw.name as string | undefined;
           const url = raw.url as string | undefined;
+          const dir = raw.directory as string | undefined;
           if (!name) continue;
+          if (dir) templateDirByFilename.set(name, dir);
           if (url) {
             catalog.upsertModel({
               filename: name,
               name,
-              type: (raw.directory as string) || 'other',
-              save_path: (raw.directory as string) || 'checkpoints',
+              type: dir || 'other',
+              save_path: dir || 'checkpoints',
               url,
               description: raw.description as string | undefined,
               source: `template:${templateName}`,
@@ -1708,7 +1714,8 @@ router.post('/check-dependencies', async (req: Request, res: Response) => {
       const entry: RequiredModelInfo = {
         name: filename,
         url: cat?.url || '',
-        directory: cat?.save_path || scanEntry?.type || '',
+        // Template's own directory takes precedence over any cached save_path.
+        directory: templateDirByFilename.get(filename) || cat?.save_path || scanEntry?.type || '',
         size: cat?.size_bytes || scanEntry?.fileSize || undefined,
         size_pretty: cat?.size_pretty || undefined,
         installed: isInstalled,
