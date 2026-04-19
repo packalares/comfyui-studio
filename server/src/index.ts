@@ -8,7 +8,7 @@ import { loadTemplatesFromComfyUI } from './services/templates.js';
 import { setDownloadBroadcaster, getAllDownloads } from './services/downloads.js';
 
 const app = express();
-const PORT = parseInt(process.env.PORT || '3001', 10);
+const PORT = parseInt(process.env.BACKEND_PORT || process.env.PORT || '3002', 10);
 const LAUNCHER_URL = process.env.LAUNCHER_URL || 'http://localhost:3000';
 
 app.use(cors());
