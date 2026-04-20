@@ -7,11 +7,10 @@
 //   { "exposed": [ { "nodeId": "3", "widgetName": "steps" }, ... ] }
 
 import fs from 'fs';
-import path from 'path';
-import os from 'os';
+import { paths } from '../config/paths.js';
+import { atomicWrite, safeResolve } from '../lib/fs.js';
 
-const STORE_DIR = process.env.STUDIO_EXPOSED_WIDGETS_DIR
-  || path.join(os.homedir(), '.config', 'comfyui-studio', 'exposed_widgets');
+const STORE_DIR = paths.exposedWidgetsDir;
 
 export interface ExposedWidget {
   nodeId: string;
@@ -26,7 +25,9 @@ function safeFilename(templateName: string): string {
 }
 
 function filePathFor(templateName: string): string {
-  return path.join(STORE_DIR, safeFilename(templateName));
+  // safeResolve rejects any path that escapes STORE_DIR even if safeFilename
+  // were bypassed — defense in depth against traversal via Unicode tricks.
+  return safeResolve(STORE_DIR, safeFilename(templateName));
 }
 
 export function getForTemplate(templateName: string): ExposedWidget[] {
@@ -45,7 +46,6 @@ export function getForTemplate(templateName: string): ExposedWidget[] {
 
 export function setForTemplate(templateName: string, exposed: ExposedWidget[]): ExposedWidget[] {
   const fp = filePathFor(templateName);
-  fs.mkdirSync(path.dirname(fp), { recursive: true, mode: 0o700 });
   // Normalize + dedupe.
   const seen = new Set<string>();
   const clean: ExposedWidget[] = [];
@@ -56,7 +56,8 @@ export function setForTemplate(templateName: string, exposed: ExposedWidget[]): 
     seen.add(key);
     clean.push({ nodeId: e.nodeId, widgetName: e.widgetName });
   }
-  fs.writeFileSync(fp, JSON.stringify({ exposed: clean }, null, 2), { mode: 0o600 });
+  // atomicWrite creates the parent dir (0o700) and writes 0o600 by default.
+  atomicWrite(fp, JSON.stringify({ exposed: clean }, null, 2));
   return clean;
 }
 

@@ -45,9 +45,14 @@ export default function ExposeWidgetsModal({ templateName, onClose, onSaved }: P
     api.getTemplateWidgets(templateName)
       .then(res => {
         if (cancelled) return;
-        setWidgets(res.widgets);
+        // The backend returns every editable widget, including those already driven
+        // by the main form (prompt textarea, image/audio/video uploads) flagged
+        // `formClaimed: true`. Hide those from the modal — the user can't expose
+        // duplicates of controls they already have.
+        const visible = res.widgets.filter(w => !w.formClaimed);
+        setWidgets(visible);
         const initial = new Set<string>();
-        for (const w of res.widgets) if (w.exposed) initial.add(`${w.nodeId}|${w.widgetName}`);
+        for (const w of visible) if (w.exposed) initial.add(`${w.nodeId}|${w.widgetName}`);
         setSelected(initial);
         setLoading(false);
       })

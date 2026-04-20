@@ -1,25 +1,10 @@
-import { getHfToken } from './settings.js';
+import { env } from '../config/env.js';
+import { matchesIdentity } from '../lib/identity.js';
+import { getTaskProgress, setProgressListener } from './downloadController/downloadController.service.js';
+import * as models from './models/models.service.js';
+import type { DownloadState, DownloadIdentity } from '../contracts/system.contract.js';
 
-const LAUNCHER_URL = process.env.LAUNCHER_URL || 'http://localhost:3000';
-
-export interface DownloadState {
-  taskId: string;
-  modelName?: string;
-  filename?: string;
-  progress: number;
-  currentModelProgress: number;
-  totalBytes: number;
-  downloadedBytes: number;
-  speed: number;
-  status: string;
-  completed: boolean;
-  error: string | null;
-}
-
-export interface DownloadIdentity {
-  modelName?: string;
-  filename?: string;
-}
+export type { DownloadState, DownloadIdentity };
 
 interface Entry {
   state: DownloadState;
@@ -29,11 +14,8 @@ interface Entry {
 const active = new Map<string, Entry>();
 let broadcaster: ((message: object) => void) | null = null;
 
-// Concurrency cap for simultaneous downloads. Configurable via env; defaults to 2.
-const MAX_CONCURRENT = (() => {
-  const n = parseInt(process.env.MAX_CONCURRENT_DOWNLOADS || '2', 10);
-  return Number.isFinite(n) && n > 0 ? n : 2;
-})();
+// Concurrency cap for simultaneous downloads. Sourced from env (default 2).
+const MAX_CONCURRENT = env.MAX_CONCURRENT_DOWNLOADS;
 
 interface QueuedRequest {
   synthId: string;
@@ -47,6 +29,14 @@ const queue: QueuedRequest[] = [];
 export function setDownloadBroadcaster(fn: (message: object) => void) {
   broadcaster = fn;
 }
+
+// Wire the downloadController so every engine update also pumps a WS broadcast
+// via this service's emitter. Kept in a small hook so tests can opt out.
+setProgressListener((taskId) => {
+  const entry = active.get(taskId);
+  if (!entry) return;
+  void pollOnce(taskId);
+});
 
 function emit(message: object) {
   if (broadcaster) broadcaster(message);
@@ -65,37 +55,29 @@ function toPercent(v: number | undefined): number | undefined {
 async function pollOnce(taskId: string): Promise<void> {
   const entry = active.get(taskId);
   if (!entry) return;
-  try {
-    const res = await fetch(`${LAUNCHER_URL}/api/models/progress/${encodeURIComponent(taskId)}`);
-    if (!res.ok) return;
-    const data = await res.json() as Partial<DownloadState> & { overallProgress?: number };
-    const next: DownloadState = {
-      ...entry.state,
-      progress: toPercent(data.overallProgress ?? data.progress) ?? entry.state.progress,
-      currentModelProgress: toPercent(data.currentModelProgress) ?? entry.state.currentModelProgress,
-      totalBytes: data.totalBytes ?? entry.state.totalBytes,
-      downloadedBytes: data.downloadedBytes ?? entry.state.downloadedBytes,
-      speed: data.speed ?? entry.state.speed,
-      status: data.status ?? entry.state.status,
-      completed: !!data.completed || data.status === 'completed',
-      error: data.error ?? entry.state.error,
-    };
-    entry.state = next;
-    emit({ type: 'download', data: next });
-
-    if (next.completed || next.status === 'completed' || next.status === 'error' || next.status === 'unknown') {
-      stopTracking(taskId);
-    }
-  } catch {
-    // transient; keep polling
+  const data = getTaskProgress(taskId);
+  if (!data) return;
+  const next: DownloadState = {
+    ...entry.state,
+    progress: toPercent(data.overallProgress) ?? entry.state.progress,
+    currentModelProgress: toPercent(data.currentModelProgress) ?? entry.state.currentModelProgress,
+    totalBytes: data.totalBytes ?? entry.state.totalBytes,
+    downloadedBytes: data.downloadedBytes ?? entry.state.downloadedBytes,
+    speed: data.speed ?? entry.state.speed,
+    status: data.status ?? entry.state.status,
+    completed: !!data.completed || data.status === 'completed',
+    error: data.error ?? entry.state.error,
+  };
+  entry.state = next;
+  emit({ type: 'download', data: next });
+  if (next.completed || next.status === 'completed' || next.status === 'error') {
+    stopTracking(taskId);
   }
 }
 
 export function findByIdentity(id: DownloadIdentity): DownloadState | undefined {
   for (const entry of active.values()) {
-    const s = entry.state;
-    if (id.filename && (s.filename === id.filename || s.modelName === id.filename)) return s;
-    if (id.modelName && (s.modelName === id.modelName || s.filename === id.modelName)) return s;
+    if (matchesIdentity(entry.state, id)) return entry.state;
   }
   return undefined;
 }
@@ -136,11 +118,7 @@ export function isAtCapacity(): boolean {
 }
 
 export function findQueuedByIdentity(id: DownloadIdentity): QueuedRequest | undefined {
-  for (const q of queue) {
-    if (id.filename && (q.filename === id.filename || q.modelName === id.filename)) return q;
-    if (id.modelName && (q.modelName === id.modelName || q.filename === id.modelName)) return q;
-  }
-  return undefined;
+  return queue.find(q => matchesIdentity(q, id));
 }
 
 /** Enqueue a download request; returns the synthetic task id the UI will see. */
@@ -164,25 +142,16 @@ export function enqueueDownload(req: Omit<QueuedRequest, 'synthId'>): string {
   return synthId;
 }
 
-/** Try to pull the next queued request and kick it off at the launcher. */
+/** Try to pull the next queued request and kick it off via the local service. */
 async function tryDequeue(): Promise<void> {
   if (active.size >= MAX_CONCURRENT) return;
   const next = queue.shift();
   if (!next) return;
   try {
-    // Include HF token for gated repos (launcher forwards it as Authorization: Bearer).
-    const hfToken = getHfToken();
-    const bodyPayload: Record<string, unknown> = {
-      hfUrl: next.hfUrl, modelDir: next.modelDir, modelName: next.modelName, filename: next.filename,
-    };
-    if (hfToken && /huggingface\.co/.test(next.hfUrl)) bodyPayload.hfToken = hfToken;
-    const res = await fetch(`${LAUNCHER_URL}/api/models/download-custom`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(bodyPayload),
-    });
-    if (!res.ok) throw new Error(`launcher returned ${res.status}`);
-    const data = await res.json() as { taskId?: string };
+    // Local `downloadCustom` accepts the HF token and wires `authHeaders` into
+    // the engine. The launcher's `hfToken` body-field plumbing is no longer
+    // needed since the download runs in-process.
+    const out = await models.downloadCustom(next.hfUrl, next.modelDir);
     // Retire the synthetic placeholder; the real taskId's broadcasts take over from here.
     emit({
       type: 'download',
@@ -192,9 +161,7 @@ async function tryDequeue(): Promise<void> {
         status: 'completed', completed: true, error: null,
       },
     });
-    if (data.taskId) {
-      trackDownload(data.taskId, { modelName: next.modelName, filename: next.filename });
-    }
+    trackDownload(out.taskId, { modelName: next.modelName, filename: next.filename });
   } catch (err) {
     emit({
       type: 'download',
@@ -204,7 +171,6 @@ async function tryDequeue(): Promise<void> {
         status: 'error', completed: true, error: String(err),
       },
     });
-    // If kick-off fails, try the next one so we don't get stuck.
     void tryDequeue();
   }
 }

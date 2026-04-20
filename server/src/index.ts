@@ -2,17 +2,28 @@ import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
-import apiRouter from './routes/api.js';
+import apiRouter from './routes/index.js';
 import { getComfyUIUrl, getQueue, getGalleryItems } from './services/comfyui.js';
-import { loadTemplatesFromComfyUI } from './services/templates.js';
+import { loadTemplatesFromComfyUI } from './services/templates/index.js';
 import { setDownloadBroadcaster, getAllDownloads } from './services/downloads.js';
+import { getStatus as getLocalComfyUIStatus } from './services/comfyui/status.service.js';
+import { startComfyUIProxy } from './services/comfyui/proxy.service.js';
+import { env } from './config/env.js';
+import { requestLogger } from './middleware/logging.js';
+import { errorHandler } from './middleware/errors.js';
+import { logger } from './lib/logger.js';
 
 const app = express();
-const PORT = parseInt(process.env.BACKEND_PORT || process.env.PORT || '3002', 10);
-const LAUNCHER_URL = process.env.LAUNCHER_URL || 'http://localhost:3000';
+const PORT = env.PORT;
 
-app.use(cors());
+// CORS: default allow-all matches pod-internal behavior. When CORS_ORIGIN is
+// set (e.g. a public deployment), lock down to the declared origin(s).
+const corsOrigins = env.CORS_ORIGIN
+  ? env.CORS_ORIGIN.split(',').map(s => s.trim()).filter(Boolean)
+  : undefined;
+app.use(cors(corsOrigins ? { origin: corsOrigins } : undefined));
 app.use(express.json({ limit: '50mb' }));
+app.use(requestLogger());
 
 app.use('/api', apiRouter);
 
@@ -26,8 +37,25 @@ app.get('*', (_req, res, next) => {
   res.sendFile(path.join(distPath, 'index.html'));
 });
 
+// Install the error handler LAST. Express picks up 4-arg middleware only
+// when `next(err)` is called, so this catches anything routes throw.
+app.use(errorHandler());
+
 const server = createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+
+// WS origin guard. Unset WS_ORIGIN preserves the prior allow-all behavior for
+// pod-internal setups. When set (comma-separated list), reject upgrades whose
+// Origin header is missing or not on the list.
+const wsOrigins = env.WS_ORIGIN
+  ? new Set(env.WS_ORIGIN.split(',').map(s => s.trim()).filter(Boolean))
+  : null;
+const wss = new WebSocketServer({
+  server,
+  path: '/ws',
+  verifyClient: wsOrigins
+    ? (info: { origin: string }) => !!info.origin && wsOrigins.has(info.origin)
+    : undefined,
+});
 
 // ---- Track connected clients for broadcast ----
 const clients = new Set<WebSocket>();
@@ -39,30 +67,20 @@ function broadcast(message: object) {
   }
 }
 
-// ---- Single launcher-status poller, broadcast on change ----
+// ---- Single ComfyUI status poller, broadcast on change ----
+// Status is sourced from the local status service. The WS message type is
+// kept as `launcher-status` for frontend back-compat (it still listens under
+// that name). Shape: { running, pid, uptime, versions, gpuMode, ... }.
 let lastLauncherStatus: unknown = null;
 let lastLauncherStatusJson = '';
-
-// Launcher returns uptime with hardcoded Chinese units (秒/分/小时/分钟).
-// Translate to English for display.
-function translateUptime(uptime: unknown): unknown {
-  if (typeof uptime !== 'string') return uptime;
-  return uptime
-    .replace(/(\d+)小时(\d+)分钟/, '$1h $2m')
-    .replace(/(\d+)分(\d+)秒/, '$1m $2s')
-    .replace(/(\d+)秒/, '$1s')
-    .replace(/(\d+)分钟/, '$1m');
-}
 
 async function pollLauncherStatus() {
   let data: Record<string, unknown>;
   try {
-    const res = await fetch(`${LAUNCHER_URL}/api/status`);
-    data = res.ok ? await res.json() as Record<string, unknown> : { reachable: false, status: res.status };
+    data = await getLocalComfyUIStatus() as unknown as Record<string, unknown>;
   } catch (err) {
     data = { reachable: false, error: String(err) };
   }
-  if ('uptime' in data) data.uptime = translateUptime(data.uptime);
   const json = JSON.stringify(data);
   if (json !== lastLauncherStatusJson) {
     lastLauncherStatus = data;
@@ -165,22 +183,30 @@ wss.on('connection', (clientWs) => {
 
 async function start() {
   const comfyUrl = getComfyUIUrl();
-  console.log(`ComfyUI URL: ${comfyUrl}`);
-  console.log(`Launcher URL: ${LAUNCHER_URL}`);
+  logger.info(`ComfyUI URL: ${comfyUrl}`);
 
   server.listen(PORT, () => {
-    console.log(`ComfyUI Studio server running on port ${PORT}`);
+    logger.info(`ComfyUI Studio server running on port ${PORT}`);
   });
+
+  // Start the ComfyUI reverse proxy on env.COMFYUI_PROXY_PORT so the native
+  // frontend remains reachable even when ComfyUI itself is restarting. The
+  // helper never throws and returns null when the proxy is disabled.
+  try {
+    startComfyUIProxy();
+  } catch (err) {
+    logger.error('failed to start comfyui proxy', { error: String(err) });
+  }
 
   async function loadWithRetry(retries: number, delay: number) {
     await loadTemplatesFromComfyUI(comfyUrl);
-    const { getTemplates } = await import('./services/templates.js');
+    const { getTemplates } = await import('./services/templates/index.js');
     if (getTemplates().length === 0 && retries > 0) {
-      console.log(`Templates not available, retrying in ${delay / 1000}s... (${retries} retries left)`);
+      logger.info(`Templates not available, retrying in ${delay / 1000}s... (${retries} retries left)`);
       setTimeout(() => loadWithRetry(retries - 1, delay), delay);
     }
   }
   loadWithRetry(12, 10000);
 }
 
-start().catch(console.error);
+start().catch((err) => logger.error('server failed to start', { error: String(err) }));

@@ -1,111 +1,24 @@
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
+// Model catalog: merge, refresh, upsert.
+//
+// The on-disk JSON store and seed logic live in `catalogStore.ts`; this file
+// keeps the higher-level surface (refresh, merge with launcher scan) focused
+// and re-exports the persistent-store helpers so existing call sites keep
+// working without changes.
+
 import { getHfToken } from './settings.js';
+import { paths } from '../config/paths.js';
+import { formatBytes } from '../lib/format.js';
+import { getHfAuthHeaders } from '../lib/http.js';
+import { statModelOnDisk } from '../lib/fs.js';
+import { load, persist, persistCurrent, seedFromComfyUI } from './catalogStore.js';
+import { fetchLauncherScan, type LauncherScanEntry } from './catalog.scan.js';
+import type { CatalogModel, MergedModel, FileStatus } from '../contracts/catalog.contract.js';
 
-const CATALOG_FILE = process.env.STUDIO_CATALOG_FILE
-  || path.join(os.homedir(), '.config', 'comfyui-studio', 'catalog.json');
-
-const COMFYUI_URL = process.env.COMFYUI_URL || 'http://localhost:8188';
+export type { CatalogModel, MergedModel, FileStatus };
+export { seedFromComfyUI };
 
 /** Size refresh cadence — re-HEAD entries this old on next access. */
-const SIZE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-
-/** Per-entry shape. Keyed globally by `filename`. */
-export interface CatalogModel {
-  filename: string;
-  name: string;
-  type: string;
-  base?: string;
-  save_path: string;
-  description?: string;
-  reference?: string;
-  url: string;
-  size_pretty: string;
-  size_bytes: number;
-  size_fetched_at: string | null;
-  gated?: boolean;
-  gated_message?: string;
-  /** Where this entry was first discovered: 'comfyui' seed, 'template:<name>', or 'user'. */
-  source: string;
-}
-
-interface CatalogFile {
-  version: 1;
-  models: CatalogModel[];
-  seeded_at?: string;
-}
-
-let cache: CatalogFile | null = null;
-let seedInFlight: Promise<void> | null = null;
-
-function load(): CatalogFile {
-  if (cache) return cache;
-  try {
-    if (fs.existsSync(CATALOG_FILE)) {
-      const raw = fs.readFileSync(CATALOG_FILE, 'utf8');
-      cache = JSON.parse(raw) as CatalogFile;
-    } else {
-      cache = { version: 1, models: [] };
-    }
-  } catch {
-    cache = { version: 1, models: [] };
-  }
-  return cache;
-}
-
-function persist(data: CatalogFile): void {
-  cache = data;
-  const dir = path.dirname(CATALOG_FILE);
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(CATALOG_FILE, JSON.stringify(data, null, 2), { mode: 0o600 });
-}
-
-function formatBytes(n: number): string {
-  if (!n || n <= 0) return '';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
-  return `${(n / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
-}
-
-/** Seed from ComfyUI's /api/externalmodel/getlist?mode=live on first run. Idempotent. */
-export async function seedFromComfyUI(): Promise<void> {
-  const data = load();
-  if (data.models.length > 0) return; // already seeded
-  if (seedInFlight) return seedInFlight;
-  seedInFlight = (async () => {
-    try {
-      const res = await fetch(`${COMFYUI_URL}/api/externalmodel/getlist?mode=live`);
-      if (!res.ok) return;
-      const body = await res.json() as { models?: Array<Record<string, unknown>> };
-      const src = body.models || [];
-      const models: CatalogModel[] = src.map(m => ({
-        filename: String(m.filename || ''),
-        name: String(m.name || m.filename || ''),
-        type: String(m.type || 'other'),
-        base: m.base as string | undefined,
-        // Strip vanity subfolders from ComfyUI's external-model-list (e.g. "diffusion_models/Wan2.1" → "diffusion_models").
-        // Template widget_values expect files flat under the category; subfolders break literal-match at load time.
-        // When a specific template needs a deeper path, its properties.models[].directory overwrites this later.
-        save_path: String(m.save_path || m.type || 'checkpoints').split('/')[0],
-        description: m.description as string | undefined,
-        reference: m.reference as string | undefined,
-        url: String(m.url || ''),
-        // Intentionally zeroed — the stringy `size` from ComfyUI is stale; we HEAD on demand.
-        size_pretty: '',
-        size_bytes: 0,
-        size_fetched_at: null,
-        source: 'comfyui',
-      })).filter(m => m.filename && m.url);
-      persist({ version: 1, models, seeded_at: new Date().toISOString() });
-    } catch {
-      // leave empty; next call retries
-    } finally {
-      seedInFlight = null;
-    }
-  })();
-  return seedInFlight;
-}
+const SIZE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 export function getAllModels(): CatalogModel[] {
   return load().models;
@@ -115,23 +28,15 @@ export function getModel(filename: string): CatalogModel | undefined {
   return load().models.find(m => m.filename === filename);
 }
 
-/** Merge or append a single entry. If it exists, only fills in missing fields (never clobbers size info). */
-export function upsertModel(entry: Omit<CatalogModel, 'size_pretty' | 'size_bytes' | 'size_fetched_at'> & Partial<Pick<CatalogModel, 'size_pretty' | 'size_bytes' | 'size_fetched_at'>>): CatalogModel {
+/** Merge or append a single entry. Existing entries keep their size + missing-fields-only are filled. */
+export function upsertModel(
+  entry: Omit<CatalogModel, 'size_pretty' | 'size_bytes' | 'size_fetched_at'>
+    & Partial<Pick<CatalogModel, 'size_pretty' | 'size_bytes' | 'size_fetched_at'>>,
+): CatalogModel {
   const data = load();
   const existing = data.models.find(m => m.filename === entry.filename);
   if (existing) {
-    if (!existing.url && entry.url) existing.url = entry.url;
-    if (!existing.name && entry.name) existing.name = entry.name;
-    if (!existing.type && entry.type) existing.type = entry.type;
-    // save_path: templates are authoritative for their workflow's expected path,
-    // so let them overwrite the seed-time value. Non-template upserts (scan, catalog seed)
-    // still respect the existing value.
-    if (entry.save_path && (entry.source?.startsWith('template:') || !existing.save_path)) {
-      existing.save_path = entry.save_path;
-    }
-    if (!existing.description && entry.description) existing.description = entry.description;
-    if (!existing.reference && entry.reference) existing.reference = entry.reference;
-    if (!existing.base && entry.base) existing.base = entry.base;
+    mergeMissingInto(existing, entry);
     persist(data);
     return existing;
   }
@@ -146,14 +51,26 @@ export function upsertModel(entry: Omit<CatalogModel, 'size_pretty' | 'size_byte
   return fresh;
 }
 
-/** True when size info is missing or older than SIZE_MAX_AGE_MS. */
+function mergeMissingInto(existing: CatalogModel, entry: Partial<CatalogModel>): void {
+  if (!existing.url && entry.url) existing.url = entry.url;
+  if (!existing.name && entry.name) existing.name = entry.name;
+  if (!existing.type && entry.type) existing.type = entry.type;
+  // save_path: templates are authoritative for their workflow's expected path,
+  // so let them overwrite the seed-time value. Non-template upserts still respect existing.
+  if (entry.save_path && (entry.source?.startsWith('template:') || !existing.save_path)) {
+    existing.save_path = entry.save_path;
+  }
+  if (!existing.description && entry.description) existing.description = entry.description;
+  if (!existing.reference && entry.reference) existing.reference = entry.reference;
+  if (!existing.base && entry.base) existing.base = entry.base;
+}
+
 export function isSizeStale(model: CatalogModel): boolean {
   if (!model.size_bytes || !model.size_fetched_at) return true;
   const age = Date.now() - Date.parse(model.size_fetched_at);
   return Number.isNaN(age) || age > SIZE_MAX_AGE_MS;
 }
 
-/** Decode HuggingFace's "restricted access" message. Also works for 403. */
 function detectGated(res: Response): string | null {
   const msg = res.headers.get('x-error-message');
   if (!msg) return null;
@@ -161,168 +78,132 @@ function detectGated(res: Response): string | null {
   return null;
 }
 
+function collectMirrors(model: CatalogModel): string[] {
+  const out = [model.url];
+  for (const m of load().models) {
+    if (m.filename === model.filename && m.url && !out.includes(m.url)) out.push(m.url);
+  }
+  return out;
+}
+
+function applySizeHeaders(model: CatalogModel, res: Response): void {
+  const linked = res.headers.get('x-linked-size');
+  const contentLength = res.headers.get('content-length');
+  const bytes = linked ? Number(linked) : contentLength ? Number(contentLength) : NaN;
+  if (Number.isFinite(bytes) && bytes > 0) {
+    model.size_bytes = bytes;
+    model.size_pretty = formatBytes(bytes);
+    model.size_fetched_at = new Date().toISOString();
+  }
+}
+
 /**
- * HEAD the URL to learn the real size (follows redirects, honors HF token).
- * Mutates the catalog entry in place and persists. Marks gated when auth required
- * and token is missing or insufficient. Network/unknown failures leave the entry unchanged.
+ * HEAD the URL(s) to learn the real size. Mutates the catalog entry in place
+ * and persists. Marks gated on 401/403. Unknown failures leave state intact.
  */
-export async function refreshSize(filename: string, opts: { force?: boolean } = {}): Promise<CatalogModel | null> {
+export async function refreshSize(
+  filename: string,
+  opts: { force?: boolean } = {},
+): Promise<CatalogModel | null> {
   const model = getModel(filename);
   if (!model) return null;
   if (!opts.force && !isSizeStale(model) && !model.gated) return model;
   if (!model.url) return model;
 
-  // ComfyUI's external-model-list ships the same filename under multiple mirrors (canonical
-  // + community re-uploads). Pick up every URL we know about for this filename so we can
-  // fall back if the primary 404s (mirror rot is common).
-  const allUrls: string[] = [model.url];
-  for (const m of load().models) {
-    if (m.filename === filename && m.url && !allUrls.includes(m.url)) {
-      allUrls.push(m.url);
-    }
-  }
-
-  for (const url of allUrls) {
-    const headers: Record<string, string> = {};
-    const hfToken = getHfToken();
-    if (hfToken && /huggingface\.co/.test(url)) headers['Authorization'] = `Bearer ${hfToken}`;
+  for (const url of collectMirrors(model)) {
+    const headers = getHfAuthHeaders(url, getHfToken());
     try {
       const res = await fetch(url, { method: 'HEAD', headers, redirect: 'follow' });
       if (res.status === 401 || res.status === 403) {
-        const gatedMsg = detectGated(res) || 'This model requires HuggingFace authentication.';
         model.gated = true;
-        model.gated_message = gatedMsg;
-        model.url = url; // record which URL is gated so download uses the same one
+        model.gated_message = detectGated(res) || 'This model requires HuggingFace authentication.';
+        model.url = url;
         persistCurrent();
         return model;
       }
-      if (!res.ok) continue; // 404 / 5xx — try next mirror
+      if (!res.ok) continue;
       if (model.gated) {
         model.gated = undefined;
         model.gated_message = undefined;
       }
-      const linked = res.headers.get('x-linked-size');
-      const contentLength = res.headers.get('content-length');
-      const bytes = linked ? Number(linked) : contentLength ? Number(contentLength) : NaN;
-      if (Number.isFinite(bytes) && bytes > 0) {
-        model.size_bytes = bytes;
-        model.size_pretty = formatBytes(bytes);
-        model.size_fetched_at = new Date().toISOString();
-      }
-      model.url = url; // promote the working URL so downloads use it too
+      applySizeHeaders(model, res);
+      model.url = url;
       persistCurrent();
       return model;
     } catch {
-      // transient — keep trying remaining mirrors
       continue;
     }
   }
-  // All URLs exhausted without success. Leave state for caller to retry later.
   return model;
 }
 
-function persistCurrent(): void {
-  const data = load();
-  persist(data);
-}
-
-/** Catalog entry augmented with on-disk state from the launcher scan. */
-export interface MergedModel extends CatalogModel {
-  installed: boolean;
-  fileSize?: number;
-  fileStatus?: 'complete' | 'incomplete' | 'corrupt' | null;
-}
-
-/** Merge the catalog with the launcher's current disk scan to compute per-model install + integrity state. */
+/** Merge catalog with launcher's disk scan for per-model install + integrity state. */
 export async function getMergedModels(): Promise<MergedModel[]> {
   await seedFromComfyUI();
-  const launcherUrl = process.env.LAUNCHER_URL || 'http://localhost:3000';
-  // Ask the launcher what's on disk. Each returned entry has filename + fileSize + installed flag.
-  let scan: Array<{ filename: string; name?: string; installed?: boolean; fileSize?: number; type?: string; save_path?: string; url?: string; base?: string; description?: string; reference?: string }> = [];
-  try {
-    const res = await fetch(`${launcherUrl}/api/models`);
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data)) scan = data;
-    }
-  } catch { /* launcher down — treat as nothing on disk */ }
-
-  // Index scan by filename for O(1) lookup and to detect scan-only entries (files on disk we never knew about).
+  const scan = await fetchLauncherScan();
   const scanByFilename = new Map<string, typeof scan[number]>();
   for (const s of scan) if (s.filename) scanByFilename.set(s.filename, s);
 
   const merged: MergedModel[] = [];
   const seenFilenames = new Set<string>();
-
-  // MODELS_DIR env is the root of ComfyUI's model tree inside the pod (e.g. /root/ComfyUI/models).
-  // When the launcher's own catalog doesn't know about a model we DO know about (e.g. added via
-  // template download), stat the expected disk path directly so the UI doesn't report
-  // false "not installed" for files that clearly exist.
-  const modelsDir = process.env.MODELS_DIR || '';
+  const modelsDir = paths.modelsDir;
 
   for (const model of load().models) {
     seenFilenames.add(model.filename);
     const disk = scanByFilename.get(model.filename);
     let installed = !!disk?.installed;
     let fileSize = disk?.fileSize;
-
-    if (!installed && modelsDir && model.save_path) {
-      // save_path can be either "checkpoints" (category only) or "checkpoints/foo.safetensors"
-      // (from launcher's scan-derived path). Stat both forms.
-      const candidates = [
-        path.join(modelsDir, model.save_path, model.filename),
-        path.join(modelsDir, model.save_path),
-      ];
-      for (const p of candidates) {
-        try {
-          const st = fs.statSync(p);
-          if (st.isFile()) {
-            installed = true;
-            fileSize = st.size;
-            break;
-          }
-        } catch { /* missing, try next */ }
-      }
+    if (!installed) {
+      const diskSize = statModelOnDisk(modelsDir, model.save_path, model.filename);
+      if (diskSize !== null) { installed = true; fileSize = diskSize; }
     }
-
-    merged.push({ ...model, installed, fileSize, fileStatus: deriveFileStatus(model.size_bytes, fileSize, installed) });
-  }
-
-  // Files on disk that aren't in our catalog — append them so Models page still shows them,
-  // sourced as `scan` with no URL (manually-placed models or legacy).
-  for (const s of scan) {
-    if (!s.filename || seenFilenames.has(s.filename)) continue;
     merged.push({
-      filename: s.filename,
-      name: s.name || s.filename,
-      type: s.type || 'other',
-      base: s.base,
-      save_path: s.save_path || s.type || 'checkpoints',
-      description: s.description,
-      reference: s.reference,
-      url: s.url || '',
-      size_pretty: '',
-      size_bytes: 0,
-      size_fetched_at: null,
-      source: 'scan',
-      installed: !!s.installed,
-      fileSize: s.fileSize,
-      fileStatus: null, // no expected size to compare against
+      ...model,
+      installed,
+      fileSize,
+      fileStatus: deriveFileStatus(model.size_bytes, fileSize, installed),
     });
   }
 
+  for (const s of scan) {
+    if (!s.filename || seenFilenames.has(s.filename)) continue;
+    merged.push(scanEntryToMerged(s));
+  }
   return merged;
 }
 
-function deriveFileStatus(expected: number, actual: number | undefined, installed: boolean): MergedModel['fileStatus'] {
+function scanEntryToMerged(s: LauncherScanEntry): MergedModel {
+  return {
+    filename: s.filename,
+    name: s.name || s.filename,
+    type: s.type || 'other',
+    base: s.base,
+    save_path: s.save_path || s.type || 'checkpoints',
+    description: s.description,
+    reference: s.reference,
+    url: s.url || '',
+    size_pretty: '',
+    size_bytes: 0,
+    size_fetched_at: null,
+    source: 'scan',
+    installed: !!s.installed,
+    fileSize: s.fileSize,
+    fileStatus: null,
+  };
+}
+
+function deriveFileStatus(expected: number, actual: number | undefined, installed: boolean): FileStatus {
   if (!installed) return null;
-  if (!expected || !actual) return null; // need both sides to decide
+  if (!expected || !actual) return null;
   if (Math.abs(expected - actual) < 1024) return 'complete';
   return actual > expected ? 'corrupt' : 'incomplete';
 }
 
 /** Resolve many filenames in parallel with a small concurrency cap. */
-export async function refreshMany(filenames: string[], opts: { force?: boolean; concurrency?: number } = {}): Promise<void> {
+export async function refreshMany(
+  filenames: string[],
+  opts: { force?: boolean; concurrency?: number } = {},
+): Promise<void> {
   const cap = opts.concurrency ?? 8;
   const queue = filenames.slice();
   const workers: Promise<void>[] = [];

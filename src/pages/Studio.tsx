@@ -146,9 +146,14 @@ export default function Studio() {
     api.getTemplateWidgets(selectedTemplate)
       .then(result => {
         if (cancelled) return;
-        setHasEditableWidgets(result.widgets.length > 0);
+        // "Edit advanced fields" only opens for widgets the user could ACTUALLY expose —
+        // form-claimed widgets (main Prompt + uploads) are read for defaults, not to
+        // expose, so they don't count towards the button's visibility.
+        const exposable = result.widgets.filter(w => !w.formClaimed);
+        setHasEditableWidgets(exposable.length > 0);
         // Pre-fill the main Prompt textarea with the positive CLIPTextEncode's default text.
         // Heuristic: take the first CLIPTextEncode `text` widget whose node title doesn't mention "negative".
+        // Reads from the unfiltered list because the positive widget IS form-claimed.
         const positive = result.widgets.find(w =>
           w.nodeType === 'CLIPTextEncode' &&
           w.widgetName === 'text' &&

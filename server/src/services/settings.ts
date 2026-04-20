@@ -1,9 +1,8 @@
 import fs from 'fs';
-import path from 'path';
-import os from 'os';
+import { paths } from '../config/paths.js';
+import { atomicWrite } from '../lib/fs.js';
 
-const CONFIG_FILE = process.env.STUDIO_CONFIG_FILE
-  || path.join(os.homedir(), '.config', 'comfyui-studio', 'config.json');
+const CONFIG_FILE = paths.configFile;
 
 interface Settings {
   apiKeyComfyOrg?: string;
@@ -29,9 +28,7 @@ function load(): Settings {
 
 function save(settings: Settings): void {
   cache = settings;
-  const dir = path.dirname(CONFIG_FILE);
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(settings, null, 2), { mode: 0o600 });
+  atomicWrite(CONFIG_FILE, JSON.stringify(settings, null, 2));
   try { fs.chmodSync(CONFIG_FILE, 0o600); } catch { /* best effort */ }
 }
 

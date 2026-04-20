@@ -285,4 +285,6 @@ export interface EnumeratedWidget {
   step?: number;
   options?: { label: string; value: string }[];
   exposed: boolean;
+  /** True when the widget is driven by the main form (Prompt / upload field). Modal hides these. */
+  formClaimed?: boolean;
 }

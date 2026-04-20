@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Box, Trash2, Loader2, Search, WifiOff, Settings,
-  Download, X, SlidersHorizontal, Lock, AlertTriangle,
+  Download, X, SlidersHorizontal, Lock, AlertTriangle, History,
 } from 'lucide-react';
 import type { LauncherModel, CatalogModel } from '../types';
 import { findDownloadForModel } from '../types';
@@ -10,6 +10,8 @@ import { api } from '../services/comfyui';
 import { useApp } from '../context/AppContext';
 import { usePersistedState } from '../hooks/usePersistedState';
 import PageSubbar from '../components/PageSubbar';
+import DownloadsTab from '../components/DownloadsTab';
+import { formatBytes } from '../lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Checkbox } from '../components/ui/checkbox';
 import {
@@ -23,12 +25,7 @@ import {
   AlertDialogCancel,
 } from '../components/ui/alert-dialog';
 
-function formatBytes(bytes: number): string {
-  if (!bytes || bytes === 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
-}
+type ModelsTab = 'models' | 'downloads';
 
 // Group models by type
 function groupByType(models: CatalogModel[]): Record<string, CatalogModel[]> {
@@ -57,6 +54,27 @@ const TYPE_LABELS: Record<string, string> = {
 export default function Models() {
   const { connected, templates, refreshTemplates, downloads, hfTokenConfigured } = useApp();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlTab = searchParams.get('tab');
+  const initialTab: ModelsTab = urlTab === 'downloads' ? 'downloads' : 'models';
+  const [tab, setTab] = useState<ModelsTab>(initialTab);
+
+  // Keep URL in sync when the tab changes (and react to back/forward).
+  useEffect(() => {
+    const current = searchParams.get('tab');
+    const desired = tab === 'downloads' ? 'downloads' : null;
+    if (desired === current) return;
+    const next = new URLSearchParams(searchParams);
+    if (desired) next.set('tab', desired);
+    else next.delete('tab');
+    setSearchParams(next, { replace: true });
+  }, [tab, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    const fromUrl: ModelsTab = urlTab === 'downloads' ? 'downloads' : 'models';
+    setTab(prev => (prev === fromUrl ? prev : fromUrl));
+  }, [urlTab]);
+
   const [models, setModels] = useState<CatalogModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = usePersistedState('models.search', '');
@@ -262,31 +280,71 @@ export default function Models() {
     return { modelName: model.name, downloadId: dl.taskId, progress: dl.progress, status: dl.status };
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
-      </div>
-    );
-  }
+  const subbarDescription =
+    tab === 'downloads'
+      ? 'Download history'
+      : `${models.length} total, ${installedCount} installed`;
 
   return (
     <>
       <PageSubbar
         title="Models"
-        description={`${models.length} total, ${installedCount} installed`}
+        description={subbarDescription}
         right={
-          <button
-            onClick={() => setFiltersOpen(o => !o)}
-            className="btn-secondary lg:hidden"
-            aria-label="Toggle filters"
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5" />
-            Filters
-          </button>
+          tab === 'models' ? (
+            <button
+              onClick={() => setFiltersOpen(o => !o)}
+              className="btn-secondary lg:hidden"
+              aria-label="Toggle filters"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              Filters
+            </button>
+          ) : null
         }
       />
       <div className="page-container">
+        {/* Tab strip */}
+        <div
+          role="tablist"
+          aria-label="Models sections"
+          className="mb-3 inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm"
+        >
+          <button
+            role="tab"
+            aria-selected={tab === 'models'}
+            onClick={() => setTab('models')}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold transition ${
+              tab === 'models'
+                ? 'bg-slate-900 text-white'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <Box className="w-3.5 h-3.5" />
+            Models
+          </button>
+          <button
+            role="tab"
+            aria-selected={tab === 'downloads'}
+            onClick={() => setTab('downloads')}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold transition ${
+              tab === 'downloads'
+                ? 'bg-slate-900 text-white'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <History className="w-3.5 h-3.5" />
+            Downloads
+          </button>
+        </div>
+
+        {tab === 'downloads' ? (
+          <DownloadsTab />
+        ) : loading ? (
+          <div className="flex items-center justify-center h-64">
+            <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
+          </div>
+        ) : (
         <div className="panel">
           <div className="flex flex-col lg:flex-row min-h-[calc(100vh-180px)] relative">
             {/* ===== Left sidebar ===== */}
@@ -548,6 +606,7 @@ export default function Models() {
             </main>
           </div>
         </div>
+        )}
       </div>
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>

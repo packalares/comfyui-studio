@@ -19,9 +19,11 @@ import {
   Globe,
   HardDrive,
   Trash2,
+  Shield,
 } from 'lucide-react';
 import { api } from '../services/comfyui';
 import { useApp } from '../context/AppContext';
+import { Switch } from '../components/ui/switch';
 
 /* ---------- types for launch options ---------- */
 
@@ -783,6 +785,21 @@ function LaunchOptionsCard() {
    3. Network Configuration Card
    ================================================================= */
 
+function ReachDot({ reach }: { reach?: { accessible: boolean; latencyMs?: number } }) {
+  if (!reach) return null;
+  const cls = reach.accessible ? 'bg-emerald-500' : 'bg-rose-500';
+  const tip = reach.accessible
+    ? `reachable${reach.latencyMs != null ? ` · ${reach.latencyMs}ms` : ''}`
+    : 'not reachable';
+  return (
+    <span
+      title={tip}
+      className={`inline-block h-1.5 w-1.5 rounded-full ${cls}`}
+      aria-label={tip}
+    />
+  );
+}
+
 function NetworkRow({
   label,
   icon: Icon,
@@ -792,6 +809,7 @@ function NetworkRow({
   onSave,
   saving,
   saved,
+  reach,
 }: {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -801,12 +819,14 @@ function NetworkRow({
   onSave: () => void;
   saving: boolean;
   saved: boolean;
+  reach?: { accessible: boolean; latencyMs?: number };
 }) {
   return (
     <div className="space-y-1.5">
       <label className="field-label flex items-center gap-1.5">
         <Icon className="h-3 w-3 text-slate-400" />
         {label}
+        <ReachDot reach={reach} />
       </label>
       <div className="field-wrap py-1">
         <input
@@ -835,10 +855,15 @@ function NetworkRow({
   );
 }
 
+interface Reachability { url: string; accessible: boolean; latencyMs?: number }
+
 function NetworkCard() {
   const [hfEndpoint, setHfEndpoint] = useState('');
   const [githubProxy, setGithubProxy] = useState('');
   const [pipSource, setPipSource] = useState('');
+  const [trustedHosts, setTrustedHosts] = useState('');
+  const [allowPrivateIp, setAllowPrivateIp] = useState(false);
+  const [reach, setReach] = useState<{ github?: Reachability; pip?: Reachability; huggingface?: Reachability }>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingHf, setSavingHf] = useState(false);
@@ -847,16 +872,24 @@ function NetworkCard() {
   const [savedGh, setSavedGh] = useState(false);
   const [savingPip, setSavingPip] = useState(false);
   const [savedPip, setSavedPip] = useState(false);
+  const [savingHosts, setSavingHosts] = useState(false);
+  const [savedHosts, setSavedHosts] = useState(false);
+  const [savingAllow, setSavingAllow] = useState(false);
 
   const loadConfig = useCallback(async () => {
     setLoading(true);
     try {
       const cfg = await api.getNetworkConfig();
       const raw = cfg as Record<string, unknown>;
-      const unwrapped = (raw?.data && typeof raw.data === 'object' ? raw.data : raw) as Record<string, string>;
-      setHfEndpoint(unwrapped.huggingfaceEndpoint || unwrapped.hf_endpoint || '');
-      setGithubProxy(unwrapped.githubProxy || unwrapped.github_proxy || '');
-      setPipSource(unwrapped.pipSource || unwrapped.pip_source || '');
+      const unwrapped = (raw?.data && typeof raw.data === 'object' ? raw.data : raw) as Record<string, unknown>;
+      setHfEndpoint(String(unwrapped.huggingfaceEndpoint || unwrapped.hf_endpoint || ''));
+      setGithubProxy(String(unwrapped.githubProxy || unwrapped.github_proxy || ''));
+      setPipSource(String(unwrapped.pipSource || unwrapped.pip_source || ''));
+      const hosts = Array.isArray(unwrapped.pluginTrustedHosts) ? unwrapped.pluginTrustedHosts : [];
+      setTrustedHosts(hosts.join(', '));
+      setAllowPrivateIp(Boolean(unwrapped.allowPrivateIpMirrors));
+      const r = unwrapped.reachability as { github?: Reachability; pip?: Reachability; huggingface?: Reachability } | undefined;
+      setReach(r || {});
       setError(null);
     } catch (err) {
       setError('Could not load network config');
@@ -906,6 +939,32 @@ function NetworkCard() {
       setSavingPip(false);
     }
   };
+  const saveHosts = async () => {
+    setSavingHosts(true);
+    try {
+      const hosts = trustedHosts.split(',').map(s => s.trim()).filter(Boolean);
+      await api.setPluginTrustedHosts(hosts);
+      setSavedHosts(true);
+      setTimeout(() => setSavedHosts(false), 2000);
+    } catch {
+      setError('Failed to save plugin trusted hosts');
+    } finally {
+      setSavingHosts(false);
+    }
+  };
+  const toggleAllow = async (next: boolean) => {
+    setSavingAllow(true);
+    const prev = allowPrivateIp;
+    setAllowPrivateIp(next);
+    try {
+      await api.setAllowPrivateIpMirrors(next);
+    } catch {
+      setAllowPrivateIp(prev);
+      setError('Failed to update private-IP mirror policy');
+    } finally {
+      setSavingAllow(false);
+    }
+  };
 
   return (
     <section className="panel">
@@ -950,6 +1009,7 @@ function NetworkCard() {
               onSave={saveHf}
               saving={savingHf}
               saved={savedHf}
+              reach={reach.huggingface}
             />
             <NetworkRow
               label="GitHub Proxy"
@@ -960,6 +1020,7 @@ function NetworkCard() {
               onSave={saveGh}
               saving={savingGh}
               saved={savedGh}
+              reach={reach.github}
             />
             <NetworkRow
               label="Pip Source"
@@ -970,7 +1031,33 @@ function NetworkCard() {
               onSave={savePip}
               saving={savingPip}
               saved={savedPip}
+              reach={reach.pip}
             />
+            <NetworkRow
+              label="Plugin Trusted Hosts"
+              icon={Shield}
+              placeholder="codeberg.org, git.example.com"
+              value={trustedHosts}
+              onChange={setTrustedHosts}
+              onSave={saveHosts}
+              saving={savingHosts}
+              saved={savedHosts}
+            />
+            <div className="flex items-center justify-between gap-3 pt-1">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-slate-700">Allow Private-IP Pip Mirrors</p>
+                <p className="text-[11px] text-slate-500">
+                  Accept <span className="font-mono">http://</span> pip sources on LAN IPs (10.*, 192.168.*, 172.16-31.*).
+                </p>
+              </div>
+              <Switch
+                size="sm"
+                checked={allowPrivateIp}
+                disabled={savingAllow}
+                onCheckedChange={(v: boolean) => toggleAllow(v)}
+                aria-label="Allow private-IP pip mirrors"
+              />
+            </div>
           </>
         )}
       </div>

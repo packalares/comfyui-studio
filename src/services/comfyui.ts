@@ -155,7 +155,19 @@ export const api = {
       body: JSON.stringify({ hfUrl, modelDir, modelName: opts?.modelName, filename: opts?.filename }),
     }),
 
-  getDownloadHistory: () => fetchJson<{ success: boolean; count: number; history: Array<Record<string, unknown>> }>('/launcher/models/download-history'),
+  getDownloadHistory: () =>
+    fetchJson<Record<string, unknown>>('/launcher/models/download-history'),
+
+  clearDownloadHistory: () =>
+    fetchJson<Record<string, unknown>>('/launcher/models/download-history/clear', {
+      method: 'POST',
+    }),
+
+  deleteDownloadHistoryEntry: (id: string) =>
+    fetchJson<Record<string, unknown>>('/launcher/models/download-history/delete', {
+      method: 'POST',
+      body: JSON.stringify({ id }),
+    }),
 
   // ---- Launcher process control ----
 
@@ -228,5 +240,17 @@ export const api = {
     fetchJson<Record<string, unknown>>('/launcher/system/pip-source', {
       method: 'POST',
       body: JSON.stringify({ source }),
+    }),
+
+  setPluginTrustedHosts: (hosts: string[]) =>
+    fetchJson<Record<string, unknown>>('/launcher/system/plugin-trusted-hosts', {
+      method: 'POST',
+      body: JSON.stringify({ hosts }),
+    }),
+
+  setAllowPrivateIpMirrors: (allow: boolean) =>
+    fetchJson<Record<string, unknown>>('/launcher/system/pip-allow-private-ip', {
+      method: 'POST',
+      body: JSON.stringify({ allow }),
     }),
 };
