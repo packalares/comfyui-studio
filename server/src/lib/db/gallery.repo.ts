@@ -70,6 +70,7 @@ function rowToItem(r: Record<string, unknown>): GalleryItem {
     cfg:    nullableNumber(r.cfg),
     width:  nullableNumber(r.width),
     height: nullableNumber(r.height),
+    workflowHash: nullableString(r.workflowHash),
   };
 }
 
@@ -84,9 +85,9 @@ export function insert(item: GalleryRow, db: Database.Database = getDb()): void 
       (id, filename, subfolder, mediaType, createdAt, templateName,
        promptId, sizeBytes, url, type,
        workflowJson, promptText, negativeText, seed, model,
-       sampler, steps, cfg, width, height)
+       sampler, steps, cfg, width, height, workflowHash)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     item.id, item.filename, item.subfolder ?? '', item.mediaType,
     item.createdAt, item.templateName ?? null, item.promptId ?? null,
@@ -94,7 +95,7 @@ export function insert(item: GalleryRow, db: Database.Database = getDb()): void 
     item.workflowJson ?? null, item.promptText ?? null,
     item.negativeText ?? null, item.seed ?? null, item.model ?? null,
     item.sampler ?? null, item.steps ?? null, item.cfg ?? null,
-    item.width ?? null, item.height ?? null,
+    item.width ?? null, item.height ?? null, item.workflowHash ?? null,
   );
 }
 
@@ -119,9 +120,9 @@ export function appendFromHistory(
       (id, filename, subfolder, mediaType, createdAt, templateName,
        promptId, sizeBytes, url, type,
        workflowJson, promptText, negativeText, seed, model,
-       sampler, steps, cfg, width, height)
+       sampler, steps, cfg, width, height, workflowHash)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       workflowJson = COALESCE(gallery.workflowJson, excluded.workflowJson),
       promptText   = COALESCE(gallery.promptText,   excluded.promptText),
@@ -134,7 +135,8 @@ export function appendFromHistory(
       width        = COALESCE(gallery.width,        excluded.width),
       height       = COALESCE(gallery.height,       excluded.height),
       templateName = COALESCE(gallery.templateName, excluded.templateName),
-      sizeBytes    = COALESCE(gallery.sizeBytes,    excluded.sizeBytes)
+      sizeBytes    = COALESCE(gallery.sizeBytes,    excluded.sizeBytes),
+      workflowHash = COALESCE(gallery.workflowHash, excluded.workflowHash)
   `).run(
     item.id, item.filename, item.subfolder ?? '', item.mediaType,
     item.createdAt, item.templateName ?? null, item.promptId ?? null,
@@ -142,9 +144,28 @@ export function appendFromHistory(
     item.workflowJson ?? null, item.promptText ?? null,
     item.negativeText ?? null, item.seed ?? null, item.model ?? null,
     item.sampler ?? null, item.steps ?? null, item.cfg ?? null,
-    item.width ?? null, item.height ?? null,
+    item.width ?? null, item.height ?? null, item.workflowHash ?? null,
   );
   return info.changes > 0;
+}
+
+/**
+ * Cache-hit lookup: find rows with this workflowHash, newest first. Used by
+ * the history route when ComfyUI reports `execution_cached` across every
+ * node in the submitted prompt — the new prompt_id has no outputs, but a
+ * prior uncached run with the same canonical workflow DOES, and those are
+ * the files the user should see.
+ */
+export function findByWorkflowHash(
+  hash: string,
+  limit = 5,
+  db: Database.Database = getDb(),
+): GalleryItem[] {
+  if (!hash) return [];
+  const rows = db.prepare(
+    'SELECT * FROM gallery WHERE workflowHash = ? ORDER BY createdAt DESC LIMIT ?',
+  ).all(hash, Math.max(1, Math.floor(limit))) as Record<string, unknown>[];
+  return rows.map(rowToItem);
 }
 
 export function remove(id: string, db: Database.Database = getDb()): boolean {

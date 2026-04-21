@@ -61,7 +61,20 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
     fetch(`/api/history/${promptId}`)
       .then(r => r.json())
       .then(data => {
-        if (data.outputs?.length > 0 && !outputFetchedRef.current) {
+        if (outputFetchedRef.current) return;
+        // Cache-hit orphan: ComfyUI served this from cache but the source
+        // gallery row was deleted, so the result is unreachable. Fail
+        // loudly so the user knows to regenerate.
+        if (data.cacheOrphaned) {
+          outputFetchedRef.current = true;
+          const reason = typeof data.reason === 'string'
+            ? data.reason
+            : 'Cached result unavailable.';
+          toast.error('Result unavailable', { description: reason });
+          setCurrentJob(p => p ? { ...p, status: 'failed', error: reason } : p);
+          return;
+        }
+        if (data.outputs?.length > 0) {
           outputFetchedRef.current = true;
           const out = data.outputs[0];
           const url = `/api/view?filename=${encodeURIComponent(out.filename)}&subfolder=${encodeURIComponent(out.subfolder || '')}&type=${encodeURIComponent(out.type || 'output')}`;

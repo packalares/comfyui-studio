@@ -37,6 +37,7 @@ interface AppContextType {
   apiKeyConfigured: boolean;
   hfTokenConfigured: boolean;
   civitaiTokenConfigured: boolean;
+  uploadMaxBytes: number;
   downloads: Record<string, DownloadState>;
   progress: LiveProgress | null;
   activePromptId: string | null;
@@ -79,6 +80,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setApiKeyConfigured,
     _setHfTokenConfigured,
     _setCivitaiTokenConfigured,
+    _setUploadMaxBytes,
     _systemStatsRef,
   } = system;
   const { _setGalleryTotal, _setRecentGallery } = catalog;
@@ -99,6 +101,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       const {
         queue, gallery: galleryInfo,
         apiKeyConfigured, hfTokenConfigured, civitaiTokenConfigured,
+        uploadMaxBytes,
         ...stats
       } = data;
       _setSystemStats(stats);
@@ -111,6 +114,9 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       if (typeof apiKeyConfigured === 'boolean') _setApiKeyConfigured(apiKeyConfigured);
       if (typeof hfTokenConfigured === 'boolean') _setHfTokenConfigured(hfTokenConfigured);
       if (typeof civitaiTokenConfigured === 'boolean') _setCivitaiTokenConfigured(civitaiTokenConfigured);
+      if (typeof uploadMaxBytes === 'number' && Number.isFinite(uploadMaxBytes)) {
+        _setUploadMaxBytes(uploadMaxBytes);
+      }
       _setConnected(true);
     } catch (err) {
       console.error('Failed to fetch system stats:', err);
@@ -124,6 +130,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setApiKeyConfigured,
     _setHfTokenConfigured,
     _setCivitaiTokenConfigured,
+    _setUploadMaxBytes,
     _setConnected,
   ]);
 
@@ -350,6 +357,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       apiKeyConfigured: system.apiKeyConfigured,
       hfTokenConfigured: system.hfTokenConfigured,
       civitaiTokenConfigured: system.civitaiTokenConfigured,
+      uploadMaxBytes: system.uploadMaxBytes,
       downloads: jobs.downloads,
       progress: jobs.progress,
       activePromptId: jobs.activePromptId,
@@ -377,6 +385,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       system.apiKeyConfigured,
       system.hfTokenConfigured,
       system.civitaiTokenConfigured,
+      system.uploadMaxBytes,
       jobs.queueStatus,
       jobs.currentJob,
       jobs.downloads,

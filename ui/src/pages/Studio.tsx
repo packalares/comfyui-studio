@@ -15,7 +15,9 @@ import DependencyModal from '../components/DependencyModal';
 import ExposeWidgetsModal from '../components/ExposeWidgetsModal';
 import LogsDrawer from '../components/LogsDrawer';
 import { Tooltip, TooltipTrigger, TooltipContent } from '../components/ui/tooltip';
-import { api } from '../services/comfyui';
+import { Switch } from '../components/ui/switch';
+import { api, ApiError } from '../services/comfyui';
+import { toast } from 'sonner';
 import type { StudioCategory, Template, DependencyCheck, AdvancedSetting } from '../types';
 import { Settings2 } from 'lucide-react';
 
@@ -55,7 +57,7 @@ export default function Studio() {
   const { templateName } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { templates, currentJob, submitGeneration, connected, refreshTemplates } = useApp();
+  const { templates, currentJob, submitGeneration, connected, refreshTemplates, uploadMaxBytes } = useApp();
 
   useEffect(() => {
     refreshTemplates();
@@ -93,7 +95,10 @@ export default function Studio() {
   const [formValues, setFormValues] = useState<Record<string, unknown>>({});
   const [mode, setMode] = useState<'form' | 'json'>('form');
   const [outputImage, setOutputImage] = useState<string | null>(null);
-  const [showCompare, setShowCompare] = useState(false);
+  // Compare defaults ON so users see the before/after split immediately when
+  // the gate (input image + output + completed) is satisfied. Users can flip
+  // it off to see just the output.
+  const [showCompare, setShowCompare] = useState(true);
 
   // Dependency check state
   const [depCheck, setDepCheck] = useState<DependencyCheck | null>(null);
@@ -322,15 +327,37 @@ export default function Studio() {
     if (!selectedTemplate) return;
 
     const inputs: Record<string, unknown> = {};
+    const maxMb = Math.round(uploadMaxBytes / (1024 * 1024));
 
     for (const [key, val] of Object.entries(formValues)) {
       if (val && typeof val === 'object' && 'file' in (val as Record<string, unknown>)) {
+        const fileVal = val as { file: File };
+        // Client-side pre-check — catches oversize files before the round-trip.
+        if (fileVal.file.size > uploadMaxBytes) {
+          const fileMb = (fileVal.file.size / (1024 * 1024)).toFixed(1);
+          toast.error('File too large', {
+            description: `"${fileVal.file.name}" is ${fileMb} MB. Max upload size is ${maxMb} MB.`,
+          });
+          return;
+        }
         try {
-          const fileVal = val as { file: File };
           const result = await api.uploadImage(fileVal.file);
           inputs[key] = result.name;
-        } catch {
-          console.error(`Upload failed for ${key}`);
+        } catch (err) {
+          // Structured server errors (413 with maxBytes, or 400 with detail)
+          // come back as ApiError. Fall back to generic message otherwise.
+          if (err instanceof ApiError && err.status === 413) {
+            const data = err.data as { maxBytes?: number } | null;
+            const serverMax = data?.maxBytes ?? uploadMaxBytes;
+            const serverMaxMb = Math.round(serverMax / (1024 * 1024));
+            const fileMb = (fileVal.file.size / (1024 * 1024)).toFixed(1);
+            toast.error('File too large', {
+              description: `"${fileVal.file.name}" is ${fileMb} MB. Server cap is ${serverMaxMb} MB.`,
+            });
+          } else {
+            const msg = err instanceof Error ? err.message : 'Upload failed';
+            toast.error('Upload failed', { description: msg });
+          }
           return;
         }
       } else {
@@ -614,16 +641,14 @@ export default function Studio() {
           <h3 className="font-semibold text-gray-900">Result</h3>
           <div className="flex items-center gap-2">
             {canCompare && (
-              <button
-                onClick={() => setShowCompare(!showCompare)}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold uppercase tracking-wide transition-colors ${
-                  showCompare
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                }`}
-              >
+              <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-semibold uppercase tracking-wide text-slate-600">
                 Compare
-              </button>
+                <Switch
+                  checked={showCompare}
+                  onCheckedChange={setShowCompare}
+                  aria-label="Toggle before/after comparison"
+                />
+              </label>
             )}
             <Tooltip>
               <TooltipTrigger asChild>

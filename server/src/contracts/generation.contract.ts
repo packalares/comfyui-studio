@@ -47,6 +47,12 @@ export interface GalleryItem extends GalleryListItem {
   cfg?: number | null;
   width?: number | null;
   height?: number | null;
+  /**
+   * Stable hash of the canonical apiPrompt JSON — used by the cache-hit
+   * resolver in `/api/history/:promptId` to look up the gallery row that
+   * produced the outputs the current (cached) prompt_id points to.
+   */
+  workflowHash?: string | null;
 }
 
 /** One output row returned from `GET /api/history/:promptId`. */

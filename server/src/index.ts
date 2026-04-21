@@ -10,6 +10,7 @@ import { loadTemplatesFromComfyUI } from './services/templates/index.js';
 import { wireTemplateEventHandlers } from './services/templates/eventSubscribers.js';
 import { wireCatalogEventHandlers } from './services/catalog.events.js';
 import { setDownloadBroadcaster, getAllDownloads } from './services/downloads.js';
+import { sweepStaleUploads } from './routes/upload.routes.js';
 import { getStatus as getLocalComfyUIStatus } from './services/comfyui/status.service.js';
 import { startComfyUIProxy } from './services/comfyui/proxy.service.js';
 import { env } from './config/env.js';
@@ -239,6 +240,10 @@ async function start() {
   // pre-populated rows flip from `downloading: true` to installed/error as
   // the download finishes.
   wireCatalogEventHandlers();
+
+  // Sweep leftover files in the uploads tmp dir (orphans from any prior
+  // crash mid-upload). Safe because we only delete files older than 1h.
+  sweepStaleUploads();
 
   server.listen(PORT, () => {
     logger.info(`ComfyUI Studio server running on port ${PORT}`);

@@ -143,6 +143,7 @@ export const api = {
     apiKeyConfigured?: boolean;
     hfTokenConfigured?: boolean;
     civitaiTokenConfigured?: boolean;
+    uploadMaxBytes?: number;
   }>('/system'),
 
   getTemplates: () => fetchJson<Template[]>('/templates'),
@@ -276,7 +277,16 @@ export const api = {
       method: 'POST',
       body: form,
     });
-    if (!res.ok) throw new Error('Upload failed');
+    if (!res.ok) {
+      // Parse structured error so callers can render a specific toast
+      // (e.g. "File too large — max 500 MB" vs "Upload failed").
+      let body: unknown = null;
+      try { body = await res.json(); } catch { /* non-JSON body */ }
+      const msg = (body && typeof body === 'object' && 'error' in (body as Record<string, unknown>))
+        ? String((body as { error: unknown }).error)
+        : `Upload failed (${res.status})`;
+      throw new ApiError(res.status, msg, body);
+    }
     return res.json();
   },
 

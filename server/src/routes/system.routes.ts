@@ -8,6 +8,7 @@ import { Router, type Request, type Response } from 'express';
 import * as comfyui from '../services/comfyui.js';
 import * as settings from '../services/settings.js';
 import { getAllDownloads } from '../services/downloads.js';
+import { env } from '../config/env.js';
 
 const router = Router();
 
@@ -38,6 +39,7 @@ router.get('/system', async (_req: Request, res: Response) => {
     apiKeyConfigured: settings.isApiKeyConfigured(),
     hfTokenConfigured: settings.isHfTokenConfigured(),
     civitaiTokenConfigured: settings.isCivitaiTokenConfigured(),
+    uploadMaxBytes: env.UPLOAD_MAX_BYTES,
   });
 });
 

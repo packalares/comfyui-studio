@@ -133,6 +133,21 @@ describe('buildRowsFromHistory + appendFromHistory', () => {
     expect(repo.count()).toBe(1);
   });
 
+  it('skips type=temp outputs (PreviewImage / MaskPreview etc.)', () => {
+    const rows = buildRowsFromHistory({
+      promptId: 'Ptemp',
+      outputs: {
+        '7': { images: [{ filename: 'final.png', subfolder: '', type: 'output' }] },
+        '8': { images: [{ filename: 'preview.png', subfolder: '', type: 'temp' }] },
+        '9': { images: [{ filename: 'mask.png', subfolder: '', type: 'temp' }] },
+      },
+      apiPrompt: fullPrompt(),
+      createdAt: 6000,
+    });
+    expect(rows.length).toBe(1);
+    expect(rows[0].filename).toBe('final.png');
+  });
+
   it('flattens multiple output node bags into multiple rows', () => {
     const rows = buildRowsFromHistory({
       promptId: 'P5',

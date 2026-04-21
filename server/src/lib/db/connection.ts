@@ -15,6 +15,7 @@ import Database from 'better-sqlite3';
 import { paths } from '../../config/paths.js';
 import { safeResolve } from '../fs.js';
 import { SCHEMA_SQL, SCHEMA_VERSION } from './schema.js';
+import { workflowHash } from '../workflowHash.js';
 
 type DB = Database.Database;
 
@@ -66,11 +67,31 @@ function applyGalleryWaveFMigration(db: DB): void {
     { name: 'cfg',          decl: 'REAL' },
     { name: 'width',        decl: 'INTEGER' },
     { name: 'height',       decl: 'INTEGER' },
+    { name: 'workflowHash', decl: 'TEXT' },
   ];
   for (const col of needed) {
     if (!present.has(col.name)) {
       db.exec(`ALTER TABLE gallery ADD COLUMN ${col.name} ${col.decl}`);
     }
+  }
+  // Backfill workflowHash for rows that have workflowJson but no hash yet.
+  // One-shot per DB file (idempotent since we filter on NULL hash). Needed
+  // after the v2→v3 bump so cache-hit lookups find pre-existing rows.
+  const missing = db.prepare(
+    'SELECT id, workflowJson FROM gallery WHERE workflowJson IS NOT NULL AND workflowHash IS NULL',
+  ).all() as Array<{ id: string; workflowJson: string }>;
+  if (missing.length > 0) {
+    const update = db.prepare('UPDATE gallery SET workflowHash = ? WHERE id = ?');
+    const tx = db.transaction((rows: typeof missing) => {
+      for (const r of rows) {
+        try {
+          const parsed = JSON.parse(r.workflowJson) as unknown;
+          const hash = workflowHash(parsed);
+          if (hash) update.run(hash, r.id);
+        } catch { /* malformed workflowJson — skip */ }
+      }
+    });
+    tx(missing);
   }
   // One-shot wipe of pre-migration "zombie" rows. Guarded on _meta so we
   // never re-run this on subsequent boots.

@@ -8,6 +8,7 @@
 import { detectMediaType, collectNodeOutputFiles } from './comfyui.js';
 import type * as repo from '../lib/db/gallery.repo.js';
 import { extractMetadata, type ApiPrompt } from './gallery.extract.js';
+import { workflowHash } from '../lib/workflowHash.js';
 
 /**
  * Extract the inner API-format workflow dict from a ComfyUI history entry.
@@ -49,10 +50,16 @@ export interface RowBuildInput {
 export function buildRowsFromHistory(input: RowBuildInput): repo.GalleryRow[] {
   const meta = extractMetadata(input.apiPrompt);
   const workflowJson = input.apiPrompt ? JSON.stringify(input.apiPrompt) : null;
+  const hash = input.apiPrompt ? workflowHash(input.apiPrompt) : null;
   const rows: repo.GalleryRow[] = [];
   let fileIndex = 0;
   for (const nodeOutput of Object.values(input.outputs || {})) {
     for (const f of collectNodeOutputFiles(nodeOutput)) {
+      // Skip ComfyUI's temp-folder outputs — PreviewImage, MaskPreview,
+      // PreviewBridge and similar debug nodes write there. They're ephemeral
+      // (ComfyUI prunes `temp/` itself) and shouldn't occupy gallery rows.
+      // `SaveImage` etc. use `type: 'output'`, so user-authored saves stay.
+      if (f.type === 'temp') continue;
       const subfolder = f.subfolder || '';
       const type = f.type || 'output';
       rows.push({
@@ -75,6 +82,7 @@ export function buildRowsFromHistory(input: RowBuildInput): repo.GalleryRow[] {
         cfg: meta.cfg,
         width: meta.width,
         height: meta.height,
+        workflowHash: hash,
       });
       fileIndex += 1;
     }

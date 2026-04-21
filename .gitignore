@@ -1,6 +1,7 @@
-# Local-only scratch — reference material, image snapshots, anything we keep
-# on the machine but don't want tracked.
+# Local-only scratch — reference material, image snapshots, planning notes,
+# anything we keep on the machine but don't want tracked.
 .local/
+docs/
 
 # Dependencies — reinstalled per-environment from the lockfile.
 node_modules/

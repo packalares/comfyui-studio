@@ -38,8 +38,9 @@ const STUDIO = {
   STUDIO_EXPOSED_WIDGETS_DIR: process.env.STUDIO_EXPOSED_WIDGETS_DIR,
   /** Absolute path to the sqlite database file. Resolved in `paths.ts`. */
   STUDIO_SQLITE_PATH: process.env.STUDIO_SQLITE_PATH,
-  /** Max multipart upload size in bytes. Default 50 MiB. */
-  UPLOAD_MAX_BYTES: readNumber(process.env.UPLOAD_MAX_BYTES, 50 * 1024 * 1024),
+  /** Max multipart upload size in bytes. Default 500 MiB — covers images
+   * and common video clips. Real enforcement is here, not nginx. */
+  UPLOAD_MAX_BYTES: readNumber(process.env.UPLOAD_MAX_BYTES, 500 * 1024 * 1024),
   /**
    * CORS allow-list. Unset => permissive (current pod-internal behavior).
    * Set to a single origin or comma-separated list when exposing externally.

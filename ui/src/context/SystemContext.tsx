@@ -10,6 +10,7 @@ export interface SystemContextType {
   apiKeyConfigured: boolean;
   hfTokenConfigured: boolean;
   civitaiTokenConfigured: boolean;
+  uploadMaxBytes: number;
   // Internal setters/refs exposed to sibling providers (Ws, façade).
   _setConnected: React.Dispatch<React.SetStateAction<boolean>>;
   _setMonitorStats: React.Dispatch<React.SetStateAction<MonitorStats | null>>;
@@ -19,6 +20,7 @@ export interface SystemContextType {
   _setApiKeyConfigured: React.Dispatch<React.SetStateAction<boolean>>;
   _setHfTokenConfigured: React.Dispatch<React.SetStateAction<boolean>>;
   _setCivitaiTokenConfigured: React.Dispatch<React.SetStateAction<boolean>>;
+  _setUploadMaxBytes: React.Dispatch<React.SetStateAction<number>>;
   _systemStatsRef: React.MutableRefObject<SystemStats | null>;
 }
 
@@ -33,6 +35,8 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
   const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
   const [hfTokenConfigured, setHfTokenConfigured] = useState(false);
   const [civitaiTokenConfigured, setCivitaiTokenConfigured] = useState(false);
+  // Fallback matches the server's default until `/api/system` arrives.
+  const [uploadMaxBytes, setUploadMaxBytes] = useState(500 * 1024 * 1024);
   const systemStatsRef = useRef<SystemStats | null>(null);
 
   return (
@@ -46,6 +50,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
         apiKeyConfigured,
         hfTokenConfigured,
         civitaiTokenConfigured,
+        uploadMaxBytes,
         _setConnected: setConnected,
         _setMonitorStats: setMonitorStats,
         _setSystemStats: setSystemStats,
@@ -54,6 +59,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
         _setApiKeyConfigured: setApiKeyConfigured,
         _setHfTokenConfigured: setHfTokenConfigured,
         _setCivitaiTokenConfigured: setCivitaiTokenConfigured,
+        _setUploadMaxBytes: setUploadMaxBytes,
         _systemStatsRef: systemStatsRef,
       }}
     >

@@ -75,6 +75,11 @@ export const paths = {
     : path.join(RUNTIME_STATE_DIR, 'network-checks'),
   /** Directory for ComfyUI reset-operation log files. */
   resetLogsDir: path.join(RUNTIME_STATE_DIR, 'reset-logs'),
+  /** Temp spool for in-flight multipart uploads (multer diskStorage writes
+   *  here; files are deleted in the request handler's finally block).
+   *  Sits under the runtime state dir so it shares the same persistent
+   *  volume as the DB — avoids /tmp tmpfs limits on some k8s setups. */
+  uploadsTmpDir: path.join(RUNTIME_STATE_DIR, 'uploads'),
   /** Mutable download history written by the downloadController (runtime). */
   downloadHistoryPath: path.join(RUNTIME_STATE_DIR, 'download-history.json'),
   /** Mutable ComfyUI launch-options config (runtime). */
