@@ -31,6 +31,20 @@ export interface ExtractedDepsAsync {
   plugins: PluginResolution[];
 }
 
+// Manager returns these as placeholders for ComfyUI's own built-in node
+// types. They are not installable plugins — ComfyUI ships them. Any row
+// whose repo key matches a builtin is filtered out before reaching
+// `template_plugins` / the install-missing flow.
+const BUILTIN_REPO_KEYS = new Set<string>([
+  'comfy-core',
+  'comfyanonymous/comfyui',
+  'comfyui',
+]);
+
+function isBuiltinRepoKey(key: string): boolean {
+  return BUILTIN_REPO_KEYS.has(key);
+}
+
 function auxRepoKey(aux: string): string {
   // `collectNodePlugin` already lowercases + strips https://github.com/.
   // We repeat the strip here for inputs that came in uppercased / URL-shaped.
@@ -65,6 +79,7 @@ function mergeResolutions(
     if (seenAux.has(key)) continue;
     seenAux.add(key);
     if (managerRepos.has(key)) continue;
+    if (isBuiltinRepoKey(key)) continue;
     auxOnly.push({
       classType: key,
       matches: [{
@@ -115,7 +130,9 @@ export function resolutionsToRepoKeys(plugins: PluginResolution[]): string[] {
     if (r.matches.length === 0) continue;
     for (const m of r.matches) {
       const key = repoMatchKey(m.repo);
-      if (key.length > 0) out.add(key);
+      if (key.length === 0) continue;
+      if (isBuiltinRepoKey(key)) continue;
+      out.add(key);
     }
   }
   return Array.from(out).sort();

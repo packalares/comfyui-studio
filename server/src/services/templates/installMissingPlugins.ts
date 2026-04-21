@@ -17,12 +17,48 @@ import * as templateRepo from '../../lib/db/templates.repo.js';
 import * as pluginCache from '../plugins/cache.service.js';
 import * as pluginInstall from '../plugins/install.service.js';
 import type { CatalogPlugin } from '../plugins/cache.service.js';
+import type { TemplateRow } from '../../lib/db/templates.repo.js';
+import { getTemplate } from './templates.service.js';
+import { extractDeps } from './depExtract.js';
+import { extractDepsWithPluginResolution, resolutionsToRepoKeys } from './extractDepsAsync.js';
 
 export interface InstallMissingResult {
   queued: Array<{ pluginId: string; taskId: string }>;
   alreadyInstalled: string[];
   /** Repo keys with no matching row in the plugin catalog. */
   unknown: string[];
+}
+
+/**
+ * Lazy-seed the sqlite templates row for a user-imported workflow that was
+ * saved before `importCommit` started persisting the row. Looks up the
+ * in-memory cache (loaded from the on-disk workflow JSON), recomputes deps,
+ * upserts the row + plugin edges, returns the fresh list row.
+ *
+ * Returns null when the template isn't a known user workflow (genuinely
+ * unknown template name).
+ */
+async function seedUserWorkflowRow(name: string) {
+  const t = getTemplate(name);
+  if (!t || !t.workflow) return null;
+  const cheap = extractDeps(t.workflow);
+  let pluginKeys: string[] = cheap.plugins;
+  try {
+    const resolved = await extractDepsWithPluginResolution(t.workflow);
+    pluginKeys = resolutionsToRepoKeys(resolved.plugins);
+  } catch { /* Manager offline — aux_id fallback already set */ }
+  const row: TemplateRow = {
+    name,
+    displayName: t.title || name,
+    category: t.category ?? null,
+    description: t.description ?? null,
+    source: t.openSource === false ? 'api' : 'open',
+    workflow_json: JSON.stringify(t.workflow),
+    tags_json: JSON.stringify(t.tags ?? []),
+    installed: false,
+  };
+  templateRepo.upsertTemplate(row, { models: cheap.models, plugins: pluginKeys });
+  return templateRepo.getTemplate(name);
 }
 
 function normalizeRepoKey(raw: string): string {
@@ -56,8 +92,14 @@ function findCatalogEntry(repoKey: string, catalog: CatalogPlugin[]): MatchResul
 export async function installMissingPluginsForTemplate(
   templateName: string,
 ): Promise<InstallMissingResult> {
-  const row = templateRepo.getTemplate(templateName);
-  if (!row) throw new Error(`Template not found: ${templateName}`);
+  let row = templateRepo.getTemplate(templateName);
+  if (!row) {
+    // Fallback for legacy user-imported templates saved before the commit
+    // path upserted a sqlite row. Look up the in-memory cache, extract
+    // plugins from the workflow, seed the row, re-fetch.
+    row = await seedUserWorkflowRow(templateName);
+    if (!row) throw new Error(`Template not found: ${templateName}`);
+  }
   const catalog = pluginCache.getAllPlugins(false);
   const queued: Array<{ pluginId: string; taskId: string }> = [];
   const alreadyInstalled: string[] = [];

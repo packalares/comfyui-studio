@@ -11,14 +11,17 @@
 // selection, etc.) stays on the Gallery page.
 
 import { useCallback, useState } from 'react';
+import { toast } from 'sonner';
 import {
-  Download, Trash2, X,
+  Download, Trash2,
   Image as ImageIcon, Music, Sparkles,
   Loader2, AlertCircle,
 } from 'lucide-react';
 import type { GalleryItem } from '../types';
 import { api } from '../services/comfyui';
+import { useApp } from '../context/AppContext';
 import { Checkbox } from './ui/checkbox';
+import AppModal from './AppModal';
 
 interface Props {
   item: GalleryItem;
@@ -31,11 +34,19 @@ interface Props {
 export default function GalleryDetailModal({
   item, onClose, onDelete, onRegenerated,
 }: Props): JSX.Element {
+  const { connected } = useApp();
   const [randomizeSeed, setRandomizeSeed] = useState<boolean>(false);
   const [regenerating, setRegenerating] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canRegenerate = Boolean(item.workflowJson);
+  // Regenerate needs the stored workflow AND a reachable ComfyUI. Studio's
+  // generate button uses the same `connected` gate (see Studio.tsx:351).
+  const canRegenerate = Boolean(item.workflowJson) && connected;
+  const regenerateTooltip = !item.workflowJson
+    ? 'Import from ComfyUI to enable'
+    : !connected
+      ? 'ComfyUI is not connected'
+      : '';
 
   const handleRegenerate = useCallback(async () => {
     if (!canRegenerate || regenerating) return;
@@ -43,68 +54,34 @@ export default function GalleryDetailModal({
     setRegenerating(true);
     try {
       const res = await api.regenerateGalleryItem(item.id, randomizeSeed);
+      toast.success('Regenerate queued', {
+        description: `Prompt ${res.promptId.slice(0, 8)}… — new output will appear in the gallery when ComfyUI finishes.`,
+      });
       onRegenerated?.(res.promptId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Regenerate failed');
+      const msg = err instanceof Error ? err.message : 'Regenerate failed';
+      setError(msg);
+      toast.error('Regenerate failed', { description: msg });
     } finally {
       setRegenerating(false);
     }
   }, [canRegenerate, regenerating, item.id, randomizeSeed, onRegenerated]);
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={(e) => {
-        if (regenerating) return;
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="w-full max-w-2xl panel max-h-[90vh] flex flex-col">
-        {/* Header */}
-        <div className="panel-header-row">
-          <div className="min-w-0">
-            <h2 className="panel-header-title truncate">{item.filename}</h2>
-            <p className="panel-header-desc">
-              {item.mediaType}
-              {item.templateName ? ` · ${item.templateName}` : ''}
-            </p>
-          </div>
-          <button
-            type="button"
-            aria-label="Close"
-            className="btn-icon"
-            onClick={onClose}
-            disabled={regenerating}
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="overflow-y-auto p-4 flex-1 space-y-4">
-          {/* Media viewer */}
-          <MediaViewer item={item} />
-
-          {/* Metadata grid */}
-          <MetadataSection item={item} />
-
-          {error && (
-            <div className="flex items-start gap-2 rounded-md bg-rose-50 border border-rose-100 px-3 py-2 text-xs text-rose-700">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-              <span>{error}</span>
-            </div>
-          )}
-        </div>
-
-        {/* Footer — Download, Regenerate, Delete. */}
-        <div className="panel-footer">
+    <AppModal
+      open={true}
+      onClose={onClose}
+      title={item.filename}
+      subtitle={`${item.mediaType}${item.templateName ? ` · ${item.templateName}` : ''}`}
+      size="md"
+      disableClose={regenerating}
+      footer={
+        <>
           <label
             className={`flex items-center gap-2 text-[11px] text-slate-600 select-none ${
               canRegenerate ? 'cursor-pointer' : 'opacity-50 cursor-not-allowed'
             }`}
-            title={canRegenerate ? '' : 'Import from ComfyUI to enable'}
+            title={regenerateTooltip}
           >
             <Checkbox
               checked={randomizeSeed}
@@ -113,7 +90,7 @@ export default function GalleryDetailModal({
             />
             Randomize seed
           </label>
-          <div className="flex items-center gap-2">
+          <div className="btn-group">
             <a
               href={item.url || '#'}
               download={item.filename}
@@ -127,7 +104,7 @@ export default function GalleryDetailModal({
               className="btn-primary"
               onClick={handleRegenerate}
               disabled={!canRegenerate || regenerating}
-              title={canRegenerate ? '' : 'Import from ComfyUI to enable'}
+              title={regenerateTooltip}
             >
               {regenerating
                 ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -144,9 +121,24 @@ export default function GalleryDetailModal({
               Delete
             </button>
           </div>
-        </div>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {/* Media viewer */}
+        <MediaViewer item={item} />
+
+        {/* Metadata grid */}
+        <MetadataSection item={item} />
+
+        {error && (
+          <div className="flex items-start gap-2 rounded-md bg-rose-50 border border-rose-100 px-3 py-2 text-xs text-rose-700">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </div>
+        )}
       </div>
-    </div>
+    </AppModal>
   );
 }
 

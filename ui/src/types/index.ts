@@ -80,6 +80,18 @@ export interface TemplatePlugin {
   installed?: boolean;
 }
 
+/**
+ * CivitAI origin metadata for a user-imported template. Populated by the
+ * Wave J CivitAI URL import flow; surfaced on the TemplateCard as a
+ * source badge + first-three tags row.
+ */
+export interface TemplateCivitaiMeta {
+  modelId: number;
+  tags?: string[];
+  description?: string;
+  originalUrl?: string;
+}
+
 export interface Template {
   name: string;
   title: string;
@@ -115,6 +127,11 @@ export interface Template {
    * the backend from the `templates.installed` column; `false` when unknown.
    */
   ready?: boolean;
+  /**
+   * CivitAI origin metadata. Only populated for user-imported templates
+   * that came in through the CivitAI URL tab.
+   */
+  civitaiMeta?: TemplateCivitaiMeta;
 }
 
 export interface QueueStatus {
@@ -473,6 +490,24 @@ export interface StagedWorkflowResolvedModel {
   sizeBytes?: number;
 }
 
+/**
+ * Wave L auto-resolution. Populated by the staging-time auto-resolve pass
+ * for filenames the server matched without user paste: catalog hit,
+ * MarkdownNote URL basename match, HuggingFace search, or CivitAI search.
+ * The union of `resolvedModels` + `autoResolvedModels` is what the UI
+ * considers "covered" when deciding whether the Commit button is enabled.
+ */
+export type StagedWorkflowAutoResolveSource =
+  | 'catalog' | 'markdown' | 'huggingface' | 'civitai';
+
+export interface StagedWorkflowAutoResolvedModel {
+  source: StagedWorkflowAutoResolveSource;
+  downloadUrl: string;
+  suggestedFolder?: string;
+  sizeBytes?: number;
+  confidence: 'high';
+}
+
 export interface StagedImportWorkflow {
   entryName: string;
   title: string;
@@ -490,6 +525,8 @@ export interface StagedImportWorkflow {
   jsonBytes: number;
   /** Map of <missingFileName, resolution> populated by resolve-model calls. */
   resolvedModels?: Record<string, StagedWorkflowResolvedModel>;
+  /** Wave L: staging-time auto-resolution map. */
+  autoResolvedModels?: Record<string, StagedWorkflowAutoResolvedModel>;
 }
 
 /**
@@ -520,6 +557,12 @@ export interface StagedImportManifest {
   defaultDescription?: string;
   defaultTags?: string[];
   defaultThumbnail?: string;
+  /**
+   * CivitAI origin metadata. Only set for manifests produced by the CivitAI
+   * URL import flow; threaded onto the committed template so the card can
+   * show a source badge + tag row.
+   */
+  civitaiMeta?: TemplateCivitaiMeta;
 }
 
 /** Server response when a civitai import zip contains multiple workflows. */

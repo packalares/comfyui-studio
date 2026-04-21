@@ -12,6 +12,7 @@ import { Router, type Request, type Response, type RequestHandler } from 'expres
 import multer from 'multer';
 import * as templates from '../services/templates/index.js';
 import { resolveModelForStaging, ResolverError } from '../services/templates/commitOverrides.js';
+import { CommitBlockedError } from '../services/templates/importCommit.js';
 import { sendError } from '../middleware/errors.js';
 import { logger } from '../lib/logger.js';
 
@@ -129,6 +130,15 @@ const handleCommit: RequestHandler = async (req, res) => {
     catch { /* best effort; the UI will still show the new rows after the next GET */ }
     res.json(result);
   } catch (err) {
+    if (err instanceof CommitBlockedError) {
+      res.status(409).json({
+        error: err.message,
+        code: 'COMMIT_BLOCKED',
+        unresolvedModels: err.unresolvedModels,
+        unresolvedPlugins: err.unresolvedPlugins,
+      });
+      return;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     if (/Staging not found/.test(msg)) {
       res.status(404).json({ error: msg });

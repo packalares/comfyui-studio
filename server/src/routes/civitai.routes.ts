@@ -53,7 +53,7 @@ function parseQuery(req: Request): civitai.PageQuery {
 function toPageEnvelope<T = unknown>(
   raw: CivitaiListResponse,
   requested: { page: number; pageSize: number },
-): { items: T[]; page: number; pageSize: number; total: number; hasMore: boolean } {
+): { items: T[]; page: number; pageSize: number; total: number; hasMore: boolean; nextCursor?: string } {
   const items = Array.isArray(raw.items) ? (raw.items as T[]) : [];
   const meta = raw.metadata ?? {};
   const hasMore = Boolean(meta.nextCursor) || Boolean(meta.nextPage);
@@ -61,7 +61,15 @@ function toPageEnvelope<T = unknown>(
   const page = typeof meta.currentPage === 'number' ? meta.currentPage : requested.page;
   const priorCount = Math.max(0, (page - 1) * pageSize);
   const total = priorCount + items.length + (hasMore ? 1 : 0);
-  return { items, page, pageSize, total, hasMore };
+  const envelope: { items: T[]; page: number; pageSize: number; total: number; hasMore: boolean; nextCursor?: string } = {
+    items, page, pageSize, total, hasMore,
+  };
+  // Surface the cursor so Wave J "Load more" can thread it on search calls
+  // (CivitAI rejects `page=` alongside `query=` so search relies on it).
+  if (typeof meta.nextCursor === 'string' && meta.nextCursor.length > 0) {
+    envelope.nextCursor = meta.nextCursor;
+  }
+  return envelope;
 }
 
 function handleUpstream(res: Response, err: unknown): void {
@@ -173,6 +181,28 @@ const handleHotWorkflows: RequestHandler = async (req, res) => {
   } catch (err) { handleUpstream(res, err); }
 };
 
+const handleSearchWorkflows: RequestHandler = async (req, res) => {
+  try {
+    const query = typeof req.query.q === 'string' ? req.query.q : '';
+    if (!query.trim()) {
+      res.status(400).json({ error: 'Query parameter `q` is required' });
+      return;
+    }
+    const pageSize = readIntQuery(req, 'pageSize', readIntQuery(req, 'limit', 24), 100);
+    const page = readIntQuery(req, 'page', 1);
+    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
+    const data = await civitai.searchWorkflows(query, { limit: pageSize, cursor });
+    res.json(toPageEnvelope(data, { page, pageSize }));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/Missing search query/.test(msg)) {
+      res.status(400).json({ error: msg });
+      return;
+    }
+    handleUpstream(res, err);
+  }
+};
+
 // ---- Mount canonical + legacy aliases ----
 // Literal paths are listed BEFORE `/models/:id` so Express matches them first.
 router.get(['/civitai/models/by-url', '/launcher/civitai/models/by-url'], byUrlLimiter, handleByUrl);
@@ -186,5 +216,6 @@ router.get(
 );
 router.get(['/civitai/latest-workflows', '/launcher/civitai/latest-workflows'], handleLatestWorkflows);
 router.get(['/civitai/hot-workflows', '/launcher/civitai/hot-workflows'], handleHotWorkflows);
+router.get(['/civitai/search-workflows', '/launcher/civitai/search-workflows'], handleSearchWorkflows);
 
 export default router;

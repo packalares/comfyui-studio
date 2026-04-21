@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  UploadCloud, FileJson, Github, Clipboard, X, Loader2,
+  UploadCloud, FileJson, Github, Clipboard, Loader2,
   CheckCircle2, AlertCircle, Image as ImageIcon, Layers, Puzzle,
   Package, Link2,
 } from 'lucide-react';
@@ -9,6 +9,7 @@ import type { StagedImportManifest } from '../types';
 import { api } from '../services/comfyui';
 import { Checkbox } from './ui/checkbox';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
+import AppModal from './AppModal';
 
 interface Props {
   open: boolean;
@@ -30,8 +31,6 @@ interface Props {
 type Step = 'source' | 'upload' | 'review';
 type SourceTab = 'upload' | 'github' | 'civitai' | 'paste';
 
-const DISABLED_TAB_TOOLTIP = 'Coming in a later update';
-
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 const GITHUB_URL_EXAMPLES: string[] = [
@@ -39,6 +38,9 @@ const GITHUB_URL_EXAMPLES: string[] = [
   'https://raw.githubusercontent.com/<owner>/<repo>/main/workflow.json',
   'https://github.com/<owner>/<repo> (walks the repo for *.json)',
 ];
+
+const CIVITAI_URL_EXAMPLE =
+  'https://civitai.com/models/12345 or .../models/12345?modelVersionId=67890';
 
 function humanBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -68,6 +70,7 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
   const [githubUrl, setGithubUrl] = useState<string>('');
   const [pasteText, setPasteText] = useState<string>('');
   const [pasteTitle, setPasteTitle] = useState<string>('');
+  const [civitaiUrl, setCivitaiUrl] = useState<string>('');
 
   // Jump to review when we're handed a prestaged manifest (civitai path).
   useEffect(() => {
@@ -89,6 +92,7 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
     setGithubUrl('');
     setPasteText('');
     setPasteTitle('');
+    setCivitaiUrl('');
   }, [open, initialManifest]);
 
   // Default every unique plugin repo across the selected workflows to
@@ -105,6 +109,16 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
     }
     setPluginInstallChoices(next);
   }, [manifest]);
+
+  /**
+   * Wave L: derive the "can commit" state for the current selection. The
+   * button is disabled when any selected workflow still has unresolved
+   * models or plugins — the inline summary below lists the specifics.
+   */
+  const commitBlockers = useMemo(() => {
+    if (!manifest) return { canCommit: false, unresolvedModels: [] as string[], unresolvedPlugins: [] as string[] };
+    return computeCommitBlockers(manifest, selectedIndices);
+  }, [manifest, selectedIndices]);
 
   const handleClose = useCallback((): void => {
     // Abort staging on explicit close when it was created in this session —
@@ -153,6 +167,26 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
       setUploading(false);
     }
   }, [githubUrl]);
+
+  const handleFetchCivitai = useCallback(async (): Promise<void> => {
+    setError(null);
+    const trimmed = civitaiUrl.trim();
+    if (!trimmed) {
+      setError('Paste a CivitAI URL to continue.');
+      return;
+    }
+    setUploading(true);
+    try {
+      const m = await api.importWorkflowFromCivitai(trimmed);
+      setManifest(m);
+      setSelectedIndices(new Set(m.workflows.map((_, i) => i)));
+      setStep('review');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'CivitAI import failed');
+    } finally {
+      setUploading(false);
+    }
+  }, [civitaiUrl]);
 
   const handleParsePaste = useCallback(async (): Promise<void> => {
     setError(null);
@@ -272,81 +306,20 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
     }
   }, [manifest]);
 
-  if (!open) return null;
-
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={(e) => { if (e.target === e.currentTarget) handleClose(); }}
-    >
-      <div className="w-full max-w-2xl rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-900">Import workflow</h2>
-            <p className="mt-0.5 text-[11px] text-slate-500">
-              {step === 'review'
-                ? 'Pick which workflows to add to your library.'
-                : 'Upload a .json or .zip exported from ComfyUI.'}
-            </p>
-          </div>
-          <button
-            type="button"
-            aria-label="Close"
-            className="btn-icon"
-            onClick={handleClose}
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="overflow-y-auto p-4 flex-1">
-          {step === 'upload' && (
-            <UploadStep
-              tab={tab}
-              onTabChange={setTab}
-              uploading={uploading}
-              dragActive={dragActive}
-              onDragStateChange={setDragActive}
-              onFileSelect={handleFileSelect}
-              onDrop={handleDrop}
-              fileInputRef={fileInputRef}
-              githubUrl={githubUrl}
-              onGithubUrlChange={setGithubUrl}
-              onFetchGithub={handleFetchGithub}
-              pasteText={pasteText}
-              onPasteTextChange={setPasteText}
-              pasteTitle={pasteTitle}
-              onPasteTitleChange={setPasteTitle}
-              onParsePaste={handleParsePaste}
-            />
-          )}
-          {step === 'review' && manifest && (
-            <ReviewStep
-              manifest={manifest}
-              selectedIndices={selectedIndices}
-              onToggle={toggleIndex}
-              copyImages={copyImages}
-              onCopyImagesChange={setCopyImages}
-              pluginInstallChoices={pluginInstallChoices}
-              onTogglePlugin={togglePlugin}
-              installProgress={installProgress}
-              onResolveModelUrl={handleResolveModelUrl}
-            />
-          )}
-          {error && (
-            <div className="mt-3 flex items-start gap-2 rounded-md bg-rose-50 border border-rose-100 px-3 py-2 text-xs text-rose-700">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-              <span>{error}</span>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3">
+    <AppModal
+      open={open}
+      onClose={handleClose}
+      title="Import workflow"
+      subtitle={
+        step === 'review'
+          ? 'Pick which workflows to add to your library.'
+          : 'Upload a .json or .zip exported from ComfyUI.'
+      }
+      size="md"
+      disableClose={uploading || committing}
+      footer={
+        <>
           <div className="text-[11px] text-slate-500">
             {step === 'review' && manifest
               ? `${selectedIndices.size} of ${manifest.workflows.length} selected`
@@ -365,17 +338,66 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
               <button
                 type="button"
                 className="btn-primary"
-                disabled={committing || selectedIndices.size === 0}
+                disabled={committing || selectedIndices.size === 0 || !commitBlockers.canCommit}
                 onClick={handleCommit}
+                title={
+                  !commitBlockers.canCommit
+                    ? 'Resolve the highlighted model + plugin rows before importing.'
+                    : undefined
+                }
               >
                 {committing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
                 {committing ? 'Importing…' : `Import ${selectedIndices.size} workflow${selectedIndices.size === 1 ? '' : 's'}`}
               </button>
             )}
           </div>
+        </>
+      }
+    >
+      {step === 'upload' && (
+        <UploadStep
+          tab={tab}
+          onTabChange={setTab}
+          uploading={uploading}
+          dragActive={dragActive}
+          onDragStateChange={setDragActive}
+          onFileSelect={handleFileSelect}
+          onDrop={handleDrop}
+          fileInputRef={fileInputRef}
+          githubUrl={githubUrl}
+          onGithubUrlChange={setGithubUrl}
+          onFetchGithub={handleFetchGithub}
+          pasteText={pasteText}
+          onPasteTextChange={setPasteText}
+          pasteTitle={pasteTitle}
+          onPasteTitleChange={setPasteTitle}
+          onParsePaste={handleParsePaste}
+          civitaiUrl={civitaiUrl}
+          onCivitaiUrlChange={setCivitaiUrl}
+          onFetchCivitai={handleFetchCivitai}
+        />
+      )}
+      {step === 'review' && manifest && (
+        <ReviewStep
+          manifest={manifest}
+          selectedIndices={selectedIndices}
+          onToggle={toggleIndex}
+          copyImages={copyImages}
+          onCopyImagesChange={setCopyImages}
+          pluginInstallChoices={pluginInstallChoices}
+          onTogglePlugin={togglePlugin}
+          installProgress={installProgress}
+          onResolveModelUrl={handleResolveModelUrl}
+          commitBlockers={commitBlockers}
+        />
+      )}
+      {error && (
+        <div className="mt-3 flex items-start gap-2 rounded-md bg-rose-50 border border-rose-100 px-3 py-2 text-xs text-rose-700">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          <span>{error}</span>
         </div>
-      </div>
-    </div>
+      )}
+    </AppModal>
   );
 }
 
@@ -399,6 +421,9 @@ interface UploadStepProps {
   pasteTitle: string;
   onPasteTitleChange: (v: string) => void;
   onParsePaste: () => void | Promise<void>;
+  civitaiUrl: string;
+  onCivitaiUrlChange: (v: string) => void;
+  onFetchCivitai: () => void | Promise<void>;
 }
 
 function UploadStep(p: UploadStepProps): JSX.Element {
@@ -407,6 +432,7 @@ function UploadStep(p: UploadStepProps): JSX.Element {
     onFileSelect, onDrop, fileInputRef,
     githubUrl, onGithubUrlChange, onFetchGithub,
     pasteText, onPasteTextChange, pasteTitle, onPasteTitleChange, onParsePaste,
+    civitaiUrl, onCivitaiUrlChange, onFetchCivitai,
   } = p;
   const pasteBytes = useMemo(
     () => new TextEncoder().encode(pasteText).length,
@@ -425,7 +451,7 @@ function UploadStep(p: UploadStepProps): JSX.Element {
             <Github className="w-3.5 h-3.5" />
             GitHub
           </TabsTrigger>
-          <TabsTrigger value="civitai" className="flex-1" disabled title={DISABLED_TAB_TOOLTIP}>
+          <TabsTrigger value="civitai" className="flex-1">
             <FileJson className="w-3.5 h-3.5" />
             CivitAI
           </TabsTrigger>
@@ -502,6 +528,42 @@ function UploadStep(p: UploadStepProps): JSX.Element {
           </div>
         </TabsContent>
 
+        <TabsContent value="civitai" className="pt-4">
+          <div className="space-y-3">
+            <label className="block text-xs font-medium text-slate-700">
+              CivitAI URL
+            </label>
+            <input
+              type="url"
+              value={civitaiUrl}
+              onChange={(e) => onCivitaiUrlChange(e.target.value)}
+              placeholder="https://civitai.com/models/12345"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-teal-500"
+              disabled={uploading}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !uploading) void onFetchCivitai(); }}
+            />
+            <div className="rounded-md bg-slate-50 border border-slate-200 px-3 py-2 text-[11px] text-slate-500">
+              <div className="font-medium text-slate-600 mb-1">Example</div>
+              <p className="font-mono break-all">{CIVITAI_URL_EXAMPLE}</p>
+              <p className="mt-1 text-slate-500">
+                We look for a workflow JSON in the model's files, then fall back to
+                workflows embedded in image generation metadata.
+              </p>
+            </div>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={uploading || !civitaiUrl.trim()}
+                onClick={() => void onFetchCivitai()}
+              >
+                {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileJson className="w-3.5 h-3.5" />}
+                {uploading ? 'Fetching…' : 'Fetch'}
+              </button>
+            </div>
+          </div>
+        </TabsContent>
+
         <TabsContent value="paste" className="pt-4">
           <div className="space-y-3">
             <p className="text-[11px] text-slate-500">
@@ -568,6 +630,11 @@ interface ReviewStepProps {
     missingFileName: string,
     url: string,
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
+  commitBlockers: {
+    canCommit: boolean;
+    unresolvedModels: string[];
+    unresolvedPlugins: string[];
+  };
 }
 
 interface PluginSummaryRow {
@@ -623,6 +690,7 @@ function ReviewStep(p: ReviewStepProps): JSX.Element {
   const {
     manifest, selectedIndices, onToggle, copyImages, onCopyImagesChange,
     pluginInstallChoices, onTogglePlugin, installProgress, onResolveModelUrl,
+    commitBlockers,
   } = p;
   const pluginSummary = useMemo(
     () => summarizePlugins(manifest, selectedIndices),
@@ -713,6 +781,40 @@ function ReviewStep(p: ReviewStepProps): JSX.Element {
               </p>
             </div>
           </label>
+        </div>
+      )}
+
+      {commitBlockers.unresolvedModels.length > 0 && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-rose-900 mb-1">
+            <AlertCircle className="w-3.5 h-3.5" />
+            Cannot import — {commitBlockers.unresolvedModels.length} model
+            {commitBlockers.unresolvedModels.length === 1 ? '' : 's'} unresolved.
+          </div>
+          <p className="text-[11px] text-rose-800 mb-1">
+            Resolve these rows first:
+          </p>
+          <ul className="list-disc ml-4 text-[11px] text-rose-900 font-mono space-y-0.5">
+            {commitBlockers.unresolvedModels.map((m) => <li key={`m-${m}`}>{m}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {commitBlockers.unresolvedPlugins.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-amber-900 mb-1">
+            <AlertCircle className="w-3.5 h-3.5" />
+            {commitBlockers.unresolvedPlugins.length} custom node
+            {commitBlockers.unresolvedPlugins.length === 1 ? '' : 's'} couldn't be resolved (warning only — commit proceeds).
+          </div>
+          <p className="text-[11px] text-amber-800 mb-1">
+            ComfyUI-Manager may be unreachable, or the workflow was saved without plugin metadata. You'll still be able to import — missing plugins surface at first run.
+          </p>
+          <ul className="list-disc ml-4 text-[11px] text-amber-900 font-mono space-y-0.5">
+            {commitBlockers.unresolvedPlugins.map((p) => (
+              <li key={`p-${p}`}>plugin: {p}</li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -810,11 +912,17 @@ interface MissingModelsSectionProps {
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
+/** Wave L: row state is one of — paste-resolved, auto-resolved, or unresolved. */
+type MissingModelRowKind =
+  | { state: 'resolved'; source: 'huggingface' | 'civitai'; downloadUrl: string; suggestedFolder?: string }
+  | { state: 'auto'; source: 'catalog' | 'markdown' | 'huggingface' | 'civitai'; downloadUrl: string; suggestedFolder?: string }
+  | { state: 'unresolved' };
+
 interface MissingModelRow {
   workflowIndex: number;
   workflowTitle: string;
   fileName: string;
-  resolved?: { downloadUrl: string; source: 'huggingface' | 'civitai'; suggestedFolder?: string };
+  kind: MissingModelRowKind;
   suggestedUrl?: string;
 }
 
@@ -834,7 +942,27 @@ function collectMissingModelRows(
     const wf = manifest.workflows[i];
     for (const fileName of wf.models || []) {
       if (seen.has(fileName)) continue;
-      const resolved = wf.resolvedModels?.[fileName];
+      const pasted = wf.resolvedModels?.[fileName];
+      const auto = wf.autoResolvedModels?.[fileName];
+      // Paste-resolved wins over auto — the user explicitly picked a URL.
+      let kind: MissingModelRowKind;
+      if (pasted) {
+        kind = {
+          state: 'resolved',
+          source: pasted.source,
+          downloadUrl: pasted.downloadUrl,
+          suggestedFolder: pasted.suggestedFolder,
+        };
+      } else if (auto) {
+        kind = {
+          state: 'auto',
+          source: auto.source,
+          downloadUrl: auto.downloadUrl,
+          suggestedFolder: auto.suggestedFolder,
+        };
+      } else {
+        kind = { state: 'unresolved' };
+      }
       // Best-effort URL suggestion: pick the first note URL whose
       // filename (basename of pathname) matches the row filename.
       const suggestedUrl = (wf.modelUrls || []).find((u) => {
@@ -845,12 +973,49 @@ function collectMissingModelRows(
         workflowIndex: i,
         workflowTitle: wf.title,
         fileName,
-        resolved,
+        kind,
         suggestedUrl,
       });
     }
   }
   return Array.from(seen.values());
+}
+
+/**
+ * Wave L: compute whether the current selection can commit. Returns the
+ * blocking rows (unresolved models, unresolved plugins) so the UI can
+ * render an inline summary alongside the disabled button.
+ */
+function computeCommitBlockers(
+  manifest: StagedImportManifest,
+  selectedIndices: Set<number>,
+): { canCommit: boolean; unresolvedModels: string[]; unresolvedPlugins: string[] } {
+  // Models block commit — a missing model causes an unrecoverable runtime
+  // error in Studio. Plugins DO NOT block — Manager offline or legacy
+  // workflows without aux_id routinely surface as empty-match resolutions
+  // even when the plugin is locally installed. We still surface the list
+  // as a warning so the review step can show it.
+  const unresolvedModels = new Set<string>();
+  const unresolvedPlugins = new Set<string>();
+  for (let i = 0; i < manifest.workflows.length; i++) {
+    if (!selectedIndices.has(i)) continue;
+    const wf = manifest.workflows[i];
+    const covered = new Set<string>([
+      ...Object.keys(wf.resolvedModels ?? {}),
+      ...Object.keys(wf.autoResolvedModels ?? {}),
+    ]);
+    for (const fn of wf.models ?? []) {
+      if (!covered.has(fn)) unresolvedModels.add(fn);
+    }
+    for (const p of wf.plugins ?? []) {
+      if (!p.matches || p.matches.length === 0) unresolvedPlugins.add(p.classType);
+    }
+  }
+  return {
+    canCommit: unresolvedModels.size === 0,
+    unresolvedModels: Array.from(unresolvedModels).sort(),
+    unresolvedPlugins: Array.from(unresolvedPlugins).sort(),
+  };
 }
 
 function MissingModelsSection(p: MissingModelsSectionProps): JSX.Element | null {
@@ -888,6 +1053,15 @@ interface MissingModelRowViewProps {
   onResolveModelUrl: MissingModelsSectionProps['onResolveModelUrl'];
 }
 
+function viaLabel(source: 'catalog' | 'markdown' | 'huggingface' | 'civitai'): string {
+  switch (source) {
+    case 'catalog': return 'via catalog';
+    case 'markdown': return 'via markdown note';
+    case 'huggingface': return 'via HuggingFace';
+    case 'civitai': return 'via CivitAI';
+  }
+}
+
 function MissingModelRowView(p: MissingModelRowViewProps): JSX.Element {
   const { row, onResolveModelUrl } = p;
   const [value, setValue] = useState<string>(row.suggestedUrl ?? '');
@@ -903,22 +1077,36 @@ function MissingModelRowView(p: MissingModelRowViewProps): JSX.Element {
     if (!result.ok) setRowError(result.error);
   }, [value, busy, onResolveModelUrl, row.workflowIndex, row.fileName]);
 
-  const resolved = row.resolved;
   return (
     <li className="rounded-md border border-slate-200 bg-white px-3 py-2">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs font-mono text-slate-800 truncate" title={row.fileName}>
           {row.fileName}
         </span>
-        {resolved && (
-          <span className="inline-flex items-center gap-1 rounded bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800">
+        {row.kind.state === 'resolved' && (
+          <span className="inline-flex items-center gap-1 rounded bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800"
+            title={row.kind.downloadUrl}>
             <CheckCircle2 className="w-3 h-3" />
-            resolved via {resolved.source}
-            {resolved.suggestedFolder ? ` (${resolved.suggestedFolder})` : ''}
+            resolved via {row.kind.source}
+            {row.kind.suggestedFolder ? ` (${row.kind.suggestedFolder})` : ''}
+          </span>
+        )}
+        {row.kind.state === 'auto' && (
+          <span className="inline-flex items-center gap-1 rounded bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800"
+            title={row.kind.downloadUrl}>
+            <CheckCircle2 className="w-3 h-3" />
+            auto-resolved {viaLabel(row.kind.source)}
+            {row.kind.suggestedFolder ? ` (${row.kind.suggestedFolder})` : ''}
+          </span>
+        )}
+        {row.kind.state === 'unresolved' && (
+          <span className="inline-flex items-center gap-1 rounded bg-rose-50 border border-rose-200 px-1.5 py-0.5 text-[10px] font-medium text-rose-800">
+            <AlertCircle className="w-3 h-3" />
+            Unresolved — paste URL below
           </span>
         )}
       </div>
-      {!resolved && (
+      {row.kind.state === 'unresolved' && (
         <div className="mt-1.5 flex items-center gap-2">
           <Link2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
           <input

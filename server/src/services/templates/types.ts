@@ -34,6 +34,18 @@ export interface TemplatePluginEntry {
   installed?: boolean;
 }
 
+/**
+ * CivitAI origin metadata for a user-imported template. Written by the
+ * Wave J CivitAI import flow so the frontend can surface a "CivitAI" badge
+ * + source tags on the card without another round-trip.
+ */
+export interface TemplateCivitaiMeta {
+  modelId: number;
+  tags?: string[];
+  description?: string;
+  originalUrl?: string;
+}
+
 export interface TemplateData {
   name: string;
   title: string;
@@ -50,6 +62,12 @@ export interface TemplateData {
    * Optional so legacy TemplateData JSON files keep loading.
    */
   plugins?: TemplatePluginEntry[];
+  /**
+   * Optional CivitAI origin metadata. Set on user-imported templates that
+   * came in through the CivitAI URL tab. Surfaced as a badge + tags on
+   * the TemplateCard.
+   */
+  civitaiMeta?: TemplateCivitaiMeta;
   category: string;
   studioCategory?: 'image' | 'video' | 'audio' | '3d' | 'tools';
   io: {

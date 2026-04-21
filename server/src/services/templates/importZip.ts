@@ -9,6 +9,7 @@ import JSZip from 'jszip';
 import { extractDepsWithPluginResolution } from './extractDepsAsync.js';
 import { extractWorkflowIo, deriveMediaType } from './metadata.js';
 import { extractModelUrlsFromWorkflow } from './scanMarkdownNotes.js';
+import { autoResolveStagedImport } from './autoResolveModels.js';
 import {
   newStagedImport,
   storeStaging,
@@ -129,6 +130,7 @@ export async function stageFromZip(
     workflows[0].title = opts.defaultTitle;
     workflows[0].description = opts.defaultDescription;
   }
+  await autoResolveStagedImport(staged);
   return storeStaging(staged);
 }
 
@@ -162,5 +164,6 @@ export async function stageFromJson(
   staged.defaultDescription = opts.defaultDescription;
   staged.defaultTags = opts.defaultTags;
   staged.defaultThumbnail = opts.defaultThumbnail;
+  await autoResolveStagedImport(staged);
   return storeStaging(staged);
 }

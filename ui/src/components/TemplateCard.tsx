@@ -1,14 +1,18 @@
 import { memo, useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 import {
-  Image, Video, Music, Box, HardDrive, Cpu, BarChart3,
+  Image, Video, Music, Box, HardDrive, Cpu,
   MoreHorizontal, Trash2, Loader2, ExternalLink, FileJson, Check, ImageOff,
-  Puzzle,
+  Puzzle, Info, Play, Download, User as UserIcon,
 } from 'lucide-react';
-import type { Template, CivitaiModelSummary, StagedImportManifest } from '../types';
+import type { Template, CivitaiModelSummary, StagedImportManifest, RequiredModel } from '../types';
 import { formatBytes } from '../lib/utils';
+import { imgProxy } from '../lib/imgProxy';
 import { api } from '../services/comfyui';
-import ModelBadge from './ModelBadge';
+import DescriptionModal from './DescriptionModal';
+import DependencyModal from './DependencyModal';
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -40,10 +44,11 @@ const gradientMap: Record<string, string> = {
   '3d': 'from-green-400 to-green-600',
 };
 
-function formatUsage(count: number): string {
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M uses`;
-  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k uses`;
-  return `${count} uses`;
+/** Compact download-count formatter: 3640 → "3.6k", 1_234_567 → "1.2M". */
+function formatCompact(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k`;
+  return String(n);
 }
 
 function TemplateCardInner({ template, onDeleted }: Props) {
@@ -54,21 +59,23 @@ function TemplateCardInner({ template, onDeleted }: Props) {
   // server/src/services/templates/userTemplates.ts::saveUserWorkflow.
   const isUser = template.category === 'User Workflows';
 
-  const uniqueModels = useMemo(
-    () => Array.from(new Set(template.models)).slice(0, 3),
-    [template.models],
-  );
   const uniqueTags = useMemo(
     () => Array.from(new Set(template.tags)).slice(0, 3),
     [template.tags],
   );
+  // Civitai origin meta — when present we render a small source badge next
+  // to the title. Civitai-specific tags are shown in the DescriptionModal,
+  // not on the card, to keep the tag row consistent across sources.
+  const civitaiMeta = template.civitaiMeta;
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [pluginsOpen, setPluginsOpen] = useState(false);
   const [installingPlugins, setInstallingPlugins] = useState(false);
-  const [pluginStatus, setPluginStatus] = useState<string | null>(null);
+  const [descOpen, setDescOpen] = useState(false);
+  const [depsOpen, setDepsOpen] = useState(false);
+  const [depsLoading, setDepsLoading] = useState(false);
+  const [depsMissing, setDepsMissing] = useState<RequiredModel[] | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   // Plugin chip surfaces only when the template declares any plugins AND at
@@ -83,17 +90,16 @@ function TemplateCardInner({ template, onDeleted }: Props) {
 
   const handleInstallMissing = useCallback(async () => {
     setInstallingPlugins(true);
-    setPluginStatus(null);
     try {
       const result = await api.installMissingPlugins(template.name);
       const queued = result.queued.length;
       const skipped = result.alreadyInstalled.length;
       const unknown = result.unknown.length;
-      setPluginStatus(
-        `Queued ${queued}, already installed ${skipped}${unknown > 0 ? `, unknown ${unknown}` : ''}`,
+      toast.success(
+        `Plugin install queued: ${queued} queued, ${skipped} already installed${unknown > 0 ? `, ${unknown} unknown` : ''}.`,
       );
     } catch (err) {
-      setPluginStatus(err instanceof Error ? err.message : 'Install failed');
+      toast.error(err instanceof Error ? err.message : 'Install failed');
     } finally {
       setInstallingPlugins(false);
     }
@@ -112,6 +118,23 @@ function TemplateCardInner({ template, onDeleted }: Props) {
     const cat = template.studioCategory || template.mediaType || 'image';
     navigate(`/studio/${encodeURIComponent(template.name)}?category=${cat}`);
   };
+
+  const handleInstallDeps = useCallback(async (): Promise<void> => {
+    // Fetch missing deps lazily — cards are rendered in grids, so we don't
+    // pay the round-trip unless the user actually clicks the button.
+    setDepsLoading(true);
+    try {
+      const res = await api.checkDependencies(template.name);
+      setDepsMissing(res.missing);
+      setDepsOpen(true);
+    } catch (err) {
+      toast.error('Failed to check dependencies', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setDepsLoading(false);
+    }
+  }, [template.name]);
 
   const handleConfirmDelete = useCallback(async () => {
     setDeleting(true);
@@ -141,24 +164,43 @@ function TemplateCardInner({ template, onDeleted }: Props) {
         className="card text-left group cursor-pointer overflow-hidden flex flex-col h-full relative"
       >
         <div className="aspect-video shrink-0 relative flex items-center justify-center overflow-hidden">
-          {template.name ? (
-            <img
-              src={`/api/template-asset/${template.name}-1.webp`}
-              alt={template.title}
-              className="w-full h-full object-cover"
-              loading="lazy"
-              onError={(e) => {
-                // Fall back to gradient on load error
-                const target = e.currentTarget;
-                target.style.display = 'none';
-                target.parentElement?.classList.add('bg-gradient-to-br', ...gradient.split(' '));
-              }}
-            />
-          ) : (
-            <div className={`w-full h-full bg-gradient-to-br ${gradient} flex items-center justify-center`}>
-              <Icon className="w-10 h-10 text-white/60 group-hover:text-white/80 transition-colors" />
-            </div>
-          )}
+          {(() => {
+            // Thumbnail resolution:
+            //   - Absolute URL (user imports: civitai/HF CDN) → route through
+            //     the image proxy for resize + disk cache.
+            //   - Otherwise → upstream ComfyUI template: the real preview
+            //     ALWAYS lives at `<name>-1.webp` alongside the workflow
+            //     JSON. The `thumbnail[]` field in the index is a
+            //     category hint (output/input/thumbnail), not a filesystem
+            //     path, and isn't served by ComfyUI's HTTP layer.
+            if (!template.name) {
+              return (
+                <div className={`w-full h-full bg-gradient-to-br ${gradient} flex items-center justify-center`}>
+                  <Icon className="w-10 h-10 text-white/60 group-hover:text-white/80 transition-colors" />
+                </div>
+              );
+            }
+            const saved = template.thumbnail?.[0];
+            const src = saved && /^https?:\/\//i.test(saved)
+              ? (imgProxy(saved, 320) ?? saved)
+              : `/api/template-asset/${template.name}-1.webp`;
+            return (
+              <img
+                src={src}
+                alt={template.title}
+                className="w-full h-full object-cover"
+                width={320}
+                height={180}
+                loading="lazy"
+                decoding="async"
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  target.style.display = 'none';
+                  target.parentElement?.classList.add('bg-gradient-to-br', ...gradient.split(' '));
+                }}
+              />
+            );
+          })()}
           <div className="absolute top-2 right-2 flex items-center gap-1.5">
             {template.ready === true && (
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/90 text-white">
@@ -187,20 +229,6 @@ function TemplateCardInner({ template, onDeleted }: Props) {
             }`}>
               {template.mediaType}
             </span>
-            {missingPlugins.length > 0 && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setPluginsOpen((v) => !v);
-                }}
-                className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/90 text-white inline-flex items-center gap-1 hover:bg-amber-600"
-                title={`${missingPlugins.length} custom-node plugin${missingPlugins.length === 1 ? '' : 's'} missing`}
-              >
-                <Puzzle className="w-3 h-3" />
-                {missingPlugins.length} plugin{missingPlugins.length === 1 ? '' : 's'} missing
-              </button>
-            )}
           </div>
           {/* Overflow menu — user-imported workflows only. Absolutely positioned
               on top of the thumbnail; clicking never propagates to the card. */}
@@ -245,14 +273,18 @@ function TemplateCardInner({ template, onDeleted }: Props) {
           )}
         </div>
         <div className="p-4 flex flex-col flex-1">
-          <h3 className="font-semibold text-sm text-gray-900 mb-1 group-hover:text-teal-600 transition-colors line-clamp-1">
-            {template.title}
-          </h3>
-          <div className="relative mb-3 h-[100px]">
-            <p className="text-xs text-gray-500 overflow-y-auto h-full pr-1">
-              {template.description}
-            </p>
-            <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-white to-transparent" />
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="font-semibold text-sm text-gray-900 group-hover:text-teal-600 transition-colors line-clamp-1 flex-1 min-w-0">
+              {template.title}
+            </h3>
+            {civitaiMeta && (
+              <span
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-teal-500/90 text-white shrink-0"
+                title={civitaiMeta.originalUrl ?? `CivitAI model ${civitaiMeta.modelId}`}
+              >
+                CivitAI
+              </span>
+            )}
           </div>
           <div className="mt-auto">
             {/* Stats row */}
@@ -269,21 +301,10 @@ function TemplateCardInner({ template, onDeleted }: Props) {
                   {formatBytes(template.vram)}
                 </span>
               )}
-              {template.usage !== undefined && template.usage > 0 && (
-                <span className="flex items-center gap-1">
-                  <BarChart3 className="w-3 h-3" />
-                  {formatUsage(template.usage)}
-                </span>
-              )}
             </div>
 
-            <div className="flex flex-wrap gap-1.5">
-              {uniqueModels.map(model => (
-                <ModelBadge key={model} name={model} />
-              ))}
-            </div>
             {uniqueTags.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-2">
+              <div className="flex flex-wrap gap-1">
                 {uniqueTags.map(tag => (
                   <span key={tag} className="text-[10px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
                     {tag}
@@ -291,47 +312,101 @@ function TemplateCardInner({ template, onDeleted }: Props) {
                 ))}
               </div>
             )}
-            {pluginsOpen && missingPlugins.length > 0 && (
-              <div
-                className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-2"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="text-[11px] font-medium text-amber-900 mb-1 inline-flex items-center gap-1">
-                  <Puzzle className="w-3 h-3" />
-                  Missing plugins
-                </div>
-                <ul className="space-y-0.5 mb-2">
-                  {missingPlugins.map((p) => (
-                    <li
-                      key={p.repo}
-                      className="text-[11px] text-slate-700 font-mono truncate"
-                      title={p.repo}
-                    >
-                      {p.title || p.repo}
-                    </li>
-                  ))}
-                </ul>
+          </div>
+        </div>
+        {/* Footer — icon-only button group, right-aligned. Install-plugins
+            only renders when Manager reports at least one missing plugin. */}
+        <div
+          className="border-t border-slate-200 p-3 flex justify-end"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="btn-group">
+            <Tooltip>
+              <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); void handleInstallMissing(); }}
-                  disabled={installingPlugins}
-                  className="btn-primary !text-[11px] !py-1 !px-2"
+                  className="btn-secondary"
+                  onClick={(e) => { e.stopPropagation(); setDescOpen(true); }}
+                  aria-label="Description"
                 >
-                  {installingPlugins ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                  ) : (
-                    <Puzzle className="w-3 h-3" />
-                  )}
-                  {installingPlugins ? 'Queuing...' : `Install ${missingPlugins.length}`}
+                  <Info className="w-3.5 h-3.5" />
                 </button>
-                {pluginStatus && (
-                  <p className="mt-1 text-[10px] text-slate-600">{pluginStatus}</p>
-                )}
-              </div>
+              </TooltipTrigger>
+              <TooltipContent>Description</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={(e) => { e.stopPropagation(); handleCardClick(); }}
+                  aria-label="Use"
+                >
+                  <Play className="w-3.5 h-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Use in Studio</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={(e) => { e.stopPropagation(); void handleInstallDeps(); }}
+                  disabled={depsLoading}
+                  aria-label="Install dependencies"
+                >
+                  {depsLoading ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Install dependencies</TooltipContent>
+            </Tooltip>
+            {missingPlugins.length > 0 && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={(e) => { e.stopPropagation(); void handleInstallMissing(); }}
+                    disabled={installingPlugins}
+                    aria-label={`Install ${missingPlugins.length} missing plugin${missingPlugins.length === 1 ? '' : 's'}`}
+                  >
+                    {installingPlugins ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Puzzle className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {installingPlugins ? 'Queuing plugin installs…' : `Install ${missingPlugins.length} missing plugin${missingPlugins.length === 1 ? '' : 's'}`}
+                </TooltipContent>
+              </Tooltip>
             )}
           </div>
         </div>
       </div>
+
+      <DescriptionModal
+        open={descOpen}
+        onClose={() => setDescOpen(false)}
+        title={template.title}
+        description={template.description}
+        tags={template.tags}
+        models={template.models}
+        civitaiMeta={civitaiMeta}
+      />
+      {depsOpen && depsMissing !== null && (
+        <DependencyModal
+          missing={depsMissing}
+          onClose={() => { setDepsOpen(false); setDepsMissing(null); }}
+          onDownloadComplete={() => { setDepsOpen(false); setDepsMissing(null); }}
+        />
+      )}
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
@@ -369,24 +444,50 @@ export default TemplateCard;
 
 // --- CivitAI workflow card (Explore Source=CivitAI) ----------------------
 
-/** Pick the most usable preview thumbnail for a civitai card. */
 /**
  * Rewrite a civitai CDN URL to request a smaller preview size. Civitai
  * serves variants via the `/width=NUMBER/` segment (e.g. `.../width=450/...`).
- * Swap to 320 for grid thumbnails so a 24-card Explore page doesn't pull
+ * Swap to `width` for grid thumbnails so a 24-card Explore page doesn't pull
  * 24 × several MB of full-res images.
+ *
+ * URL shapes handled:
+ *  - `https://image.civitai.com/xG1n.../width=450/0001.jpeg` -> swap width
+ *  - `https://image.civitai.com/xG1n.../0001.jpeg` -> inject `/width=320/`
+ *    after the `/image/` segment when we recognise the civitai-CDN format
+ *  - anything else -> return untouched (don't invent)
  */
-function downsizeCivitaiImageUrl(url: string, width: number): string {
+export function downsizeCivitaiImageUrl(url: string, width: number): string {
   if (!url) return url;
-  if (/\/width=\d+\//.test(url)) return url.replace(/\/width=\d+\//, `/width=${width}/`);
-  return url;
+  if (/\/width=\d+\//.test(url)) {
+    return url.replace(/\/width=\d+\//, `/width=${width}/`);
+  }
+  // Pattern match civitai's CDN host; when the URL ends in an image filename
+  // we inject the width segment just before it.
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    if (!host.endsWith('image.civitai.com') && !host.endsWith('civitai.com')) return url;
+    const parts = u.pathname.split('/').filter((p) => p.length > 0);
+    if (parts.length === 0) return url;
+    const last = parts[parts.length - 1];
+    if (!/\.(png|jpe?g|webp)$/i.test(last)) return url;
+    const newParts = [...parts.slice(0, parts.length - 1), `width=${width}`, last];
+    u.pathname = `/${newParts.join('/')}`;
+    return u.toString();
+  } catch {
+    return url;
+  }
 }
 
+/** Pick the most usable preview thumbnail for a civitai card. Returns the
+ * original upstream URL; callers pass it through `imgProxy()` to get the
+ * backend-resized variant. */
 function pickThumbnail(item: CivitaiModelSummary): string | null {
-  for (const v of item.modelVersions || []) {
-    for (const img of v.images || []) {
-      if (img.url && (img.type || 'image') === 'image') {
-        return downsizeCivitaiImageUrl(img.url, 320);
+  for (const version of item.modelVersions ?? []) {
+    for (const image of version.images ?? []) {
+      const url = image.url;
+      if (url && (image.type === undefined || image.type === 'image')) {
+        return url;
       }
     }
   }
@@ -413,7 +514,6 @@ interface CivitaiTemplateCardProps {
 }
 
 function CivitaiTemplateCardInner({ item, onStagedImport }: CivitaiTemplateCardProps) {
-  const navigate = useNavigate();
   const thumb = pickThumbnail(item);
   const primaryVersion = item.modelVersions?.[0];
   const creator = item.creator?.username;
@@ -421,33 +521,47 @@ function CivitaiTemplateCardInner({ item, onStagedImport }: CivitaiTemplateCardP
   const pageUrl = `https://civitai.com/models/${item.id}`;
 
   const [importing, setImporting] = useState(false);
-  const [imported, setImported] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [imported] = useState(false);
+  const [descOpen, setDescOpen] = useState(false);
 
   const handleImport = async (): Promise<void> => {
+    // Backend always stages (JSON → stageFromJson, ZIP → stageFromZip) and
+    // returns a manifest the review modal walks through. The modal handles
+    // selection + plugin install + commit.
     if (!primaryVersion?.id) {
-      setError('This item has no downloadable version');
+      toast.error('CivitAI import unavailable', {
+        description: 'This item has no downloadable version.',
+      });
       return;
     }
-    setError(null);
     setImporting(true);
     try {
       const result = await api.importCivitaiWorkflow(primaryVersion.id);
-      if ('staged' in result) {
-        // Multi-workflow zip — hand off to the review modal.
-        if (onStagedImport) {
-          onStagedImport(result.manifest);
-        } else {
-          setError('Zip contains multiple workflows. Import via Explore to choose.');
-        }
-        return;
+      if (onStagedImport) {
+        onStagedImport(result.manifest);
+      } else {
+        toast.error('CivitAI import unavailable', {
+          description: 'Explore is required to review the staged import.',
+        });
       }
-      setImported(true);
-      // Send the user straight into the Studio with the expose widgets
-      // modal open — matches the legacy CivitaiCard flow.
-      navigate(`/studio/${encodeURIComponent(result.name)}?expose=1`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Import failed');
+      const msg = err instanceof Error ? err.message : 'Import failed';
+      // Surface upstream HTTP status codes (e.g. 401 Unauthorized) as a
+      // friendlier toast. Falls back to the raw message when no status is
+      // present in the error text.
+      const statusMatch = /\b(\d{3})\b/.exec(msg);
+      const status = statusMatch ? Number(statusMatch[1]) : null;
+      if (status === 401) {
+        toast.error('CivitAI download failed', {
+          description: '401 Unauthorized. The model may require an API token or a logged-in session.',
+        });
+      } else if (status && status >= 400) {
+        toast.error('CivitAI download failed', {
+          description: `${status} — ${msg}`,
+        });
+      } else {
+        toast.error('CivitAI import failed', { description: msg });
+      }
     } finally {
       setImporting(false);
     }
@@ -458,9 +572,12 @@ function CivitaiTemplateCardInner({ item, onStagedImport }: CivitaiTemplateCardP
       <div className="aspect-video shrink-0 relative flex items-center justify-center overflow-hidden bg-slate-100">
         {thumb ? (
           <img
-            src={thumb}
+            src={imgProxy(thumb, 320)}
             alt={item.name}
+            width={320}
+            height={180}
             loading="lazy"
+            decoding="async"
             className="w-full h-full object-cover"
             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
           />
@@ -484,46 +601,93 @@ function CivitaiTemplateCardInner({ item, onStagedImport }: CivitaiTemplateCardP
         <h3 className="font-semibold text-sm text-gray-900 mb-1 line-clamp-1" title={item.name}>
           {item.name}
         </h3>
-        <p className="text-[11px] text-slate-500 mb-2 flex items-center gap-2 flex-wrap">
-          {creator && <span>by {creator}</span>}
-          {typeof downloads === 'number' && <span>{downloads.toLocaleString()} dl</span>}
-          {primaryVersion?.baseModel && (
-            <span className="badge-pill badge-slate !text-[10px]">{primaryVersion.baseModel}</span>
+        <div className="flex items-center justify-between gap-2 mb-2">
+          {creator ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-normal text-slate-500 ring-1 ring-inset ring-slate-200/70 max-w-[60%]"
+              title={creator}
+            >
+              <UserIcon className="w-2.5 h-2.5 shrink-0" />
+              <span className="truncate">{creator}</span>
+            </span>
+          ) : <span />}
+          {typeof downloads === 'number' && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-normal text-slate-500 ring-1 ring-inset ring-slate-200/70"
+              title={`${downloads.toLocaleString()} downloads`}
+            >
+              <Download className="w-2.5 h-2.5" />
+              {formatCompact(downloads)}
+            </span>
           )}
-        </p>
-        {error && (
-          <p className="text-[11px] text-rose-600 rounded-md bg-rose-50 border border-rose-100 px-2 py-1 mb-2">
-            {error}
-          </p>
-        )}
-        <div className="mt-auto flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleImport}
-            disabled={importing}
-            className="btn-primary flex-1 justify-center"
-          >
-            {importing ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : imported ? (
-              <Check className="w-3.5 h-3.5" />
-            ) : (
-              <FileJson className="w-3.5 h-3.5" />
-            )}
-            {importing ? 'Importing…' : imported ? 'Imported' : 'Import as template'}
-          </button>
-          <a
-            href={pageUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-secondary"
-            aria-label="Open on CivitAI"
-            title="Open on civitai.com"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-          </a>
         </div>
       </div>
+      {/* Footer — icon-only button group, right-aligned. */}
+      <div className="border-t border-slate-200 p-3 flex justify-end">
+        <div className="btn-group">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={handleImport}
+                disabled={importing}
+                className="btn-primary"
+                aria-label={importing ? 'Importing' : imported ? 'Imported' : 'Import workflow'}
+              >
+                {importing ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : imported ? (
+                  <Check className="w-3.5 h-3.5" />
+                ) : (
+                  <FileJson className="w-3.5 h-3.5" />
+                )}
+                {importing ? 'Importing…' : imported ? 'Imported' : 'Import'}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{importing ? 'Staging this civitai workflow…' : imported ? 'Already imported' : 'Stage this civitai workflow for review'}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setDescOpen(true)}
+                aria-label="Description"
+              >
+                <Info className="w-3.5 h-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Description</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <a
+                href={pageUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary"
+                aria-label="Open on civitai.com"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </TooltipTrigger>
+            <TooltipContent>Open on civitai.com</TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+      <DescriptionModal
+        open={descOpen}
+        onClose={() => setDescOpen(false)}
+        title={item.name}
+        description={item.description ?? undefined}
+        tags={item.tags}
+        civitaiMeta={{
+          modelId: item.id,
+          originalUrl: pageUrl,
+          description: item.description ?? undefined,
+          tags: item.tags,
+        }}
+      />
     </article>
   );
 }

@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useApp } from '../context/AppContext';
 import { useNavigate } from 'react-router-dom';
 import {
   Download, Trash2, X,
@@ -13,16 +14,7 @@ import Pagination from '../components/Pagination';
 import PageSubbar from '../components/PageSubbar';
 import GalleryTile from '../components/GalleryTile';
 import GalleryDetailModal from '../components/GalleryDetailModal';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '../components/ui/alert-dialog';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Checkbox } from '../components/ui/checkbox';
 
@@ -70,6 +62,14 @@ export default function Gallery() {
   );
   const paged = usePaginated<GalleryItem>(fetcher, { deps: [filter, sortBy] });
   const { items: pageItems, refetch } = paged;
+
+  // Refetch when a generation completes. The backend appends the row + emits
+  // a `gallery` WS broadcast; AppContext surfaces that as an updated
+  // `galleryTotal` which we watch here.
+  const { galleryTotal } = useApp();
+  useEffect(() => {
+    void refetch();
+  }, [galleryTotal, refetch]);
 
   const filteredGallery = useMemo(() => {
     if (!onlyFavorites) return pageItems;
@@ -425,59 +425,30 @@ export default function Gallery() {
         );
       })()}
 
-      {/* Delete confirm (AlertDialog) — backs both per-item + bulk flows. */}
-      <AlertDialog
+      {/* Delete confirm — backs both per-item + bulk flows. */}
+      <ConfirmDialog
         open={pendingDelete !== null}
-        onOpenChange={(open) => { if (!open && !deleting) setPendingDelete(null); }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {pendingCount === 1 ? 'Delete 1 item?' : `Delete ${pendingCount} items?`}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              Files on disk are permanently removed. This cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => { e.preventDefault(); void runDelete(); }}
-              disabled={deleting}
-              className="bg-red-600 hover:bg-red-700 text-white"
-            >
-              {deleting ? 'Deleting…' : 'Delete'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onClose={() => { if (!deleting) setPendingDelete(null); }}
+        title={pendingCount === 1 ? 'Delete 1 item?' : `Delete ${pendingCount} items?`}
+        description="Files on disk are permanently removed. This cannot be undone."
+        confirmLabel={deleting ? 'Deleting…' : 'Delete'}
+        confirmTone="danger"
+        busy={deleting}
+        onConfirm={runDelete}
+      />
 
       {/* Wave F: confirm before pulling ComfyUI history — the warning
           about resurrected-deletes matches the service's INSERT OR IGNORE
           semantics. */}
-      <AlertDialog
+      <ConfirmDialog
         open={importConfirmOpen}
-        onOpenChange={(open) => { if (!open && !importing) setImportConfirmOpen(false); }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Import from ComfyUI history?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Pull generated items from ComfyUI's history into your gallery?
-              Items you've previously deleted in Studio may reappear.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={importing}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => { e.preventDefault(); void runImport(); }}
-              disabled={importing}
-            >
-              {importing ? 'Importing…' : 'Import'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onClose={() => { if (!importing) setImportConfirmOpen(false); }}
+        title="Import from ComfyUI history?"
+        description="Pull generated items from ComfyUI's history into your gallery? Items you've previously deleted in Studio may reappear."
+        confirmLabel={importing ? 'Importing…' : 'Import'}
+        busy={importing}
+        onConfirm={runImport}
+      />
     </>
   );
 }

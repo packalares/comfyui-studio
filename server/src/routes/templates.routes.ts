@@ -12,41 +12,12 @@ import * as settings from '../services/settings.js';
 import { env } from '../config/env.js';
 import { sendError } from '../middleware/errors.js';
 import { parsePageQuery, paginate } from '../lib/pagination.js';
-import * as templateRepo from '../lib/db/templates.repo.js';
-import type { TemplateData } from '../services/templates/index.js';
+import { attachReady } from './templates.overlay.js';
 import { handleImportCivitai, handleDeleteTemplate } from './templates.importCivitai.js';
 
 const COMFYUI_URL = env.COMFYUI_URL;
 
 const router = Router();
-
-function loadReadinessMap(): Map<string, boolean> {
-  // Snapshot every row's installed flag once so we don't run a per-template
-  // SELECT. For a few thousand templates this stays cheap.
-  const map = new Map<string, boolean>();
-  try {
-    const { items, total } = templateRepo.listPaginated({ ready: 'all' }, 1, 100_000);
-    for (const row of items) map.set(row.name, row.installed);
-    if (total > items.length) {
-      // Paranoia: if somehow more than 100k rows exist, fall back to
-      // per-name lookups for the overflow.
-      /* istanbul ignore next */
-      return map;
-    }
-  } catch {
-    /* readiness unavailable => empty map => ready:false for all */
-  }
-  return map;
-}
-
-interface TemplateWithReady extends TemplateData {
-  ready: boolean;
-}
-
-function attachReady(list: TemplateData[]): TemplateWithReady[] {
-  const readyMap = loadReadinessMap();
-  return list.map((t) => ({ ...t, ready: readyMap.get(t.name) ?? false }));
-}
 
 // Reject any asset path segment containing '..' so a crafted request can't
 // traverse outside of ComfyUI's templates directory even if the upstream's

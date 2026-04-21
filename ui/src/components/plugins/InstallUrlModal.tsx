@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Loader2, X } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
+import AppModal from '../AppModal';
 
 interface Props {
   open: boolean;
@@ -42,8 +43,6 @@ export default function InstallUrlModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!open) return null;
-
   const submit = async () => {
     setError(null);
     const trimmed = url.trim();
@@ -69,52 +68,15 @@ export default function InstallUrlModal({
   };
 
   return (
-    <div className="modal-overlay">
-      <div className="modal-backdrop animate-in fade-in-0" onClick={busy ? undefined : onClose} />
-      <div className="relative z-10 w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-lg p-5 animate-in zoom-in-95 fade-in-0">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-base font-semibold text-slate-900">{title}</h3>
-          <button onClick={onClose} className="btn-icon" aria-label="Close" disabled={busy}>
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-        <div className="space-y-3">
-          <div>
-            <label className="field-label mb-1.5 block">{urlLabel}</label>
-            <div className="field-wrap">
-              <input
-                type="url"
-                className="field-input"
-                placeholder={urlPlaceholder}
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                disabled={busy}
-                autoFocus
-              />
-            </div>
-          </div>
-          {showBranch && (
-            <div>
-              <label className="field-label mb-1.5 block">Branch (optional)</label>
-              <div className="field-wrap">
-                <input
-                  type="text"
-                  className="field-input"
-                  placeholder="main"
-                  value={branch}
-                  onChange={(e) => setBranch(e.target.value)}
-                  disabled={busy}
-                />
-              </div>
-            </div>
-          )}
-          {error && (
-            <p className="text-xs text-rose-600 rounded-md bg-rose-50 border border-rose-100 px-2 py-1.5">
-              {error}
-            </p>
-          )}
-        </div>
-        <div className="mt-5 flex justify-end gap-2">
+    <AppModal
+      open={open}
+      onClose={onClose}
+      title={title}
+      size="sm"
+      scrollBody={false}
+      disableClose={busy}
+      footer={
+        <div className="ml-auto flex items-center gap-2">
           <button onClick={onClose} className="btn-secondary" disabled={busy}>
             Cancel
           </button>
@@ -123,7 +85,44 @@ export default function InstallUrlModal({
             Install
           </button>
         </div>
+      }
+    >
+      <div className="space-y-3">
+        <div>
+          <label className="field-label mb-1.5 block">{urlLabel}</label>
+          <div className="field-wrap">
+            <input
+              type="url"
+              className="field-input"
+              placeholder={urlPlaceholder}
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              disabled={busy}
+              autoFocus
+            />
+          </div>
+        </div>
+        {showBranch && (
+          <div>
+            <label className="field-label mb-1.5 block">Branch (optional)</label>
+            <div className="field-wrap">
+              <input
+                type="text"
+                className="field-input"
+                placeholder="main"
+                value={branch}
+                onChange={(e) => setBranch(e.target.value)}
+                disabled={busy}
+              />
+            </div>
+          </div>
+        )}
+        {error && (
+          <p className="text-xs text-rose-600 rounded-md bg-rose-50 border border-rose-100 px-2 py-1.5">
+            {error}
+          </p>
+        )}
       </div>
-    </div>
+    </AppModal>
   );
 }

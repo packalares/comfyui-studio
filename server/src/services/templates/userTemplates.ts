@@ -16,7 +16,8 @@ import { atomicWrite, safeResolve } from '../../lib/fs.js';
 import { paths } from '../../config/paths.js';
 import { logger } from '../../lib/logger.js';
 import { generateFormInputs } from './templates.formInputs.js';
-import type { TemplateData, RawTemplate, TemplatePluginEntry } from './types.js';
+import { readMeta, writeMeta, deleteMeta } from './userTemplatesMeta.js';
+import type { TemplateData, RawTemplate, TemplatePluginEntry, TemplateCivitaiMeta } from './types.js';
 
 const DIR = (): string => paths.userTemplatesDir;
 
@@ -76,6 +77,12 @@ export interface SaveWorkflowInput {
    * card preview (via the existing `template.thumbnail[0]` render).
    */
   thumbnail?: string[];
+  /**
+   * Optional CivitAI origin metadata. Persisted as a `meta.json` sidecar
+   * next to the workflow so the listing endpoint can surface it on the
+   * TemplateCard without reparsing every workflow document.
+   */
+  civitaiMeta?: TemplateCivitaiMeta;
 }
 
 export function saveUserWorkflow(input: SaveWorkflowInput): TemplateData {
@@ -118,6 +125,7 @@ export function saveUserWorkflow(input: SaveWorkflowInput): TemplateData {
     openSource: true,
     date: raw.date,
   };
+  if (input.civitaiMeta) data.civitaiMeta = input.civitaiMeta;
   try {
     atomicWrite(filePath(slug), JSON.stringify({ ...data, sourceUrl: input.sourceUrl }, null, 2), {
       mode: 0o644, dirMode: 0o700,
@@ -126,13 +134,17 @@ export function saveUserWorkflow(input: SaveWorkflowInput): TemplateData {
     logger.error('user workflow save failed', { slug, error: String(err) });
     throw err instanceof Error ? err : new Error(String(err));
   }
+  if (input.civitaiMeta) writeMeta(slug, input.civitaiMeta);
   return data;
 }
 
 export function listUserWorkflows(): TemplateData[] {
   try {
     if (!fs.existsSync(DIR())) return [];
-    const files = fs.readdirSync(DIR()).filter((f) => f.endsWith('.json'));
+    // Filter out the `.meta.json` sidecars so they aren't parsed as templates.
+    const files = fs.readdirSync(DIR()).filter(
+      (f) => f.endsWith('.json') && !f.endsWith('.meta.json'),
+    );
     const out: TemplateData[] = [];
     for (const f of files) {
       try {
@@ -140,6 +152,10 @@ export function listUserWorkflows(): TemplateData[] {
         const raw = fs.readFileSync(abs, 'utf8');
         const parsed = JSON.parse(raw) as TemplateData;
         // Strip any `sourceUrl` sidecar that's not part of TemplateData.
+        // Overlay civitaiMeta from the meta sidecar when present (sidecar
+        // wins over any field embedded in the template JSON).
+        const meta = readMeta(parsed.name);
+        if (meta) parsed.civitaiMeta = meta;
         out.push(parsed);
       } catch (err) {
         logger.warn('user workflow load failed', { file: f, error: String(err) });
@@ -157,6 +173,7 @@ export function deleteUserWorkflow(name: string): boolean {
     const abs = filePath(name);
     if (!fs.existsSync(abs)) return false;
     fs.rmSync(abs, { force: true });
+    deleteMeta(name);
     return true;
   } catch (err) {
     logger.error('user workflow delete failed', { name, error: String(err) });

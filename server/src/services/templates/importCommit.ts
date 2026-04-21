@@ -13,7 +13,7 @@ import { extractDeps } from './depExtract.js';
 import { resolutionsToRepoKeys } from './extractDepsAsync.js';
 import { extractWorkflowIo, deriveMediaType, mediaTypeToStudioCategory } from './metadata.js';
 import { saveUserWorkflow, slugifyTemplateName } from './userTemplates.js';
-import { consumeStaging, type StagedImport } from './importStaging.js';
+import { consumeStaging, getStaging, type StagedImport, type StagedWorkflowEntry } from './importStaging.js';
 import { rewriteLoadImageReferences } from './rewriteLoadImage.js';
 import type { TemplatePluginEntry } from './types.js';
 
@@ -27,6 +27,54 @@ export interface CommitSelection {
 export interface CommitResult {
   imported: string[];
   imagesCopied: string[];
+}
+
+/**
+ * Wave L: thrown when a commit can't proceed because one or more selected
+ * workflows still have unresolved dependencies. The route layer maps this
+ * to 409 Conflict with `unresolvedModels` + `unresolvedPlugins` arrays in
+ * the JSON body so the UI can surface the exact rows that block.
+ */
+export class CommitBlockedError extends Error {
+  readonly unresolvedModels: string[];
+  readonly unresolvedPlugins: string[];
+  constructor(unresolvedModels: string[], unresolvedPlugins: string[]) {
+    super('Import blocked: unresolved dependencies.');
+    this.unresolvedModels = unresolvedModels;
+    this.unresolvedPlugins = unresolvedPlugins;
+    this.name = 'CommitBlockedError';
+  }
+}
+
+/**
+ * Validate that every selected workflow's models are resolved. A model is
+ * "covered" if it appears in either `resolvedModels` (user-paste) or
+ * `autoResolvedModels` (staging-time auto-resolve). Missing models block
+ * commit — they'd cause a runtime error the user can't recover from in
+ * Studio.
+ *
+ * Plugins are NOT blocking. Manager is often offline in dev, and a locally-
+ * installed plugin may carry no aux_id in the workflow (e.g. legacy saves),
+ * both of which produce empty resolver matches even though the plugin is
+ * fine. The unresolved list is still surfaced on the error for the frontend
+ * to show as a warning in the review step, but commit proceeds.
+ */
+export function validateCommitReady(
+  staged: StagedImport, indices: number[],
+): void {
+  const unresolvedModels = new Set<string>();
+  for (const idx of indices) {
+    const wf: StagedWorkflowEntry | undefined = staged.workflows[idx];
+    if (!wf) continue;
+    const covered = new Set<string>();
+    for (const fn of Object.keys(wf.resolvedModels ?? {})) covered.add(fn);
+    for (const fn of Object.keys(wf.autoResolvedModels ?? {})) covered.add(fn);
+    for (const fn of wf.models ?? []) {
+      if (!covered.has(fn)) unresolvedModels.add(fn);
+    }
+  }
+  if (unresolvedModels.size === 0) return;
+  throw new CommitBlockedError(Array.from(unresolvedModels).sort(), []);
 }
 
 function inputDir(): string {
@@ -63,6 +111,14 @@ function copyImagesFor(staged: StagedImport, slug: string, imagesCopy: boolean):
  * retry, since image bytes are dropped along with the row.
  */
 export async function commitStaging(id: string, selection: CommitSelection): Promise<CommitResult> {
+  // Peek the staging row first so we can throw a typed CommitBlockedError
+  // BEFORE consuming it. If validation passes we consume + commit; on
+  // block we leave the row in place so the user can resolve the missing
+  // rows and retry without re-uploading the zip.
+  const peek = getStaging(id);
+  if (!peek) throw new Error('Staging not found or expired');
+  validateCommitReady(peek, selection.workflowIndices);
+
   const staged = consumeStaging(id);
   if (!staged) throw new Error('Staging not found or expired');
 
@@ -122,6 +178,7 @@ export async function commitStaging(id: string, selection: CommitSelection): Pro
       models: deps.models,
       plugins: pluginEntries,
       thumbnail: thumbnails,
+      civitaiMeta: staged.civitaiMeta,
     });
     imported.push(saved.name);
     // Persist the template_plugins edges so readiness + the
@@ -130,21 +187,23 @@ export async function commitStaging(id: string, selection: CommitSelection): Pro
     try {
       const repo = await import('../../lib/db/templates.repo.js');
       const existing = repo.getTemplate(saved.name);
-      if (existing) {
-        repo.upsertTemplate(
-          {
-            name: saved.name,
-            displayName: existing.displayName,
-            category: existing.category ?? saved.category ?? null,
-            description: existing.description ?? saved.description ?? null,
-            source: existing.source ?? 'open',
-            workflow_json: existing.workflow_json ?? null,
-            tags_json: existing.tags_json ?? JSON.stringify(saved.tags ?? []),
-            installed: existing.installed,
-          },
-          { models: deps.models, plugins: pluginRepoKeys },
-        );
-      }
+      // Existing branch preserves prior source/workflow_json/installed so an
+      // upstream->user rename doesn't reset readiness. New branch inserts a
+      // full row for user-imported workflows so install-missing-plugins and
+      // the readiness recompute can find them.
+      repo.upsertTemplate(
+        {
+          name: saved.name,
+          displayName: existing?.displayName ?? saved.title ?? saved.name,
+          category: existing?.category ?? saved.category ?? null,
+          description: existing?.description ?? saved.description ?? null,
+          source: existing?.source ?? 'open',
+          workflow_json: existing?.workflow_json ?? JSON.stringify(saved.workflow ?? {}),
+          tags_json: existing?.tags_json ?? JSON.stringify(saved.tags ?? []),
+          installed: existing?.installed ?? false,
+        },
+        { models: deps.models, plugins: pluginRepoKeys },
+      );
     } catch (err) {
       logger.warn('import commit: template_plugins edge write skipped', {
         name: saved.name, error: err instanceof Error ? err.message : String(err),

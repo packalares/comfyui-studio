@@ -29,6 +29,11 @@ export interface PageEnvelope<T> {
   pageSize: number;
   total: number;
   hasMore: boolean;
+  /**
+   * Optional opaque continuation cursor. Only populated by cursor-based
+   * upstreams (CivitAI search). Plain page-based endpoints omit it.
+   */
+  nextCursor?: string;
 }
 
 function buildPagedQuery(params: { page: number; pageSize: number; extra?: Record<string, string> }): string {
@@ -346,6 +351,25 @@ export const api = {
 
   getComfyUILogs: () => fetchJson<{ logs: string }>('/launcher/comfyui/logs'),
 
+  /**
+   * POST /comfyui/interrupt — stop the currently-executing prompt. Proxies
+   * ComfyUI's `POST /interrupt`. Returns `{ ok: true }` on upstream 2xx;
+   * throws on non-ok so the caller can toast the failure.
+   */
+  interruptExecution: () =>
+    fetchJson<{ ok: true }>('/comfyui/interrupt', { method: 'POST' }),
+
+  /**
+   * POST /comfyui/queue/delete — remove a pending prompt from ComfyUI's
+   * queue by id. Body `{ promptId }`. Proxies ComfyUI's `POST /queue` with
+   * `{ delete: [promptId] }`.
+   */
+  cancelQueuedPrompt: (promptId: string) =>
+    fetchJson<{ ok: true }>('/comfyui/queue/delete', {
+      method: 'POST',
+      body: JSON.stringify({ promptId }),
+    }),
+
   resetComfyUI: (mode: 'normal' | 'hard' = 'normal') =>
     fetchJson<{ success: boolean; message: string; logs?: string[] }>('/launcher/comfyui/reset', {
       method: 'POST',
@@ -567,6 +591,31 @@ export const api = {
     ),
 
   /**
+   * Explore Feed Latest — WORKFLOW listings, not models. Hits
+   * `/civitai/latest-workflows` (civitai API `types=Workflows&sort=Newest`).
+   */
+  getCivitaiLatest: (page: number, pageSize: number, cursor?: string) =>
+    fetchJson<PageEnvelope<CivitaiModelSummary>>(
+      `/civitai/latest-workflows${buildCivitaiPageQuery({ page, pageSize, cursor })}`,
+    ),
+
+  /** Explore Feed Hot — workflow listings, most-downloaded last month. */
+  getCivitaiHot: (page: number, pageSize: number, cursor?: string) =>
+    fetchJson<PageEnvelope<CivitaiModelSummary>>(
+      `/civitai/hot-workflows${buildCivitaiPageQuery({ page, pageSize, cursor })}`,
+    ),
+
+  /**
+   * Explore Feed Search — workflow search. Uses `/civitai/search-workflows`
+   * which filters civitai's /models endpoint by `types=Workflows`. CivitAI
+   * requires cursor-based pagination when `query=` is set.
+   */
+  searchCivitai: (query: string, cursor?: string, pageSize = 24) =>
+    fetchJson<PageEnvelope<CivitaiModelSummary>>(
+      `/civitai/search-workflows${buildCivitaiPageQuery({ pageSize, cursor, query })}`,
+    ),
+
+  /**
    * GET /civitai/models/search — free-text search over civitai models.
    * CivitAI requires cursor-based pagination when `query=` is present, so
    * this method accepts `cursor` from a previous envelope's `nextCursor`.
@@ -616,7 +665,7 @@ export const api = {
    *     so the UI can render the review modal.
    */
   importCivitaiWorkflow: (workflowVersionId: string | number) =>
-    fetchJson<CivitaiDirectResponse | CivitaiStagedResponse>('/templates/import-civitai', {
+    fetchJson<CivitaiStagedResponse>('/templates/import-civitai', {
       method: 'POST',
       body: JSON.stringify({ workflowVersionId }),
     }),
@@ -687,6 +736,26 @@ export const api = {
       let detail = '';
       try { detail = (await res.json())?.error ?? ''; } catch { /* ignore */ }
       throw new Error(detail || `Paste import failed: ${res.status} ${res.statusText}`);
+    }
+    return res.json();
+  },
+
+  /**
+   * POST /templates/import/civitai — stage a workflow from a CivitAI URL.
+   * Accepts any of the three CivitAI URL shapes (model page, model+version,
+   * or api/download/models). Returns the same staging manifest shape as
+   * `importWorkflowFromGithub`.
+   */
+  importWorkflowFromCivitai: async (url: string): Promise<StagedImportManifest> => {
+    const res = await fetch(`${BASE}/templates/import/civitai`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    if (!res.ok) {
+      let detail = '';
+      try { detail = (await res.json())?.error ?? ''; } catch { /* ignore */ }
+      throw new Error(detail || `CivitAI import failed: ${res.status} ${res.statusText}`);
     }
     return res.json();
   },

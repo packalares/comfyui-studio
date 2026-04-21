@@ -42,6 +42,21 @@ export async function getQueue() {
   };
 }
 
+/** Same `/api/queue` call as `getQueue` but returns the set of active prompt
+ *  ids (running + pending). Used by `gallery.sentry` to detect completions. */
+export async function getQueuePromptIds(): Promise<Set<string>> {
+  const data = await fetchComfyUI<{
+    queue_running: unknown[]; queue_pending: unknown[];
+  }>('/api/queue');
+  const ids = new Set<string>();
+  for (const entry of [...(data.queue_running ?? []), ...(data.queue_pending ?? [])]) {
+    if (!Array.isArray(entry)) continue;
+    const pid = entry[1];
+    if (typeof pid === 'string' && pid.length > 0) ids.add(pid);
+  }
+  return ids;
+}
+
 export async function getHistory(maxItems = 50) {
   return fetchComfyUI(`/api/history?max_items=${maxItems}`);
 }
@@ -64,6 +79,25 @@ export async function getHistoryForPrompt(
     outputs?: Record<string, Record<string, unknown>>;
   }>>(`/api/history/${promptId}`);
   return data[promptId] ?? null;
+}
+
+/**
+ * Remove one or more entries from ComfyUI's `/api/history` by prompt id.
+ * Used by gallery delete so an item wiped in Studio doesn't get revived the
+ * next time the user hits Import-from-ComfyUI. Swallows errors — the gallery
+ * row + file are already gone, so a failed upstream delete is non-fatal.
+ */
+export async function deleteHistoryPrompts(promptIds: string[]): Promise<void> {
+  if (promptIds.length === 0) return;
+  try {
+    await fetch(`${COMFYUI_URL}/api/history`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ delete: promptIds }),
+    });
+  } catch {
+    /* best-effort — see fn docstring */
+  }
 }
 
 export async function submitPrompt(

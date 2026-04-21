@@ -22,6 +22,8 @@ import {
   entryNameIsSafe,
 } from '../../../src/services/templates/importStaging.js';
 import { commitStaging } from '../../../src/services/templates/importCommit.js';
+import * as catalog from '../../../src/services/catalog.js';
+import { seedObjectInfoCache } from '../../../src/services/workflow/objectInfo.js';
 
 function tinyWorkflow(suffix: string): Record<string, unknown> {
   return {
@@ -125,6 +127,11 @@ describe('commitStaging partial selection', () => {
     // Divert user-workflow writes + ComfyUI/input writes into the tmp root.
     process.env.HOME = tmpRoot;
     process.env.COMFYUI_PATH = path.join(tmpRoot, 'comfy');
+    // Wave L: the commit-block validator treats zero-match plugin entries
+    // as blockers. Seed object_info so ComfyUI's built-in class types
+    // (UNETLoader, SaveImage) are filtered out of plugin resolution and
+    // the staged workflow ends up with an empty `plugins[]`.
+    seedObjectInfoCache({ UNETLoader: {}, SaveImage: {} });
   });
 
   afterEach(() => {
@@ -140,6 +147,17 @@ describe('commitStaging partial selection', () => {
       'a.json': JSON.stringify(tinyWorkflow('a')),
       'b.json': JSON.stringify(tinyWorkflow('b')),
       'preview.png': new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+    });
+    // Wave L: pre-seed catalog for the model deps tinyWorkflow declares so
+    // the auto-resolve pass covers them and the commit-block validator
+    // lets this commit through.
+    catalog.upsertModel({
+      filename: 'm-a.safetensors', name: 'm-a.safetensors', type: 'checkpoints',
+      save_path: 'checkpoints', url: 'https://example.com/m-a.safetensors', source: 'test',
+    });
+    catalog.upsertModel({
+      filename: 'm-b.safetensors', name: 'm-b.safetensors', type: 'checkpoints',
+      save_path: 'checkpoints', url: 'https://example.com/m-b.safetensors', source: 'test',
     });
     const staged = await stageFromZip(zipBuf, { source: 'upload' });
     const result = await commitStaging(staged.id, {

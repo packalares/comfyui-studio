@@ -13,7 +13,7 @@ import type {
 import { api } from '../services/comfyui';
 import { SystemProvider, useSystem } from './SystemContext';
 import { CatalogProvider, useCatalog } from './CatalogContext';
-import { JobsProvider, useJobs } from './JobsContext';
+import { JobsProvider, useJobs, type LiveProgress } from './JobsContext';
 import { SettingsProvider, useSettings } from './SettingsContext';
 
 export { useSystem } from './SystemContext';
@@ -38,6 +38,8 @@ interface AppContextType {
   hfTokenConfigured: boolean;
   civitaiTokenConfigured: boolean;
   downloads: Record<string, DownloadState>;
+  progress: LiveProgress | null;
+  activePromptId: string | null;
   refreshTemplates: () => Promise<void>;
   refreshSystem: () => Promise<void>;
   refreshGallery: () => Promise<void>;
@@ -47,6 +49,8 @@ interface AppContextType {
     inputs: Record<string, unknown>,
     advancedSettings?: Record<string, { proxyIndex: number; value: unknown }>,
   ) => Promise<void>;
+  cancelRunning: () => Promise<void>;
+  cancelPending: (promptId: string) => Promise<void>;
   setCurrentJob: React.Dispatch<React.SetStateAction<GenerationJob | null>>;
 }
 
@@ -81,6 +85,8 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
   const {
     _setQueueStatus,
     _setDownloads,
+    _setProgress,
+    _setActivePromptId,
     _activePromptIdRef,
     _fetchOutputFromHistory,
     setCurrentJob,
@@ -145,14 +151,33 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
 
           if (msg.type === 'progress' && msg.data?.value !== undefined && msg.data?.max !== undefined) {
             const progress = (msg.data.value / msg.data.max) * 100;
+            const pid = typeof msg.data?.prompt_id === 'string' ? msg.data.prompt_id : promptId;
+            const nodeId = typeof msg.data?.node === 'string' ? msg.data.node : '';
+            _setProgress({
+              nodeId,
+              value: Number(msg.data.value),
+              max: Number(msg.data.max),
+              promptId: pid ?? null,
+            });
+            if (pid) _setActivePromptId(pid);
             setCurrentJob(prev => {
               if (!prev || prev.status === 'completed') return prev;
               return { ...prev, status: 'running', progress };
             });
+          } else if (msg.type === 'execution_start') {
+            const pid = msg.data?.prompt_id;
+            if (typeof pid === 'string' && pid.length > 0) {
+              _setActivePromptId(pid);
+            }
           } else if (msg.type === 'executing' && msg.data?.node === null) {
+            // node === null signals "all nodes for this prompt are done".
+            _setProgress(null);
+            _setActivePromptId(null);
             if (promptId) {
               setTimeout(() => _fetchOutputFromHistory(promptId), 500);
             }
+          } else if (msg.type === 'executing' && typeof msg.data?.prompt_id === 'string') {
+            _setActivePromptId(msg.data.prompt_id);
           } else if (msg.type === 'executed' && msg.data?.prompt_id === promptId) {
             if (promptId) {
               setTimeout(() => _fetchOutputFromHistory(promptId), 500);
@@ -165,12 +190,24 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
                 setTimeout(() => _fetchOutputFromHistory(promptId), 500);
               }
             }
-          } else if (msg.type === 'execution_complete') {
-            if (promptId) {
-              setTimeout(() => _fetchOutputFromHistory(promptId), 500);
+          } else if (msg.type === 'execution_success' || msg.type === 'execution_complete') {
+            // Terminal states — always clear live progress + active prompt.
+            // The older match-on-promptId gate missed cases where the ref
+            // had fallen out of sync with the setter (ref is only updated
+            // by JobsContext's own submit path, not by our WS handler), so
+            // the card could hang at 100% forever. We clear unconditionally
+            // and let the next `executing`/`progress` burst re-hydrate.
+            _setProgress(null);
+            _setActivePromptId(null);
+            const donePid =
+              typeof msg.data?.prompt_id === 'string' ? msg.data.prompt_id : promptId;
+            if (donePid) {
+              setTimeout(() => _fetchOutputFromHistory(donePid), 500);
             }
           } else if (msg.type === 'error' || msg.type === 'execution_error' || msg.type === 'execution_interrupted') {
             const errMsg = (msg.data as { exception_message?: string })?.exception_message;
+            _setProgress(null);
+            _setActivePromptId(null);
             setCurrentJob(prev => prev ? { ...prev, status: 'failed', error: errMsg } : null);
           } else if (msg.type === 'launcher-status') {
             const status = msg.data as LauncherStatus;
@@ -180,7 +217,17 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
               refreshSystem();
             }
           } else if (msg.type === 'queue') {
-            _setQueueStatus(msg.data as QueueStatus);
+            const q = msg.data as QueueStatus;
+            _setQueueStatus(q);
+            // Belt-and-suspenders for the running-task card: if ComfyUI says
+            // the queue is fully idle, there's definitionally nothing to
+            // track. Clear progress + activePromptId so the card hides even
+            // when we miss the terminal `execution_success`/`executing`-
+            // with-node:null events.
+            if ((q?.queue_running ?? 0) === 0 && (q?.queue_pending ?? 0) === 0) {
+              _setProgress(null);
+              _setActivePromptId(null);
+            }
           } else if (msg.type === 'gallery') {
             const data = msg.data as { total: number; recent: GalleryItem[] };
             _setGalleryTotal(data.total);
@@ -278,6 +325,8 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setGalleryTotal,
     _setRecentGallery,
     _setDownloads,
+    _setProgress,
+    _setActivePromptId,
     _setMonitorStats,
     _setSystemStats,
     _systemStatsRef,
@@ -302,11 +351,15 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       hfTokenConfigured: system.hfTokenConfigured,
       civitaiTokenConfigured: system.civitaiTokenConfigured,
       downloads: jobs.downloads,
+      progress: jobs.progress,
+      activePromptId: jobs.activePromptId,
       refreshTemplates: catalog.refreshTemplates,
       refreshSystem,
       refreshGallery: catalog.refreshGallery,
       updateSettings: settings.updateSettings,
       submitGeneration: jobs.submitGeneration,
+      cancelRunning: jobs.cancelRunning,
+      cancelPending: jobs.cancelPending,
       setCurrentJob: jobs.setCurrentJob,
     }),
     [
@@ -327,7 +380,11 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       jobs.queueStatus,
       jobs.currentJob,
       jobs.downloads,
+      jobs.progress,
+      jobs.activePromptId,
       jobs.submitGeneration,
+      jobs.cancelRunning,
+      jobs.cancelPending,
       jobs.setCurrentJob,
       settings.settings,
       settings.updateSettings,

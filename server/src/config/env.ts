@@ -134,6 +134,14 @@ const LAUNCHER = {
    * without it. Never forwarded to the client.
    */
   HUGGINGFACE_TOKEN: process.env.HUGGINGFACE_TOKEN ?? '',
+  /**
+   * Image-proxy allow-list. Hostnames (exact) or leading-dot suffixes
+   * (`.civitai.com` matches any subdomain) that the /api/img proxy will
+   * fetch from. Separator: comma. Same semantics as vite's `allowedHosts`.
+   */
+  IMG_PROXY_ALLOWED_HOSTS: (process.env.IMG_PROXY_ALLOWED_HOSTS
+    ?? 'civitai.com,.civitai.com,huggingface.co,.huggingface.co,cdn.huggingface.co,image.civitai.com,cdn.civitai.com,localhost,127.0.0.1')
+    .split(',').map((s) => s.trim()).filter(Boolean),
 } as const;
 
 export const env = { ...STUDIO, ...LAUNCHER } as const;
@@ -161,4 +169,14 @@ export function currentProcessEnv(): NodeJS.ProcessEnv {
  */
 export function currentSqliteOverride(): string | undefined {
   return process.env.STUDIO_SQLITE_PATH;
+}
+
+/**
+ * Wave L test-only toggle. The staging auto-resolve pass skips the
+ * HF / CivitAI search steps (3 + 4) in NODE_ENV=test unless this reads
+ * `'1'` so test runs don't hang on DNS lookups to huggingface.co. Read
+ * live (not at module init) so individual tests can opt in + out.
+ */
+export function autoResolveSearchEnabled(): boolean {
+  return process.env.STUDIO_AUTO_RESOLVE_SEARCH === '1';
 }

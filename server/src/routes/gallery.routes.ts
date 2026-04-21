@@ -18,6 +18,7 @@
 import { Router, type Request, type Response } from 'express';
 import * as gallery from '../services/gallery.service.js';
 import { submitPrompt } from '../services/comfyui.js';
+import { schedulePromptWatch } from '../services/gallery.sentry.js';
 import { parsePageQuery } from '../lib/pagination.js';
 import { randomizeSeeds, type ApiPrompt } from '../services/gallery.extract.js';
 import { logger } from '../lib/logger.js';
@@ -172,6 +173,9 @@ router.post(
     }
     try {
       const result = await submitPrompt(workflow as Record<string, unknown>);
+      // Belt-and-suspenders: poll history in case the WS event path misses
+      // the completion while ComfyUI restarts mid-run.
+      if (result.prompt_id) schedulePromptWatch(result.prompt_id);
       res.json({ promptId: result.prompt_id });
     } catch (err) {
       logger.warn('gallery regenerate submit failed', {

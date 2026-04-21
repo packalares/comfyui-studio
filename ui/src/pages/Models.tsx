@@ -15,6 +15,7 @@ import PageSubbar from '../components/PageSubbar';
 import DownloadsTab from '../components/DownloadsTab';
 import ModelRow, { type ModelRowDownload, type ModelRowItem } from '../components/ModelRow';
 import { formatBytes } from '../lib/utils';
+import { imgProxy } from '../lib/imgProxy';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Checkbox } from '../components/ui/checkbox';
 import {
@@ -693,16 +694,13 @@ export default function Models() {
                       const state = civitaiRowState[civ.id];
                       // Prefer the first image from the primary version for
                       // the row thumbnail — matches the card view's logic.
-                      // Also request a small civitai CDN variant so rows don't
-                      // pull multi-MB previews (civitai URLs carry a
-                      // `/width=NUMBER/` segment that resizes in-CDN).
+                      // Route through the backend proxy + md5 cache so rows
+                      // don't pull multi-MB previews off the civitai CDN.
                       let thumb: string | null = null;
                       outer: for (const v of civ.modelVersions || []) {
                         for (const img of v.images || []) {
                           if (img.url && (img.type || 'image') === 'image') {
-                            thumb = /\/width=\d+\//.test(img.url)
-                              ? img.url.replace(/\/width=\d+\//, '/width=96/')
-                              : img.url;
+                            thumb = imgProxy(img.url, 96) ?? null;
                             break outer;
                           }
                         }

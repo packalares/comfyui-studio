@@ -2,7 +2,7 @@
 // `services/templates/index.js`; the module re-exports everything the old
 // single-file templates.ts used to expose so router code stays unchanged.
 
-export type { TemplateData, FormInputData, TemplatePluginEntry } from './types.js';
+export type { TemplateData, FormInputData, TemplatePluginEntry, TemplateCivitaiMeta } from './types.js';
 export {
   loadTemplatesFromComfyUI,
   getTemplates,
@@ -44,6 +44,7 @@ export type {
   StagedImport,
   StagedImportManifest,
   StagedWorkflowEntry,
+  StagedCivitaiMeta,
   ImportSource,
 } from './importStaging.js';
 export { stageFromZip, stageFromJson } from './importZip.js';
@@ -52,8 +53,16 @@ export {
   stageFromPastedJson,
   normaliseGithubUrl,
 } from './importRemote.js';
-export { commitStaging } from './importCommit.js';
+export {
+  stageFromCivitaiUrl,
+  parseCivitaiTemplateUrl,
+  ImportCivitaiError,
+} from './importCivitaiTemplate.js';
+export type { ImportCivitaiErrorCode } from './importCivitaiTemplate.js';
+export { commitStaging, CommitBlockedError, validateCommitReady } from './importCommit.js';
 export type { CommitSelection, CommitResult } from './importCommit.js';
+export { autoResolveStagedImport, autoResolveWorkflowModels } from './autoResolveModels.js';
+export type { AutoResolvedModel, AutoResolveSource } from './autoResolveModels.js';
 export {
   extractWorkflowIo,
   deriveMediaType,

@@ -87,14 +87,33 @@ export function insert(item: GalleryRow, db: Database.Database = getDb()): void 
 export function appendFromHistory(
   item: GalleryRow, db: Database.Database = getDb(),
 ): boolean {
+  // Insert new row OR upgrade an existing one with metadata. The `executed`
+  // event path inserts rows with just the file shape (workflowJson/prompt
+  // text/seed/... are null). When `execution_success` later fires with
+  // full history data, we DO NOT want INSERT OR IGNORE to skip the update.
+  // Instead: COALESCE against existing values so nulls get filled in and
+  // previously-set fields are preserved.
   const info = db.prepare(`
-    INSERT OR IGNORE INTO gallery
+    INSERT INTO gallery
       (id, filename, subfolder, mediaType, createdAt, templateName,
        promptId, sizeBytes, url, type,
        workflowJson, promptText, negativeText, seed, model,
        sampler, steps, cfg, width, height)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      workflowJson = COALESCE(gallery.workflowJson, excluded.workflowJson),
+      promptText   = COALESCE(gallery.promptText,   excluded.promptText),
+      negativeText = COALESCE(gallery.negativeText, excluded.negativeText),
+      seed         = COALESCE(gallery.seed,         excluded.seed),
+      model        = COALESCE(gallery.model,        excluded.model),
+      sampler      = COALESCE(gallery.sampler,      excluded.sampler),
+      steps        = COALESCE(gallery.steps,        excluded.steps),
+      cfg          = COALESCE(gallery.cfg,          excluded.cfg),
+      width        = COALESCE(gallery.width,        excluded.width),
+      height       = COALESCE(gallery.height,       excluded.height),
+      templateName = COALESCE(gallery.templateName, excluded.templateName),
+      sizeBytes    = COALESCE(gallery.sizeBytes,    excluded.sizeBytes)
   `).run(
     item.id, item.filename, item.subfolder ?? '', item.mediaType,
     item.createdAt, item.templateName ?? null, item.promptId ?? null,

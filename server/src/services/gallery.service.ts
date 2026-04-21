@@ -18,7 +18,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { getGalleryItems, getHistoryForPrompt } from './comfyui.js';
+import { getGalleryItems, getHistoryForPrompt, deleteHistoryPrompts } from './comfyui.js';
 import type { GalleryItem } from '../contracts/generation.contract.js';
 import * as repo from '../lib/db/gallery.repo.js';
 import { logger } from '../lib/logger.js';
@@ -58,7 +58,62 @@ function emitGalleryUpdate(): void {
  * Returns the number of NEW rows written (0 when the files were already
  * recorded or when the history entry is missing).
  */
-export async function onExecutionComplete(promptId: string): Promise<number> {
+/**
+ * Per-node append driven by ComfyUI's `executed` event. The event payload
+ * carries `output: { images?: [...], gifs?: [...], audio?: [...], ... }`
+ * inline for SaveImage-style nodes, so we can build the gallery row
+ * directly without hitting `/api/history` (which has a persistence race
+ * with the `executed` event itself and often returns stale outputs).
+ *
+ * Emits a single `gallery` broadcast per inserted node. Multiple rows
+ * from a multi-output SaveImage fan out via `buildRowsFromHistory` with
+ * a synthesised `outputs` map.
+ */
+export async function onNodeExecuted(
+  promptId: string,
+  output: Record<string, unknown>,
+): Promise<number> {
+  if (!promptId) return 0;
+  const looksLikeFiles = (v: unknown): boolean => {
+    if (!Array.isArray(v)) return false;
+    return v.some((f) => f && typeof f === 'object' && typeof (f as { filename?: unknown }).filename === 'string');
+  };
+  const hasOutputFiles = Object.values(output).some(looksLikeFiles);
+  if (!hasOutputFiles) return 0;
+  try {
+    // Feed the event payload through the same row-builder the history path
+    // uses. `outputs` is keyed by node id in history, but for single-node
+    // events we just need one synthetic bucket; the row id still combines
+    // promptId + filename so dedup across `executed` bursts works.
+    const rows = buildRowsFromHistory({
+      promptId,
+      outputs: { node: output as Record<string, unknown> },
+      apiPrompt: null,
+      createdAt: Date.now(),
+    });
+    let inserted = 0;
+    for (const row of rows) {
+      if (repo.appendFromHistory(row)) inserted += 1;
+    }
+    if (inserted > 0) emitGalleryUpdate();
+    return inserted;
+  } catch (err) {
+    logger.warn('gallery onNodeExecuted failed', {
+      promptId, message: err instanceof Error ? err.message : String(err),
+    });
+    return 0;
+  }
+}
+
+/**
+ * Shared helper: fetch the single history entry for `promptId`, build rows,
+ * append them, and broadcast once if anything was inserted. Reused by:
+ *  - `onExecutionComplete` — the WS event path (`execution_success` / `execution_complete`).
+ *  - `gallery.sentry` — the polling fallback that watches promptIds until
+ *    outputs appear even when the WS path silently missed events.
+ * Returns the number of NEW rows written.
+ */
+export async function appendHistoryEntry(promptId: string): Promise<number> {
   if (!promptId) return 0;
   try {
     const entry = await getHistoryForPrompt(promptId);
@@ -76,12 +131,16 @@ export async function onExecutionComplete(promptId: string): Promise<number> {
     if (inserted > 0) emitGalleryUpdate();
     return inserted;
   } catch (err) {
-    logger.warn('gallery onExecutionComplete failed', {
+    logger.warn('gallery appendHistoryEntry failed', {
       promptId,
       message: err instanceof Error ? err.message : String(err),
     });
     return 0;
   }
+}
+
+export async function onExecutionComplete(promptId: string): Promise<number> {
+  return appendHistoryEntry(promptId);
 }
 
 export interface ImportFromComfyUIResult {
@@ -169,6 +228,7 @@ export interface RemoveItemResult {
   id: string;
   removed: boolean;
   fileDeleted: boolean;
+  promptId?: string;
   error?: string;
 }
 
@@ -205,7 +265,13 @@ function removeItemInternal(id: string): RemoveItemResult {
   }
 
   const removed = repo.remove(id);
-  return { id, removed, fileDeleted, error: fileError };
+  return {
+    id,
+    removed,
+    fileDeleted,
+    promptId: typeof row.promptId === 'string' && row.promptId.length > 0 ? row.promptId : undefined,
+    error: fileError,
+  };
 }
 
 /**
@@ -217,7 +283,10 @@ function removeItemInternal(id: string): RemoveItemResult {
  */
 export function removeItem(id: string): RemoveItemResult {
   const result = removeItemInternal(id);
-  if (result.removed) emitGalleryUpdate();
+  if (result.removed) {
+    emitGalleryUpdate();
+    if (result.promptId) void deleteHistoryPrompts([result.promptId]);
+  }
   return result;
 }
 
@@ -228,6 +297,12 @@ export function removeItem(id: string): RemoveItemResult {
 export function removeItems(ids: string[]): RemoveItemResult[] {
   const results: RemoveItemResult[] = [];
   for (const id of ids) results.push(removeItemInternal(id));
-  if (results.some(r => r.removed)) emitGalleryUpdate();
+  if (results.some(r => r.removed)) {
+    emitGalleryUpdate();
+    const promptIds = Array.from(new Set(
+      results.filter(r => r.removed && r.promptId).map(r => r.promptId as string),
+    ));
+    if (promptIds.length > 0) void deleteHistoryPrompts(promptIds);
+  }
   return results;
 }

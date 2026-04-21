@@ -68,7 +68,10 @@ function CatalogRow({
         <img
           src={model.thumbnail}
           alt=""
+          width={32}
+          height={32}
           loading="lazy"
+          decoding="async"
           className="w-8 h-8 rounded object-cover ring-1 ring-slate-200 bg-slate-100 shrink-0"
           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
         />
@@ -202,7 +205,10 @@ function CivitaiRow({
         <img
           src={civ.thumbnail}
           alt=""
+          width={32}
+          height={32}
           loading="lazy"
+          decoding="async"
           className="w-8 h-8 rounded object-cover ring-1 ring-slate-200 bg-slate-100 shrink-0"
           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
         />

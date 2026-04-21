@@ -1,6 +1,7 @@
-import { useMemo, useEffect, useCallback, useState } from 'react';
+import { useMemo, useEffect, useCallback, useState, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Search, Layers, WifiOff, Settings, SlidersHorizontal, X, RefreshCw, Upload } from 'lucide-react';
+import { Search, Layers, WifiOff, Settings, SlidersHorizontal, X, RefreshCw, Upload, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import type { Template, CivitaiModelSummary, StagedImportManifest } from '../types';
 import { api } from '../services/comfyui';
 import { useApp } from '../context/AppContext';
@@ -15,11 +16,11 @@ import { Checkbox } from '../components/ui/checkbox';
 
 type ReadyFilter = 'all' | 'yes' | 'no';
 type SourceFilter = 'all' | 'open' | 'api' | 'user' | 'civitai';
+type CivitaiFeed = 'latest' | 'hot' | 'search';
 
-interface RefreshBannerState {
-  kind: 'success' | 'error';
-  message: string;
-}
+// Fixed page size for the civitai feed — pageSize selector is part of the
+// legacy Pagination widget which doesn't apply to the "Load more" UX.
+const CIVITAI_PAGE_SIZE = 24;
 
 // Shared row type for the server-paginated grid. Keeps one fetcher path and
 // lets `TemplateCard` / `CivitaiTemplateCard` render side-by-side without
@@ -51,10 +52,8 @@ export default function Explore() {
   const [filtersOpen, setFiltersOpen] = usePersistedState('explore.filtersOpen', false);
   const [sourceFilter, setSourceFilter] = usePersistedState<SourceFilter>('explore.source', 'all');
   const [readyFilter, setReadyFilter] = usePersistedState<ReadyFilter>('explore.ready', 'all');
-  const [deleteBanner, setDeleteBanner] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [importInitialManifest, setImportInitialManifest] = useState<StagedImportManifest | null>(null);
-  const [importBanner, setImportBanner] = useState<string | null>(null);
 
   // Allow `?source=civitai` deep-links (used by the legacy
   // /plugins/civitai/workflows redirect) to prime the Source filter once.
@@ -67,24 +66,26 @@ export default function Explore() {
   }, [urlSource]);
 
   const [refreshing, setRefreshing] = useState(false);
-  const [refreshBanner, setRefreshBanner] = useState<RefreshBannerState | null>(null);
 
-  // Server-paginated fetch. Filters are forwarded so pagination aligns.
-  // When Source = CivitAI the fetcher swaps over to civitai's workflow feed
-  // (hot sort when there's no query, search otherwise — mirrors the
-  // behaviour of the legacy CivitaiWorkflowsView / CivitaiModelsView).
+  // CivitAI-only: feed selector + accumulator state used with the "Load more"
+  // button. Civitai doesn't return totals, so numbered pagination can't work;
+  // we keep rows in local state and fetch incrementally instead.
+  const [civitaiFeed, setCivitaiFeed] = usePersistedState<CivitaiFeed>('explore.civitaiFeed', 'latest');
+  const [civRows, setCivRows] = useState<CivitaiModelSummary[]>([]);
+  const [civPage, setCivPage] = useState(1);
+  const [civCursor, setCivCursor] = useState<string | undefined>(undefined);
+  const [civHasMore, setCivHasMore] = useState(false);
+  const [civLoading, setCivLoading] = useState(false);
+  const [civError, setCivError] = useState<string | null>(null);
+  const civReqRef = useRef(0);
+
+  // Server-paginated fetch for non-civitai sources. When civitai is active
+  // we skip this fetcher entirely (return an empty envelope) and use the
+  // separate Load-more accumulator below.
   const fetcher = useCallback(
     async ({ page, pageSize }: { page: number; pageSize: number }) => {
       if (sourceFilter === 'civitai') {
-        const trimmed = debouncedSearch.trim();
-        const res = trimmed
-          ? await api.searchCivitaiModels(trimmed, { page, pageSize })
-          : await api.getCivitaiHotWorkflows({ page, pageSize });
-        return {
-          items: res.items.map<ExploreRow>((item) => ({ kind: 'civitai', item })),
-          total: res.total,
-          hasMore: res.hasMore,
-        };
+        return { items: [] as ExploreRow[], total: 0, hasMore: false };
       }
       // Forward the UI source enum straight through — the backend understands
       // `open` / `api` / `user`, and ignores `all`.
@@ -110,11 +111,104 @@ export default function Explore() {
   const paged = usePaginated<ExploreRow>(fetcher, {
     deps: [debouncedSearch, activeCategory, activeTags, sourceFilter, readyFilter],
   });
-  const { items: gridRows, refetch } = paged;
+  const { refetch } = paged;
+
+  // Fetch the next civitai page. Called on initial mount (via the reset
+  // effect), on Load more clicks, and on feed/search changes. Request tokens
+  // via `civReqRef` so out-of-order responses are discarded.
+  const fetchCivitaiPage = useCallback(
+    async (args: { feed: CivitaiFeed; page: number; query: string; cursor?: string; append: boolean }) => {
+      const token = ++civReqRef.current;
+      setCivLoading(true);
+      setCivError(null);
+      try {
+        let res;
+        if (args.feed === 'search') {
+          const trimmed = args.query.trim();
+          if (!trimmed) {
+            // Nothing to search for — clear and bail so the empty-state
+            // branch renders the "enter a query" hint.
+            if (token === civReqRef.current) {
+              setCivRows([]);
+              setCivHasMore(false);
+              setCivCursor(undefined);
+            }
+            return;
+          }
+          res = await api.searchCivitai(trimmed, args.cursor, CIVITAI_PAGE_SIZE);
+        } else if (args.feed === 'hot') {
+          res = await api.getCivitaiHot(args.page, CIVITAI_PAGE_SIZE, args.cursor);
+        } else {
+          res = await api.getCivitaiLatest(args.page, CIVITAI_PAGE_SIZE, args.cursor);
+        }
+        if (token !== civReqRef.current) return;
+        setCivRows((prev) => (args.append ? [...prev, ...res.items] : res.items));
+        setCivHasMore(res.hasMore);
+        setCivCursor(res.nextCursor);
+      } catch (err) {
+        if (token !== civReqRef.current) return;
+        const msg = err instanceof Error ? err.message : 'Failed to fetch CivitAI feed';
+        setCivError(msg);
+        // Parse HTTP status from the error text so we can frame 401 etc.
+        // with a clearer toast description (spec #1 requirement).
+        const statusMatch = /\b(\d{3})\b/.exec(msg);
+        const status = statusMatch ? Number(statusMatch[1]) : null;
+        if (status === 401) {
+          toast.error('CivitAI download failed', {
+            description: '401 Unauthorized. The model may require an API token or a logged-in session.',
+          });
+        } else {
+          toast.error('CivitAI feed error', { description: msg });
+        }
+      } finally {
+        if (token === civReqRef.current) setCivLoading(false);
+      }
+    },
+    [],
+  );
+
+  // Reset + refetch whenever the civitai feed axis changes (source toggled,
+  // feed selector changed, debounced search changed for search mode).
+  useEffect(() => {
+    if (sourceFilter !== 'civitai') return;
+    setCivRows([]);
+    setCivPage(1);
+    setCivCursor(undefined);
+    setCivHasMore(false);
+    void fetchCivitaiPage({
+      feed: civitaiFeed,
+      page: 1,
+      query: debouncedSearch,
+      cursor: undefined,
+      append: false,
+    });
+  }, [sourceFilter, civitaiFeed, debouncedSearch, fetchCivitaiPage]);
+
+  const handleCivitaiLoadMore = useCallback(() => {
+    if (civLoading || !civHasMore) return;
+    const nextPage = civPage + 1;
+    setCivPage(nextPage);
+    void fetchCivitaiPage({
+      feed: civitaiFeed,
+      page: nextPage,
+      query: debouncedSearch,
+      cursor: civCursor,
+      append: true,
+    });
+  }, [civLoading, civHasMore, civPage, civitaiFeed, debouncedSearch, civCursor, fetchCivitaiPage]);
+
+  // Final row list the grid renders. Non-civitai sources use the paginated
+  // hook; civitai uses the accumulator.
+  const gridRows: ExploreRow[] = useMemo(() => {
+    if (sourceFilter === 'civitai') {
+      return civRows.map<ExploreRow>((item) => ({ kind: 'civitai', item }));
+    }
+    return paged.items;
+  }, [sourceFilter, civRows, paged.items]);
 
   const handleTemplateDeleted = useCallback(
     async (name: string) => {
-      setDeleteBanner(`Template "${name}" removed.`);
+      toast.success(`Template "${name}" removed.`);
       await refetch();
       await refreshTemplates();
     },
@@ -132,9 +226,9 @@ export default function Explore() {
   }, []);
 
   const handleImported = useCallback(async (imported: string[]): Promise<void> => {
-    setImportBanner(
+    toast.success(
       imported.length === 1
-        ? `Imported 1 template.`
+        ? 'Imported 1 template.'
         : `Imported ${imported.length} templates.`,
     );
     setImportOpen(false);
@@ -148,18 +242,15 @@ export default function Explore() {
   const handleRefresh = useCallback(async () => {
     if (refreshing) return;
     setRefreshing(true);
-    setRefreshBanner(null);
     try {
       const result = await api.refreshTemplates();
-      setRefreshBanner({
-        kind: 'success',
-        message: `Added ${result.added}, updated ${result.updated}, removed ${result.removed}.`,
+      toast.success('Templates refreshed', {
+        description: `Added ${result.added}, updated ${result.updated}, removed ${result.removed}.`,
       });
       await refetch();
     } catch (err) {
-      setRefreshBanner({
-        kind: 'error',
-        message: err instanceof Error ? err.message : 'Refresh failed',
+      toast.error('Refresh failed', {
+        description: err instanceof Error ? err.message : String(err),
       });
     } finally {
       setRefreshing(false);
@@ -212,25 +303,27 @@ export default function Explore() {
         description={`${templates.length} workflows available`}
         right={
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => handleImportOpen(null)}
-              className="btn-primary"
-              aria-label="Import workflow"
-              title="Import a workflow from a .json or .zip file"
-            >
-              <Upload className="w-3.5 h-3.5" />
-              Import workflow
-            </button>
-            <button
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="btn-secondary"
-              aria-label="Refresh templates"
-              title="Re-pull template catalog from ComfyUI and recompute readiness"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-              {refreshing ? 'Refreshing...' : 'Refresh'}
-            </button>
+            <div className="btn-group">
+              <button
+                onClick={() => handleImportOpen(null)}
+                className="btn-primary"
+                aria-label="Import workflow"
+                title="Import a workflow from a .json or .zip file"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                Import workflow
+              </button>
+              <button
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="btn-secondary"
+                aria-label="Refresh templates"
+                title="Re-pull template catalog from ComfyUI and recompute readiness"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+                {refreshing ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
             <button
               onClick={() => setFiltersOpen(o => !o)}
               className="btn-secondary lg:hidden"
@@ -259,6 +352,16 @@ export default function Explore() {
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                   />
+                  {searchQuery !== '' && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      aria-label="Clear search"
+                      className="shrink-0 text-slate-400 hover:text-slate-700 transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -281,6 +384,30 @@ export default function Explore() {
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Feed — civitai only. Swaps between Latest / Hot / Search
+                  since civitai doesn't return totals and the numbered
+                  Pagination widget can't drive it. */}
+              {sourceFilter === 'civitai' && (
+                <div>
+                  <label className="field-label mb-1.5 block">Feed</label>
+                  <Select value={civitaiFeed} onValueChange={(v) => setCivitaiFeed(v as CivitaiFeed)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="latest">Latest</SelectItem>
+                      <SelectItem value="hot">Hot</SelectItem>
+                      <SelectItem value="search">Search</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {civitaiFeed === 'search' && !debouncedSearch.trim() && (
+                    <p className="mt-1.5 text-[11px] text-slate-500">
+                      Type a query in the Search box above to run a CivitAI search.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Ready to use — local templates only. Not meaningful for
                   remote civitai workflow listings. */}
@@ -375,58 +502,6 @@ export default function Explore() {
 
             {/* ===== Right content ===== */}
             <main className="flex-1 p-4 overflow-y-auto">
-              {refreshBanner && (
-                <div
-                  role="status"
-                  className={`mb-3 flex items-start justify-between gap-2 rounded-md px-3 py-2 text-xs ring-1 ring-inset ${
-                    refreshBanner.kind === 'success'
-                      ? 'badge-emerald'
-                      : 'badge-rose'
-                  }`}
-                >
-                  <span className="font-medium">{refreshBanner.message}</span>
-                  <button
-                    type="button"
-                    onClick={() => setRefreshBanner(null)}
-                    className="text-current/60 hover:text-current"
-                    aria-label="Dismiss"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              )}
-              {deleteBanner && (
-                <div
-                  role="status"
-                  className="mb-3 flex items-start justify-between gap-2 rounded-md px-3 py-2 text-xs ring-1 ring-inset badge-emerald"
-                >
-                  <span className="font-medium">{deleteBanner}</span>
-                  <button
-                    type="button"
-                    onClick={() => setDeleteBanner(null)}
-                    className="text-current/60 hover:text-current"
-                    aria-label="Dismiss"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              )}
-              {importBanner && (
-                <div
-                  role="status"
-                  className="mb-3 flex items-start justify-between gap-2 rounded-md px-3 py-2 text-xs ring-1 ring-inset badge-emerald"
-                >
-                  <span className="font-medium">{importBanner}</span>
-                  <button
-                    type="button"
-                    onClick={() => setImportBanner(null)}
-                    className="text-current/60 hover:text-current"
-                    aria-label="Dismiss"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              )}
               {sourceFilter !== 'civitai' && templates.length === 0 ? (
                 <div className="text-center py-20">
                   {!connected ? (
@@ -490,15 +565,25 @@ export default function Explore() {
               )}
 
               <div className="mt-4">
-                <Pagination
-                  page={paged.page}
-                  pageSize={paged.pageSize}
-                  total={paged.total}
-                  hasMore={paged.hasMore}
-                  onPageChange={paged.setPage}
-                  onPageSizeChange={paged.setPageSize}
-                  className="rounded-lg border border-slate-200 bg-slate-50"
-                />
+                {sourceFilter === 'civitai' ? (
+                  <CivitaiLoadMore
+                    hasMore={civHasMore}
+                    loading={civLoading}
+                    error={civError}
+                    hasRows={civRows.length > 0}
+                    onLoadMore={handleCivitaiLoadMore}
+                  />
+                ) : (
+                  <Pagination
+                    page={paged.page}
+                    pageSize={paged.pageSize}
+                    total={paged.total}
+                    hasMore={paged.hasMore}
+                    onPageChange={paged.setPage}
+                    onPageSizeChange={paged.setPageSize}
+                    className="rounded-lg border border-slate-200 bg-slate-50"
+                  />
+                )}
               </div>
             </main>
           </div>
@@ -517,3 +602,41 @@ export default function Explore() {
 // Re-exported so siblings (e.g. CivitaiTemplateCard) can hand a pre-staged
 // manifest to the modal without lifting state up to App.
 export type { StagedImportManifest };
+
+interface CivitaiLoadMoreProps {
+  hasMore: boolean;
+  loading: boolean;
+  error: string | null;
+  hasRows: boolean;
+  onLoadMore: () => void;
+}
+
+/**
+ * "Load more" footer for the CivitAI feed. We intentionally avoid numbered
+ * pagination because CivitAI doesn't return a total row count.
+ */
+function CivitaiLoadMore({ hasMore, loading, error, hasRows, onLoadMore }: CivitaiLoadMoreProps) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-center gap-3">
+      {loading ? (
+        <span className="text-xs text-slate-500 inline-flex items-center gap-2">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          Loading…
+        </span>
+      ) : error && !hasRows ? (
+        // Async feed errors are surfaced as toasts (see fetchCivitaiPage).
+        // Keep a compact retry affordance here when the first page failed so
+        // the user isn't stuck staring at an empty grid.
+        <button type="button" onClick={onLoadMore} className="btn-secondary">
+          Retry
+        </button>
+      ) : hasMore ? (
+        <button type="button" onClick={onLoadMore} className="btn-secondary">
+          Load more
+        </button>
+      ) : hasRows ? (
+        <span className="text-xs text-slate-500">No more results</span>
+      ) : null}
+    </div>
+  );
+}

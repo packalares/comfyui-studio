@@ -22,6 +22,7 @@ import { extractDepsWithPluginResolution } from './extractDepsAsync.js';
 import { deriveMediaType, extractWorkflowIo } from './metadata.js';
 import { extractModelUrlsFromWorkflow } from './scanMarkdownNotes.js';
 import { assertAllowed, normaliseGithubUrl } from './importRemote.urls.js';
+import { autoResolveStagedImport } from './autoResolveModels.js';
 
 const FETCH_TIMEOUT_MS = 30_000;
 
@@ -211,6 +212,7 @@ async function stageFromRepoWalk(
   staged.workflows = workflows;
   staged.notes = notes;
   staged.defaultTitle = `${owner}/${repo}`;
+  await autoResolveStagedImport(staged);
   return storeStaging(staged);
 }
 

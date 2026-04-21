@@ -65,6 +65,31 @@ export async function getHotWorkflows(q: PageQuery): Promise<CivitaiListResponse
 }
 
 /**
+ * Free-text workflow search. CivitAI requires cursor-based pagination when
+ * `query=` is set (see models.ts header), so `page=` is never emitted here.
+ */
+export async function searchWorkflows(
+  query: string,
+  q: PageQuery,
+): Promise<CivitaiListResponse> {
+  if (!query || query.trim().length === 0) {
+    throw new Error('Missing search query');
+  }
+  const limit = Number.isFinite(q.limit) ? Number(q.limit) : 24;
+  const params: Record<string, string | number | boolean> = {
+    limit,
+    types: 'Workflows',
+    query: query.trim(),
+    sort: 'Highest Rated',
+    period: 'AllTime',
+    nsfw: false,
+  };
+  if (q.cursor) params.cursor = q.cursor;
+  logger.info('civitai search workflows', { query, limit, cursor: q.cursor ?? null });
+  return (await fetchJson(`${apiBase()}/models${encodeQuery(params)}`)) as CivitaiListResponse;
+}
+
+/**
  * Resolve a workflow version → a structured description of its primary file.
  * Used by the "import as template" flow to fetch the underlying workflow JSON
  * payload. Delegates to the `model-versions/:id` endpoint which always

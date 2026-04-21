@@ -7,6 +7,7 @@ import { Router, type Request, type Response } from 'express';
 import * as comfyui from '../services/comfyui.js';
 import * as templates from '../services/templates/index.js';
 import { workflowToApiPrompt } from '../services/workflow/index.js';
+import { schedulePromptWatch } from '../services/gallery.sentry.js';
 import { env } from '../config/env.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { sendError } from '../middleware/errors.js';
@@ -137,6 +138,9 @@ router.post('/generate', generateLimiter, async (req: Request, res: Response) =>
     // 4. Submit to ComfyUI — attach Comfy Org API key only for API-node workflows.
     const attachApiKey = template?.openSource === false;
     const result = await comfyui.submitPrompt(apiPrompt, { attachApiKey });
+    // Belt-and-suspenders: history poller recovers if the WS event path
+    // misses `execution_success` (ComfyUI restart, WS reconnecting, etc).
+    if (result?.prompt_id) schedulePromptWatch(result.prompt_id);
     res.json(result);
   } catch (err) {
     sendError(res, err, 500, 'Generation failed');

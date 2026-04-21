@@ -16,9 +16,21 @@
 // leave resolution to the catalog layer.
 
 import { collectAllWorkflowNodes } from '../workflow/collect.js';
-import { LOADER_TYPES } from '../workflow/constants.js';
+import { LOADER_TYPES, UI_ONLY_TYPES } from '../workflow/constants.js';
 import { getObjectInfo } from '../workflow/objectInfo.js';
 import type { WorkflowNode } from '../../contracts/workflow.contract.js';
+
+// Static fallback of ComfyUI core + UI-only node types. Used when
+// `/api/object_info` is unreachable so the plugin resolver never asks
+// Manager to locate a repo for a built-in node. Superset of
+// `UI_ONLY_TYPES`; additions here must actually ship with ComfyUI core.
+const STATIC_BUILTIN_CLASSES = new Set<string>([
+  ...UI_ONLY_TYPES,
+  'Note',
+  'MarkdownNote',
+  'Anchor',
+  'Subgraph',
+]);
 
 export interface ExtractedDeps {
   models: string[];
@@ -142,6 +154,9 @@ export async function extractNodeTypes(workflow: unknown): Promise<string[]> {
       || '';
     if (!t) continue;
     if (builtins.has(t)) continue;
+    // Second gate: static fallback catches core + UI-only types even when
+    // ComfyUI's /api/object_info was unreachable (so `builtins` was empty).
+    if (STATIC_BUILTIN_CLASSES.has(t)) continue;
     seen.add(t);
   }
   return Array.from(seen).sort();

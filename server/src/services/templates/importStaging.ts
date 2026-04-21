@@ -1,19 +1,23 @@
 // In-memory staging store for user workflow imports.
 //
-// Flow (phase 1):
-//   1. Frontend POSTs a .json or .zip to /templates/import/upload.
-//   2. `stageFromZip` / `stageFromJson` (companion modules) build a
-//      `StagedImport` and hand it to `storeStaging` below.
-//   3. Manifest returned to the frontend via `toManifest` (strips buffers).
-//   4. User picks workflows + whether to copy reference images.
-//   5. `commitStaging` (in `importCommit.ts`) writes templates + images
-//      and clears the row.
-//
-// Staging rows expire after 15 minutes via `setTimeout` — no persistent
-// storage, no cron. Abort via `abortStaging(id)`.
+// Flow: upload → `stageFromZip`/`stageFromJson` → `storeStaging` → review
+// (`toManifest` strips buffers) → `commitStaging` writes templates + images.
+// Rows expire after 15 min via setTimeout; abort via `abortStaging(id)`.
 
 import { randomUUID } from 'crypto';
 import type { PluginResolution } from './extractDepsAsync.js';
+
+/** Wave L auto-resolution record. Declared here to avoid circular imports. */
+export type AutoResolveSource = 'catalog' | 'markdown' | 'huggingface' | 'civitai';
+
+export interface AutoResolvedModel {
+  source: AutoResolveSource;
+  downloadUrl: string;
+  suggestedFolder?: string;
+  sizeBytes?: number;
+  /** Reserved for future ambiguity scoring; always 'high' today. */
+  confidence: 'high';
+}
 
 export type ImportSource = 'upload' | 'civitai';
 export type MediaType = 'image' | 'video' | 'audio';
@@ -56,12 +60,31 @@ export interface StagedWorkflowEntry {
    * the row's state from "missing" to "resolved".
    */
   resolvedModels?: Record<string, { downloadUrl: string; source: 'huggingface' | 'civitai'; suggestedFolder?: string; sizeBytes?: number }>;
+  /**
+   * Resolutions produced by the staging-time auto-resolve pass (Wave L).
+   * Keyed by filename. Distinct from `resolvedModels`, which holds
+   * user-paste resolutions; the union of both is what the UI considers
+   * "covered" when deciding whether the Commit button is enabled.
+   */
+  autoResolvedModels?: Record<string, AutoResolvedModel>;
 }
 
 export interface StagedImageEntry {
   name: string;
   mimeType: string;
   bytes: Uint8Array;
+}
+
+/**
+ * CivitAI origin metadata attached to a staged import so the commit step can
+ * thread it onto the saved user template. Optional on the staged row because
+ * only the CivitAI URL import flow populates it.
+ */
+export interface StagedCivitaiMeta {
+  modelId: number;
+  tags?: string[];
+  description?: string;
+  originalUrl?: string;
 }
 
 export interface StagedImport {
@@ -77,6 +100,8 @@ export interface StagedImport {
   defaultDescription?: string;
   defaultTags?: string[];
   defaultThumbnail?: string;
+  /** Optional CivitAI origin, populated by the URL-based import flow. */
+  civitaiMeta?: StagedCivitaiMeta;
 }
 
 /** Shape returned by the list + get endpoints — no buffers. */
@@ -96,6 +121,7 @@ export interface StagedImportManifest {
     mediaType: MediaType;
     jsonBytes: number;
     resolvedModels?: Record<string, { downloadUrl: string; source: 'huggingface' | 'civitai'; suggestedFolder?: string; sizeBytes?: number }>;
+    autoResolvedModels?: Record<string, AutoResolvedModel>;
   }>;
   images: Array<{ name: string; mimeType: string; sizeBytes: number }>;
   notes: string[];
@@ -103,6 +129,7 @@ export interface StagedImportManifest {
   defaultDescription?: string;
   defaultTags?: string[];
   defaultThumbnail?: string;
+  civitaiMeta?: StagedCivitaiMeta;
 }
 
 const STAGING_TTL_MS = 15 * 60_000;
@@ -182,6 +209,7 @@ export function toManifest(staged: StagedImport): StagedImportManifest {
       mediaType: w.mediaType,
       jsonBytes: w.jsonBytes,
       resolvedModels: w.resolvedModels,
+      autoResolvedModels: w.autoResolvedModels,
     })),
     images: staged.images.map((i) => ({
       name: i.name,
@@ -193,6 +221,7 @@ export function toManifest(staged: StagedImport): StagedImportManifest {
     defaultDescription: staged.defaultDescription,
     defaultTags: staged.defaultTags,
     defaultThumbnail: staged.defaultThumbnail,
+    civitaiMeta: staged.civitaiMeta,
   };
 }
 

@@ -3,8 +3,9 @@ import cors from 'cors';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import apiRouter from './routes/index.js';
-import { getComfyUIUrl, getQueue } from './services/comfyui.js';
+import { getComfyUIUrl, getQueue, getQueuePromptIds } from './services/comfyui.js';
 import * as galleryService from './services/gallery.service.js';
+import { hydrateFromQueue, onQueueStatus } from './services/gallery.sentry.js';
 import { loadTemplatesFromComfyUI } from './services/templates/index.js';
 import { wireTemplateEventHandlers } from './services/templates/eventSubscribers.js';
 import { wireCatalogEventHandlers } from './services/catalog.events.js';
@@ -83,6 +84,10 @@ function broadcast(message: object) {
 let lastLauncherStatus: unknown = null;
 let lastLauncherStatusJson = '';
 
+// Guard so we only kick the sentry hydration once per ComfyUI-up transition;
+// resets the next time we see ComfyUI drop so a restart re-hydrates.
+let sentryHydratedOnce = false;
+
 async function pollLauncherStatus() {
   let data: Record<string, unknown>;
   try {
@@ -95,6 +100,20 @@ async function pollLauncherStatus() {
     lastLauncherStatus = data;
     lastLauncherStatusJson = json;
     broadcast({ type: 'launcher-status', data });
+  }
+  // Hydrate gallery sentry from ComfyUI's queue on first reachable status so
+  // any prompts running when Studio started (or left pending across a
+  // ComfyUI restart) still land in the gallery once they finish.
+  const running = (data as { running?: unknown })?.running === true;
+  if (running && !sentryHydratedOnce) {
+    sentryHydratedOnce = true;
+    hydrateFromQueue().catch((err) => {
+      logger.warn('gallery sentry: boot hydrate failed', {
+        message: err instanceof Error ? err.message : String(err),
+      });
+    });
+  } else if (!running && sentryHydratedOnce) {
+    sentryHydratedOnce = false;
   }
 }
 
@@ -120,6 +139,12 @@ function scheduleQueueBroadcast() {
       const queue = await getQueue();
       broadcast({ type: 'queue', data: queue });
     } catch { /* ignore */ }
+    // Sentry tick: fetch the promptId set and let the sentry detect any
+    // watched promptId that's no longer in the queue (i.e. just finished).
+    try {
+      const ids = await getQueuePromptIds();
+      void onQueueStatus(ids);
+    } catch { /* ignore — next queue event will retry */ }
   }, 100);
 }
 
@@ -148,20 +173,30 @@ wss.on('connection', (clientWs) => {
       comfyWs.on('message', (data) => {
         const str = data.toString();
         if (clientWs.readyState === WebSocket.OPEN) clientWs.send(str);
-        // Trigger queue/gallery rebroadcast on relevant comfy events.
-        //
-        // Wave F: instead of rescanning ComfyUI's full /api/history on every
-        // 'executed' burst, we parse the prompt_id from the event payload
-        // and fetch just that single history entry to append. Multiple
-        // 'executed' messages (one per node) collapse because INSERT OR
-        // IGNORE no-ops on rows we already recorded.
+        // ComfyUI emits `executed` per node with the node's full output
+        // payload inline, and `execution_success` once everything is done.
+        // We append gallery rows directly from the `executed` event payload
+        // (no history fetch, no race with /api/history persistence), and
+        // also fall back to a history-based reconcile on `execution_success`
+        // in case any events were missed.
         try {
           const msg = JSON.parse(str) as {
             type?: string;
-            data?: { prompt_id?: string };
+            data?: {
+              prompt_id?: string;
+              node?: string;
+              output?: Record<string, unknown>;
+            };
           };
           if (msg?.type === 'status') scheduleQueueBroadcast();
-          else if (msg?.type === 'executed' || msg?.type === 'execution_complete') {
+          else if (msg?.type === 'executed') {
+            scheduleQueueBroadcast();
+            const promptId = msg?.data?.prompt_id;
+            const output = msg?.data?.output;
+            if (typeof promptId === 'string' && promptId.length > 0) {
+              void galleryService.onNodeExecuted(promptId, output ?? {});
+            }
+          } else if (msg?.type === 'execution_success' || msg?.type === 'execution_complete') {
             scheduleQueueBroadcast();
             const promptId = msg?.data?.prompt_id;
             if (typeof promptId === 'string' && promptId.length > 0) {
