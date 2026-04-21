@@ -17,9 +17,11 @@ git config --global --add safe.directory /root/ComfyUI 2>/dev/null || true
 git config --global --add safe.directory '*' 2>/dev/null || true
 
 if [ "${STUDIO_MODE}" = "dev" ]; then
-  # Dev: the host mounts the source folders over these paths, so node_modules must exist.
-  (cd /studio/ui       && [ -d node_modules ] || npm install)
-  (cd /studio/server   && [ -d node_modules ] || npm install --include=dev)
+  # Dev: the host mounts the source folders over these paths. A partial node_modules
+  # (interrupted install) would pass `-d` but lack the .bin entries npx needs, so we
+  # probe for the actual binary and re-run install if it's missing.
+  (cd /studio/ui       && [ -x node_modules/.bin/vite ] || (rm -rf node_modules && npm install))
+  (cd /studio/server   && [ -x node_modules/.bin/tsx  ] || (rm -rf node_modules && npm install --include=dev))
 
   (cd /studio/server   && npx tsx watch src/index.ts             > /app/logs/studio.log    2>&1) &
   (cd /studio/ui       && npx vite --host 0.0.0.0 --port 3001    > /app/logs/vite.log      2>&1) &
