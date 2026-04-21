@@ -3,15 +3,20 @@
 // swaps between image / video / audio.
 //
 // Fallbacks per type:
-//  - image: `item.url` directly as an <img>; if missing, the MediaIcon tile.
-//  - video: try `item.url` as a <video> element (poster frame = first frame
-//    the browser decodes). On hover, autoplay muted preview. If the URL is
-//    missing, render a dark tile with a centered Play icon.
+//  - image: `item.url` routed through the `/api/img` proxy (md5 disk cache)
+//    at tile width so the browser never pulls the full-res original just to
+//    paint a 320×180 thumb. Same-origin `/api/view?...` URLs pass through
+//    unchanged; the proxy fetches them directly off disk.
+//  - video: a cached webp poster from `/api/gallery/thumbnail?...`. On hover
+//    the tile lazily swaps in a real video element (preload="none" until
+//    hover, muted + looped) so the MP4 bytes only stream when the user is
+//    actually previewing. On leave / scroll-away the video pauses to free
+//    the decoder.
 //  - audio: compact Play/Pause button + the <audio> element; no waveform
 //    (punted — rendering needs upstream audio decoding). A Music icon sits
 //    at the top of the tile so scanning a grid still reads as "audio".
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import {
   Check, Star, StarOff,
@@ -19,6 +24,9 @@ import {
   Play, Pause, Trash2,
 } from 'lucide-react';
 import type { GalleryItem } from '../types';
+import { imgProxy } from '../lib/imgProxy';
+
+const TILE_WIDTH = 320;
 
 interface GalleryTileProps {
   item: GalleryItem;
@@ -36,23 +44,30 @@ export default function GalleryTile({
 }: GalleryTileProps) {
   return (
     <div
-      className={`card overflow-hidden group relative ${isSelected ? 'ring-2 ring-teal-500' : ''}`}
+      className={`group relative overflow-hidden rounded-xl bg-slate-100 ring-1 ring-slate-200 shadow-sm transition-all hover:shadow-lg hover:-translate-y-0.5 ${
+        isSelected ? 'ring-2 ring-teal-500' : ''
+      }`}
     >
       <button
         onClick={onOpen}
-        className="w-full aspect-square bg-slate-100 flex items-center justify-center overflow-hidden"
+        className="block w-full aspect-square overflow-hidden"
       >
         <MediaPreview item={item} />
       </button>
+
+      {/* Hover dim + gradient so overlaid icons stay legible over bright media. */}
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"
+      />
 
       {/* Selection checkbox */}
       <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
           onClick={(e) => { e.stopPropagation(); onToggleSelect(); }}
-          className={`p-1 rounded border transition-colors ${
+          className={`p-1 rounded-full border backdrop-blur transition-colors ${
             isSelected
               ? 'bg-teal-500 border-teal-500 text-white'
-              : 'bg-white/80 border-slate-300 text-slate-500 hover:bg-white'
+              : 'bg-white/80 border-white/40 text-slate-700 hover:bg-white'
           }`}
           aria-label={isSelected ? 'Deselect' : 'Select'}
         >
@@ -64,7 +79,7 @@ export default function GalleryTile({
       <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
           onClick={(e) => { e.stopPropagation(); onToggleFavorite(); }}
-          className="p-1 bg-white/80 rounded border border-slate-300 text-slate-500 hover:text-yellow-500 transition-colors"
+          className="p-1 rounded-full border border-white/40 bg-white/80 text-slate-700 hover:text-yellow-500 backdrop-blur transition-colors"
           aria-label={isFav ? 'Unfavorite' : 'Favorite'}
         >
           {isFav
@@ -73,21 +88,19 @@ export default function GalleryTile({
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="p-1 bg-white/80 rounded border border-slate-300 text-slate-500 hover:text-red-600 transition-colors"
+          className="p-1 rounded-full border border-white/40 bg-white/80 text-slate-700 hover:text-red-600 backdrop-blur transition-colors"
           aria-label="Delete"
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
 
-      <div className="p-2">
-        <p className="text-xs text-slate-500 truncate">{item.filename}</p>
-        {item.createdAt && (
-          <p className="text-[10px] text-slate-400">
-            {new Date(item.createdAt).toLocaleDateString()}
-          </p>
-        )}
-      </div>
+      {/* Persistent favorite mark when starred (even without hover). */}
+      {isFav && (
+        <div className="absolute bottom-2 right-2 opacity-100 group-hover:opacity-0 transition-opacity pointer-events-none">
+          <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400 drop-shadow" />
+        </div>
+      )}
     </div>
   );
 }
@@ -101,9 +114,14 @@ function MediaPreview({ item }: { item: GalleryItem }) {
 
 function ImagePreview({ item }: { item: GalleryItem }) {
   if (!item.url) return <ImageIcon className="w-10 h-10 text-slate-300" />;
+  // Wave P: route the tile thumbnail through the `/api/img` proxy so the
+  // browser receives a resized webp instead of the full-res original. The
+  // proxy short-circuits same-origin paths (see `lib/imgProxy.ts`) and the
+  // server handles the on-disk fetch via `/api/view`.
+  const src = imgProxy(item.url, TILE_WIDTH) ?? item.url;
   return (
     <img
-      src={item.url}
+      src={src}
       alt={item.filename}
       className="w-full h-full object-cover"
       loading="lazy"
@@ -111,9 +129,38 @@ function ImagePreview({ item }: { item: GalleryItem }) {
   );
 }
 
+/** Build the `/api/gallery/thumbnail` URL for a given video row. */
+function buildThumbUrl(item: GalleryItem): string {
+  const params = new URLSearchParams();
+  params.set('filename', item.filename);
+  if (item.subfolder) params.set('subfolder', item.subfolder);
+  if (item.type) params.set('type', item.type);
+  params.set('w', String(TILE_WIDTH));
+  return `/api/gallery/thumbnail?${params.toString()}`;
+}
+
 function VideoPreview({ item }: { item: GalleryItem }) {
-  const ref = useRef<HTMLVideoElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [hover, setHover] = useState(false);
+  const [videoLoaded, setVideoLoaded] = useState(false);
+  const [thumbError, setThumbError] = useState(false);
+
+  // Pause the hover-preview whenever the tile scrolls out of view so we
+  // aren't burning a decoder on off-screen rows.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting && videoRef.current) {
+          videoRef.current.pause();
+        }
+      }
+    }, { threshold: 0 });
+    io.observe(container);
+    return () => io.disconnect();
+  }, []);
 
   if (!item.url) {
     return (
@@ -123,34 +170,56 @@ function VideoPreview({ item }: { item: GalleryItem }) {
     );
   }
 
-  const handleEnter = () => {
+  const startPreview = () => {
     setHover(true);
-    const el = ref.current;
+    setVideoLoaded(true);
+    const el = videoRef.current;
     if (!el) return;
+    // Lazy-assign src on first hover so the MP4 bytes don't flow until the
+    // user actually requests a preview.
+    if (!el.src) el.src = item.url ?? '';
     el.currentTime = 0;
-    el.play().catch(() => { /* autoplay may be blocked */ });
+    el.play().catch(() => { /* autoplay may be blocked; the poster stays. */ });
   };
-  const handleLeave = () => {
+  const endPreview = () => {
     setHover(false);
-    const el = ref.current;
+    const el = videoRef.current;
     if (!el) return;
     el.pause();
     el.currentTime = 0;
   };
 
+  const thumbUrl = buildThumbUrl(item);
+
   return (
     <div
+      ref={containerRef}
       className="relative w-full h-full"
-      onMouseEnter={handleEnter}
-      onMouseLeave={handleLeave}
+      onMouseEnter={startPreview}
+      onMouseLeave={endPreview}
+      onTouchStart={startPreview}
+      onTouchEnd={endPreview}
     >
+      {!thumbError ? (
+        <img
+          src={thumbUrl}
+          alt={item.filename}
+          className={`w-full h-full object-cover ${hover && videoLoaded ? 'opacity-0' : 'opacity-100'} transition-opacity`}
+          loading="lazy"
+          onError={() => setThumbError(true)}
+        />
+      ) : (
+        <div className={`w-full h-full bg-slate-800 flex items-center justify-center ${hover && videoLoaded ? 'opacity-0' : 'opacity-100'} transition-opacity`}>
+          <Play className="w-8 h-8 text-white/80" fill="currentColor" />
+        </div>
+      )}
       <video
-        ref={ref}
-        src={item.url}
-        className="w-full h-full object-cover"
+        ref={videoRef}
+        className={`absolute inset-0 w-full h-full object-cover ${hover && videoLoaded ? 'opacity-100' : 'opacity-0'} transition-opacity`}
         muted
+        loop
         playsInline
-        preload="metadata"
+        preload="none"
       />
       {!hover && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/20 pointer-events-none">

@@ -4,10 +4,11 @@
 // re-fetches /api/workflow-settings so the Advanced Settings panel refreshes immediately.
 
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, X, Check } from 'lucide-react';
 import type { EnumeratedWidget } from '../types';
 import { api } from '../services/comfyui';
 import AppModal from './AppModal';
+import { Checkbox } from './ui/checkbox';
 
 interface Props {
   templateName: string;
@@ -121,8 +122,9 @@ export default function ExposeWidgetsModal({ templateName, onClose, onSaved }: P
           <span className="text-xs text-slate-500">
             {selectedCount} {selectedCount === 1 ? 'field' : 'fields'} selected
           </span>
-          <div className="flex items-center gap-2">
+          <div className="btn-group">
             <button onClick={onClose} className="btn-secondary" disabled={saving}>
+              <X className="w-3.5 h-3.5" />
               Cancel
             </button>
             <button
@@ -130,7 +132,9 @@ export default function ExposeWidgetsModal({ templateName, onClose, onSaved }: P
               disabled={loading || saving}
               className="btn-primary"
             >
-              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+              {saving
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <Check className="w-3.5 h-3.5" />}
               {saving ? 'Saving…' : 'Save'}
             </button>
           </div>
@@ -167,11 +171,9 @@ export default function ExposeWidgetsModal({ templateName, onClose, onSaved }: P
                       key={key}
                       className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm"
                     >
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={checked}
-                        onChange={() => toggle(w.nodeId, w.widgetName)}
-                        className="h-4 w-4 rounded border-gray-300"
+                        onCheckedChange={() => toggle(w.nodeId, w.widgetName)}
                       />
                       <span className="font-mono text-xs text-gray-700 flex-1 truncate">
                         {w.widgetName}

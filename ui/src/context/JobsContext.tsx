@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 import type { GenerationJob, QueueStatus, DownloadState } from '../types';
-import { api } from '../services/comfyui';
+import { api, ApiError } from '../services/comfyui';
 import { toast } from 'sonner';
 
 /**
@@ -99,7 +99,55 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
         setActivePromptId(promptId);
         setCurrentJob(prev => prev ? { ...prev, status: 'running', id: promptId } : null);
       } catch (err) {
-        setCurrentJob(prev => prev ? { ...prev, status: 'failed' } : null);
+        // Surface structured ComfyUI validation failures. Server wraps them as
+        // { error, nodeErrors: [{nodeId, classType, message, details}] }.
+        // Group by (classType, message) so identical failures across many
+        // nodes collapse into one line ("LoadImage: Custom validation failed
+        // (nodes 12, 13, 14, 15)") instead of repeating.
+        let title = 'Generation failed';
+        let description: React.ReactNode | undefined;
+        if (err instanceof ApiError) {
+          title = err.message || title;
+          const data = err.data as {
+            nodeErrors?: Array<{ nodeId: string; classType?: string; message: string }>;
+            detail?: string;
+          } | null;
+          if (data?.nodeErrors && data.nodeErrors.length > 0) {
+            const groups = new Map<string, { classType?: string; message: string; nodeIds: string[] }>();
+            for (const n of data.nodeErrors) {
+              const key = `${n.classType ?? ''}|${n.message}`;
+              const existing = groups.get(key);
+              if (existing) existing.nodeIds.push(n.nodeId);
+              else groups.set(key, { classType: n.classType, message: n.message, nodeIds: [n.nodeId] });
+            }
+            const rows = Array.from(groups.values()).slice(0, 6);
+            description = (
+              <ul className="list-disc pl-4 space-y-1 text-[12px]">
+                {rows.map((g, i) => (
+                  <li key={i}>
+                    {g.classType && <span className="font-medium">{g.classType}</span>}
+                    {g.classType && ': '}
+                    <span>{g.message}</span>
+                    {g.nodeIds.length > 0 && (
+                      <span className="text-slate-500">
+                        {' '}({g.nodeIds.length === 1 ? `node ${g.nodeIds[0]}` : `nodes ${g.nodeIds.join(', ')}`})
+                      </span>
+                    )}
+                  </li>
+                ))}
+                {groups.size > rows.length && (
+                  <li className="text-slate-500 list-none">…and {groups.size - rows.length} more</li>
+                )}
+              </ul>
+            );
+          } else if (typeof data?.detail === 'string') {
+            description = data.detail;
+          }
+        } else if (err instanceof Error) {
+          description = err.message;
+        }
+        toast.error(title, description ? { description } : undefined);
+        setCurrentJob(prev => prev ? { ...prev, status: 'failed', error: title } : null);
         console.error('Generation failed:', err);
       }
     },

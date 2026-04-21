@@ -23,6 +23,7 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from './ui/alert-dialog';
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
 type ProcessStatus = 'running' | 'stopped' | 'starting' | 'unknown';
 type WipePhase = 'confirm' | 'running' | 'done' | 'error';
@@ -207,16 +208,23 @@ export default function ComfyUIActions() {
 
   return (
     <>
-      <div className="relative">
-        <button
-          onClick={() => setDropdownOpen(v => !v)}
-          className="rounded-md p-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors disabled:opacity-50"
-          aria-label="ComfyUI actions"
-          title="ComfyUI actions"
-          disabled={actionLoading !== null}
-        >
-          {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronDown className="w-3.5 h-3.5" />}
-        </button>
+      <div className="relative -ml-px">
+        {/* `-ml-px` lets the chevron's left border sit flush with the pill's
+            right edge so the status + dropdown read as a single grouped
+            control rather than two separate buttons. */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => setDropdownOpen(v => !v)}
+              className="inline-flex items-center justify-center rounded-l-none rounded-r-full h-7 px-2 text-xs font-medium bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition-colors disabled:opacity-50"
+              aria-label="ComfyUI actions"
+              disabled={actionLoading !== null}
+            >
+              {actionLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>ComfyUI actions</TooltipContent>
+        </Tooltip>
         {dropdownOpen && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />

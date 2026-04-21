@@ -55,3 +55,7 @@ jobs:
             ${{ steps.tag.outputs.latest_tag }}
           cache-from: type=gha,scope=${{ matrix.target }}
           cache-to: type=gha,mode=max,scope=${{ matrix.target }}
+          # Skip provenance + SBOM attestations so the registry doesn't show a
+          # second `unknown/unknown` platform entry next to the real amd64 image.
+          provenance: false
+          sbom: false

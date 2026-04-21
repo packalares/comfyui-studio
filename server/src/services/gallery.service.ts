@@ -19,7 +19,10 @@
 import fs from 'fs';
 import path from 'path';
 import { getGalleryItems, getHistoryForPrompt, deleteHistoryPrompts } from './comfyui.js';
-import type { GalleryItem } from '../contracts/generation.contract.js';
+import type {
+  GalleryItem,
+  GalleryListItem,
+} from '../contracts/generation.contract.js';
 import * as repo from '../lib/db/gallery.repo.js';
 import { logger } from '../lib/logger.js';
 import { env } from '../config/env.js';
@@ -200,8 +203,8 @@ export interface ListFilter {
   sort?: 'newest' | 'oldest';
 }
 
-/** Full list (non-paginated). Used when the route gets no ?page= param. */
-export async function list(): Promise<GalleryItem[]> {
+/** Full list (non-paginated). Slim shape — no workflowJson / KSampler fields. */
+export async function list(): Promise<GalleryListItem[]> {
   return repo.listAll({ sort: 'newest' });
 }
 
@@ -210,7 +213,7 @@ export async function listPaginated(
   filter: ListFilter,
   page: number,
   pageSize: number,
-): Promise<{ items: GalleryItem[]; total: number }> {
+): Promise<{ items: GalleryListItem[]; total: number }> {
   return repo.listPaginated(
     { mediaType: filter.mediaType, sort: filter.sort === 'oldest' ? 'oldest' : 'newest' },
     page,
@@ -221,8 +224,11 @@ export async function listPaginated(
 /** Remove a row by id (used by future delete endpoints). */
 export function remove(id: string): boolean { return repo.remove(id); }
 
-/** Single-row lookup — used by the regenerate endpoint. */
+/** Single-row lookup — regenerate needs the full row for `workflowJson`. */
 export function getById(id: string): GalleryItem | null { return repo.getById(id); }
+
+/** Full-row lookup backing `GET /api/gallery/:id` (fat fields included). */
+export function getByIdFull(id: string): GalleryItem | null { return repo.getByIdFull(id); }
 
 export interface RemoveItemResult {
   id: string;

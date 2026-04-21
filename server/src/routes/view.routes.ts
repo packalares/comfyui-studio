@@ -21,8 +21,8 @@ import { Router, type Request, type Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import * as comfyui from '../services/comfyui.js';
-import { env } from '../config/env.js';
 import { logger } from '../lib/logger.js';
+import { sanitizeSegment, resolveViewPath } from '../lib/viewPath.js';
 
 const router = Router();
 
@@ -50,41 +50,6 @@ const MIME_BY_EXT: Record<string, string> = {
 function mimeFor(filename: string): string {
   const ext = path.extname(filename).toLowerCase();
   return MIME_BY_EXT[ext] ?? 'application/octet-stream';
-}
-
-function sanitizePathSegment(value: string | undefined): string | null {
-  if (value == null) return '';
-  if (typeof value !== 'string') return null;
-  if (value.includes('\0')) return null;
-  if (value.includes('..')) return null;
-  if (value.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(value)) return null;
-  return value;
-}
-
-/** Resolve the on-disk path for a `/view` request or null if malformed. */
-function resolveLocal(
-  filename: string, subfolder: string, type: string,
-): { absPath: string; rootAbs: string } | null {
-  const root = env.COMFYUI_PATH;
-  if (!root) return null;
-  // ComfyUI maps ?type= to a sibling directory under COMFYUI_PATH. Any
-  // value we haven't explicitly listed is rejected so a crafted type can't
-  // escape into arbitrary tree positions.
-  const typeDir = ({ output: 'output', input: 'input', temp: 'temp' } as const)[
-    (type || 'output') as 'output' | 'input' | 'temp'
-  ];
-  if (!typeDir) return null;
-  const rootAbs = path.resolve(root, typeDir);
-  const abs = path.resolve(
-    rootAbs,
-    subfolder || '',
-    filename,
-  );
-  // Final traversal guard — `resolve` normalises `..` segments even though
-  // we rejected them at sanitize time, so double-check the composed path
-  // still lives under the type-dir.
-  if (!abs.startsWith(rootAbs + path.sep) && abs !== rootAbs) return null;
-  return { absPath: abs, rootAbs };
 }
 
 /** Stream the local file with optional Range support. Returns true if served. */
@@ -135,11 +100,11 @@ router.get('/view', async (req: Request, res: Response) => {
     res.status(400).json({ error: 'filename required' });
     return;
   }
-  const filename = sanitizePathSegment(rawFilename);
-  const subfolder = sanitizePathSegment(
+  const filename = sanitizeSegment(rawFilename);
+  const subfolder = sanitizeSegment(
     typeof rawSubfolder === 'string' ? rawSubfolder : undefined,
   );
-  const type = sanitizePathSegment(
+  const type = sanitizeSegment(
     typeof rawType === 'string' ? rawType : undefined,
   );
   if (filename === null || subfolder === null || type === null) {
@@ -148,7 +113,7 @@ router.get('/view', async (req: Request, res: Response) => {
   }
 
   // Fast path — serve from disk directly. Works even when ComfyUI is down.
-  const local = resolveLocal(filename, subfolder, type || 'output');
+  const local = resolveViewPath(filename, subfolder, type || 'output');
   if (local && serveLocal(local.absPath, filename, req, res)) return;
 
   // Fall back to ComfyUI for anything we couldn't resolve locally.

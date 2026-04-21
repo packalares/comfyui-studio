@@ -60,6 +60,27 @@ router.get(['/gallery', '/launcher/gallery'], async (req: Request, res: Response
   }
 });
 
+/**
+ * Wave P: single-row detail with fat generation metadata. Returns the full
+ * row (`workflowJson`, `promptText`, KSampler params) so the detail modal
+ * can render the metadata panel + drive the regenerate button. The list
+ * endpoint above trimmed these fields from its rows to shrink the wire
+ * payload — this route is the counterpart that restores them on demand.
+ */
+router.get(['/gallery/:id', '/launcher/gallery/:id'], (req: Request, res: Response) => {
+  const id = req.params.id;
+  if (typeof id !== 'string' || id.length === 0) {
+    res.status(400).json({ error: 'id required' });
+    return;
+  }
+  const row = gallery.getByIdFull(id);
+  if (!row) {
+    res.status(404).json({ error: 'not_found', id });
+    return;
+  }
+  res.json(row);
+});
+
 // Bulk delete. Mounted BEFORE the `:id` route so Express matches the bare
 // collection path first. Body: `{ ids: string[] }`. Returns per-id results so
 // the client can show partial-success state.

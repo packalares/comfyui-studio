@@ -13,6 +13,7 @@ import view from './view.routes.js';
 import upload from './upload.routes.js';
 import history from './history.routes.js';
 import gallery from './gallery.routes.js';
+import galleryThumbnail from './gallery.thumbnail.routes.js';
 import templates from './templates.routes.js';
 import templatesImport from './templates.import.js';
 import templatesImportRemote from './templates.importRemote.js';
@@ -38,6 +39,9 @@ router.use(system);
 router.use(view);
 router.use(upload);
 router.use(history);
+// Thumbnail must mount BEFORE `gallery` so `/gallery/thumbnail` doesn't get
+// captured by the `GET /gallery/:id` param handler.
+router.use(galleryThumbnail);
 router.use(gallery);
 router.use(templates);
 router.use(templatesImport);  // /templates/import/* + /launcher/templates/import/*

@@ -89,6 +89,53 @@ function applyNodeOverrides(
   }
 }
 
+/**
+ * ComfyUI validation error shape (returned by /api/prompt 400s):
+ *   { error: {type, message, details, extra_info}, node_errors: {
+ *       <nodeId>: { errors: [{type, message, details, extra_info}], class_type, ... }
+ *   } }
+ * We flatten `node_errors` into a list the frontend can render line-by-line.
+ */
+interface NodeErrorRow {
+  nodeId: string;
+  classType?: string;
+  message: string;
+  details?: string;
+}
+
+function parseComfyValidation(body: string): {
+  summary: string;
+  nodeErrors: NodeErrorRow[];
+} | null {
+  let parsed: unknown;
+  try { parsed = JSON.parse(body); } catch { return null; }
+  if (!parsed || typeof parsed !== 'object') return null;
+  const p = parsed as {
+    error?: { message?: string; type?: string };
+    node_errors?: Record<string, {
+      errors?: Array<{ message?: string; details?: string; type?: string }>;
+      class_type?: string;
+    }>;
+  };
+  const summary = p.error?.message || p.error?.type || 'Workflow validation failed';
+  const nodeErrors: NodeErrorRow[] = [];
+  if (p.node_errors && typeof p.node_errors === 'object') {
+    for (const [nodeId, info] of Object.entries(p.node_errors)) {
+      const classType = info?.class_type;
+      for (const e of info?.errors ?? []) {
+        nodeErrors.push({
+          nodeId,
+          classType,
+          message: e?.message || e?.type || 'Invalid input',
+          details: e?.details,
+        });
+      }
+    }
+  }
+  if (nodeErrors.length === 0 && !p.error) return null;
+  return { summary, nodeErrors };
+}
+
 router.post('/generate', generateLimiter, async (req: Request, res: Response) => {
   try {
     const { templateName, inputs: userInputs, advancedSettings } = req.body;
@@ -143,6 +190,28 @@ router.post('/generate', generateLimiter, async (req: Request, res: Response) =>
     if (result?.prompt_id) schedulePromptWatch(result.prompt_id);
     res.json(result);
   } catch (err) {
+    // Detect structured ComfyUI validation failures and surface the
+    // specific node/field problems so the frontend can render them
+    // ("KSampler (node 3): Required input is missing: seed").
+    if (err instanceof comfyui.ComfyUIHttpError) {
+      const parsed = parseComfyValidation(err.body);
+      if (parsed && err.status >= 400 && err.status < 500) {
+        res.status(400).json({
+          error: parsed.summary,
+          nodeErrors: parsed.nodeErrors,
+          upstreamStatus: err.status,
+        });
+        return;
+      }
+      // Unstructured upstream error — surface the body snippet so the user
+      // isn't staring at a generic "Generation failed".
+      res.status(502).json({
+        error: 'ComfyUI rejected the prompt',
+        detail: err.body.slice(0, 500) || err.message,
+        upstreamStatus: err.status,
+      });
+      return;
+    }
     sendError(res, err, 500, 'Generation failed');
   }
 });

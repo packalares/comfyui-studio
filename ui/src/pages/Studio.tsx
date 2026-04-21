@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Image as ImageIcon, Film, Music, Box, Wrench,
   Loader2, Download, AlertTriangle, CheckCircle2,
-  ScrollText,
+  ScrollText, SlidersHorizontal, Braces,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import CompareSlider from '../components/CompareSlider';
@@ -436,25 +436,31 @@ export default function Studio() {
         {/* Panel header */}
         <div className="flex items-center justify-between px-4 pt-4 pb-3">
           <h2 className="text-base font-semibold text-gray-900">{categoryTitles[activeCategory]}</h2>
-          <div className="flex bg-gray-100 rounded-md overflow-hidden">
+          <div
+            role="tablist"
+            aria-label="Input mode"
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm"
+          >
             <button
+              role="tab"
+              aria-selected={mode === 'form'}
               onClick={() => setMode('form')}
-              className={`px-2.5 py-1 text-xs font-medium transition-colors ${
-                mode === 'form'
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
+              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold transition ${
+                mode === 'form' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
               Form
             </button>
             <button
+              role="tab"
+              aria-selected={mode === 'json'}
               onClick={() => setMode('json')}
-              className={`px-2.5 py-1 text-xs font-medium transition-colors ${
-                mode === 'json'
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
+              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold transition ${
+                mode === 'json' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
+              <Braces className="w-3.5 h-3.5" />
               JSON
             </button>
           </div>

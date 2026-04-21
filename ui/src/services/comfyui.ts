@@ -46,13 +46,39 @@ function buildPagedQuery(params: { page: number; pageSize: number; extra?: Recor
   return qs.toString();
 }
 
+/**
+ * Typed error thrown by `fetchJson` when the API returns non-2xx. Carries
+ * the parsed JSON body when the server provided one — callers that want to
+ * surface structured error payloads (e.g. /generate's node_errors) read
+ * `data` directly instead of parsing the Error message.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly data: unknown;
+  constructor(status: number, message: string, data: unknown) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.data = data;
+  }
+}
+
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${url}`, {
     headers: { 'Content-Type': 'application/json' },
     ...init,
   });
   if (!res.ok) {
-    throw new Error(`API error: ${res.status} ${res.statusText}`);
+    let data: unknown = null;
+    let msg = `${res.status} ${res.statusText}`;
+    try {
+      data = await res.json();
+      if (data && typeof data === 'object' && 'error' in data) {
+        const e = (data as { error?: unknown }).error;
+        if (typeof e === 'string' && e.length > 0) msg = e;
+      }
+    } catch { /* non-JSON body */ }
+    throw new ApiError(res.status, msg, data);
   }
   return res.json();
 }
@@ -174,6 +200,15 @@ export const api = {
     }),
 
   getGallery: () => fetchJson<GalleryItem[]>('/gallery'),
+
+  /**
+   * GET /gallery/:id — full row including `workflowJson`, `promptText`, and
+   * KSampler metadata. Wave P split these fat fields off the list payload;
+   * the detail modal fetches them on open while falling back to the slim
+   * row it received via props for instant display.
+   */
+  getGalleryItem: (id: string) =>
+    fetchJson<GalleryItem>(`/gallery/${encodeURIComponent(id)}`),
 
   /** GET /gallery?page=&pageSize=&mediaType=&sort= — paginated gallery. */
   getGalleryPaged: (

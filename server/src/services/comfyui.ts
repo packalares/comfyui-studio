@@ -11,6 +11,25 @@ export function getComfyUIUrl(): string {
   return COMFYUI_URL;
 }
 
+/**
+ * Typed error thrown when ComfyUI returns a non-2xx response. Callers that
+ * want to surface structured validation failures (e.g. /api/prompt's
+ * `node_errors`) inspect `status` + `body` directly instead of parsing the
+ * message string.
+ */
+export class ComfyUIHttpError extends Error {
+  readonly status: number;
+  readonly body: string;
+  readonly path: string;
+  constructor(status: number, statusText: string, path: string, body: string) {
+    super(`ComfyUI API error: ${status} ${statusText} at ${path}${body ? ' — ' + body.slice(0, 500) : ''}`);
+    this.name = 'ComfyUIHttpError';
+    this.status = status;
+    this.body = body;
+    this.path = path;
+  }
+}
+
 export async function fetchComfyUI<T>(path: string, init?: RequestInit): Promise<T> {
   const url = `${COMFYUI_URL}${path}`;
   const res = await fetch(url, {
@@ -21,11 +40,9 @@ export async function fetchComfyUI<T>(path: string, init?: RequestInit): Promise
     },
   });
   if (!res.ok) {
-    // Surface ComfyUI's error body (usually JSON with { error: { message, details, ... } })
-    // so the caller can show a meaningful message instead of a bare status code.
-    let detail = '';
-    try { detail = ' — ' + (await res.text()).slice(0, 1000); } catch { /* ignore */ }
-    throw new Error(`ComfyUI API error: ${res.status} ${res.statusText} at ${path}${detail}`);
+    let body = '';
+    try { body = (await res.text()).slice(0, 2000); } catch { /* ignore */ }
+    throw new ComfyUIHttpError(res.status, res.statusText, path, body);
   }
   return res.json() as Promise<T>;
 }

@@ -4,6 +4,7 @@ import { LayoutDashboard, Compass, Wand2, Image, Box, Package, Settings, Wifi, W
 import { useApp } from '../context/AppContext';
 import { api } from '../services/comfyui';
 import ComfyUIActions from './ComfyUIActions';
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
 function editorHref(): string {
   const { protocol, host } = window.location;
@@ -23,9 +24,16 @@ const links = [
 ];
 
 export default function Navbar() {
-  const { connected, launcherStatus } = useApp();
+  const { connected, launcherStatus, loading } = useApp();
   const [menuOpen, setMenuOpen] = useState(false);
   const [starting, setStarting] = useState(false);
+
+  // Did we already receive a definitive status signal? `loading` covers the
+  // initial `/system` fetch; once any `launcher-status` has arrived we also
+  // trust that. Both being satisfied flips the pill out of the neutral
+  // "Checking…" placeholder that avoids the Disconnected → Connected flicker
+  // on page load.
+  const statusKnown = !loading || launcherStatus !== null;
 
   // Clear optimistic "starting" once the real state catches up
   useEffect(() => {
@@ -41,40 +49,79 @@ export default function Navbar() {
     }
   };
 
+  // Base pill classes — shared across every state so the hover ring, padding,
+  // and typography stay consistent whether we're showing Connected / Starting
+  // / Start / Checking. State-specific color is layered on top per branch.
+  // Explicit `h-7` so the pill + chevron dropdown match pixel-for-pixel when
+  // grouped. Text-bearing pills and icon-only chevrons have different natural
+  // heights otherwise (line-height vs icon size), which shows as a 4px jog.
+  const PILL_BASE = 'inline-flex items-center gap-1.5 text-xs font-medium h-7 px-2.5 transition-colors';
+
   const statusPill = (() => {
+    // Initial placeholder while we don't yet know ComfyUI's state — stops the
+    // red "Disconnected" flash on page load that used to precede the first
+    // /system response.
+    if (!statusKnown) {
+      return (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className={`${PILL_BASE} rounded-full bg-slate-50 text-slate-500 border border-slate-200`}>
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Checking…
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>Checking ComfyUI status</TooltipContent>
+        </Tooltip>
+      );
+    }
     if (starting) {
       return (
-        <div className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
-          <Loader2 className="w-3 h-3 animate-spin" />
-          Starting…
-        </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className={`${PILL_BASE} rounded-full bg-amber-50 text-amber-700 border border-amber-200`}>
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Starting…
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>Booting ComfyUI</TooltipContent>
+        </Tooltip>
       );
     }
     if (connected) {
+      // Connected state visually joins the Actions dropdown — this pill gets
+      // the LEFT half of the group; the chevron button lives in the RIGHT
+      // half (see ComfyUIActions via the `inGroup` wrapper below).
       return (
-        <a
-          href={editorHref()}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition-colors"
-          title="Open ComfyUI editor in new tab"
-        >
-          <Wifi className="w-3 h-3" />
-          Connected
-          <ExternalLink className="w-3 h-3 opacity-60" />
-        </a>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <a
+              href={editorHref()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`${PILL_BASE} rounded-l-full rounded-r-none bg-green-50 text-green-700 border border-green-200 border-r-0 hover:bg-green-100`}
+            >
+              <Wifi className="w-3 h-3" />
+              Connected
+              <ExternalLink className="w-3 h-3 opacity-60" />
+            </a>
+          </TooltipTrigger>
+          <TooltipContent>Open the ComfyUI editor in a new tab</TooltipContent>
+        </Tooltip>
       );
     }
     return (
-      <button
-        onClick={handleStart}
-        className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-colors cursor-pointer"
-        title="Start ComfyUI"
-      >
-        <WifiOff className="w-3 h-3 group-hover:hidden" />
-        <Play className="w-3 h-3 hidden group-hover:inline" />
-        Start ComfyUI
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={handleStart}
+            className={`${PILL_BASE} rounded-full bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 cursor-pointer`}
+          >
+            <WifiOff className="w-3 h-3" />
+            Start ComfyUI
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>ComfyUI isn't running — click to start</TooltipContent>
+      </Tooltip>
     );
   })();
 
@@ -108,8 +155,10 @@ export default function Navbar() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {/* Desktop: status pill + actions */}
-            <div className="hidden md:flex items-center gap-1.5">
+            {/* Desktop: status pill + actions share a zero-gap group so the
+                connected-state pill and the chevron dropdown read as one
+                segmented control. */}
+            <div className="hidden md:flex items-center">
               {statusPill}
               <ComfyUIActions />
             </div>

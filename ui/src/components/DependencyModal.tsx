@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle, Download, Loader2, CheckCircle2, AlertCircle, Lock,
+  X, Box,
   FolderOpen, HardDrive,
 } from 'lucide-react';
 import type { RequiredModel } from '../types';
@@ -149,13 +150,14 @@ export default function DependencyModal({ missing, onClose, onDownloadComplete }
                 ? <>Total: <span className="font-semibold text-slate-700">{formatBytes(totalSize)}</span></>
                 : `${missing.length} model${missing.length === 1 ? '' : 's'} required`}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="btn-group">
             <button
               type="button"
               className="btn-secondary"
               onClick={onClose}
               disabled={isAnyActive}
             >
+              <X className="w-3.5 h-3.5" />
               Close
             </button>
             <button
@@ -163,6 +165,7 @@ export default function DependencyModal({ missing, onClose, onDownloadComplete }
               className="btn-secondary"
               onClick={() => { onClose(); navigate('/models'); }}
             >
+              <Box className="w-3.5 h-3.5" />
               Go to Models
             </button>
             {canStart && (

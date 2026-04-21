@@ -10,7 +10,7 @@
 // `randomizeSeed` checkbox; every other piece of state (pending delete,
 // selection, etc.) stays on the Gallery page.
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Download, Trash2,
@@ -39,10 +39,32 @@ export default function GalleryDetailModal({
   const [regenerating, setRegenerating] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Wave P: the list endpoint returns slim rows (no `workflowJson` / prompt /
+  // KSampler fields). Fetch the full row on open so the metadata panel +
+  // regenerate button resolve, falling back to the slim props while the
+  // request is in flight — the modal still opens instantly.
+  const [detail, setDetail] = useState<GalleryItem>(item);
+  useEffect(() => {
+    let cancelled = false;
+    // Keep the slim fields visible immediately; only swap in the richer row
+    // once the server responds so prompt/seed/etc. fill in without flicker.
+    setDetail(item);
+    void (async () => {
+      try {
+        const full = await api.getGalleryItem(item.id);
+        if (!cancelled) setDetail(full);
+      } catch {
+        // Leave `detail` at the slim fallback; the metadata panel gracefully
+        // handles missing fields with its "No metadata captured" empty state.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [item.id, item]);
+
   // Regenerate needs the stored workflow AND a reachable ComfyUI. Studio's
   // generate button uses the same `connected` gate (see Studio.tsx:351).
-  const canRegenerate = Boolean(item.workflowJson) && connected;
-  const regenerateTooltip = !item.workflowJson
+  const canRegenerate = Boolean(detail.workflowJson) && connected;
+  const regenerateTooltip = !detail.workflowJson
     ? 'Import from ComfyUI to enable'
     : !connected
       ? 'ComfyUI is not connected'
@@ -71,8 +93,8 @@ export default function GalleryDetailModal({
     <AppModal
       open={true}
       onClose={onClose}
-      title={item.filename}
-      subtitle={`${item.mediaType}${item.templateName ? ` · ${item.templateName}` : ''}`}
+      title={detail.filename}
+      subtitle={`${detail.mediaType}${detail.templateName ? ` · ${detail.templateName}` : ''}`}
       size="md"
       disableClose={regenerating}
       footer={
@@ -92,8 +114,8 @@ export default function GalleryDetailModal({
           </label>
           <div className="btn-group">
             <a
-              href={item.url || '#'}
-              download={item.filename}
+              href={detail.url || '#'}
+              download={detail.filename}
               className="btn-secondary"
             >
               <Download className="w-3.5 h-3.5" />
@@ -126,10 +148,10 @@ export default function GalleryDetailModal({
     >
       <div className="space-y-4">
         {/* Media viewer */}
-        <MediaViewer item={item} />
+        <MediaViewer item={detail} />
 
         {/* Metadata grid */}
-        <MetadataSection item={item} />
+        <MetadataSection item={detail} />
 
         {error && (
           <div className="flex items-start gap-2 rounded-md bg-rose-50 border border-rose-100 px-3 py-2 text-xs text-rose-700">

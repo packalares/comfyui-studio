@@ -171,13 +171,19 @@ export interface GalleryItem {
   url?: string;
   promptId?: string;
   templateName?: string | null;
+  sizeBytes?: number | null;
   prompt?: string;
   seed?: number | null;
-  createdAt?: string;
+  // Wave P: `createdAt` comes back as a number (epoch ms) from the slim list
+  // endpoint. The legacy `string` typing is kept as a union so any call site
+  // still reading it as a date string keeps compiling.
+  createdAt?: number | string;
   favorite?: boolean;
   // Wave F metadata — captured from ComfyUI history at execution time.
   // Every field is nullable because older rows, non-KSampler workflows,
-  // and partial-detection cases produce `null` freely.
+  // and partial-detection cases produce `null` freely. Wave P moved these
+  // off the list payload; only the detail endpoint (`GET /api/gallery/:id`)
+  // populates them now. Tiles that don't fetch detail see `undefined`.
   workflowJson?: string | null;
   promptText?: string | null;
   negativeText?: string | null;

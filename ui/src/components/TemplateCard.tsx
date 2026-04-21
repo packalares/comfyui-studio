@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import {
   Image, Video, Music, Box, HardDrive, Cpu,
   MoreHorizontal, Trash2, Loader2, ExternalLink, FileJson, Check, ImageOff,
-  Puzzle, Info, Play, Download, User as UserIcon,
+  Puzzle, Info, Wand2, Download, User as UserIcon,
 } from 'lucide-react';
 import type { Template, CivitaiModelSummary, StagedImportManifest, RequiredModel } from '../types';
 import { formatBytes } from '../lib/utils';
@@ -325,6 +325,20 @@ function TemplateCardInner({ template, onDeleted }: Props) {
               <TooltipTrigger asChild>
                 <button
                   type="button"
+                  className="btn-primary"
+                  onClick={(e) => { e.stopPropagation(); handleCardClick(); }}
+                  aria-label="Use in Studio"
+                >
+                  <Wand2 className="w-3.5 h-3.5" />
+                  Use
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Open this workflow in the Studio</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
                   className="btn-secondary"
                   onClick={(e) => { e.stopPropagation(); setDescOpen(true); }}
                   aria-label="Description"
@@ -333,19 +347,6 @@ function TemplateCardInner({ template, onDeleted }: Props) {
                 </button>
               </TooltipTrigger>
               <TooltipContent>Description</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="btn-primary"
-                  onClick={(e) => { e.stopPropagation(); handleCardClick(); }}
-                  aria-label="Use"
-                >
-                  <Play className="w-3.5 h-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Use in Studio</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>

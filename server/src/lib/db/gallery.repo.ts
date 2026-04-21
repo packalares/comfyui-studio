@@ -10,13 +10,21 @@
 // driver escapes them — never string-concatenate into SQL here.
 
 import type Database from 'better-sqlite3';
-import type { GalleryItem } from '../../contracts/generation.contract.js';
+import type {
+  GalleryItem,
+  GalleryListItem,
+} from '../../contracts/generation.contract.js';
 import { getDb } from './connection.js';
 
 export interface GalleryRow extends GalleryItem {
   createdAt: number;
   templateName?: string | null;
   sizeBytes?: number | null;
+}
+
+/** Repo-side slim row: list shape + guaranteed `createdAt`. */
+export interface GalleryListRow extends GalleryListItem {
+  createdAt: number;
 }
 
 export interface GalleryListFilter {
@@ -34,7 +42,7 @@ function nullableString(v: unknown): string | null {
   return typeof v === 'string' ? v : String(v);
 }
 
-function rowToItem(r: Record<string, unknown>): GalleryItem {
+function rowToSlim(r: Record<string, unknown>): GalleryListRow {
   return {
     id: String(r.id),
     filename: String(r.filename),
@@ -44,6 +52,14 @@ function rowToItem(r: Record<string, unknown>): GalleryItem {
     url: String(r.url ?? ''),
     promptId: String(r.promptId ?? ''),
     templateName: nullableString(r.templateName),
+    sizeBytes: nullableNumber(r.sizeBytes),
+    createdAt: typeof r.createdAt === 'number' ? r.createdAt : 0,
+  };
+}
+
+function rowToItem(r: Record<string, unknown>): GalleryItem {
+  return {
+    ...rowToSlim(r),
     workflowJson: nullableString(r.workflowJson),
     promptText:   nullableString(r.promptText),
     negativeText: nullableString(r.negativeText),
@@ -56,6 +72,11 @@ function rowToItem(r: Record<string, unknown>): GalleryItem {
     height: nullableNumber(r.height),
   };
 }
+
+/** Columns selected for slim list queries — never includes the fat fields. */
+const LIST_COLUMNS =
+  'id, filename, subfolder, type, mediaType, url, promptId, ' +
+  'templateName, sizeBytes, createdAt';
 
 export function insert(item: GalleryRow, db: Database.Database = getDb()): void {
   db.prepare(`
@@ -137,26 +158,41 @@ export function getById(id: string, db: Database.Database = getDb()): GalleryIte
   return r ? rowToItem(r) : null;
 }
 
+/**
+ * Full-row lookup used by `GET /api/gallery/:id` — returns every captured
+ * generation-metadata field (workflowJson, prompt text, KSampler params).
+ * Aliased to `getById` but exposed under its own name so call sites that
+ * specifically need the fat payload read clearly at the usage point.
+ */
+export function getByIdFull(id: string, db: Database.Database = getDb()): GalleryItem | null {
+  return getById(id, db);
+}
+
 export function count(db: Database.Database = getDb()): number {
   const r = db.prepare('SELECT COUNT(*) as c FROM gallery').get() as { c: number };
   return r.c;
 }
 
+/**
+ * Slim list — returns rows without `workflowJson` + KSampler metadata. Wave
+ * P trimmed the list payload after measuring 2-10 KB per row of fat fields
+ * the tile grid never renders. `GET /api/gallery/:id` returns the full row.
+ */
 export function listAll(
   filter: GalleryListFilter = {},
   db: Database.Database = getDb(),
-): GalleryItem[] {
+): GalleryListRow[] {
   const { mediaType, sort } = filter;
   const dir = sort === 'oldest' ? 'ASC' : 'DESC';
   const where = mediaType && mediaType !== 'all' ? 'WHERE mediaType = ?' : '';
   const params = mediaType && mediaType !== 'all' ? [mediaType] : [];
-  const sql = `SELECT * FROM gallery ${where} ORDER BY createdAt ${dir}, id ${dir}`;
+  const sql = `SELECT ${LIST_COLUMNS} FROM gallery ${where} ORDER BY createdAt ${dir}, id ${dir}`;
   const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
-  return rows.map(rowToItem);
+  return rows.map(rowToSlim);
 }
 
 export interface PageResult {
-  items: GalleryItem[];
+  items: GalleryListRow[];
   total: number;
 }
 
@@ -174,9 +210,9 @@ export function listPaginated(
   const total = (db.prepare(`SELECT COUNT(*) as c FROM gallery ${where}`)
     .get(...cParams) as { c: number }).c;
   const offset = Math.max(0, (page - 1) * pageSize);
-  const sql = `SELECT * FROM gallery ${where} ORDER BY createdAt ${dir}, id ${dir} LIMIT ? OFFSET ?`;
+  const sql = `SELECT ${LIST_COLUMNS} FROM gallery ${where} ORDER BY createdAt ${dir}, id ${dir} LIMIT ? OFFSET ?`;
   const params = useFilter ? [mediaType, pageSize, offset] : [pageSize, offset];
   const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
-  return { items: rows.map(rowToItem), total };
+  return { items: rows.map(rowToSlim), total };
 }
 

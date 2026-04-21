@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -66,8 +66,16 @@ export default function Gallery() {
   // Refetch when a generation completes. The backend appends the row + emits
   // a `gallery` WS broadcast; AppContext surfaces that as an updated
   // `galleryTotal` which we watch here.
+  // Skip the initial-mount firing — `usePaginated` already loads the first
+  // page via its own effect, so firing again on mount would double-request
+  // /api/gallery. Only react to subsequent `galleryTotal` bumps.
   const { galleryTotal } = useApp();
+  const galleryEffectFirstRun = useRef(true);
   useEffect(() => {
+    if (galleryEffectFirstRun.current) {
+      galleryEffectFirstRun.current = false;
+      return;
+    }
     void refetch();
   }, [galleryTotal, refetch]);
 
