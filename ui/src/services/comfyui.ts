@@ -138,12 +138,21 @@ export const api = {
   clearCivitaiToken: () =>
     fetchJson<{ configured: boolean }>('/settings/civitai-token', { method: 'DELETE' }),
 
+  setPexelsApiKey: (apiKey: string) =>
+    fetchJson<{ configured: boolean }>('/settings/pexels-api-key', {
+      method: 'PUT',
+      body: JSON.stringify({ apiKey }),
+    }),
+  clearPexelsApiKey: () =>
+    fetchJson<{ configured: boolean }>('/settings/pexels-api-key', { method: 'DELETE' }),
+
   getSystemStats: () => fetchJson<SystemStats & {
     queue?: QueueStatus | null;
     gallery?: { total: number; recent: GalleryItem[] };
     apiKeyConfigured?: boolean;
     hfTokenConfigured?: boolean;
     civitaiTokenConfigured?: boolean;
+    pexelsApiKeyConfigured?: boolean;
     uploadMaxBytes?: number;
   }>('/system'),
 
@@ -889,4 +898,17 @@ export const api = {
       `/templates/${encodeURIComponent(templateName)}/install-missing-plugins`,
       { method: 'POST' },
     ),
+
+  /** GET /thumbnail/stats — thumbnail cache summary for the Storage settings row. */
+  getThumbnailStats: () =>
+    fetchJson<{
+      count: number;
+      totalBytes: number;
+      oldestMtimeMs: number | null;
+      bucketCount: number;
+    }>('/thumbnail/stats'),
+
+  /** DELETE /thumbnail/cache — admin wipe of the on-disk thumbnail cache. */
+  clearThumbnailCache: () =>
+    fetchJson<{ deleted: number }>('/thumbnail/cache', { method: 'DELETE' }),
 };

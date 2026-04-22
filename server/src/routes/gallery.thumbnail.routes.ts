@@ -1,23 +1,14 @@
-// GET /api/gallery/thumbnail — on-disk cached poster frames for video rows.
-//
-// The tile grid used to render `<video src="/api/view?...">` for videos, so
-// the browser pulled MP4 bytes just to paint a poster. This route resolves
-// the local video path, spawns ffmpeg once to generate a resized webp, caches
-// it under `${COMFYUI_PATH}/.cache/video-thumbs/`, and streams the webp with
-// an immutable-ish Cache-Control. Cache keys hash `(absPath, width)` so width
-// bumps invalidate only the affected entries.
-//
-// Mount order: registered BEFORE the `/gallery/:id` handler in `routes/index.ts`
-// so `/gallery/thumbnail` doesn't get captured by the param route.
-//
-// Dual-mounted at `/gallery/thumbnail` + `/launcher/gallery/thumbnail` per
-// the existing alias pattern.
+// DEPRECATED — remove after UI migration lands.
+// Back-compat adapter for `/api/gallery/thumbnail?filename=&subfolder=&type=&w=`.
+// Delegates to the legacy `videoThumbnail.service` (which writes under
+// `.cache/video-thumbs/`) so pre-migration callers keep hitting the same
+// cache path. The unified service (`/api/thumbnail/:id`) is the migration
+// target for new call sites; once the UI is fully switched over this file
+// and `videoThumbnail.service.ts` can both be deleted.
 
 import { Router, type Request, type Response } from 'express';
 import { createReadStream } from 'fs';
-import {
-  sanitizeSegment, resolveViewPath,
-} from '../lib/viewPath.js';
+import { sanitizeSegment, resolveViewPath } from '../lib/viewPath.js';
 import {
   thumbnailForVideo, isVideoThumbError,
 } from '../services/videoThumbnail.service.js';
@@ -82,9 +73,6 @@ router.get(
           return;
         }
         if (err.code === 'FFMPEG_MISSING') {
-          // Frontend falls through to a placeholder icon when the binary is
-          // absent; 404 is the signal rather than 502 so per-row errors
-          // don't pollute the server error budget.
           res.status(404).json({ error: 'FFMPEG_MISSING' });
           return;
         }

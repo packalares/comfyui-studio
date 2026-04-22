@@ -184,12 +184,7 @@ function MediaViewer({ item }: { item: GalleryItem }): JSX.Element {
           return <video src={item.url} controls className="max-h-[60vh] w-full" />;
         }
         if (item.mediaType === 'audio') {
-          return (
-            <div className="w-full p-8 flex flex-col items-center justify-center gap-4">
-              <Music className="w-16 h-16 text-slate-300" />
-              <audio src={item.url} controls className="w-full max-w-md" />
-            </div>
-          );
+          return <AudioViewer item={item} />;
         }
         // 3D assets (.glb/.gltf/...) are classified upstream as mediaType=image
         // so they live alongside images in the gallery; the actual renderer
@@ -209,6 +204,33 @@ function MediaViewer({ item }: { item: GalleryItem }): JSX.Element {
           />
         );
       })()}
+    </div>
+  );
+}
+
+// Audio viewer — wide banner cover (21:9) from the thumbnail service with
+// the audio player overlaid on a gradient strip at the bottom. Cover falls
+// back to the Music icon when the thumbnail request 404s.
+function AudioViewer({ item }: { item: GalleryItem }): JSX.Element {
+  const [coverError, setCoverError] = useState(false);
+  const coverUrl = `/api/thumbnail/${encodeURIComponent(item.id)}?w=640`;
+  return (
+    <div className="relative w-full aspect-[21/9] rounded-lg overflow-hidden bg-slate-200">
+      {coverError ? (
+        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-200">
+          <Music className="w-16 h-16 text-slate-300" />
+        </div>
+      ) : (
+        <img
+          src={coverUrl}
+          alt={item.filename}
+          className="absolute inset-0 w-full h-full object-cover"
+          onError={() => setCoverError(true)}
+        />
+      )}
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent p-3 pt-8">
+        <audio src={item.url} controls className="w-full" />
+      </div>
     </div>
   );
 }

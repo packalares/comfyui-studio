@@ -147,6 +147,21 @@ describe('extractMetadata', () => {
     expect(meta.model).toBe('flux-dev.safetensors');
     expect(meta.steps).toBe(4);
   });
+
+  it('reads `tags` as promptText from TextEncodeAceStepAudio', () => {
+    const prompt: ApiPrompt = {
+      '1': {
+        class_type: 'TextEncodeAceStepAudio1_5',
+        inputs: { tags: 'lofi jazz, saxophone, rainy', lyrics: 'night drive...' },
+      },
+      '2': {
+        class_type: 'SamplerCustomAdvanced',
+        inputs: { positive: ['1', 0], seed: 11 },
+      },
+    };
+    const meta = extractMetadata(prompt);
+    expect(meta.promptText).toBe('lofi jazz, saxophone, rainy');
+  });
 });
 
 describe('extractMetadata v4 — workflow-agnostic', () => {

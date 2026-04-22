@@ -38,6 +38,7 @@ interface AppContextType {
   apiKeyConfigured: boolean;
   hfTokenConfigured: boolean;
   civitaiTokenConfigured: boolean;
+  pexelsApiKeyConfigured: boolean;
   uploadMaxBytes: number;
   downloads: Record<string, DownloadState>;
   progress: LiveProgress | null;
@@ -81,6 +82,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setApiKeyConfigured,
     _setHfTokenConfigured,
     _setCivitaiTokenConfigured,
+    _setPexelsApiKeyConfigured,
     _setUploadMaxBytes,
     _systemStatsRef,
   } = system;
@@ -102,6 +104,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       const {
         queue, gallery: galleryInfo,
         apiKeyConfigured, hfTokenConfigured, civitaiTokenConfigured,
+        pexelsApiKeyConfigured,
         uploadMaxBytes,
         ...stats
       } = data;
@@ -115,6 +118,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       if (typeof apiKeyConfigured === 'boolean') _setApiKeyConfigured(apiKeyConfigured);
       if (typeof hfTokenConfigured === 'boolean') _setHfTokenConfigured(hfTokenConfigured);
       if (typeof civitaiTokenConfigured === 'boolean') _setCivitaiTokenConfigured(civitaiTokenConfigured);
+      if (typeof pexelsApiKeyConfigured === 'boolean') _setPexelsApiKeyConfigured(pexelsApiKeyConfigured);
       if (typeof uploadMaxBytes === 'number' && Number.isFinite(uploadMaxBytes)) {
         _setUploadMaxBytes(uploadMaxBytes);
       }
@@ -131,6 +135,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setApiKeyConfigured,
     _setHfTokenConfigured,
     _setCivitaiTokenConfigured,
+    _setPexelsApiKeyConfigured,
     _setUploadMaxBytes,
     _setConnected,
   ]);
@@ -434,6 +439,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       apiKeyConfigured: system.apiKeyConfigured,
       hfTokenConfigured: system.hfTokenConfigured,
       civitaiTokenConfigured: system.civitaiTokenConfigured,
+      pexelsApiKeyConfigured: system.pexelsApiKeyConfigured,
       uploadMaxBytes: system.uploadMaxBytes,
       downloads: jobs.downloads,
       progress: jobs.progress,
@@ -462,6 +468,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       system.apiKeyConfigured,
       system.hfTokenConfigured,
       system.civitaiTokenConfigured,
+      system.pexelsApiKeyConfigured,
       system.uploadMaxBytes,
       jobs.queueStatus,
       jobs.currentJob,

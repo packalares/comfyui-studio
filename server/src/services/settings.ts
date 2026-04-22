@@ -8,6 +8,7 @@ interface Settings {
   apiKeyComfyOrg?: string;
   huggingFaceToken?: string;
   civitaiToken?: string;
+  pexelsApiKey?: string;
 }
 
 let cache: Settings | null = null;
@@ -90,5 +91,25 @@ export function setCivitaiToken(token: string): void {
 export function clearCivitaiToken(): void {
   const settings = load();
   const { civitaiToken: _removed, ...rest } = settings;
+  save(rest);
+}
+
+export function getPexelsApiKey(): string | undefined {
+  return load().pexelsApiKey;
+}
+
+export function isPexelsApiKeyConfigured(): boolean {
+  const key = getPexelsApiKey();
+  return typeof key === 'string' && key.length > 0;
+}
+
+export function setPexelsApiKey(key: string): void {
+  const settings = load();
+  save({ ...settings, pexelsApiKey: key });
+}
+
+export function clearPexelsApiKey(): void {
+  const settings = load();
+  const { pexelsApiKey: _removed, ...rest } = settings;
   save(rest);
 }

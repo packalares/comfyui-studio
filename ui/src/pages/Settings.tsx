@@ -16,6 +16,7 @@ import {
   Terminal,
   Globe,
   HardDrive,
+  Image as ImageIcon,
   Trash2,
   Shield,
   // Category icons for Launch Options sections
@@ -32,6 +33,7 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { api } from '../services/comfyui';
 import { useApp } from '../context/AppContext';
 import { Switch } from '../components/ui/switch';
@@ -518,6 +520,103 @@ function CivitaiTokenCard() {
             Create an API key on <code>civitai.com/user/account</code>. Stored
             server-side; attached as <code>Authorization: Bearer</code> to
             civitai.com HEAD/GET requests. Never echoed back to the browser.
+          </p>
+        </div>
+      </div>
+      <div className="panel-footer">
+        <p className="panel-footer-note">Changes are applied immediately.</p>
+        <div className="btn-group">
+          {configured && (
+            <button onClick={handleClear} disabled={busy} className="btn-secondary !text-red-600 hover:!bg-red-50">
+              <Trash2 className="h-3.5 w-3.5" />
+              Clear
+            </button>
+          )}
+          <button onClick={handleSave} disabled={saveDisabled} className="btn-primary">
+            {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
+            {saved ? 'Saved' : configured ? 'Replace' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* =================================================================
+   1d. Pexels API Key Card
+   ================================================================= */
+
+function PexelsApiKeyCard() {
+  const { pexelsApiKeyConfigured: configured, refreshSystem } = useApp();
+  const [token, setToken] = useState('');
+  const [showToken, setShowToken] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const handleSave = async () => {
+    if (!token.trim()) return;
+    setBusy(true);
+    try {
+      await api.setPexelsApiKey(token.trim());
+      await refreshSystem();
+      setToken('');
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleClear = async () => {
+    setBusy(true);
+    try {
+      await api.clearPexelsApiKey();
+      await refreshSystem();
+      setToken('');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveDisabled = busy || token.trim().length === 0;
+
+  return (
+    <section className="panel">
+      <CardHeader
+        icon={Key}
+        title="Pexels API Key"
+        description="Optional. Lets audio thumbnails fetch a prompt-matched stock photo instead of a generic placeholder."
+        right={<StatusBadge ok={configured} labelOk="Configured" labelBad="Not set" />}
+      />
+      <div className="space-y-3 panel-body">
+        <label className="field-label">
+          API key
+        </label>
+        <div className="field-wrap">
+          <input
+            type={showToken ? 'text' : 'password'}
+            value={token}
+            onChange={e => setToken(e.target.value)}
+            className="field-input font-mono"
+            placeholder={configured ? 'Key is set — type a new one to replace' : 'Pexels API key'}
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <button
+            type="button"
+            onClick={() => setShowToken(v => !v)}
+            className="text-slate-400 transition hover:text-slate-700"
+            aria-label={showToken ? 'Hide key' : 'Show key'}
+          >
+            {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        </div>
+        <div className="info-box">
+          <p>
+            Free key at <code>pexels.com/api</code> (200 req/hr, 20k/month).
+            When set, audio tiles without embedded cover art search Pexels
+            using the prompt. Unset → falls back to a deterministic Picsum
+            placeholder. Never echoed back to the browser.
           </p>
         </div>
       </div>
@@ -1265,6 +1364,64 @@ function StorageRowCopyButton({ text }: { text: string }) {
   );
 }
 
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function ThumbnailCacheRow() {
+  const [stats, setStats] = useState<{ count: number; totalBytes: number } | null>(null);
+  const [clearing, setClearing] = useState(false);
+
+  const refresh = useCallback(() => {
+    api.getThumbnailStats()
+      .then((s) => setStats({ count: s.count, totalBytes: s.totalBytes }))
+      .catch(() => setStats({ count: 0, totalBytes: 0 }));
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const clear = async () => {
+    setClearing(true);
+    try {
+      const { deleted } = await api.clearThumbnailCache();
+      toast.success(`Cleared ${deleted} thumbnail${deleted === 1 ? '' : 's'}`);
+      refresh();
+    } catch (err) {
+      toast.error('Failed to clear thumbnail cache', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50">
+      <div className="flex min-w-0 items-center gap-2">
+        <ImageIcon className="h-4 w-4 shrink-0 text-slate-500" />
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-slate-800">Thumbnail cache</div>
+          <div className="mt-0.5 text-xs text-slate-500">
+            {stats
+              ? `${stats.count} file${stats.count === 1 ? '' : 's'} · ${formatBytes(stats.totalBytes)}`
+              : 'Loading…'}
+          </div>
+        </div>
+      </div>
+      <button
+        onClick={clear}
+        disabled={clearing || !stats || stats.count === 0}
+        className="btn-secondary"
+      >
+        {clearing ? 'Clearing…' : 'Clear'}
+      </button>
+    </div>
+  );
+}
+
 function StorageCard() {
   return (
     <section className="panel">
@@ -1286,6 +1443,7 @@ function StorageCard() {
             <StorageRowCopyButton text={path} />
           </div>
         ))}
+        <ThumbnailCacheRow />
       </div>
     </section>
   );
@@ -1300,11 +1458,12 @@ export default function Settings() {
     <>
       <PageSubbar title="Settings" description="Configure your workspace" />
       <div className="page-container space-y-3">
-        {/* API keys row — Comfy Org | HuggingFace | CivitAI */}
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+        {/* API keys row — Comfy Org | HuggingFace | CivitAI | Pexels */}
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
           <ApiKeyCard />
           <HfTokenCard />
           <CivitaiTokenCard />
+          <PexelsApiKeyCard />
         </div>
         {/* Storage + Network row */}
         <div className="grid gap-3 md:grid-cols-2">

@@ -29,6 +29,7 @@ import python from './python.routes.js';
 import civitai from './civitai.routes.js';
 import systemLauncher from './systemLauncher.routes.js';
 import imgProxy from './imgProxy.routes.js';
+import thumbnail from './thumbnail.routes.js';
 
 const router = Router();
 
@@ -57,6 +58,7 @@ router.use(plugins);          // local /plugins/* + /launcher/plugins/* aliases
 router.use(python);           // local /python/* + /launcher/python/* aliases
 router.use(civitai);          // local /civitai/* + /launcher/civitai/* aliases
 router.use(systemLauncher);   // local /system/* + /launcher/system/* aliases
-router.use(imgProxy);         // /img + /launcher/img — image proxy + md5 disk cache
+router.use(imgProxy);         // /img + /launcher/img — image proxy + md5 disk cache (deprecated, kept as adapter)
+router.use(thumbnail);        // /thumbnail + /launcher/thumbnail — unified thumbnail service
 
 export default router;

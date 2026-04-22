@@ -2,19 +2,13 @@
 // selection + favorite overlays, footer) is shared; the inner "preview area"
 // swaps between image / video / audio.
 //
-// Fallbacks per type:
-//  - image: `item.url` routed through the `/api/img` proxy (md5 disk cache)
-//    at tile width so the browser never pulls the full-res original just to
-//    paint a 320×180 thumb. Same-origin `/api/view?...` URLs pass through
-//    unchanged; the proxy fetches them directly off disk.
-//  - video: a cached webp poster from `/api/gallery/thumbnail?...`. On hover
-//    the tile lazily swaps in a real video element (preload="none" until
-//    hover, muted + looped) so the MP4 bytes only stream when the user is
-//    actually previewing. On leave / scroll-away the video pauses to free
-//    the decoder.
-//  - audio: compact Play/Pause button + the <audio> element; no waveform
-//    (punted — rendering needs upstream audio decoding). A Music icon sits
-//    at the top of the tile so scanning a grid still reads as "audio".
+// All media types now flow through `/api/thumbnail/:id?w=...` — the unified
+// thumbnail service picks the correct pipeline (sharp for images, ffmpeg
+// frame-grab for video, ffmpeg coverart + Pexels fallback for audio,
+// static SVG for 3D) from the DB row's filename extension. Video tiles
+// still lazily swap in a `<video>` element on hover (preload="none" until
+// hover, muted + looped) so MP4 bytes only stream when previewing; on
+// leave / scroll-away the video pauses to free the decoder.
 
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -23,10 +17,15 @@ import {
   Play, Trash2, Box, Clock,
 } from 'lucide-react';
 import type { GalleryItem } from '../types';
-import { imgProxy } from '../lib/imgProxy';
 import { isThreeDFilename } from '../lib/media';
 
 const TILE_WIDTH = 320;
+
+// Unified thumbnail URL for a gallery row. The server resolves the id to
+// a filename + subfolder + type and dispatches to the right pipeline.
+function thumbUrlForItem(item: GalleryItem): string {
+  return `/api/thumbnail/${encodeURIComponent(item.id)}?w=${TILE_WIDTH}`;
+}
 
 // Format milliseconds as m:ss (or h:mm:ss for >1h). Returns null when the
 // input is missing so callers can skip rendering the duration pill.
@@ -176,29 +175,15 @@ function ThreeDPreview() {
 
 function ImagePreview({ item }: { item: GalleryItem }) {
   if (!item.url) return <ImageIcon className="w-10 h-10 text-slate-300" />;
-  // Wave P: route the tile thumbnail through the `/api/img` proxy so the
-  // browser receives a resized webp instead of the full-res original. The
-  // proxy short-circuits same-origin paths (see `lib/imgProxy.ts`) and the
-  // server handles the on-disk fetch via `/api/view`.
-  const src = imgProxy(item.url, TILE_WIDTH) ?? item.url;
+  // All media types go through the unified /api/thumbnail/:id endpoint.
   return (
     <img
-      src={src}
+      src={thumbUrlForItem(item)}
       alt={item.filename}
       className="w-full h-full object-cover"
       loading="lazy"
     />
   );
-}
-
-/** Build the `/api/gallery/thumbnail` URL for a given video row. */
-function buildThumbUrl(item: GalleryItem): string {
-  const params = new URLSearchParams();
-  params.set('filename', item.filename);
-  if (item.subfolder) params.set('subfolder', item.subfolder);
-  if (item.type) params.set('type', item.type);
-  params.set('w', String(TILE_WIDTH));
-  return `/api/gallery/thumbnail?${params.toString()}`;
 }
 
 function VideoPreview({ item }: { item: GalleryItem }) {
@@ -251,7 +236,7 @@ function VideoPreview({ item }: { item: GalleryItem }) {
     el.currentTime = 0;
   };
 
-  const thumbUrl = buildThumbUrl(item);
+  const thumbUrl = thumbUrlForItem(item);
 
   return (
     <div
@@ -298,10 +283,27 @@ function VideoPreview({ item }: { item: GalleryItem }) {
 // Static preview — the inline play button + <audio> element were removed.
 // Audio playback belongs in the detail modal (which has a real
 // <audio controls> player). Clicking the tile opens the modal.
-function AudioPreview({ item: _item }: { item: GalleryItem }) {
+//
+// Cover image comes from the unified thumbnail service's audio waterfall:
+// embedded cover art (ID3 APIC / FLAC PICTURE / MP4 covr) -> Pexels (if
+// key configured) -> Picsum seeded per-file -> static Music SVG. On any
+// failure we fall back locally to the Music icon so the tile never blanks.
+function AudioPreview({ item }: { item: GalleryItem }) {
+  const [error, setError] = useState(false);
+  if (error) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-200">
+        <Music className="w-10 h-10 text-slate-400" />
+      </div>
+    );
+  }
   return (
-    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-200">
-      <Music className="w-10 h-10 text-slate-400" />
-    </div>
+    <img
+      src={thumbUrlForItem(item)}
+      alt={item.filename}
+      className="w-full h-full object-cover"
+      loading="lazy"
+      onError={() => setError(true)}
+    />
   );
 }

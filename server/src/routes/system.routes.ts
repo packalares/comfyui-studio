@@ -47,6 +47,7 @@ router.get('/system', async (_req: Request, res: Response) => {
     apiKeyConfigured: settings.isApiKeyConfigured(),
     hfTokenConfigured: settings.isHfTokenConfigured(),
     civitaiTokenConfigured: settings.isCivitaiTokenConfigured(),
+    pexelsApiKeyConfigured: settings.isPexelsApiKeyConfigured(),
     uploadMaxBytes: env.UPLOAD_MAX_BYTES,
   });
 });

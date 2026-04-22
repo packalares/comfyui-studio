@@ -1,18 +1,10 @@
-// GET /api/img — image proxy endpoint backed by the md5 disk cache.
-//
-// Query params:
-//   - url (required)  : http(s) URL of the upstream image. Host must be on
-//                       env.IMG_PROXY_ALLOWED_HOSTS.
-//   - w   (required)  : target width in pixels (integer, 32..2048).
-//   - fmt (optional)  : `webp` (default) | `jpeg`.
-//
-// The response sets `Cache-Control: public, max-age=31536000, immutable`
-// because /api/img URLs are content-addressed (they include the source URL
-// and width) — if the source changes, the browser will build a different
-// /api/img URL and bypass its cached copy automatically.
-//
-// Dual-mounted at `/img` + `/launcher/img` to match the pattern used by
-// other proxy endpoints (see view.routes.ts, civitai.routes.ts).
+// DEPRECATED — remove after UI migration lands.
+// Back-compat adapter for `/api/img?url=...&w=...`. Delegates to the
+// legacy `imgProxy.service` so pre-migration callers keep hitting the
+// same `<COMFYUI_PATH>/.cache/thumbs/<md5>.<format>` cache path. The
+// unified service (`/api/thumbnail?url=...`) is the migration target;
+// once the UI is fully switched over this file and the legacy service
+// can both be deleted.
 
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import { createReadStream } from 'fs';

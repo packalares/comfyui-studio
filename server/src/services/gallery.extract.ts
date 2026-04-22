@@ -25,6 +25,18 @@ export type { ApiPrompt, ApiPromptNode, ExtractedMetadata };
 const KSAMPLER_TYPES = new Set(['KSampler', 'KSamplerAdvanced']);
 const TEXT_ENCODE_RX = /TextEncode/i;
 
+/**
+ * Domain-specific encoder nodes that don't use CLIP's `text` convention.
+ * For each class pattern, try the listed fields in order — the first one
+ * holding a non-empty literal becomes the promptText.
+ *
+ * - `TextEncodeAceStepAudio*` (ACE-Step audio): `tags` (genre/mood) beats
+ *   `lyrics` for Pexels-style stock search because it's concrete keywords.
+ */
+const DOMAIN_ENCODERS: Array<{ classPattern: RegExp; fields: string[] }> = [
+  { classPattern: /^TextEncodeAceStepAudio/, fields: ['tags', 'lyrics'] },
+];
+
 function emptyMeta(): ExtractedMetadata {
   return {
     promptText: null, negativeText: null, seed: null, model: null,
@@ -45,7 +57,34 @@ function emptyMeta(): ExtractedMetadata {
  *      the literal lives in a PrimitiveStringMultiline upstream of a
  *      TextGenerate* wrapper.
  */
+/**
+ * Step 0: domain-specific encoder shapes (ACE-Step audio, etc.) whose
+ * inputs don't match the CLIP `text` convention. Returns null when no
+ * domain encoder is present so we fall through to the classic resolvers.
+ */
+function resolveDomainSpecificPrompt(prompt: ApiPrompt): string | null {
+  for (const node of Object.values(prompt)) {
+    const className = node?.class_type;
+    if (!className) continue;
+    const match = DOMAIN_ENCODERS.find(e => e.classPattern.test(className));
+    if (!match) continue;
+    for (const field of match.fields) {
+      const v = node.inputs?.[field];
+      if (typeof v === 'string' && v.trim() !== '') return v;
+      if (Array.isArray(v)) {
+        const lit = resolveLiteral(prompt, v);
+        if (typeof lit === 'string' && lit.trim() !== '') return lit;
+      }
+    }
+  }
+  return null;
+}
+
 function resolvePromptText(prompt: ApiPrompt): string | null {
+  // Step 0: domain-specific encoders (ACE-Step audio `tags`, etc.).
+  const domain = resolveDomainSpecificPrompt(prompt);
+  if (domain !== null) return domain;
+
   // Step 1: KSampler → CLIPTextEncode literal.
   for (const node of Object.values(prompt)) {
     if (!node?.class_type || !KSAMPLER_TYPES.has(node.class_type)) continue;

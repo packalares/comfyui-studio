@@ -143,6 +143,10 @@ const LAUNCHER = {
   IMG_PROXY_ALLOWED_HOSTS: (process.env.IMG_PROXY_ALLOWED_HOSTS
     ?? 'civitai.com,.civitai.com,huggingface.co,.huggingface.co,cdn.huggingface.co,image.civitai.com,cdn.civitai.com,localhost,127.0.0.1')
     .split(',').map((s) => s.trim()).filter(Boolean),
+  /** Thumbnail cache age cap (days). Files older are unlinked on sweep. */
+  THUMB_CACHE_MAX_AGE_DAYS: readNumber(process.env.THUMB_CACHE_MAX_AGE_DAYS, 30),
+  /** Thumbnail cache size cap (bytes). Over-cap => LRU unlink till under. */
+  THUMB_CACHE_MAX_BYTES: readNumber(process.env.THUMB_CACHE_MAX_BYTES, 500 * 1024 * 1024),
 } as const;
 
 export const env = { ...STUDIO, ...LAUNCHER } as const;
