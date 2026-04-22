@@ -5,7 +5,6 @@
 // higher-level `catalog.ts` surface can stay focused on merge / refresh logic.
 
 import fs from 'fs';
-import { env } from '../config/env.js';
 import { paths } from '../config/paths.js';
 import { atomicWrite } from '../lib/fs.js';
 import type { CatalogModel } from '../contracts/catalog.contract.js';
@@ -97,14 +96,22 @@ function mapSeedEntry(m: Record<string, unknown>): CatalogModel {
   };
 }
 
-/** Seed from ComfyUI's /api/externalmodel/getlist?mode=live on first run. Idempotent. */
+/**
+ * Seed catalog from the canonical upstream on first run. Idempotent.
+ * Pulls directly from ltdrdata/ComfyUI-Manager's GitHub-hosted
+ * `model-list.json` so seeding works even when ComfyUI isn't running
+ * (and doesn't require ComfyUI-Manager to be installed inside ComfyUI).
+ */
+const MODEL_LIST_URL =
+  'https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/model-list.json';
+
 export async function seedFromComfyUI(): Promise<void> {
   const data = load();
   if (data.models.length > 0) return;
   if (seedInFlight) return seedInFlight;
   seedInFlight = (async () => {
     try {
-      const res = await fetch(`${env.COMFYUI_URL}/api/externalmodel/getlist?mode=live`);
+      const res = await fetch(MODEL_LIST_URL);
       if (!res.ok) return;
       const body = await res.json() as { models?: Array<Record<string, unknown>> };
       const models = (body.models || [])
