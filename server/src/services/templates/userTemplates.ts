@@ -116,7 +116,11 @@ export function saveUserWorkflow(input: SaveWorkflowInput): TemplateData {
     category: input.category || 'User Workflows',
     studioCategory: input.studioCategory ?? 'image',
     io: input.io ?? { inputs: [], outputs: [] },
-    formInputs: generateFormInputs(raw),
+    // Pass the user's workflow so the primitive-titled fields (Width /
+    // Height / Prompt / ...) land in `formInputs` at save time. No objectInfo
+    // here — the widget-walk for multi-field encoders runs dynamically in
+    // the /template-widgets route where objectInfo is available.
+    formInputs: generateFormInputs(raw, input.workflow),
     thumbnail: input.thumbnail ?? [],
     workflow: input.workflow,
     size: 0,

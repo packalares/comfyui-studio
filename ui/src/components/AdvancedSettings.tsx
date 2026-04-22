@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { ChevronDown, Shuffle, Minus, Plus } from 'lucide-react';
+import { ChevronDown, Shuffle, Minus, Plus, Info } from 'lucide-react';
 import type { AdvancedSetting } from '../types';
 import { Slider } from './ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Switch } from './ui/switch';
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
 interface Props {
   settings: AdvancedSetting[];
@@ -146,7 +147,7 @@ function SettingField({
   if (setting.type === 'toggle') {
     return (
       <div className="flex items-center">
-        <label className="text-xs font-medium text-gray-600">{setting.label}</label>
+        <SettingLabel setting={setting} />
         <span className="ml-auto">
           <Switch size="sm" checked={!!value} onCheckedChange={onChange} />
         </span>
@@ -165,11 +166,33 @@ function SettingField({
   return (
     <div>
       <div className="flex items-center mb-1">
-        <label className="text-xs font-medium text-gray-600">{setting.label}</label>
+        <SettingLabel setting={setting} />
         {labelRight && <span className="ml-auto">{labelRight}</span>}
       </div>
       <SettingControl setting={setting} value={value} onChange={onChange} />
     </div>
+  );
+}
+
+/**
+ * Renders the field label plus an Info tooltip when scope disclosure is
+ * available. Kept inline (not a flex container) so the outer row layout —
+ * `ml-auto` right-side readouts, toggle switches — still anchors off the
+ * parent `<div>` without extra wrapping.
+ */
+function SettingLabel({ setting }: { setting: AdvancedSetting }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <label className="text-[11px] font-medium text-gray-600">{setting.label}</label>
+      {setting.scopeLabel && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Info className="w-3 h-3 text-slate-400 hover:text-slate-600 cursor-help" />
+          </TooltipTrigger>
+          <TooltipContent>{setting.scopeLabel}</TooltipContent>
+        </Tooltip>
+      )}
+    </span>
   );
 }
 
@@ -298,7 +321,7 @@ function SettingControl({
         <textarea
           value={(value as string) ?? ''}
           onChange={e => onChange(e.target.value)}
-          rows={2}
+          rows={4}
           className="field-textarea"
         />
       );

@@ -1,9 +1,10 @@
 import { memo } from 'react';
 import {
-  Trash2, Loader2, Download, X, Lock, AlertTriangle, ExternalLink,
+  Trash2, Loader2, Download, X, Lock, AlertTriangle, ExternalLink, Info,
 } from 'lucide-react';
 import type { CatalogModel, DownloadState, CivitaiModelSummary } from '../types';
 import { formatBytes } from '../lib/utils';
+import { Tooltip, TooltipTrigger, TooltipContent } from './ui/tooltip';
 
 export interface ModelRowDownload {
   modelName: string;
@@ -40,11 +41,15 @@ interface Props {
   onDelete?: (model: CatalogModel) => void;
   onCancelDownload: (modelName: string, downloadId: string) => void;
   onNavigateSettings: () => void;
+  /** Opens the ModelInfoModal for this row. Optional — when omitted the Info
+   * button is suppressed so callers that don't wire it up don't render a
+   * dead button. */
+  onShowInfo?: (item: ModelRowItem) => void;
 }
 
 function CatalogRow({
   model, download, isRequired, selectedWorkflow, hfTokenConfigured, showTypeBadge,
-  onInstall, onDelete, onCancelDownload, onNavigateSettings, item,
+  onInstall, onDelete, onCancelDownload, onNavigateSettings, item, onShowInfo,
 }: {
   model: CatalogModel;
   download?: ModelRowDownload;
@@ -57,7 +62,11 @@ function CatalogRow({
   onCancelDownload: (modelName: string, downloadId: string) => void;
   onNavigateSettings: () => void;
   item: ModelRowItem;
+  onShowInfo?: (item: ModelRowItem) => void;
 }) {
+  // Info button is suppressed when the model carries nothing useful to show —
+  // avoids dead buttons on minimal catalog entries.
+  const hasInfo = !!(model.description || model.reference || model.base);
   // Show the in-flight state when either a live WS download arrived OR the
   // catalog row carries `downloading: true` (pre-populated at download-start).
   const isDownloading = !!download || !!model.downloading;
@@ -130,7 +139,7 @@ function CatalogRow({
           </p>
         )}
       </div>
-      <div className="shrink-0">
+      <div className="shrink-0 flex items-center gap-2">
         {download && download.status === 'queued' ? (
           <span className="badge-pill bg-slate-100 text-slate-600 ring-slate-200 inline-flex items-center gap-1">
             <Loader2 className="w-3 h-3 animate-spin" /> Queued
@@ -156,31 +165,69 @@ function CatalogRow({
               <X className="w-4 h-4" />
             </button>
           </div>
-        ) : model.installed && onDelete ? (
-          <button
-            onClick={() => onDelete(model)}
-            className="btn-icon hover:!text-red-500"
-            title="Delete model"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        ) : model.gated && !hfTokenConfigured ? (
-          <button
-            onClick={onNavigateSettings}
-            className="btn-secondary"
-            title={model.gated_message || 'Requires HuggingFace token — click to configure'}
-          >
-            <Lock className="w-3.5 h-3.5" />
-            HF token
-          </button>
         ) : (
-          <button
-            onClick={() => onInstall(item)}
-            className="btn-primary"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Download
-          </button>
+          // Normal state: primary action + optional Info in a connected
+          // btn-group that mirrors Explore's CivitaiTemplateCard footer.
+          <div className="btn-group">
+            {model.installed && onDelete ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => onDelete(model)}
+                    className="btn-secondary hover:!bg-red-50 hover:!border-red-200 hover:!text-red-600"
+                    aria-label="Delete model"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Delete this model</TooltipContent>
+              </Tooltip>
+            ) : model.gated && !hfTokenConfigured ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={onNavigateSettings}
+                    className="btn-primary"
+                    aria-label="Configure HuggingFace token"
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    HF token
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{model.gated_message || 'Requires HuggingFace token — click to configure'}</TooltipContent>
+              </Tooltip>
+            ) : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => onInstall(item)}
+                    className="btn-primary"
+                    aria-label="Download model"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Download
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Download this model</TooltipContent>
+              </Tooltip>
+            )}
+            {onShowInfo && hasInfo && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => onShowInfo(item)}
+                    aria-label="Description"
+                    className="btn-secondary"
+                  >
+                    <Info className="w-3.5 h-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Description</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -188,12 +235,13 @@ function CatalogRow({
 }
 
 function CivitaiRow({
-  civ, showTypeBadge, onInstall, item,
+  civ, showTypeBadge, onInstall, item, onShowInfo,
 }: {
   civ: Extract<ModelRowItem, { kind: 'civitai' }>;
   showTypeBadge?: boolean;
   onInstall: (item: ModelRowItem) => void;
   item: ModelRowItem;
+  onShowInfo?: (item: ModelRowItem) => void;
 }) {
   const pageUrl = `https://civitai.com/models/${civ.item.id}`;
   const creator = civ.item.creator?.username;
@@ -239,27 +287,54 @@ function CivitaiRow({
           </p>
         )}
       </div>
-      <div className="shrink-0 flex items-center gap-1">
-        <a
-          href={pageUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="btn-icon"
-          aria-label="Open on CivitAI"
-          title="Open on civitai.com"
-        >
-          <ExternalLink className="w-4 h-4" />
-        </a>
-        <button
-          onClick={() => onInstall(item)}
-          disabled={civ.busy}
-          className="btn-primary"
-        >
-          {civ.busy
-            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            : <Download className="w-3.5 h-3.5" />}
-          {civ.copied ? 'Started' : 'Download'}
-        </button>
+      <div className="shrink-0 btn-group">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => onInstall(item)}
+              disabled={civ.busy}
+              className="btn-primary"
+              aria-label={civ.busy ? 'Starting download' : civ.copied ? 'Download started' : 'Download model'}
+            >
+              {civ.busy
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <Download className="w-3.5 h-3.5" />}
+              {civ.copied ? 'Started' : 'Download'}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {civ.busy ? 'Starting download…' : civ.copied ? 'Download started' : 'Download this model'}
+          </TooltipContent>
+        </Tooltip>
+        {onShowInfo && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => onShowInfo(item)}
+                aria-label="Description"
+                className="btn-secondary"
+              >
+                <Info className="w-3.5 h-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Description</TooltipContent>
+          </Tooltip>
+        )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <a
+              href={pageUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Open on civitai.com"
+              className="btn-secondary"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          </TooltipTrigger>
+          <TooltipContent>Open on civitai.com</TooltipContent>
+        </Tooltip>
       </div>
     </div>
   );
@@ -274,6 +349,7 @@ function ModelRow(props: Props) {
         showTypeBadge={props.showTypeBadge}
         onInstall={props.onInstall}
         item={item}
+        onShowInfo={props.onShowInfo}
       />
     );
   }
@@ -290,6 +366,7 @@ function ModelRow(props: Props) {
       onCancelDownload={props.onCancelDownload}
       onNavigateSettings={props.onNavigateSettings}
       item={item}
+      onShowInfo={props.onShowInfo}
     />
   );
 }

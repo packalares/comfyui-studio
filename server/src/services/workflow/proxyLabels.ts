@@ -10,18 +10,18 @@
 // AdvancedSetting[] that the /workflow-settings endpoint returns.
 
 import type { AdvancedSetting } from '../../contracts/workflow.contract.js';
+import { BLAND_WIDGET_NAMES, titleCase } from './constants.js';
 import {
-  BLAND_WIDGET_NAMES,
-  KNOWN_SETTINGS,
-  isHiddenWidget,
-  titleCase,
-} from './constants.js';
+  filteredWidgetValues,
+  inferWidgetShape,
+  widgetNamesFor,
+} from './rawWidgets/shapes.js';
 
 interface SlotTarget { nodeId: number; inputName: string }
 
 // Locate the subgraph definition a wrapper node points at. The definition
 // lives either inline on the node or in `workflow.definitions.subgraphs`.
-function findSubgraphDef(
+export function findSubgraphDef(
   wrapperNode: Record<string, unknown>,
   workflow: Record<string, unknown>,
 ): Record<string, unknown> | null {
@@ -63,14 +63,26 @@ function buildSlotTargetMap(
   return slotTargets;
 }
 
-// Resolve a single proxy-widget entry into its best available display label.
-function labelFor(
+export interface ProxyLabelParts {
+  /** Widget-side portion — rendered big by the UI ("Ckpt Name"). */
+  label: string;
+  /**
+   * Node-side portion ("CheckpointLoaderSimple"). Absent when the widget
+   * name was bland and collapsed into the primary label (`value`,
+   * `enabled`, ...) — nothing useful would show in a tooltip.
+   */
+  scopeLabel?: string;
+}
+
+// Resolve a single proxy-widget entry into its widget/scope parts. Callers
+// that still want the combined "Scope · Widget" string compose them.
+function labelPartsFor(
   proxyEntry: string[],
   index: number,
   sgNodes: Array<Record<string, unknown>>,
   sgInputs: Array<Record<string, unknown>>,
   slotTargets: Map<number, SlotTarget>,
-): string {
+): ProxyLabelParts {
   const [innerNodeId, widgetName] = proxyEntry;
   let targetNode: Record<string, unknown> | undefined;
   let displayWidget = widgetName;
@@ -80,7 +92,9 @@ function labelFor(
     const explicit =
       ((sgInput as Record<string, unknown> | undefined)?.label as string | undefined)
       ?? ((sgInput as Record<string, unknown> | undefined)?.localized_name as string | undefined);
-    if (explicit && explicit !== widgetName) return titleCase(explicit);
+    // An explicit author-provided subgraph input label is already the full
+    // display string; nothing useful to put in the scope tooltip.
+    if (explicit && explicit !== widgetName) return { label: titleCase(explicit) };
 
     const sgIdx = sgInputs.findIndex(inp => (inp as Record<string, unknown>).name === widgetName);
     const target = slotTargets.get(sgIdx >= 0 ? sgIdx : index);
@@ -94,10 +108,12 @@ function labelFor(
 
   const title = ((targetNode?.title as string) || (targetNode?.type as string) || '').trim();
   if (BLAND_WIDGET_NAMES.has(displayWidget.toLowerCase())) {
-    return title || titleCase(displayWidget);
+    // Bland widget names collapse into the node title — there's no
+    // meaningful second half to disclose in a tooltip.
+    return { label: title || titleCase(displayWidget) };
   }
   const widgetLabel = titleCase(displayWidget);
-  return title ? `${title} \u00b7 ${widgetLabel}` : widgetLabel;
+  return title ? { label: widgetLabel, scopeLabel: title } : { label: widgetLabel };
 }
 
 /**
@@ -116,6 +132,23 @@ export function resolveProxyLabels(
   proxyWidgets: string[][],
   workflow: Record<string, unknown>,
 ): string[] {
+  // Composite-string form kept for back-compat with existing tests / helpers
+  // that only need a single display string.
+  return resolveProxyLabelParts(wrapperNode, proxyWidgets, workflow).map(
+    p => (p.scopeLabel ? `${p.scopeLabel} · ${p.label}` : p.label),
+  );
+}
+
+/**
+ * Structured variant of `resolveProxyLabels` — returns the widget portion
+ * and the node-scope portion separately so the AdvancedSetting consumer
+ * can render them independently (main label vs tooltip).
+ */
+export function resolveProxyLabelParts(
+  wrapperNode: Record<string, unknown>,
+  proxyWidgets: string[][],
+  workflow: Record<string, unknown>,
+): ProxyLabelParts[] {
   const sg = findSubgraphDef(wrapperNode, workflow);
   const sgNodes = (sg?.nodes || []) as Array<Record<string, unknown>>;
   const sgLinks = (sg?.links || []) as Array<Record<string, unknown>>;
@@ -123,102 +156,91 @@ export function resolveProxyLabels(
   const slotTargets = buildSlotTargetMap(sgNodes, sgLinks);
 
   return proxyWidgets.map((entry, i) =>
-    labelFor(entry, i, sgNodes, sgInputs, slotTargets),
+    labelPartsFor(entry, i, sgNodes, sgInputs, slotTargets),
   );
 }
 
-// Look up COMBO option lists from object_info — used to turn string-valued
-// widgets like `sampler_name` / `scheduler` into a select dropdown.
-function findComboOptions(
-  objectInfo: Record<string, Record<string, unknown>>,
+// Resolve the live value + class_type for a proxied inner widget. Modern
+// subgraph wrappers carry an EMPTY `widgets_values` at the wrapper level;
+// the real values live on each inner node's own `widgets_values`. The widget
+// name is mapped to an index via the node's objectInfo schema and the
+// node's widgets_values are filtered of frontend-only control values (seed
+// `randomize` / `fixed`) before indexing.
+function resolveInnerWidgetValue(
+  innerNodeId: string,
   widgetName: string,
-): string[] {
-  const options: string[] = [];
-  for (const [, nodeInfo] of Object.entries(objectInfo)) {
-    const info = nodeInfo as {
-      input?: {
-        required?: Record<string, unknown[]>;
-        optional?: Record<string, unknown[]>;
-      };
-    };
-    const allInputs = { ...(info?.input?.required || {}), ...(info?.input?.optional || {}) };
-    const spec = allInputs[widgetName];
-    if (spec && Array.isArray(spec) && Array.isArray(spec[0])) {
-      for (const opt of spec[0]) {
-        if (typeof opt === 'string' && !options.includes(opt)) options.push(opt);
-      }
-      if (options.length > 0) break;
-    }
-  }
-  return options;
-}
+  sgNodes: Array<Record<string, unknown>>,
+  objectInfo: Record<string, Record<string, unknown>>,
+): { value: unknown; classType: string | null } {
+  const innerNode = sgNodes.find(n => String(n.id) === innerNodeId);
+  if (!innerNode) return { value: null, classType: null };
+  const classType = (innerNode.type as string) || null;
+  if (!classType) return { value: null, classType: null };
 
-// Build an AdvancedSetting for one proxy entry. Returns null to skip the
-// entry entirely (filename-shaped strings, unknown combos, etc.).
-function buildSetting(
-  widgetName: string,
-  label: string,
-  value: unknown,
-  proxyIndex: number,
-  objectInfo: Record<string, Record<string, unknown>>,
-): AdvancedSetting | null {
-  const known = KNOWN_SETTINGS[widgetName];
-  if (known) {
-    return {
-      id: widgetName, label,
-      type: known.type ?? 'number',
-      value, min: known.min, max: known.max, step: known.step,
-      proxyIndex,
-    };
-  }
-  if (typeof value === 'boolean') {
-    return { id: widgetName, label, type: 'toggle', value, proxyIndex };
-  }
-  if (typeof value === 'string' && value.length > 0) {
-    if (
-      value.includes('/') || value.includes('\\') ||
-      value.endsWith('.safetensors') || value.endsWith('.pth') ||
-      value.endsWith('.ckpt') || value.endsWith('.bin')
-    ) return null;
-    const comboWidgets = ['sampler_name', 'scheduler', 'aspect_ratio'];
-    if (!comboWidgets.includes(widgetName)) return null;
-    const options = findComboOptions(objectInfo, widgetName);
-    if (options.length === 0) return null;
-    return {
-      id: widgetName, label, type: 'select', value,
-      options: options.map(o => ({ label: o, value: o })),
-      proxyIndex,
-    };
-  }
-  if (typeof value === 'number') {
-    return {
-      id: widgetName, label, type: 'slider', value,
-      min: 0, max: Math.max(value * 4, 100),
-      step: Number.isInteger(value) ? 1 : 0.1,
-      proxyIndex,
-    };
-  }
-  return null;
+  const names = widgetNamesFor(objectInfo, classType);
+  const position = names.indexOf(widgetName);
+  if (position < 0) return { value: null, classType };
+
+  const values = filteredWidgetValues(innerNode.widgets_values as unknown[] | undefined);
+  const value = position < values.length ? values[position] : null;
+  return { value, classType };
 }
 
 /**
- * Turn a wrapper's proxyWidgets + widgets_values into AdvancedSetting[].
- * Skips widgets flagged hidden by name or type; labels drive display.
+ * Turn a wrapper's proxyWidgets into AdvancedSetting[].
+ *
+ * `widgetValues` is the wrapper node's `widgets_values` array. On modern
+ * subgraph workflows this is empty — values live on the inner nodes and we
+ * fetch them via `resolveInnerWidgetValue`. It is kept as a last-resort
+ * fallback for legacy flat workflows where the wrapper still carries the
+ * proxied values positionally.
+ *
+ * Author-proxied widgets are NOT filtered by `isHiddenWidget`: if the
+ * template author explicitly exposed a checkpoint / lora / text-encoder
+ * name, hiding it defeats the intent. Value-type inference flows through
+ * `inferWidgetShape` so COMBO (modern + legacy), INT, FLOAT, STRING,
+ * BOOLEAN, and KNOWN_SETTINGS cases all resolve consistently with the
+ * raw-widget enumeration path.
  */
 export function extractAdvancedSettings(
   proxyWidgets: string[][],
   widgetValues: unknown[],
   objectInfo: Record<string, Record<string, unknown>>,
   labels: string[],
+  sgNodes: Array<Record<string, unknown>>,
+  scopeLabels?: Array<string | undefined>,
 ): AdvancedSetting[] {
   const settings: AdvancedSetting[] = [];
   for (let i = 0; i < proxyWidgets.length; i++) {
-    const [, widgetName] = proxyWidgets[i];
-    if (isHiddenWidget(widgetName)) continue;
+    const [innerNodeId, widgetName] = proxyWidgets[i];
     const label = labels[i] ?? titleCase(widgetName);
-    const value = i < widgetValues.length ? widgetValues[i] : null;
-    const built = buildSetting(widgetName, label, value, i, objectInfo);
-    if (built) settings.push(built);
+
+    const resolved = resolveInnerWidgetValue(innerNodeId, widgetName, sgNodes, objectInfo);
+    const value = resolved.classType === null || resolved.value === null
+      ? (i < widgetValues.length ? widgetValues[i] : resolved.value)
+      : resolved.value;
+    const classType = resolved.classType ?? '';
+
+    const shape = inferWidgetShape(objectInfo, classType, widgetName, value);
+    // A select with no options means the schema marked the widget COMBO but
+    // failed to surface an options list (defensive: shouldn't happen in
+    // ComfyUI's objectInfo). Render as plain text so the field stays usable.
+    const type = shape.type === 'select' && (!shape.options || shape.options.length === 0)
+      ? 'text'
+      : (shape.type ?? 'text');
+
+    settings.push({
+      id: widgetName,
+      label,
+      scopeLabel: scopeLabels?.[i],
+      type,
+      value,
+      min: shape.min,
+      max: shape.max,
+      step: shape.step,
+      options: type === 'select' ? shape.options : undefined,
+      proxyIndex: i,
+    });
   }
   return settings;
 }

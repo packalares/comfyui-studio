@@ -6,6 +6,7 @@ import {
   computeFormClaimedWidgets,
   filteredWidgetValues,
   inferWidgetShape,
+  isWidgetSpec,
   widgetNamesFor,
 } from '../../src/services/workflow/rawWidgets/index.js';
 
@@ -89,6 +90,107 @@ describe('inferWidgetShape', () => {
 
   it('BOOLEAN -> toggle', () => {
     expect(inferWidgetShape(objectInfo, 'X', 'enabled', true).type).toBe('toggle');
+  });
+});
+
+describe('modern-form COMBO (spec[0] === "COMBO")', () => {
+  // Regression: ComfyUI 0.3.x serialises newer dropdown inputs as
+  //   ["COMBO", { options: [...], multiselect: false }]
+  // rather than the legacy
+  //   [["a", "b", "c"], { default: "a" }]
+  // Studio must treat BOTH as widgets or widgets_values misaligns.
+
+  it('isWidgetSpec recognises modern COMBO form', () => {
+    const modernSpec = ['COMBO', { options: ['euler', 'dpmpp_2m', 'ddim'] }];
+    expect(isWidgetSpec(modernSpec)).toBe(true);
+  });
+
+  it('isWidgetSpec still recognises legacy array-form COMBO', () => {
+    const legacySpec = [['euler', 'dpmpp_2m', 'ddim'], { default: 'euler' }];
+    expect(isWidgetSpec(legacySpec)).toBe(true);
+  });
+
+  it('widgetNamesFor includes modern-COMBO widgets in declaration order', () => {
+    // Mirrors the live TextEncodeAceStepAudio1.5 shape: three modern
+    // COMBOs sandwiched between primitive widgets.
+    const objectInfo = {
+      TextEncodeAceStepAudio1_5: {
+        input: {
+          required: {
+            clip: ['CLIP'], // socket, skipped
+            tags: ['STRING', { multiline: true }],
+            lyrics: ['STRING', { multiline: true }],
+            timesignature: ['COMBO', { options: ['4/4', '3/4', '6/8'] }],
+            language: ['COMBO', { options: ['en', 'zh', 'es'] }],
+            keyscale: ['COMBO', { options: ['C major', 'A minor'] }],
+            generate_audio_codes: ['BOOLEAN', {}],
+            cfg_scale: ['FLOAT', { min: 0, max: 30 }],
+            temperature: ['FLOAT', { min: 0, max: 2 }],
+          },
+        },
+      },
+    } satisfies Record<string, Record<string, unknown>>;
+    const names = widgetNamesFor(objectInfo, 'TextEncodeAceStepAudio1_5');
+    expect(names).toEqual([
+      'tags',
+      'lyrics',
+      'timesignature',
+      'language',
+      'keyscale',
+      'generate_audio_codes',
+      'cfg_scale',
+      'temperature',
+    ]);
+  });
+
+  it('inferWidgetShape emits select with label/value pairs for modern COMBO', () => {
+    const objectInfo = {
+      N: {
+        input: {
+          required: {
+            scheduler: ['COMBO', { options: ['normal', 'karras', 'exponential'] }],
+          },
+        },
+      },
+    } satisfies Record<string, Record<string, unknown>>;
+    const shape = inferWidgetShape(objectInfo, 'N', 'scheduler', 'normal');
+    expect(shape).toEqual({
+      type: 'select',
+      options: [
+        { label: 'normal', value: 'normal' },
+        { label: 'karras', value: 'karras' },
+        { label: 'exponential', value: 'exponential' },
+      ],
+    });
+  });
+
+  it('inferWidgetShape emits the same select shape for legacy COMBO', () => {
+    const objectInfo = {
+      N: {
+        input: {
+          required: {
+            scheduler: [['normal', 'karras', 'exponential'], { default: 'normal' }],
+          },
+        },
+      },
+    } satisfies Record<string, Record<string, unknown>>;
+    const shape = inferWidgetShape(objectInfo, 'N', 'scheduler', 'normal');
+    expect(shape).toEqual({
+      type: 'select',
+      options: [
+        { label: 'normal', value: 'normal' },
+        { label: 'karras', value: 'karras' },
+        { label: 'exponential', value: 'exponential' },
+      ],
+    });
+  });
+
+  it('modern COMBO with missing options yields an empty options list', () => {
+    const objectInfo = {
+      N: { input: { required: { mode: ['COMBO', {}] } } },
+    } satisfies Record<string, Record<string, unknown>>;
+    const shape = inferWidgetShape(objectInfo, 'N', 'mode', 'x');
+    expect(shape).toEqual({ type: 'select', options: [] });
   });
 });
 

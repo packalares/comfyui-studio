@@ -63,6 +63,11 @@ function primitiveToFormInput(node: Node): FormInputData | null {
     label: title,
     type: fieldType,
     required: isPromptRole,
+    // Bind every Primitive field to its own `value` widget so the
+    // generate pipeline's bound-injection path can write to it directly.
+    // Keeps primitive + widget-walk fields on the same injection contract.
+    bindNodeId: nodeId,
+    bindWidgetName: 'value',
   };
   if (defaultValue !== undefined && defaultValue !== null) {
     if (fieldType === 'toggle') {

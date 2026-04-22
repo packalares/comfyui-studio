@@ -18,6 +18,7 @@ import { flattenWorkflow, type FlatLink, type FlatNode } from '../flatten/index.
 import { getObjectInfo } from '../objectInfo.js';
 import { buildSetterMap, type ResolveCtx } from '../resolve.js';
 import {
+  applyBoundFormInputs,
   applyFormInputs,
   applyPrimitiveOverrides,
   injectUserPrompt,
@@ -68,14 +69,29 @@ export async function workflowToApiPrompt(
   applyPrimitiveOverrides(prompt, userInputs);
   applyFormInputs(prompt, formInputs, userInputs);
 
-  // Phase 4 — inject user prompt into one node. Only fires for workflows
-  // that don't have a Primitive-titled "Prompt" — in that case the
-  // applyPrimitiveOverrides above handled it, and the first multiline
-  // STRING target is that same Primitive (idempotent). For flat workflows
-  // that route prompts through CLIPTextEncode directly, this is the only
-  // path that plumbs the user's text in.
+  // Phase 3b — bound form inputs: explicit (bindNodeId, bindWidgetName)
+  // writes for each prompt-surface field emitted by the workflow-reading
+  // path in `generateFormInputs`. Runs before the legacy fan-out so
+  // multi-field encoders (TextEncodeAceStepAudio1.5's tags + lyrics) get
+  // distinct per-widget writes instead of one prompt fanned across both.
+  const bindings: Array<{ bindNodeId: string; bindWidgetName: string; value: unknown }> = [];
+  for (const fi of formInputs) {
+    if (!fi.bindNodeId || !fi.bindWidgetName) continue;
+    if (!(fi.id in userInputs)) continue;
+    bindings.push({
+      bindNodeId: fi.bindNodeId,
+      bindWidgetName: fi.bindWidgetName,
+      value: userInputs[fi.id],
+    });
+  }
+  const boundCovered = applyBoundFormInputs(prompt, nodes, bindings);
+
+  // Phase 4 — legacy fan-out injection of the generic `prompt` input. Only
+  // fires when the bound path did NOT handle any prompt-surface widget —
+  // i.e. tag-only templates without a workflow-derived binding. Preserves
+  // the wire-guard (skip inputs that are already `[nodeId, slot]` arrays).
   const promptText = userInputs.prompt;
-  if (typeof promptText === 'string' && promptText !== '') {
+  if (boundCovered.size === 0 && typeof promptText === 'string' && promptText !== '') {
     injectUserPrompt(prompt, nodes, objectInfo, promptText);
   }
 

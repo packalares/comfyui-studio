@@ -154,17 +154,16 @@ export default function Studio() {
     [templates, selectedTemplate]
   );
 
-  // Merged form inputs: template's base fields (image/audio/video uploads +
-  // generic prompt) plus Primitive-derived fields from the workflow's
-  // subgraphs. Same id wins from the primitive side so a workflow-provided
-  // "Prompt" default overrides the generic placeholder prompt.
+  // /api/template-widgets returns the full workflow-aware form list
+  // (primitives + widget-walk bound fields + media uploads). When present,
+  // it's the authoritative shape — a legacy id-merge with template.formInputs
+  // would leave the catalog-time unbound generic `prompt` textarea sitting
+  // next to bound fields whose ids differ (e.g. `tags`/`lyrics`/`text`).
+  // Fall back to catalog-time formInputs only when no workflow-aware fields
+  // were produced (legacy templates without a workflow at enumeration time).
   const mergedFormInputs = useMemo(() => {
-    const base = template?.formInputs ?? [];
-    if (primitiveFormFields.length === 0) return base;
-    const byId = new Map<string, FormInput>();
-    for (const f of base) byId.set(f.id, f);
-    for (const f of primitiveFormFields) byId.set(f.id, f);
-    return Array.from(byId.values());
+    if (primitiveFormFields.length > 0) return primitiveFormFields;
+    return template?.formInputs ?? [];
   }, [template?.formInputs, primitiveFormFields]);
 
   // Fetch advanced settings when template changes. We also probe `/template-widgets`
@@ -212,25 +211,58 @@ export default function Studio() {
         const primitiveFields = result.primitiveFormFields ?? [];
         setPrimitiveFormFields(primitiveFields);
 
-        // Prompt pre-fill source priority:
-        //   1. A titled PrimitiveStringMultiline (modern subgraph workflows
-        //      like LTX2 keep the default prompt here).
-        //   2. The first positive CLIPTextEncode (classic flat workflows).
-        // Only fills when the form's prompt is still empty, so a user's
-        // typed text isn't overwritten.
-        const primitivePrompt = primitiveFields.find(f => f.id === 'prompt');
-        const primitivePromptValue = typeof primitivePrompt?.default === 'string'
-          ? primitivePrompt.default : '';
-        const positive = result.widgets.find(w =>
-          w.nodeType === 'CLIPTextEncode' &&
-          w.widgetName === 'text' &&
-          !/negative/i.test(w.nodeTitle || '')
-        );
-        const fallbackPromptValue =
-          positive && typeof positive.value === 'string' ? positive.value : '';
-        const promptValue = primitivePromptValue || fallbackPromptValue;
-        if (promptValue.length > 0) {
-          setFormValues(prev => (prev.prompt ? prev : { ...prev, prompt: promptValue }));
+        // Prompt pre-fill — iterate every bound form field (primitive walk
+        // + widget walk) and seed formValues[id] from the matching widget's
+        // default when the user hasn't typed anything there yet. Falls back
+        // to the classic CLIPTextEncode/text lookup for legacy flat
+        // workflows whose formInputs carry no bindings.
+        const staticInputs = template?.formInputs ?? [];
+        const allInputs: FormInput[] = [
+          ...staticInputs,
+          ...primitiveFields.filter(p => !staticInputs.some(s => s.id === p.id)),
+        ];
+        const seeds: Record<string, string> = {};
+        for (const input of allInputs) {
+          if (!input.bindNodeId || !input.bindWidgetName) continue;
+          // Prefer the field's own `default` (from the primitive/widget
+          // walk). When blank, fall back to the widget enumerated for
+          // Advanced Settings so we still pick up the workflow's baked-in
+          // value — matches the pre-refactor CLIPTextEncode prefill.
+          const fieldDefault = typeof input.default === 'string' ? input.default : '';
+          let seed = fieldDefault;
+          if (seed.length === 0) {
+            const w = result.widgets.find(
+              x => x.nodeId === input.bindNodeId && x.widgetName === input.bindWidgetName,
+            );
+            if (w && typeof w.value === 'string') seed = w.value;
+          }
+          if (seed.length > 0) seeds[input.id] = seed;
+        }
+        // Classic-workflow fallback: no bound fields matched — reuse the
+        // old CLIPTextEncode/text lookup so legacy flat templates still
+        // prefill the `prompt` field.
+        if (Object.keys(seeds).length === 0) {
+          const positive = result.widgets.find(w =>
+            w.nodeType === 'CLIPTextEncode' &&
+            w.widgetName === 'text' &&
+            !/negative/i.test(w.nodeTitle || '')
+          );
+          if (positive && typeof positive.value === 'string' && positive.value.length > 0) {
+            seeds.prompt = positive.value;
+          }
+        }
+        if (Object.keys(seeds).length > 0) {
+          setFormValues(prev => {
+            const next = { ...prev };
+            let changed = false;
+            for (const [id, val] of Object.entries(seeds)) {
+              if (next[id] === undefined || next[id] === '') {
+                next[id] = val;
+                changed = true;
+              }
+            }
+            return changed ? next : prev;
+          });
         }
       })
       .catch(() => {
@@ -466,6 +498,15 @@ export default function Studio() {
   // but render via <model-viewer>, not <img>. Compare is meaningless (no
   // before/after frame to diff) so hide the toggle when the output is 3D.
   const isOutput3D = isThreeDFilename(outputImage);
+  // Extract the real filename from /api/view?filename=...&... so the download
+  // <a> forces a browser save-as dialog with a sensible name. Without a
+  // `download` attribute the browser navigates to the URL and plays the
+  // audio/video inline instead of downloading it.
+  const outputFilename = useMemo(() => {
+    if (!outputImage) return undefined;
+    const m = outputImage.match(/[?&]filename=([^&]+)/);
+    return m ? decodeURIComponent(m[1]) : 'output';
+  }, [outputImage]);
   // Compare only makes sense when BOTH sides are images. i2v / i2a templates
   // produce video/audio outputs — feeding those into CompareSlider renders
   // a <img src="*.mp4"> which shows as a broken image. Guard here so the
@@ -614,6 +655,16 @@ export default function Studio() {
                       {depCheck?.missing.length} missing
                     </button>
                   )}
+                  {hasEditableWidgets && (
+                    <button
+                      type="button"
+                      onClick={() => setShowExposeModal(true)}
+                      className="ml-auto flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-700 transition-colors"
+                    >
+                      <Settings2 className="w-3.5 h-3.5" />
+                      Edit advanced fields
+                    </button>
+                  )}
                 </div>
                 <ModelDropdown
                   templates={categoryTemplates}
@@ -642,16 +693,6 @@ export default function Studio() {
                             onChange={setAdvancedValues}
                           />
                         </div>
-                      )}
-                      {hasEditableWidgets && (
-                        <button
-                          type="button"
-                          onClick={() => setShowExposeModal(true)}
-                          className="mt-3 flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-slate-700 transition-colors"
-                        >
-                          <Settings2 className="w-3.5 h-3.5" />
-                          Edit advanced fields
-                        </button>
                       )}
                     </>
                   ) : (
@@ -746,7 +787,7 @@ export default function Studio() {
                   <TooltipTrigger asChild>
                     <a
                       href={outputImage || undefined}
-                      download={outputImage ? undefined : undefined}
+                      download={outputFilename}
                       aria-disabled={!outputImage}
                       onClick={(e) => { if (!outputImage) e.preventDefault(); }}
                       className={`btn-icon ${!outputImage ? 'pointer-events-none opacity-40' : ''}`}

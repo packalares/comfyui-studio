@@ -37,6 +37,34 @@ export function applyFormInputs(
   }
 }
 
+/**
+ * Write each (bindNodeId, bindWidgetName, value) binding onto the API
+ * prompt. Preserves the wire-guard (upstream `[id, slot]` array wins) and
+ * skips empty-string values so "user left the field blank" keeps the
+ * workflow's baked-in default. Returns the covered `${nodeId}|${widget}`
+ * keys so the legacy fan-out can skip them.
+ */
+export function applyBoundFormInputs(
+  prompt: ApiPrompt,
+  _nodes: Map<string, FlatNode>,
+  bindings: Array<{ bindNodeId: string; bindWidgetName: string; value: unknown }>,
+): Set<string> {
+  const covered = new Set<string>();
+  for (const b of bindings) {
+    const entry = prompt[b.bindNodeId];
+    if (!entry) continue;
+    const key = `${b.bindNodeId}|${b.bindWidgetName}`;
+    // Wire wins over literal; still mark covered so the legacy fan-out
+    // doesn't rewrite the same widget literal-over-wire.
+    if (Array.isArray(entry.inputs[b.bindWidgetName])) { covered.add(key); continue; }
+    if (b.value === undefined || b.value === null) continue;
+    if (typeof b.value === 'string' && b.value.length === 0) continue;
+    entry.inputs[b.bindWidgetName] = b.value;
+    covered.add(key);
+  }
+  return covered;
+}
+
 // Widget names that commonly carry the USER PROMPT on text-encoder nodes.
 // Matches ComfyUI's prompt-input conventions: CLIPTextEncode (`text`),
 // CLIPTextEncodeFlux (`clip_l` + `t5xxl`), CLIPTextEncodeSDXL (`text_g`

@@ -46,10 +46,12 @@ export function widgetNamesFor(
 type WidgetShape = Pick<AdvancedSetting, 'type' | 'min' | 'max' | 'step' | 'options'>;
 
 // Shape inference from an explicit objectInfo spec entry. `opts` comes
-// from spec[1] (the bounds / multiline flag / default dict).
+// from spec[1] (the bounds / multiline flag / default dict / options list).
+// Both COMBO shapes land here: legacy form (spec[0] is the options array)
+// and modern form (spec[0] === "COMBO", options at spec[1].options).
 function shapeFromSpec(
   type: unknown,
-  opts: { min?: number; max?: number; step?: number; multiline?: boolean },
+  opts: { min?: number; max?: number; step?: number; multiline?: boolean; options?: unknown },
 ): WidgetShape | null {
   if (Array.isArray(type)) {
     return {
@@ -57,6 +59,15 @@ function shapeFromSpec(
       options: type
         .filter(o => typeof o === 'string')
         .map(o => ({ label: String(o), value: String(o) })),
+    };
+  }
+  if (type === 'COMBO') {
+    const raw = Array.isArray(opts.options) ? opts.options : [];
+    return {
+      type: 'select',
+      options: raw
+        .filter((o): o is string => typeof o === 'string')
+        .map(o => ({ label: o, value: o })),
     };
   }
   if (type === 'INT' || type === 'FLOAT') {
@@ -88,7 +99,7 @@ export function inferWidgetShape(
   const spec = info?.input?.required?.[widgetName] ?? info?.input?.optional?.[widgetName];
   if (Array.isArray(spec)) {
     const t = spec[0];
-    const opts = (spec[1] || {}) as { min?: number; max?: number; step?: number; multiline?: boolean };
+    const opts = (spec[1] || {}) as { min?: number; max?: number; step?: number; multiline?: boolean; options?: unknown };
     const fromSpec = shapeFromSpec(t, opts);
     if (fromSpec) return fromSpec;
   }

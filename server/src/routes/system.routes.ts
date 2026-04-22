@@ -6,6 +6,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import * as comfyui from '../services/comfyui.js';
+import * as gallery from '../services/gallery.service.js';
 import * as settings from '../services/settings.js';
 import { getAllDownloads } from '../services/downloads.js';
 import { env } from '../config/env.js';
@@ -13,16 +14,23 @@ import { env } from '../config/env.js';
 const router = Router();
 
 // Combined system info: device stats + queue + recent gallery.
+//
+// Gallery count + recent come from the persistent sqlite `gallery` table
+// (via gallery.service.listPaginated) — NOT from ComfyUI's in-RAM history
+// buffer. ComfyUI's history is volatile and session-scoped; the dashboard
+// needs the same authoritative count that the Gallery page shows.
 router.get('/system', async (_req: Request, res: Response) => {
   const [statsResult, queueResult, galleryResult] = await Promise.allSettled([
     comfyui.getSystemStats(),
     comfyui.getQueue(),
-    comfyui.getGalleryItems(),
+    gallery.listPaginated({}, 1, 8),
   ]);
 
   const stats = statsResult.status === 'fulfilled' ? statsResult.value : null;
   const queue = queueResult.status === 'fulfilled' ? queueResult.value : null;
-  const gallery = galleryResult.status === 'fulfilled' ? galleryResult.value : [];
+  const galleryPage = galleryResult.status === 'fulfilled'
+    ? galleryResult.value
+    : { items: [], total: 0 };
 
   if (!stats && !queue) {
     res.status(502).json({ error: 'Cannot reach ComfyUI' });
@@ -33,8 +41,8 @@ router.get('/system', async (_req: Request, res: Response) => {
     ...(stats as object || {}),
     queue,
     gallery: {
-      total: gallery.length,
-      recent: gallery.slice(0, 8),
+      total: galleryPage.total,
+      recent: galleryPage.items,
     },
     apiKeyConfigured: settings.isApiKeyConfigured(),
     hfTokenConfigured: settings.isHfTokenConfigured(),

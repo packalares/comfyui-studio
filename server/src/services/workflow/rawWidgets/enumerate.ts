@@ -14,6 +14,7 @@ import {
   inferWidgetShape,
   widgetNamesFor,
 } from './shapes.js';
+import { walkSubgraphWidgets } from './subgraphWalk.js';
 
 // Build a single EnumeratedWidget entry.
 function buildEnumeratedEntry(
@@ -84,6 +85,16 @@ export async function enumerateTemplateWidgets(
       out.push(buildEnumeratedEntry(node, widgetName, wv[i], classType, objectInfo, savedSet, isClaimed));
     }
   }
+
+  // Inner-subgraph widgets — runs AFTER the top-level pass so the existing
+  // top-level enumeration stays byte-identical. Any buried widget that the
+  // wrapper's proxyWidgets already surfaces is skipped by the walker.
+  for (const node of nodes) {
+    const props = node.properties as Record<string, unknown> | undefined;
+    if (!props?.proxyWidgets) continue;
+    walkSubgraphWidgets(node, workflow, String(node.id), objectInfo, savedSet, out, 1);
+  }
+
   return out;
 }
 
@@ -122,10 +133,15 @@ export function buildRawWidgetSettings(
     if (idx >= wv.length) continue;
     const value = wv[idx];
     const shape = inferWidgetShape(objectInfo, classType, e.widgetName, value);
-    const title = (node.title as string | undefined) || classType;
+    // Split the scope ("TextEncodeAceStepAudio1.5") off the primary label so
+    // the UI can render the widget name big and tuck the node identity under
+    // a tooltip. The untitled fallback uses classType, matching the previous
+    // combined-label behaviour.
+    const scopeLabel = (node.title as string | undefined) || classType;
     result.push({
       id: `node:${e.nodeId}:${e.widgetName}`,
-      label: `${titleCase(e.widgetName)} (${title})`,
+      label: titleCase(e.widgetName),
+      scopeLabel,
       type: shape.type ?? 'number',
       value,
       min: shape.min,

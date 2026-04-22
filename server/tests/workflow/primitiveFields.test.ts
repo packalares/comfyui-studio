@@ -28,8 +28,14 @@ describe('extractPrimitiveFormFields', () => {
     };
     const out = extractPrimitiveFormFields(wf);
     expect(out).toEqual([
-      { id: 'primitive:1', label: 'Width', type: 'number', required: false, default: 1280 },
-      { id: 'primitive:2', label: 'Auto', type: 'toggle', required: false, default: false },
+      {
+        id: 'primitive:1', label: 'Width', type: 'number', required: false, default: 1280,
+        bindNodeId: '1', bindWidgetName: 'value',
+      },
+      {
+        id: 'primitive:2', label: 'Auto', type: 'toggle', required: false, default: false,
+        bindNodeId: '2', bindWidgetName: 'value',
+      },
     ]);
   });
 

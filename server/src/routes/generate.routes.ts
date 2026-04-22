@@ -6,7 +6,9 @@
 import { Router, type Request, type Response } from 'express';
 import * as comfyui from '../services/comfyui.js';
 import * as templates from '../services/templates/index.js';
-import { workflowToApiPrompt } from '../services/workflow/index.js';
+import { generateFormInputs } from '../services/templates/templates.formInputs.js';
+import type { RawTemplate } from '../services/templates/types.js';
+import { getObjectInfo, workflowToApiPrompt } from '../services/workflow/index.js';
 import { schedulePromptWatch } from '../services/gallery.sentry.js';
 import { env } from '../config/env.js';
 import { rateLimit } from '../middleware/rateLimit.js';
@@ -172,11 +174,25 @@ router.post('/generate', generateLimiter, async (req: Request, res: Response) =>
 
     // 3. Convert to API prompt format with user inputs injected, using the template's
     //    own formInputs bindings so each user value lands on the node the template declared.
+    //    Upstream templates' `formInputs` in the catalog were generated without the workflow,
+    //    so we re-run `generateFormInputs` here with the live workflow + objectInfo to surface
+    //    widget-walk bindings (tags / lyrics / ...) the UI would have shown the user.
     const template = templates.getTemplate(templateName);
+    const objectInfo = await getObjectInfo();
+    const rawForBindings: RawTemplate = {
+      name: templateName,
+      title: template?.title ?? templateName,
+      description: template?.description ?? '',
+      mediaType: template?.mediaType ?? 'image',
+      tags: template?.tags ?? [],
+      models: template?.models ?? [],
+      io: template?.io,
+    };
+    const mergedFormInputs = generateFormInputs(rawForBindings, workflow, objectInfo);
     const apiPrompt = await workflowToApiPrompt(
       workflow,
       userInputs || {},
-      template?.formInputs || [],
+      mergedFormInputs,
     );
 
     // 3b. Apply raw-node overrides onto the API prompt.

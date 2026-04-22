@@ -7,8 +7,6 @@ import {
   RotateCcw,
   Eye,
   EyeOff,
-  ChevronDown,
-  ChevronRight,
   RefreshCw,
   Link2,
   GitBranch,
@@ -20,6 +18,19 @@ import {
   HardDrive,
   Trash2,
   Shield,
+  // Category icons for Launch Options sections
+  Folder,
+  Rocket,
+  Cpu,
+  Binary,
+  Database,
+  Focus,
+  Wrench,
+  MemoryStick,
+  Bug,
+  Layout,
+  Zap,
+  type LucideIcon,
 } from 'lucide-react';
 import { api } from '../services/comfyui';
 import { useApp } from '../context/AppContext';
@@ -60,60 +71,120 @@ const CATEGORY_LABELS: Record<string, string> = {
   perf: 'Performance',
 };
 
-const DEFAULT_EXPANDED = new Set(['device', 'vram', 'attention', 'precision']);
+// Per-category icons for the Launch Options cards. Shown in place of the
+// old collapse arrow. Falls back to Terminal when a new category slips
+// through without a mapping.
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  network: Globe,
+  paths: Folder,
+  startup: Rocket,
+  device: Cpu,
+  precision: Binary,
+  preview: Eye,
+  cache: Database,
+  attention: Focus,
+  manager: Wrench,
+  vram: MemoryStick,
+  debug: Bug,
+  frontend: Layout,
+  perf: Zap,
+};
 
 /* ---------- description translations ---------- */
 
 const KEY_DESCRIPTIONS: Record<string, string> = {
   '--listen': 'Listen on all network interfaces (0.0.0.0)',
   '--port': 'Port number for the web server',
+  '--tls-keyfile': 'TLS/SSL key file path (enables HTTPS)',
+  '--tls-certfile': 'TLS/SSL cert file path (pair with --tls-keyfile)',
   '--enable-cors-header': 'Enable CORS headers for cross-origin requests',
+  '--max-upload-size': 'Max upload size in megabytes',
+  '--base-directory': 'ComfyUI base directory (models, custom_nodes, etc.)',
   '--extra-model-paths-config': 'Extra model paths configuration file',
   '--output-directory': 'Custom output directory path',
   '--input-directory': 'Custom input directory path',
   '--temp-directory': 'Custom temporary directory path',
+  '--user-directory': 'Custom user directory (absolute path)',
   '--auto-launch': 'Auto-launch browser on startup',
   '--disable-auto-launch': 'Disable auto-launch of browser',
   '--cuda-device': 'CUDA device index to use',
+  '--default-device': 'Default device index; other devices remain visible',
   '--cuda-malloc': 'Enable CUDA malloc for memory allocation',
   '--disable-cuda-malloc': 'Disable CUDA malloc',
   '--cpu': 'Run on CPU only (no GPU)',
   '--directml': 'Use DirectML backend',
+  '--oneapi-device-selector': 'Intel oneAPI device selector string',
+  '--disable-ipex-optimize': 'Disable Intel IPEX model-load optimizations',
+  '--supports-fp8-compute': 'Assume device supports FP8 compute',
   '--force-fp32': 'Force FP32 precision (slower, more accurate)',
   '--force-fp16': 'Force FP16 precision (faster, less memory)',
+  '--fp32-unet': 'Run diffusion model in FP32',
+  '--fp64-unet': 'Run diffusion model in FP64',
   '--bf16-unet': 'Use BF16 precision for UNet',
   '--fp16-unet': 'Use FP16 precision for UNet',
   '--fp8_e4m3fn-unet': 'Use FP8 E4M3FN precision for UNet',
   '--fp8_e5m2-unet': 'Use FP8 E5M2 precision for UNet',
-  '--fp16-vae': 'Use FP16 precision for VAE',
+  '--fp8_e8m0fnu-unet': 'Use FP8 E8M0FNU precision for UNet',
+  '--fp16-vae': 'Use FP16 precision for VAE (may cause black images)',
   '--fp32-vae': 'Use FP32 precision for VAE',
   '--bf16-vae': 'Use BF16 precision for VAE',
+  '--cpu-vae': 'Run VAE on CPU',
   '--fp8_e4m3fn-text-enc': 'Use FP8 E4M3FN for text encoder',
   '--fp8_e5m2-text-enc': 'Use FP8 E5M2 for text encoder',
   '--fp16-text-enc': 'Use FP16 for text encoder',
   '--fp32-text-enc': 'Use FP32 for text encoder',
-  '--preview-method': 'Preview generation method',
-  '--cache-classic': 'Use classic caching strategy',
-  '--cache-lru': 'Use LRU caching strategy',
+  '--bf16-text-enc': 'Use BF16 for text encoder',
+  '--force-channels-last': 'Force channels-last memory layout at inference',
+  '--preview-method': 'Sampler preview method (none, auto, latent2rgb, taesd)',
+  '--preview-size': 'Max preview size at sampler',
+  '--cache-classic': 'Use classic (aggressive) caching strategy',
+  '--cache-lru': 'Use LRU cache; keep last N node results',
+  '--cache-none': 'Disable cache; save RAM by re-running all nodes',
+  '--cache-ram': 'Cache under RAM pressure; threshold in GB',
   '--use-split-cross-attention': 'Use split cross attention',
-  '--use-quad-cross-attention': 'Use quad cross attention',
-  '--use-pytorch-cross-attention': 'Use PyTorch native cross attention',
+  '--use-quad-cross-attention': 'Use sub-quadratic cross attention',
+  '--use-pytorch-cross-attention': 'Use PyTorch 2.0 native cross attention',
+  '--use-sage-attention': 'Use sage attention',
+  '--use-flash-attention': 'Use FlashAttention',
   '--disable-xformers': 'Disable xformers memory efficient attention',
-  '--force-upcast-attention': 'Force upcast attention to FP32',
-  '--dont-upcast-attention': 'Do not upcast attention',
+  '--force-upcast-attention': 'Force upcast attention to FP32 (may fix black images)',
+  '--dont-upcast-attention': 'Disable all attention upcasting',
+  '--enable-manager': 'Enable ComfyUI-Manager',
+  '--disable-manager-ui': 'Disable Manager UI only; background tasks still run',
+  '--enable-manager-legacy-ui': 'Enable ComfyUI-Manager legacy UI',
   '--gpu-only': 'Keep all models on GPU (requires lots of VRAM)',
   '--highvram': 'Keep models in GPU memory between runs',
-  '--normalvram': 'Default VRAM management mode',
-  '--lowvram': 'Aggressive VRAM optimization (slower)',
-  '--novram': 'Minimal VRAM usage, offload everything to CPU',
-  '--disable-smart-memory': 'Disable smart memory management',
-  '--verbose': 'Enable verbose logging output',
+  '--normalvram': 'Force normal VRAM mode (overrides auto-lowvram)',
+  '--lowvram': 'Split UNet to lower VRAM usage',
+  '--novram': 'Minimal VRAM usage; use when --lowvram is insufficient',
+  '--reserve-vram': 'Reserve VRAM (GB) for system and other applications',
+  '--async-offload': 'Async weight offload stream count (default 2)',
+  '--disable-async-offload': 'Disable async weight offload',
+  '--disable-dynamic-vram': 'Disable dynamic VRAM; use estimated-load mode',
+  '--force-non-blocking': 'Force non-blocking tensor operations',
+  '--default-hashing-function': 'Duplicate/content hash: md5, sha1, sha256, sha512',
+  '--disable-smart-memory': 'Force aggressive offload to RAM over VRAM',
+  '--deterministic': 'Use PyTorch deterministic algorithms (slower)',
+  '--fast': 'Enable experimental optimizations',
+  '--disable-pinned-memory': 'Disable pinned (page-locked) host memory',
+  '--mmap-torch-files': 'mmap when loading .ckpt / .pt files',
+  '--disable-mmap': 'Disable mmap for safetensors',
+  '--verbose': 'Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL',
   '--dont-print-server': 'Suppress server output messages',
+  '--quick-test-for-ci': 'CI quick test mode',
+  '--windows-standalone-build': 'Windows standalone build convenience',
   '--disable-metadata': 'Disable saving metadata in output files',
-  '--front-end-version': 'Specify frontend version to use',
-  '--front-end-root': 'Custom frontend root directory',
   '--disable-all-custom-nodes': 'Disable all custom nodes on startup',
-  '--reserve-vram': 'Reserve VRAM amount (in GB) for other applications',
+  '--whitelist-custom-nodes': 'Directories to still load when all nodes disabled',
+  '--disable-api-nodes': 'Disable all API nodes and frontend network',
+  '--multi-user': 'Enable per-user storage',
+  '--log-stdout': 'Log to stdout instead of stderr',
+  '--front-end-version': 'Specify frontend version to use',
+  '--front-end-root': 'Local frontend directory (overrides --front-end-version)',
+  '--enable-compress-response-body': 'Enable HTTP response body compression',
+  '--comfy-api-base': 'ComfyUI API base URL',
+  '--database-url': 'Database URL (e.g. sqlite:///:memory:)',
+  '--enable-assets': 'Enable assets system (API, DB sync, scan)',
 };
 
 /* ---------- tiny helpers ---------- */
@@ -547,32 +618,22 @@ function LaunchOptionRow({
 function CategorySection({
   category,
   items,
-  defaultOpen,
   onToggle,
   onValueChange,
 }: {
   category: string;
   items: LaunchOptionItem[];
-  defaultOpen: boolean;
   onToggle: (key: string, enabled: boolean) => void;
   onValueChange: (key: string, value: string | number) => void;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
   const enabledCount = items.filter(i => i.enabled).length;
+  const Icon = CATEGORY_ICONS[category] || Terminal;
 
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-      <button
-        type="button"
-        onClick={() => setOpen(v => !v)}
-        className="flex w-full items-center justify-between gap-3 bg-slate-50 px-3 py-2 text-sm transition-colors hover:bg-slate-100"
-      >
+      <div className="flex items-center justify-between gap-3 bg-slate-50 px-3 py-2">
         <div className="flex items-center gap-2">
-          {open ? (
-            <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
-          ) : (
-            <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
-          )}
+          <Icon className="h-3.5 w-3.5 text-slate-500" />
           <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-700">
             {CATEGORY_LABELS[category] || category}
           </span>
@@ -583,19 +644,17 @@ function CategorySection({
           )}
         </div>
         <span className="text-[11px] font-medium text-slate-400">{items.length} options</span>
-      </button>
-      {open && (
-        <div className="divide-y divide-slate-100 border-t border-slate-200">
-          {items.map(item => (
-            <LaunchOptionRow
-              key={item.key}
-              item={item}
-              onToggle={onToggle}
-              onValueChange={onValueChange}
-            />
-          ))}
-        </div>
-      )}
+      </div>
+      <div className="divide-y divide-slate-100 border-t border-slate-200">
+        {items.map(item => (
+          <LaunchOptionRow
+            key={item.key}
+            item={item}
+            onToggle={onToggle}
+            onValueChange={onValueChange}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -836,13 +895,18 @@ function LaunchOptionsCard() {
             No launch options available from the API.
           </div>
         ) : (
-          <div className="space-y-2">
+          // CSS columns (masonry) instead of grid: cards flow top-to-bottom
+          // per column, packing tightly regardless of individual card heights.
+          // Grid would leave empty space below the shorter card whenever its
+          // row-neighbour is expanded; columns don't. `break-inside-avoid`
+          // keeps each card whole; `mb-2` replaces space-y-* which doesn't
+          // apply inside a columns layout.
+          <div className="md:columns-2 md:gap-2 [&>*]:break-inside-avoid [&>*]:mb-2 md:[&>*:last-child]:mb-0">
             {grouped.map(({ category, items: catItems }) => (
               <CategorySection
                 key={category}
                 category={category}
                 items={catItems}
-                defaultOpen={DEFAULT_EXPANDED.has(category)}
                 onToggle={handleToggle}
                 onValueChange={handleValueChange}
               />
@@ -918,13 +982,13 @@ function NetworkRow({
   reach?: { accessible: boolean; latencyMs?: number };
 }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1.5 min-w-0">
       <label className="field-label flex items-center gap-1.5">
         <Icon className="h-3 w-3 text-slate-400" />
         {label}
         <ReachDot reach={reach} />
       </label>
-      <div className="field-wrap py-1">
+      <div className="field-wrap py-1 min-w-0">
         <input
           type="text"
           value={value}
@@ -1096,49 +1160,51 @@ function NetworkCard() {
           </div>
         ) : (
           <>
-            <NetworkRow
-              label="HuggingFace Endpoint"
-              icon={Link2}
-              placeholder="https://huggingface.co"
-              value={hfEndpoint}
-              onChange={setHfEndpoint}
-              onSave={saveHf}
-              saving={savingHf}
-              saved={savedHf}
-              reach={reach.huggingface}
-            />
-            <NetworkRow
-              label="GitHub Proxy"
-              icon={GitBranch}
-              placeholder="https://github.com"
-              value={githubProxy}
-              onChange={setGithubProxy}
-              onSave={saveGh}
-              saving={savingGh}
-              saved={savedGh}
-              reach={reach.github}
-            />
-            <NetworkRow
-              label="Pip Source"
-              icon={Package}
-              placeholder="https://pypi.org/simple"
-              value={pipSource}
-              onChange={setPipSource}
-              onSave={savePip}
-              saving={savingPip}
-              saved={savedPip}
-              reach={reach.pip}
-            />
-            <NetworkRow
-              label="Plugin Trusted Hosts"
-              icon={Shield}
-              placeholder="codeberg.org, git.example.com"
-              value={trustedHosts}
-              onChange={setTrustedHosts}
-              onSave={saveHosts}
-              saving={savingHosts}
-              saved={savedHosts}
-            />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
+              <NetworkRow
+                label="HuggingFace Endpoint"
+                icon={Link2}
+                placeholder="https://huggingface.co"
+                value={hfEndpoint}
+                onChange={setHfEndpoint}
+                onSave={saveHf}
+                saving={savingHf}
+                saved={savedHf}
+                reach={reach.huggingface}
+              />
+              <NetworkRow
+                label="GitHub Proxy"
+                icon={GitBranch}
+                placeholder="https://github.com"
+                value={githubProxy}
+                onChange={setGithubProxy}
+                onSave={saveGh}
+                saving={savingGh}
+                saved={savedGh}
+                reach={reach.github}
+              />
+              <NetworkRow
+                label="Pip Source"
+                icon={Package}
+                placeholder="https://pypi.org/simple"
+                value={pipSource}
+                onChange={setPipSource}
+                onSave={savePip}
+                saving={savingPip}
+                saved={savedPip}
+                reach={reach.pip}
+              />
+              <NetworkRow
+                label="Plugin Trusted Hosts"
+                icon={Shield}
+                placeholder="codeberg.org, git.example.com"
+                value={trustedHosts}
+                onChange={setTrustedHosts}
+                onSave={saveHosts}
+                saving={savingHosts}
+                saved={savedHosts}
+              />
+            </div>
             <div className="flex items-center justify-between gap-3 pt-1">
               <div className="min-w-0">
                 <p className="text-xs font-medium text-slate-700">Allow Private-IP Pip Mirrors</p>

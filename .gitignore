@@ -16,6 +16,7 @@ build/
 .idea/
 .DS_Store
 Thumbs.db
+.claude/
 
 # Secrets / env — never commit.
 .env

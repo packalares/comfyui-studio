@@ -9,11 +9,14 @@ import {
   buildRawWidgetSettings,
   enumerateTemplateWidgets,
   extractAdvancedSettings,
-  extractPrimitiveFormFields,
+  findSubgraphDef,
   getObjectInfo,
-  resolveProxyLabels,
+  resolveProxyLabelParts,
   workflowToApiPrompt,
 } from '../services/workflow/index.js';
+import { generateFormInputs } from '../services/templates/templates.formInputs.js';
+import { filterProxySettingsAgainstForm } from '../services/workflow/filterFormBoundProxies.js';
+import type { RawTemplate } from '../services/templates/types.js';
 import { env } from '../config/env.js';
 import { sendError } from '../middleware/errors.js';
 import type { AdvancedSetting } from '../contracts/workflow.contract.js';
@@ -75,8 +78,25 @@ router.get('/workflow-settings/:templateName', async (req: Request, res: Respons
     const objectInfo = await getObjectInfo();
     let settings: AdvancedSetting[] = [];
     if (wrapperNode && proxyWidgets && proxyWidgets.length > 0) {
-      const labels = resolveProxyLabels(wrapperNode, proxyWidgets, workflow);
-      settings = extractAdvancedSettings(proxyWidgets, widgetValues, objectInfo, labels);
+      const parts = resolveProxyLabelParts(wrapperNode, proxyWidgets, workflow);
+      const labels = parts.map(p => p.label);
+      const scopeLabels = parts.map(p => p.scopeLabel);
+      const sg = findSubgraphDef(wrapperNode, workflow);
+      const sgNodes = (sg?.nodes || []) as Array<Record<string, unknown>>;
+      settings = extractAdvancedSettings(proxyWidgets, widgetValues, objectInfo, labels, sgNodes, scopeLabels);
+      // Dedup: a proxy entry whose (innerNodeId, widgetName) matches a bound
+      // main-form field is redundant — the main form is the authoritative
+      // surface for bound widgets (Phase 1). Showing the same widget in
+      // Advanced Settings creates two edit surfaces for one value. Mirrors
+      // the generateFormInputs call shape used by /template-widgets so the
+      // binding keys stay in lock-step.
+      settings = filterProxySettingsAgainstForm(
+        settings,
+        proxyWidgets,
+        templateName,
+        workflow,
+        objectInfo,
+      );
     }
 
     const userExposed = exposedWidgets.getForTemplate(templateName);
@@ -92,10 +112,11 @@ router.get('/workflow-settings/:templateName', async (req: Request, res: Respons
 });
 
 // List every editable widget in a template's workflow, each tagged with whether it's currently exposed.
-// Also returns `primitiveFormFields` — FormInputData entries derived from titled subgraph
-// Primitive* nodes (ComfyUI 0.3.51+ subgraph workflows encode their Prompt/Width/Height/etc.
-// as PrimitiveStringMultiline/PrimitiveInt nodes inside `definitions.subgraphs`). Studio merges
-// these into the template form so the user can edit them directly.
+// Also returns `primitiveFormFields` — the full `generateFormInputs` output computed against the
+// live workflow + objectInfo. Superset of the legacy primitive-only list: subgraph-titled
+// Primitive* nodes still surface, plus widget-walk fields with `bindNodeId`+`bindWidgetName` for
+// modern multi-field encoders (TextEncodeAceStepAudio1.5's `tags`/`lyrics` etc.) so the Studio
+// form can route each field to its own widget instead of fanning one prompt across all of them.
 router.get('/template-widgets/:templateName', async (req: Request, res: Response) => {
   try {
     const templateName = req.params.templateName as string;
@@ -105,7 +126,21 @@ router.get('/template-widgets/:templateName', async (req: Request, res: Response
       return;
     }
     const widgets = await enumerateTemplateWidgets(workflow, templateName);
-    const primitiveFormFields = extractPrimitiveFormFields(workflow);
+    const objectInfo = await getObjectInfo();
+    // Synthesise a RawTemplate shell from the cached TemplateData so tags /
+    // description flow into the fallback (tag-only) prompt path. Missing
+    // entries (templateless lookups) degrade gracefully to empty tags.
+    const tpl = templates.getTemplate(templateName);
+    const raw: RawTemplate = {
+      name: templateName,
+      title: tpl?.title ?? templateName,
+      description: tpl?.description ?? '',
+      mediaType: tpl?.mediaType ?? 'image',
+      tags: tpl?.tags ?? [],
+      models: tpl?.models ?? [],
+      io: tpl?.io,
+    };
+    const primitiveFormFields = generateFormInputs(raw, workflow, objectInfo);
     res.json({ widgets, primitiveFormFields });
   } catch (err) {
     sendError(res, err, 500, 'Failed to enumerate template widgets');

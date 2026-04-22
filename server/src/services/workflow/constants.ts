@@ -84,8 +84,12 @@ export const V3_WIDGET_TYPES = new Set<string>([
 
 // Strict primitives used to decide whether an objectInfo input spec is a
 // widget (raw-widget enumeration path — stricter than WIDGET_PRIMITIVES).
+// 'COMBO' covers the modern ComfyUI dropdown form where spec[0] === "COMBO"
+// and options live in spec[1].options. The legacy array-form COMBO
+// (spec[0] is the options array itself) is still picked up separately by
+// isWidgetSpec's Array.isArray branch in rawWidgets/shapes.ts.
 export const PRIMITIVE_WIDGET_TYPES = new Set<string>([
-  'INT', 'FLOAT', 'STRING', 'BOOLEAN',
+  'INT', 'FLOAT', 'STRING', 'BOOLEAN', 'COMBO',
 ]);
 
 // Node types that exist only in the UI graph and must never appear in the

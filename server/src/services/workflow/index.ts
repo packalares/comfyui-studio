@@ -16,7 +16,9 @@ export { collectAllWorkflowNodes } from './collect.js';
 
 export {
   extractAdvancedSettings,
+  findSubgraphDef,
   resolveProxyLabels,
+  resolveProxyLabelParts,
 } from './proxyLabels.js';
 
 export {

@@ -1,14 +1,26 @@
 // Compute the set of widgets already claimed by the main form — the
 // "Expose fields" modal must not offer these (they would be silently
-// clobbered by the generate pipeline). Must mirror the node-picking logic
-// in `workflowToApiPrompt` exactly.
+// clobbered by the generate pipeline). Two paths:
+//
+//  1. Primary: read `template.formInputs` and claim exactly the
+//     (bindNodeId, bindWidgetName) pairs — one form field, one claim.
+//     Deterministic and aligned with the bound injector in
+//     `workflow/prompt/inject.ts::applyBoundFormInputs`.
+//
+//  2. Fallback: for tag-only templates whose formInputs carry no
+//     bindings (upstream catalog entries that never saw their workflow
+//     at generation time), mirror the legacy heuristic: the first
+//     non-negative-titled node's multiline-STRING widgets. This path
+//     exists solely to keep the generic-prompt fan-out case hiding the
+//     same widgets it used to hide — once every template flows through
+//     the bound path, this block becomes dead code and can be removed.
 
 import * as templates from '../../templates/index.js';
 import { widgetNamesFor } from './shapes.js';
 
-// Prompt-claimed widgets: the first non-negative-titled node with
-// multiline STRING widgets. Every such widget on it is claimed.
-function collectPromptClaimedWidgets(
+// Fallback path: mirror the legacy node-walk used by the non-bound
+// `injectUserPrompt` fan-out. Only runs when no bound formInputs exist.
+function collectLegacyPromptClaimedWidgets(
   nodes: Array<Record<string, unknown>>,
   objectInfo: Record<string, Record<string, unknown>>,
 ): Set<string> {
@@ -33,7 +45,7 @@ function collectPromptClaimedWidgets(
     if (targets.length === 0) continue;
     const nodeId = String(node.id);
     for (const name of targets) claimed.add(`${nodeId}|${name}`);
-    return claimed; // mirror workflowToApiPrompt: only first eligible node
+    return claimed; // mirror legacy injectUserPrompt: only first eligible node
   }
   return claimed;
 }
@@ -65,9 +77,39 @@ function collectFormInputClaimedWidgets(
 }
 
 /**
- * Union of the prompt-claimed + formInput-claimed widget IDs
- * (`${nodeId}|${widgetName}`). Used by the modal to hide widgets that
+ * Primary path: walk `template.formInputs` and claim exactly the
+ * widgets pointed to by `(bindNodeId, bindWidgetName)`. Returns the
+ * claim set plus a flag so the caller knows whether the bound path
+ * produced anything — the legacy path only kicks in if it didn't.
+ */
+function collectBoundPromptClaimedWidgets(
+  templateName: string,
+): { claimed: Set<string>; hadAny: boolean } {
+  const tpl = templates.getTemplate(templateName);
+  const claimed = new Set<string>();
+  let hadAny = false;
+  for (const fi of (tpl?.formInputs || [])) {
+    const bindNodeId = (fi as { bindNodeId?: string }).bindNodeId;
+    const bindWidgetName = (fi as { bindWidgetName?: string }).bindWidgetName;
+    if (!bindNodeId || !bindWidgetName) continue;
+    hadAny = true;
+    claimed.add(`${bindNodeId}|${bindWidgetName}`);
+  }
+  return { claimed, hadAny };
+}
+
+/**
+ * Union of prompt-claimed + formInput-claimed widget IDs
+ * (`${nodeId}|${widgetName}`). The modal uses this to hide widgets that
  * would be silently overwritten at generate time.
+ *
+ * INVARIANT: every claim key uses a TOP-LEVEL numeric node id. Inner
+ * subgraph widgets are enumerated with compound ids (`267:216` /
+ * `267:mid:leaf`) by `walkSubgraphWidgets`, so nothing here will ever
+ * match them — they stay strictly opt-in. Keep it this way: claim
+ * semantics are a top-level concept (prompt textarea / upload bindings
+ * wire to top-level nodes), and re-introducing compound-id matching
+ * would accidentally hide widgets users specifically asked to expose.
  */
 export function computeFormClaimedWidgets(
   workflow: Record<string, unknown>,
@@ -76,7 +118,13 @@ export function computeFormClaimedWidgets(
 ): Set<string> {
   const nodes = (workflow.nodes || []) as Array<Record<string, unknown>>;
   const claimed = new Set<string>();
-  for (const k of collectPromptClaimedWidgets(nodes, objectInfo)) claimed.add(k);
+  const bound = collectBoundPromptClaimedWidgets(templateName);
+  for (const k of bound.claimed) claimed.add(k);
+  // Legacy fallback only when no bound prompt fields exist — keeps the
+  // generic-prompt fan-out case hiding the same widgets it used to hide.
+  if (!bound.hadAny) {
+    for (const k of collectLegacyPromptClaimedWidgets(nodes, objectInfo)) claimed.add(k);
+  }
   for (const k of collectFormInputClaimedWidgets(nodes, objectInfo, templateName)) claimed.add(k);
   return claimed;
 }

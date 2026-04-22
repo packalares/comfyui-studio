@@ -15,6 +15,17 @@ export interface FormInputData {
   nodeId?: number;
   nodeType?: string;
   mediaType?: string;
+  /**
+   * Workflow-level binding for prompt-surface form fields. When present, the
+   * API-prompt pipeline writes the user's value into the named widget on the
+   * specified node instead of fanning the single `prompt` value across every
+   * prompt-like widget on the first eligible node. Emitted by the new
+   * workflow-reading path in `generateFormInputs` + `extractPrimitiveFormFields`.
+   * Legacy media-upload fields and the tag-only `prompt` fallback leave these
+   * unset — the injector falls back to the heuristic fan-out path for them.
+   */
+  bindNodeId?: string;
+  bindWidgetName?: string;
 }
 
 /**

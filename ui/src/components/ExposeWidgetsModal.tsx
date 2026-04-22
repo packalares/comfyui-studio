@@ -23,6 +23,21 @@ interface NodeGroup {
   widgets: EnumeratedWidget[];
 }
 
+interface ScopeSection {
+  // `""` for top-level; otherwise the compound-id prefix (`267`, `267:mid`, ...).
+  scopeKey: string;
+  // Human label for the divider; `"Top-level"` or the subgraph's display name.
+  heading: string;
+  groups: NodeGroup[];
+}
+
+// Extract the compound-id prefix (everything before the last `:`), or `""`
+// for top-level nodeIds without any `:`.
+function scopeKeyOf(nodeId: string): string {
+  const lastColon = nodeId.lastIndexOf(':');
+  return lastColon < 0 ? '' : nodeId.slice(0, lastColon);
+}
+
 function formatValue(v: unknown): string {
   if (v == null) return '—';
   if (typeof v === 'string') {
@@ -66,18 +81,33 @@ export default function ExposeWidgetsModal({ templateName, onClose, onSaved }: P
     return () => { cancelled = true; };
   }, [templateName]);
 
-  const groups: NodeGroup[] = useMemo(() => {
-    const byNode = new Map<string, NodeGroup>();
+  const sections: ScopeSection[] = useMemo(() => {
+    // Partition by scope prefix first, then by node inside each scope.
+    // Preserves server enumeration order (top-level first, subgraphs second).
+    const byScope = new Map<string, { heading: string; byNode: Map<string, NodeGroup> }>();
     for (const w of widgets) {
-      let g = byNode.get(w.nodeId);
+      const scopeKey = scopeKeyOf(w.nodeId);
+      const heading = scopeKey === '' ? 'Top-level' : (w.scopeName || 'Subgraph');
+      let scope = byScope.get(scopeKey);
+      if (!scope) {
+        scope = { heading, byNode: new Map() };
+        byScope.set(scopeKey, scope);
+      }
+      let g = scope.byNode.get(w.nodeId);
       if (!g) {
         g = { nodeId: w.nodeId, nodeType: w.nodeType, nodeTitle: w.nodeTitle, widgets: [] };
-        byNode.set(w.nodeId, g);
+        scope.byNode.set(w.nodeId, g);
       }
       g.widgets.push(w);
     }
-    return Array.from(byNode.values());
+    return Array.from(byScope.entries()).map(([scopeKey, scope]) => ({
+      scopeKey,
+      heading: scope.heading,
+      groups: Array.from(scope.byNode.values()),
+    }));
   }, [widgets]);
+
+  const totalGroups = useMemo(() => sections.reduce((n, s) => n + s.groups.length, 0), [sections]);
 
   const toggle = (nodeId: string, widgetName: string) => {
     const key = `${nodeId}|${widgetName}`;
@@ -148,45 +178,57 @@ export default function ExposeWidgetsModal({ templateName, onClose, onSaved }: P
         </div>
       ) : error ? (
         <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-3">{error}</div>
-      ) : groups.length === 0 ? (
+      ) : totalGroups === 0 ? (
         <div className="text-sm text-gray-500 py-8 text-center">
           No editable widgets found for this template.
         </div>
       ) : (
-        <div className="space-y-5">
-          {groups.map(g => (
-            <div key={g.nodeId}>
-              <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
-                {g.nodeTitle || g.nodeType}
-                <span className="text-gray-300 font-normal normal-case tracking-normal ml-2">
-                  #{g.nodeId}
-                </span>
+        <div className="space-y-6">
+          {sections.map(section => (
+            <div key={section.scopeKey || '__top__'}>
+              <div className="panel-header !px-0 !py-2 !border-b-0 flex items-baseline gap-2">
+                <span className="panel-header-title">{section.heading}</span>
+                {section.scopeKey && (
+                  <span className="stat-label">#{section.scopeKey}</span>
+                )}
               </div>
-              <div className="space-y-0.5 border border-gray-100 rounded overflow-hidden">
-                {g.widgets.map(w => {
-                  const key = `${w.nodeId}|${w.widgetName}`;
-                  const checked = selected.has(key);
-                  return (
-                    <label
-                      key={key}
-                      className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm"
-                    >
-                      <Checkbox
-                        checked={checked}
-                        onCheckedChange={() => toggle(w.nodeId, w.widgetName)}
-                      />
-                      <span className="font-mono text-xs text-gray-700 flex-1 truncate">
-                        {w.widgetName}
+              <div className="space-y-5">
+                {section.groups.map(g => (
+                  <div key={g.nodeId}>
+                    <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+                      {g.nodeTitle || g.nodeType}
+                      <span className="text-gray-300 font-normal normal-case tracking-normal ml-2">
+                        #{g.nodeId}
                       </span>
-                      <span className="text-xs text-gray-400 truncate max-w-[40%]">
-                        {formatValue(w.value)}
-                      </span>
-                      <span className="text-[10px] text-gray-300 uppercase w-12 text-right">
-                        {w.type}
-                      </span>
-                    </label>
-                  );
-                })}
+                    </div>
+                    <div className="space-y-0.5 border border-gray-100 rounded overflow-hidden">
+                      {g.widgets.map(w => {
+                        const key = `${w.nodeId}|${w.widgetName}`;
+                        const checked = selected.has(key);
+                        return (
+                          <label
+                            key={key}
+                            className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm"
+                          >
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={() => toggle(w.nodeId, w.widgetName)}
+                            />
+                            <span className="font-mono text-xs text-gray-700 flex-1 truncate">
+                              {w.widgetName}
+                            </span>
+                            <span className="text-xs text-gray-400 truncate max-w-[40%]">
+                              {formatValue(w.value)}
+                            </span>
+                            <span className="text-[10px] text-gray-300 uppercase w-12 text-right">
+                              {w.type}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           ))}

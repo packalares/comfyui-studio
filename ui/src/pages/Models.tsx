@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Box, Trash2, Loader2, Search, WifiOff, Settings,
-  Download, SlidersHorizontal, History,
+  Download, SlidersHorizontal, History, X, HardDrive, CheckCircle2, Package,
 } from 'lucide-react';
 import type { CatalogModel, CivitaiModelSummary } from '../types';
 import { findDownloadForModel } from '../types';
@@ -10,10 +10,10 @@ import { api } from '../services/comfyui';
 import { useApp } from '../context/AppContext';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { usePaginated } from '../hooks/usePaginated';
-import Pagination from '../components/Pagination';
 import PageSubbar from '../components/PageSubbar';
 import DownloadsTab from '../components/DownloadsTab';
 import ModelRow, { type ModelRowDownload, type ModelRowItem } from '../components/ModelRow';
+import ModelInfoModal, { type ModelInfoSource } from '../components/ModelInfoModal';
 import { formatBytes } from '../lib/utils';
 import { imgProxy } from '../lib/imgProxy';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
@@ -164,7 +164,7 @@ export default function Models() {
   const fetcher = useCallback(
     async ({ page, pageSize }: { page: number; pageSize: number }) => {
       if (source === 'civitai') {
-        const trimmed = search.trim();
+        const trimmed = debouncedSearch.trim();
         // Mirror CivitaiModelsView: search when the query is non-empty;
         // otherwise page the "hot" sort as a sensible default.
         const res = trimmed
@@ -179,7 +179,7 @@ export default function Models() {
         };
       }
       const res = await api.getModelsCatalogPaged(page, pageSize, {
-        q: search.trim() || undefined,
+        q: debouncedSearch.trim() || undefined,
         types: types.length > 0 ? types : undefined,
         installed: installedParam,
       });
@@ -189,12 +189,48 @@ export default function Models() {
         hasMore: res.hasMore,
       };
     },
-    [source, search, types, installedParam],
+    [source, debouncedSearch, types, installedParam],
   );
   const paged = usePaginated<PageRow>(fetcher, {
-    deps: [source, search, types, installedParam],
+    deps: [source, debouncedSearch, types, installedParam],
   });
-  const { items: pageRows, loading, refetch: refetchPage } = paged;
+  const { items: pageItems, loading, refetch: refetchPage } = paged;
+
+  // "Load more" accumulator. `usePaginated` replaces `items` on every page
+  // change; the Models page wants cumulative rows across pages (CivitAI +
+  // local), so we keep a separate append-only list keyed off the current
+  // page number. page=1 → reset; page>1 → append (dedup by kind+id).
+  const [pageRows, setPageRows] = useState<PageRow[]>([]);
+  // Reset accumulated rows immediately when filter/source axes change so the
+  // user doesn't see stale rows from the previous source while the new fetch
+  // is in flight. `usePaginated` resets page→1 and kicks off the refetch; we
+  // mirror that here.
+  useEffect(() => {
+    setPageRows([]);
+  }, [source, debouncedSearch, types, installedParam]);
+  useEffect(() => {
+    if (loading) return;
+    if (paged.page === 1) {
+      setPageRows(pageItems);
+      return;
+    }
+    setPageRows((prev) => {
+      const seen = new Set<string>();
+      for (const row of prev) {
+        seen.add(row.kind === 'civitai' ? `civ-${row.item.id}` : `cat-${row.model.name}`);
+      }
+      const next = prev.slice();
+      for (const row of pageItems) {
+        const key = row.kind === 'civitai' ? `civ-${row.item.id}` : `cat-${row.model.name}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          next.push(row);
+        }
+      }
+      return next;
+    });
+  }, [pageItems, loading, paged.page]);
+
   // For the parts of the UI that only care about local catalog items (e.g.
   // the workflow-deps filter, download-by-model map) preserve the old name.
   const models = useMemo<CatalogModel[]>(
@@ -351,6 +387,20 @@ export default function Models() {
   }, []);
 
   const [deleteTarget, setDeleteTarget] = useState<CatalogModel | null>(null);
+  const [infoSource, setInfoSource] = useState<ModelInfoSource | null>(null);
+
+  const handleShowInfo = useCallback((item: ModelRowItem) => {
+    setInfoSource(
+      item.kind === 'civitai'
+        ? { kind: 'civitai', item: item.item }
+        : { kind: 'catalog', model: item.model },
+    );
+  }, []);
+
+  const handleLoadMore = useCallback(() => {
+    if (loading || !paged.hasMore) return;
+    paged.setPage(paged.page + 1);
+  }, [loading, paged]);
 
   const confirmDelete = useCallback(async () => {
     if (!deleteTarget) return;
@@ -487,11 +537,6 @@ export default function Models() {
         }
       />
       <div className="page-container">
-        {loading && pageRows.length === 0 && tab === 'models' ? (
-          <div className="flex items-center justify-center h-64">
-            <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
-          </div>
-        ) : (
         <div className="panel">
           <div className="flex flex-col lg:flex-row min-h-[calc(100vh-180px)] relative">
             {/* ===== Left sidebar (Models tab only) ===== */}
@@ -575,21 +620,26 @@ export default function Models() {
                 </>
               )}
 
-              {/* Storage Summary */}
+              {/* Storage Summary — vertical list (redesigned from the prior
+                  stat-box grid). Matches the row-style language of Settings
+                  StorageCard: icon + label on the left, value on the right. */}
               <div className="pt-4 border-t border-slate-200">
-                <label className="field-label mb-3 block">Storage</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="stat-box bg-emerald-50 ring-emerald-100">
-                    <p className="stat-box-label text-emerald-700/70">Installed</p>
-                    <p className="stat-box-value text-emerald-700">{installedCount}</p>
+                <label className="field-label mb-2 block">Storage</label>
+                <div className="divide-y divide-slate-100 rounded-lg ring-1 ring-inset ring-slate-200 overflow-hidden bg-white">
+                  <div className="flex items-center gap-2 px-3 py-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <span className="text-xs text-slate-600 flex-1">Installed</span>
+                    <span className="font-mono text-sm font-semibold text-slate-900">{installedCount}</span>
                   </div>
-                  <div className="stat-box bg-slate-50 ring-slate-200">
-                    <p className="stat-box-label text-slate-500">Available</p>
-                    <p className="stat-box-value text-slate-700">{allModels.length}</p>
+                  <div className="flex items-center gap-2 px-3 py-2">
+                    <Package className="w-4 h-4 text-slate-500 shrink-0" />
+                    <span className="text-xs text-slate-600 flex-1">Available</span>
+                    <span className="font-mono text-sm font-semibold text-slate-900">{allModels.length}</span>
                   </div>
-                  <div className="stat-box col-span-2 bg-gradient-to-br from-teal-50 to-slate-50 ring-teal-100">
-                    <p className="stat-box-label text-teal-700/70">Disk Usage</p>
-                    <p className="text-sm font-semibold text-teal-700 leading-tight mt-0.5 font-mono">{formatBytes(totalDiskSize)}</p>
+                  <div className="flex items-center gap-2 px-3 py-2">
+                    <HardDrive className="w-4 h-4 text-teal-600 shrink-0" />
+                    <span className="text-xs text-slate-600 flex-1">Disk usage</span>
+                    <span className="font-mono text-sm font-semibold text-slate-900">{formatBytes(totalDiskSize)}</span>
                   </div>
                 </div>
               </div>
@@ -609,6 +659,16 @@ export default function Models() {
                       value={search}
                       onChange={e => setSearch(e.target.value)}
                     />
+                    {search !== '' && (
+                      <button
+                        type="button"
+                        onClick={() => setSearch('')}
+                        aria-label="Clear search"
+                        className="shrink-0 text-slate-400 hover:text-slate-700 transition-colors"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 )}
                 <div
@@ -662,7 +722,25 @@ export default function Models() {
               {/* Models list — single flat list; type shown as badge per row.
                   Rows are a discriminated union so local + civitai items share
                   the same visual footprint. */}
-              {source === 'local' && filteredModels.length > 0 ? (
+              {loading && pageRows.length === 0 ? (
+                // Skeleton grid during the initial fetch or while switching
+                // source. 6 rows × animate-pulse mirror the real ModelRow
+                // silhouette (32px thumb + two text lines).
+                <section className="panel">
+                  <div className="divide-y divide-slate-100">
+                    {[0, 1, 2, 3, 4, 5].map((i) => (
+                      <div key={`sk-${i}`} className="flex items-center gap-3 py-2.5 px-4">
+                        <div className="w-8 h-8 rounded bg-slate-100 animate-pulse shrink-0" />
+                        <div className="flex-1 min-w-0 space-y-1.5">
+                          <div className="h-3 w-1/2 rounded bg-slate-100 animate-pulse" />
+                          <div className="h-2.5 w-1/3 rounded bg-slate-100 animate-pulse" />
+                        </div>
+                        <div className="h-7 w-20 rounded bg-slate-100 animate-pulse shrink-0" />
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : source === 'local' && filteredModels.length > 0 ? (
                 <section className="panel">
                   <div className="divide-y divide-slate-100">
                     {filteredModels.map((model, i) => {
@@ -680,6 +758,7 @@ export default function Models() {
                           onDelete={handleRequestDelete}
                           onCancelDownload={handleCancelDownload}
                           onNavigateSettings={handleNavigateSettings}
+                          onShowInfo={handleShowInfo}
                         />
                       );
                     })}
@@ -723,6 +802,7 @@ export default function Models() {
                           onInstall={handleInstall}
                           onCancelDownload={handleCancelDownload}
                           onNavigateSettings={handleNavigateSettings}
+                          onShowInfo={handleShowInfo}
                         />
                       );
                     })}
@@ -772,20 +852,28 @@ export default function Models() {
                 </div>
               )}
 
-              {/* Pagination. Hidden when browsing the local catalog with a
-                  template filter active (the list is a fixed required set —
-                  paging would be misleading). */}
-              {!(source === 'local' && selectedWorkflow) && (
-                <div className="mt-4">
-                  <Pagination
-                    page={paged.page}
-                    pageSize={paged.pageSize}
-                    total={paged.total}
-                    hasMore={paged.hasMore}
-                    onPageChange={paged.setPage}
-                    onPageSizeChange={paged.setPageSize}
-                    className="rounded-lg border border-slate-200 bg-slate-50"
-                  />
+              {/* Load more — replaces the page-based Pagination widget.
+                  CivitAI search is cursor-based and the local catalog feels
+                  better as an accumulator too. Hidden when browsing the local
+                  catalog with a template filter active (required-model list
+                  is a fixed set — load-more would be misleading). */}
+              {!(source === 'local' && selectedWorkflow) && pageRows.length > 0 && (
+                <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-center">
+                  {paged.hasMore ? (
+                    <button
+                      type="button"
+                      onClick={handleLoadMore}
+                      disabled={loading}
+                      className="btn-secondary"
+                    >
+                      {loading ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : null}
+                      {loading ? 'Loading…' : 'Load more'}
+                    </button>
+                  ) : (
+                    <span className="text-xs text-slate-500">No more results</span>
+                  )}
                 </div>
               )}
               </>
@@ -793,8 +881,13 @@ export default function Models() {
             </main>
           </div>
         </div>
-        )}
       </div>
+
+      <ModelInfoModal
+        open={!!infoSource}
+        onClose={() => setInfoSource(null)}
+        source={infoSource}
+      />
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>

@@ -62,6 +62,16 @@ export interface FormInput {
   nodeId?: number;
   nodeType?: string;
   mediaType?: string;
+  /**
+   * Workflow-level binding for prompt-surface fields (`text` / `tags` /
+   * `lyrics` / ...). Set by the server's workflow-reading form-input path;
+   * used by the Studio page to pre-fill from the matching widget's default
+   * and by the server's generate pipeline to route the value onto the
+   * specific (nodeId, widgetName) instead of fanning across every
+   * multiline STRING widget on the first eligible node.
+   */
+  bindNodeId?: string;
+  bindWidgetName?: string;
 }
 
 export type StudioCategory = 'image' | 'video' | 'audio' | '3d' | 'tools';
@@ -299,6 +309,12 @@ export interface DependencyCheck {
 export interface AdvancedSetting {
   id: string;
   label: string;
+  /**
+   * Scope disclosure (node title / class, subgraph path). Rendered by the
+   * UI as a tooltip next to the short `label` so users can tell where the
+   * control came from without inflating the primary label text.
+   */
+  scopeLabel?: string;
   type: 'number' | 'slider' | 'seed' | 'select' | 'toggle' | 'text' | 'textarea';
   value: unknown;
   min?: number;
@@ -316,6 +332,8 @@ export interface EnumeratedWidget {
   nodeTitle?: string;
   widgetName: string;
   label: string;
+  /** Scope disclosure (subgraph + inner node). Mirrors `AdvancedSetting.scopeLabel`. */
+  scopeLabel?: string;
   value: unknown;
   type: 'number' | 'slider' | 'seed' | 'select' | 'toggle' | 'text' | 'textarea';
   min?: number;
@@ -325,6 +343,8 @@ export interface EnumeratedWidget {
   exposed: boolean;
   /** True when the widget is driven by the main form (Prompt / upload field). Modal hides these. */
   formClaimed?: boolean;
+  /** Subgraph name this widget lives in (present only for compound-id inner widgets). */
+  scopeName?: string;
 }
 
 /* =================================================================
