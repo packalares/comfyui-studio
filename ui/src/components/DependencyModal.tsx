@@ -84,10 +84,13 @@ export default function DependencyModal({ missing, onClose, onDownloadComplete }
     if (completedFiredRef.current) return;
     if (view.size !== missing.length) return;
     const allDone = Array.from(view.values()).every(v => v.status === 'completed');
-    if (allDone) {
-      completedFiredRef.current = true;
-      setTimeout(onDownloadComplete, 500);
-    }
+    if (!allDone) return;
+    completedFiredRef.current = true;
+    // Brief "all done" state before we fire the close-on-complete callback.
+    // The cleanup clears the timer so a user-initiated close in this window
+    // doesn't land onDownloadComplete on the unmounted modal.
+    const id = setTimeout(onDownloadComplete, 500);
+    return () => { clearTimeout(id); };
   }, [view, missing.length, onDownloadComplete]);
 
   const handleDownloadAll = useCallback(async () => {
@@ -277,7 +280,7 @@ export default function DependencyModal({ missing, onClose, onDownloadComplete }
                         <span className="text-[10px] text-slate-400">
                           {dl.status === 'completed' ? 'Complete' : `${Math.round(dl.progress)}%`}
                         </span>
-                        {dl.speed && dl.speed > 0 && (
+                        {typeof dl.speed === 'number' && dl.speed > 0 && (
                           <span className="text-[10px] text-slate-400">
                             {formatBytes(dl.speed)}/s
                           </span>

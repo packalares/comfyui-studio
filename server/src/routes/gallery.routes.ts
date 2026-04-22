@@ -20,7 +20,7 @@ import * as gallery from '../services/gallery.service.js';
 import { submitPrompt } from '../services/comfyui.js';
 import { schedulePromptWatch } from '../services/gallery.sentry.js';
 import { parsePageQuery } from '../lib/pagination.js';
-import { randomizeSeeds, type ApiPrompt } from '../services/gallery.extract.js';
+import { randomizeStoredSeeds, type ApiPrompt } from '../services/gallery.extract.js';
 import { logger } from '../lib/logger.js';
 
 const router = Router();
@@ -190,7 +190,7 @@ router.post(
     }
     const body = (req.body ?? {}) as { randomizeSeed?: unknown };
     if (body.randomizeSeed === true) {
-      randomizeSeeds(workflow);
+      randomizeStoredSeeds(workflow);
     }
     try {
       const result = await submitPrompt(workflow as Record<string, unknown>);

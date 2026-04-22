@@ -193,6 +193,15 @@ export interface GalleryItem {
   cfg?: number | null;
   width?: number | null;
   height?: number | null;
+  // Schema v4: workflow-agnostic extractor output. Populated on modern
+  // (subgraph video, audio) workflows as well as classic SD.
+  scheduler?: string | null;
+  denoise?: number | null;
+  lengthFrames?: number | null;
+  fps?: number | null;
+  batchSize?: number | null;
+  durationMs?: number | null;
+  models?: string[] | null;
 }
 
 export interface AppSettings {

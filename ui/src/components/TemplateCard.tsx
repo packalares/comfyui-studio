@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import {
   Image, Video, Music, Box, HardDrive, Cpu,
   MoreHorizontal, Trash2, Loader2, ExternalLink, FileJson, Check, ImageOff,
-  Puzzle, Info, Wand2, Download, User as UserIcon,
+  Puzzle, Info, Wand2, Download, User as UserIcon, Braces,
 } from 'lucide-react';
 import type { Template, CivitaiModelSummary, StagedImportManifest, RequiredModel } from '../types';
 import { formatBytes } from '../lib/utils';
@@ -12,6 +12,7 @@ import { imgProxy } from '../lib/imgProxy';
 import { api } from '../services/comfyui';
 import DescriptionModal from './DescriptionModal';
 import DependencyModal from './DependencyModal';
+import ApiExportModal from './ApiExportModal';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import {
   AlertDialog,
@@ -73,6 +74,7 @@ function TemplateCardInner({ template, onDeleted }: Props) {
   const [deleting, setDeleting] = useState(false);
   const [installingPlugins, setInstallingPlugins] = useState(false);
   const [descOpen, setDescOpen] = useState(false);
+  const [apiOpen, setApiOpen] = useState(false);
   const [depsOpen, setDepsOpen] = useState(false);
   const [depsLoading, setDepsLoading] = useState(false);
   const [depsMissing, setDepsMissing] = useState<RequiredModel[] | null>(null);
@@ -366,6 +368,19 @@ function TemplateCardInner({ template, onDeleted }: Props) {
               </TooltipTrigger>
               <TooltipContent>Install dependencies</TooltipContent>
             </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={(e) => { e.stopPropagation(); setApiOpen(true); }}
+                  aria-label="Export API prompt"
+                >
+                  <Braces className="w-3.5 h-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Export API JSON (what we'd send to ComfyUI)</TooltipContent>
+            </Tooltip>
             {missingPlugins.length > 0 && (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -400,6 +415,11 @@ function TemplateCardInner({ template, onDeleted }: Props) {
         tags={template.tags}
         models={template.models}
         civitaiMeta={civitaiMeta}
+      />
+      <ApiExportModal
+        open={apiOpen}
+        templateName={template.name}
+        onClose={() => setApiOpen(false)}
       />
       {depsOpen && depsMissing !== null && (
         <DependencyModal

@@ -51,7 +51,14 @@ function cacheDir(): string {
 }
 
 function cacheKey(absPath: string, width: number): string {
-  return createHash('md5').update(`${absPath}|${width}`).digest('hex');
+  // Include mtime so replacing the file at the same path invalidates the
+  // cached thumbnail. Without this, the immutable Cache-Control pin leaves
+  // the old webp served forever until the cache dir is manually cleared.
+  // A missing file falls through with mtime=0 — the downstream ffmpeg run
+  // will error out with FFMPEG_FAILED, which the route maps to a 404.
+  let mtime = 0;
+  try { mtime = statSync(absPath).mtimeMs; } catch { /* missing */ }
+  return createHash('md5').update(`${absPath}|${width}|${mtime}`).digest('hex');
 }
 
 function validateWidth(raw: unknown): number {
@@ -81,7 +88,11 @@ function runFfmpeg(
     '-hide_banner',
     '-loglevel', 'error',
     '-y',
-    '-ss', '00:00:00.500',
+    // Seek to 0 (first frame). Previously 500ms, but sub-500ms clips
+    // (single-frame exports, very-short LoopBack outputs) landed past EOF
+    // and wrote a 0-byte webp that the route would then serve as "blank
+    // tile forever" via the immutable Cache-Control header.
+    '-ss', '0',
     '-i', srcPath,
     '-vframes', '1',
     '-vf', `scale=${width}:-1`,

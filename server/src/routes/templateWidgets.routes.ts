@@ -9,8 +9,10 @@ import {
   buildRawWidgetSettings,
   enumerateTemplateWidgets,
   extractAdvancedSettings,
+  extractPrimitiveFormFields,
   getObjectInfo,
   resolveProxyLabels,
+  workflowToApiPrompt,
 } from '../services/workflow/index.js';
 import { env } from '../config/env.js';
 import { sendError } from '../middleware/errors.js';
@@ -90,6 +92,10 @@ router.get('/workflow-settings/:templateName', async (req: Request, res: Respons
 });
 
 // List every editable widget in a template's workflow, each tagged with whether it's currently exposed.
+// Also returns `primitiveFormFields` — FormInputData entries derived from titled subgraph
+// Primitive* nodes (ComfyUI 0.3.51+ subgraph workflows encode their Prompt/Width/Height/etc.
+// as PrimitiveStringMultiline/PrimitiveInt nodes inside `definitions.subgraphs`). Studio merges
+// these into the template form so the user can edit them directly.
 router.get('/template-widgets/:templateName', async (req: Request, res: Response) => {
   try {
     const templateName = req.params.templateName as string;
@@ -99,9 +105,39 @@ router.get('/template-widgets/:templateName', async (req: Request, res: Response
       return;
     }
     const widgets = await enumerateTemplateWidgets(workflow, templateName);
-    res.json({ widgets });
+    const primitiveFormFields = extractPrimitiveFormFields(workflow);
+    res.json({ widgets, primitiveFormFields });
   } catch (err) {
     sendError(res, err, 500, 'Failed to enumerate template widgets');
+  }
+});
+
+/**
+ * Debug/compare endpoint: convert a template's workflow to ComfyUI's API
+ * prompt format (what would be sent to `/api/prompt` if the user clicked
+ * Generate with defaults). Useful for validating our parser matches
+ * ComfyUI's native "Save (API)" output — the user can diff this against
+ * whatever ComfyUI's own editor produces for the same workflow.
+ *
+ * Output is stripped of per-submission randomness (seeds zeroed) so two
+ * successive calls produce a stable payload for comparison.
+ */
+router.get('/template-api-prompt/:templateName', async (req: Request, res: Response) => {
+  try {
+    const templateName = req.params.templateName as string;
+    const workflow = await loadWorkflowJson(templateName);
+    if (!workflow) {
+      res.status(404).json({ error: 'Workflow not found' });
+      return;
+    }
+    const apiPrompt = await workflowToApiPrompt(workflow, {}, []);
+    for (const entry of Object.values(apiPrompt)) {
+      if (entry.class_type === 'KSampler' && 'seed' in entry.inputs) entry.inputs.seed = 0;
+      if (entry.class_type === 'RandomNoise' && 'noise_seed' in entry.inputs) entry.inputs.noise_seed = 0;
+    }
+    res.json({ templateName, apiPrompt });
+  } catch (err) {
+    sendError(res, err, 500, 'Failed to build API prompt');
   }
 });
 

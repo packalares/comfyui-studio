@@ -10,6 +10,7 @@ import type {
   MonitorStats,
   DownloadState,
 } from '../types';
+import { toast } from 'sonner';
 import { api } from '../services/comfyui';
 import { SystemProvider, useSystem } from './SystemContext';
 import { CatalogProvider, useCatalog } from './CatalogContext';
@@ -145,6 +146,19 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let ws: WebSocket | null = null;
     let closed = false;
+    // Every setTimeout scheduled by this effect goes through scheduleTimer so
+    // the cleanup can clear them on unmount. Without this, timers that fire
+    // after unmount call state setters on a dead tree (React logs a warning)
+    // and — more critically — re-trigger fetchOutputFromHistory / reconnect
+    // work on a component that has already gone away.
+    const pendingTimers = new Set<ReturnType<typeof setTimeout>>();
+    const scheduleTimer = (fn: () => void, ms: number): void => {
+      const id = setTimeout(() => {
+        pendingTimers.delete(id);
+        fn();
+      }, ms);
+      pendingTimers.add(id);
+    };
 
     const connectWs = () => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -168,7 +182,13 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
             });
             if (pid) _setActivePromptId(pid);
             setCurrentJob(prev => {
-              if (!prev || prev.status === 'completed') return prev;
+              // Don't clobber terminal states. ComfyUI occasionally emits a
+              // trailing `progress` event during its cleanup unwind after
+              // `execution_error`; without the `failed` guard that flip
+              // would revive the job to `running` and the Studio main
+              // pane would show "Generating 0%" forever instead of the
+              // red error panel.
+              if (!prev || prev.status === 'completed' || prev.status === 'failed') return prev;
               return { ...prev, status: 'running', progress };
             });
           } else if (msg.type === 'execution_start') {
@@ -181,20 +201,20 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
             _setProgress(null);
             _setActivePromptId(null);
             if (promptId) {
-              setTimeout(() => _fetchOutputFromHistory(promptId), 500);
+              scheduleTimer(() => _fetchOutputFromHistory(promptId), 500);
             }
           } else if (msg.type === 'executing' && typeof msg.data?.prompt_id === 'string') {
             _setActivePromptId(msg.data.prompt_id);
           } else if (msg.type === 'executed' && msg.data?.prompt_id === promptId) {
             if (promptId) {
-              setTimeout(() => _fetchOutputFromHistory(promptId), 500);
+              scheduleTimer(() => _fetchOutputFromHistory(promptId), 500);
             }
           } else if (msg.type === 'progress_state') {
             const nodes = msg.data?.nodes;
             if (nodes && promptId) {
               const allFinished = Object.values(nodes).every((n: unknown) => (n as Record<string, string>).state === 'finished');
               if (allFinished) {
-                setTimeout(() => _fetchOutputFromHistory(promptId), 500);
+                scheduleTimer(() => _fetchOutputFromHistory(promptId), 500);
               }
             }
           } else if (msg.type === 'execution_success' || msg.type === 'execution_complete') {
@@ -209,13 +229,49 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
             const donePid =
               typeof msg.data?.prompt_id === 'string' ? msg.data.prompt_id : promptId;
             if (donePid) {
-              setTimeout(() => _fetchOutputFromHistory(donePid), 500);
+              scheduleTimer(() => _fetchOutputFromHistory(donePid), 500);
             }
           } else if (msg.type === 'error' || msg.type === 'execution_error' || msg.type === 'execution_interrupted') {
-            const errMsg = (msg.data as { exception_message?: string })?.exception_message;
+            // ComfyUI's V3 error shape varies: classic `execution_error`
+            // carries `exception_message`, V3 runtime errors sometimes
+            // land under `error` or `message`. Fall through so the toast
+            // doesn't render blank.
+            const data = msg.data as {
+              prompt_id?: string;
+              exception_message?: string;
+              error?: string;
+              message?: string;
+              exception_type?: string;
+              node_type?: string;
+            } | undefined;
+            // Ignore delayed errors that belong to a prompt the user has
+            // already moved past (fast-resubmit after a failure). Without
+            // this gate the new job flips to `failed` the instant a stale
+            // error event lands and the progress handler then refuses to
+            // re-run it (the `failed` guard at the top of the progress
+            // branch preserves the state). Fall through when either pid
+            // is missing so we never miss a real failure.
+            const errorPid =
+              typeof data?.prompt_id === 'string' ? data.prompt_id : null;
+            if (errorPid && promptId && errorPid !== promptId) {
+              return;
+            }
+            const errMsg =
+              data?.exception_message || data?.error || data?.message || 'ComfyUI aborted the run';
+            const title = msg.type === 'execution_interrupted'
+              ? 'Generation interrupted'
+              : 'Generation failed';
+            const description = data?.node_type
+              ? `${data.node_type}: ${errMsg}`
+              : errMsg;
             _setProgress(null);
             _setActivePromptId(null);
             setCurrentJob(prev => prev ? { ...prev, status: 'failed', error: errMsg } : null);
+            // Toast is belt-and-suspenders: even if subsequent WS events
+            // briefly flip the status back to running, the toast has
+            // already surfaced the error so the user knows something went
+            // wrong rather than staring at "Generating… 0%" forever.
+            toast.error(title, { description });
           } else if (msg.type === 'launcher-status') {
             const status = msg.data as LauncherStatus;
             _setLauncherStatus(status);
@@ -245,14 +301,33 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
               // Remove from map shortly after terminal state so completed/cancelled items don't linger.
               if (d.completed || d.status === 'completed' || d.status === 'error') {
                 // Keep the terminal state visible briefly so the UI can render "done" — purge after 3s.
-                setTimeout(() => {
+                scheduleTimer(() => {
                   _setDownloads(p => {
                     const { [d.taskId]: _removed, ...rest } = p;
                     return rest;
                   });
                 }, 3000);
               }
-              return { ...prev, [d.taskId]: d };
+              // Placeholder dedup: when a real `downloading` event arrives
+              // for the same (modelName, filename) under a new taskId, drop
+              // any stale queued placeholder. Otherwise the synth entry sits
+              // in the map forever and findDownloadForModel picks it up
+              // before the real live entry.
+              const next: Record<string, DownloadState> = {};
+              if (d.status === 'downloading') {
+                for (const [k, v] of Object.entries(prev)) {
+                  if (k === d.taskId) continue;
+                  const sameModel =
+                    (v.filename && v.filename === d.filename) ||
+                    (v.modelName && v.modelName === d.modelName);
+                  if (sameModel && v.status !== 'downloading') continue; // drop it
+                  next[k] = v;
+                }
+              } else {
+                Object.assign(next, prev);
+              }
+              next[d.taskId] = d;
+              return next;
             });
           } else if (msg.type === 'downloads-snapshot') {
             const list = msg.data as DownloadState[];
@@ -313,13 +388,15 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
 
       ws.onclose = () => {
         if (closed) return;
-        setTimeout(connectWs, 3000);
+        scheduleTimer(connectWs, 3000);
       };
     };
 
     connectWs();
     return () => {
       closed = true;
+      for (const id of pendingTimers) clearTimeout(id);
+      pendingTimers.clear();
       ws?.close();
     };
   }, [

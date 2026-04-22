@@ -50,13 +50,81 @@ export default function AdvancedSettings({ settings, values, onChange }: Props) 
       </button>
 
       {open && (
-        <div className="mt-3 space-y-3">
-          {settings.map(setting => (
+        <GroupedSettings
+          settings={settings}
+          getValue={getValue}
+          handleChange={handleChange}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Bucket settings by widget shape and render each bucket with a layout
+ * that fits its width needs:
+ *
+ *   textarea  → full width, stacked (each one its own row).
+ *   select | number | slider | seed | text  → 2-col grid (1-col on mobile).
+ *   toggle    → 2-col grid on mobile, 3-col on md+ (compact pills).
+ *
+ * Kept in document order within each bucket so related fields that live
+ * near each other in the source workflow stay adjacent. Prevents the
+ * old mixed-column jank where a narrow toggle sat next to a wide
+ * number stepper.
+ */
+function GroupedSettings({
+  settings, getValue, handleChange,
+}: {
+  settings: AdvancedSetting[];
+  getValue: (s: AdvancedSetting) => unknown;
+  handleChange: (s: AdvancedSetting, v: unknown) => void;
+}) {
+  const buckets = {
+    textarea: [] as AdvancedSetting[],
+    input: [] as AdvancedSetting[], // number | slider | seed | select | text
+    toggle: [] as AdvancedSetting[],
+  };
+  for (const s of settings) {
+    if (s.type === 'textarea') buckets.textarea.push(s);
+    else if (s.type === 'toggle') buckets.toggle.push(s);
+    else buckets.input.push(s);
+  }
+
+  return (
+    <div className="mt-3 space-y-4">
+      {buckets.textarea.length > 0 && (
+        <div className="space-y-3">
+          {buckets.textarea.map(s => (
             <SettingField
-              key={setting.id}
-              setting={setting}
-              value={getValue(setting)}
-              onChange={(val) => handleChange(setting, val)}
+              key={s.id}
+              setting={s}
+              value={getValue(s)}
+              onChange={(v) => handleChange(s, v)}
+            />
+          ))}
+        </div>
+      )}
+      {buckets.input.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3 gap-y-3">
+          {buckets.input.map(s => (
+            <SettingField
+              key={s.id}
+              setting={s}
+              value={getValue(s)}
+              onChange={(v) => handleChange(s, v)}
+            />
+          ))}
+        </div>
+      )}
+      {buckets.toggle.length > 0 && (
+        <div className="space-y-2 pt-2 border-t border-slate-100">
+          {buckets.toggle.map(s => (
+            <SettingField
+              key={s.id}
+              setting={s}
+              value={getValue(s)}
+              onChange={(v) => handleChange(s, v)}
             />
           ))}
         </div>
@@ -230,7 +298,7 @@ function SettingControl({
         <textarea
           value={(value as string) ?? ''}
           onChange={e => onChange(e.target.value)}
-          rows={4}
+          rows={2}
           className="field-textarea"
         />
       );

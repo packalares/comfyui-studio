@@ -157,15 +157,11 @@ async function tryDequeue(): Promise<void> {
       civitaiToken: settings.getCivitaiToken(),
     };
     const out = await models.downloadCustom(next.hfUrl, next.modelDir, tokens, next.filename);
-    // Retire the synthetic placeholder; the real taskId's broadcasts take over from here.
-    emit({
-      type: 'download',
-      data: {
-        taskId: next.synthId, modelName: next.modelName, filename: next.filename,
-        progress: 0, currentModelProgress: 0, totalBytes: 0, downloadedBytes: 0, speed: 0,
-        status: 'completed', completed: true, error: null,
-      },
-    });
+    // The real taskId's broadcasts take over from here. We DON'T emit a
+    // retirement for the synthetic placeholder — the frontend deduplicates
+    // by (modelName, filename) when a new `downloading` event arrives with
+    // a different taskId, so the synth entry is dropped cleanly without
+    // flashing a fake "completed / 0%" frame to the UI.
     trackDownload(out.taskId, { modelName: next.modelName, filename: next.filename });
   } catch (err) {
     emit({

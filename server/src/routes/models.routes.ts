@@ -191,15 +191,19 @@ const handleDownloadCustom: RequestHandler = async (req: Request, res: Response)
       return;
     }
     if (!hfUrl || !modelDir) { res.status(400).json({ error: 'hfUrl and modelDir required' }); return; }
-    // Populate BEFORE kicking off the download so the Models page shows the
-    // row immediately on the next poll/refresh.
-    if (resolvedFilename) prepopulateCatalog(resolvedFilename, modelDir, hfUrl, meta, modelName);
 
     const tokens = {
       hfToken: hfToken || settings.getHfToken(),
       civitaiToken: civitaiToken || settings.getCivitaiToken(),
     };
     const out = await models.downloadCustom(hfUrl, modelDir, tokens, resolvedFilename);
+    // Populate AFTER the download service returns so `downloading: true` never
+    // lands on a row whose task didn't actually start. Route-level dedup above
+    // (findByIdentity/findQueuedByIdentity) handles the already-active case;
+    // this guards future edge cases where downloadCustom rejects internally.
+    // The BEFORE→AFTER window is ~10 ms — the async download continues past
+    // the return — so the Models page's next poll still sees the row.
+    if (resolvedFilename) prepopulateCatalog(resolvedFilename, modelDir, hfUrl, meta, modelName);
     trackDownload(out.taskId, { modelName: out.fileName, filename: out.fileName });
     res.json({ success: true, taskId: out.taskId, message: `Starting download: ${out.fileName} -> ${out.saveDir}` });
   } catch (err) { sendError(res, err, 500, 'Download failed'); }

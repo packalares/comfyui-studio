@@ -6,6 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { env } from '../../config/env.js';
+import { MODEL_SUBDIRS } from '../../config/modelDirs.js';
 import { logger } from '../../lib/logger.js';
 import * as bus from '../../lib/events.js';
 import { getExistingHubScanDirs } from './sharedModelHub.js';
@@ -14,18 +15,12 @@ import type { CatalogModelEntry } from './download.service.js';
 import { scanDirectory, type ScanInfo } from './install.scan.js';
 import { matchInstalled, parseSizeString, inferModelTypeFromPath, formatFileSize } from './install.match.js';
 
-const SUBDIRS = [
-  'checkpoints', 'loras', 'vae', 'controlnet', 'upscale_models', 'embeddings',
-  'inpaint', 'diffusion_models', 'clip', 'clip_vision', 'hypernetworks',
-  'ipadapter', 'unet', 'style_models', 'facerestore_models', 'text_encoders',
-];
-
 /** Walk the ComfyUI models tree + shared hub, return a Map keyed by storage path. */
 export async function scanInstalledModels(): Promise<Map<string, ScanInfo>> {
   const result = new Map<string, ScanInfo>();
   const comfyuiPath = env.COMFYUI_PATH;
   try {
-    const modelDirs = SUBDIRS.map((d) => path.join(comfyuiPath, 'models', d));
+    const modelDirs = MODEL_SUBDIRS.map((d) => path.join(comfyuiPath, 'models', d));
     // Shared hub is a read-only mount, never mkdir there. Ensure only local.
     for (const dir of modelDirs) {
       try { fs.mkdirSync(dir, { recursive: true }); } catch { /* best effort */ }

@@ -21,13 +21,12 @@ export interface ResolveCtx {
   setterMap: Map<string, InputResolution>;
 }
 
+// Legacy pre-subgraph widget promoters — inline their value as a literal
+// into downstream consumers. Typed Primitive* classes (PrimitiveInt,
+// PrimitiveStringMultiline, etc.) are real nodes in modern ComfyUI; we DO
+// NOT inline them, we keep wire references so they emit normally.
 const PRIMITIVE_HOLDER_TYPES = new Set<string>([
   'PrimitiveNode',
-  'PrimitiveInt',
-  'PrimitiveFloat',
-  'PrimitiveBoolean',
-  'PrimitiveString',
-  'PrimitiveStringMultiline',
 ]);
 
 // Reroute pass-through: follow the first input link.

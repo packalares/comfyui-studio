@@ -125,7 +125,18 @@ function pipeToTempFile(ctx: StreamCtx, total: number): void {
     }
     fileStream.write(chunk);
     downloaded += chunk.length;
-    if (s.tracker) s.tracker.downloadedBytes = downloaded;
+    if (s.tracker) {
+      s.tracker.downloadedBytes = downloaded;
+      // Throttled 500ms-window speed (bytes/sec). Uses fields initTracker set up.
+      const now = Date.now();
+      const since = now - (s.tracker.lastUpdateTime ?? s.tracker.startTime ?? now);
+      if (since >= 500) {
+        const delta = downloaded - (s.tracker.lastBytes ?? s.startBytes);
+        s.tracker.speed = (delta * 1000) / Math.max(since, 1);
+        s.tracker.lastUpdateTime = now;
+        s.tracker.lastBytes = downloaded;
+      }
+    }
     const percent = total > 0 ? Math.round((downloaded / total) * 100) : 0;
     if (s.tracker) { s.tracker.currentModelProgress = percent; s.tracker.overallProgress = percent; }
     const keep = s.onProgress(percent, downloaded, total);

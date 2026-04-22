@@ -26,9 +26,7 @@ import {
 import {
   setModelMapping, getModelTaskId, clearModelMapping,
 } from '../downloadController/progressTracker.js';
-import { addHistoryItem } from '../downloadController/downloadHistory.js';
 import { essentialModels } from '../essentialModels/essentialModels.data.js';
-import { randomUUID } from 'crypto';
 
 export type { CatalogModelEntry };
 
@@ -169,16 +167,11 @@ export async function downloadCustom(
   const outputPath = path.join(env.COMFYUI_PATH, saveDir, fileName);
   logger.info('custom download starting', { url, path: outputPath, host });
 
-  addHistoryItem({
-    id: randomUUID(),
-    modelName: fileName,
-    status: 'downloading',
-    startTime: Date.now(),
-    source: 'custom',
-    savePath: outputPath,
-    downloadUrl: url,
-    taskId,
-  });
+  // History row is added by `downloadModelByName` below — adding one here
+  // too created a dupe that was merged (by addHistoryItem's dedup) under the
+  // FIRST row's id, leaving the SECOND row's id (the one returned from
+  // downloadModelByName) with nothing to update on success. Net effect: the
+  // custom-download row stayed at status=downloading forever.
   const progress = getTaskProgress(taskId);
   if (progress) progress.abortController = new AbortController();
 

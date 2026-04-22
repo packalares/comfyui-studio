@@ -16,6 +16,7 @@ import { paths } from '../../config/paths.js';
 import { safeResolve } from '../fs.js';
 import { SCHEMA_SQL, SCHEMA_VERSION } from './schema.js';
 import { workflowHash } from '../workflowHash.js';
+import { extractMetadata, type ApiPrompt } from '../../services/gallery.extract.js';
 
 type DB = Database.Database;
 
@@ -68,6 +69,14 @@ function applyGalleryWaveFMigration(db: DB): void {
     { name: 'width',        decl: 'INTEGER' },
     { name: 'height',       decl: 'INTEGER' },
     { name: 'workflowHash', decl: 'TEXT' },
+    // Schema v4: workflow-agnostic extractor output.
+    { name: 'scheduler',    decl: 'TEXT' },
+    { name: 'denoise',      decl: 'REAL' },
+    { name: 'lengthFrames', decl: 'INTEGER' },
+    { name: 'fps',          decl: 'REAL' },
+    { name: 'batchSize',    decl: 'INTEGER' },
+    { name: 'durationMs',   decl: 'INTEGER' },
+    { name: 'modelsJson',   decl: 'TEXT' },
   ];
   for (const col of needed) {
     if (!present.has(col.name)) {
@@ -93,14 +102,60 @@ function applyGalleryWaveFMigration(db: DB): void {
     });
     tx(missing);
   }
-  // One-shot wipe of pre-migration "zombie" rows. Guarded on _meta so we
-  // never re-run this on subsequent boots.
+  // One-shot wipe of pre-migration "zombie" gallery rows left behind by the
+  // original (pre-workflowJson) rescan bug. Guarded on _meta so we never
+  // re-run this on subsequent boots.
+  //
+  // The flag key is `gallery_wave_f_reset` for historical reasons (the
+  // cleanup shipped in the "Wave F" gallery migration). Renaming it would
+  // make existing pods re-wipe their gallery on the next boot — so the key
+  // name is load-bearing even though the wave terminology is long gone.
   const flag = db.prepare('SELECT v FROM _meta WHERE k = ?')
     .get('gallery_wave_f_reset') as { v: string } | undefined;
   if (!flag) {
     db.exec('DELETE FROM gallery');
     db.prepare('INSERT INTO _meta (k, v) VALUES (?, ?)')
       .run('gallery_wave_f_reset', 'done');
+  }
+
+  // v4 indexes: idempotent, run after the ALTERs so `durationMs` exists on
+  // legacy DBs by the time we try to index it.
+  db.exec('CREATE INDEX IF NOT EXISTS idx_gallery_durationMs ON gallery(durationMs)');
+
+  // v4 backfill: for rows with workflowJson but no modelsJson, re-run the
+  // (workflow-agnostic) extractor to populate the new columns. Guarded in
+  // `_meta` so subsequent boots skip it.
+  const backfillDone = db.prepare('SELECT v FROM _meta WHERE k = ?')
+    .get('gallery_schema_v4_backfill') as { v: string } | undefined;
+  if (!backfillDone) {
+    const rows = db.prepare(
+      'SELECT id, workflowJson FROM gallery WHERE workflowJson IS NOT NULL AND modelsJson IS NULL',
+    ).all() as Array<{ id: string; workflowJson: string }>;
+    const update = db.prepare(`
+      UPDATE gallery SET
+        scheduler    = COALESCE(scheduler,    ?),
+        denoise      = COALESCE(denoise,      ?),
+        lengthFrames = COALESCE(lengthFrames, ?),
+        fps          = COALESCE(fps,          ?),
+        batchSize    = COALESCE(batchSize,    ?),
+        modelsJson   = ?
+      WHERE id = ?
+    `);
+    const tx = db.transaction((items: typeof rows) => {
+      for (const r of items) {
+        try {
+          const parsed = JSON.parse(r.workflowJson) as ApiPrompt;
+          const meta = extractMetadata(parsed);
+          update.run(
+            meta.scheduler, meta.denoise, meta.length, meta.fps, meta.batchSize,
+            JSON.stringify(meta.models ?? []), r.id,
+          );
+        } catch { /* malformed workflowJson — skip */ }
+      }
+    });
+    tx(rows);
+    db.prepare('INSERT INTO _meta (k, v) VALUES (?, ?)')
+      .run('gallery_schema_v4_backfill', 'done');
   }
 }
 

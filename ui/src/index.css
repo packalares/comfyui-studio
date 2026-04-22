@@ -184,7 +184,7 @@
   }
   /* Multi-line variant — same visual language as .field-wrap but comfortable padding and auto-sizing support. */
   .field-textarea {
-    @apply w-full resize-none rounded-md border border-slate-300 bg-white px-3 py-2 text-[12px] leading-relaxed text-slate-900 outline-none placeholder:text-slate-400 transition-colors focus:border-teal-500;
+    @apply w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-[12px] leading-relaxed text-slate-900 outline-none placeholder:text-slate-400 shadow-inner transition-colors focus:border-teal-500 focus:ring-2 focus:ring-teal-100 scrollbar-subtle;
   }
   /* +/- stepper buttons used alongside .field-input inside a .field-wrap. */
   .field-stepper {

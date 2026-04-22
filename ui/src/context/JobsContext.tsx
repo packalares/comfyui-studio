@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import type { GenerationJob, QueueStatus, DownloadState } from '../types';
 import { api, ApiError } from '../services/comfyui';
 import { toast } from 'sonner';
@@ -52,6 +52,14 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
   const activePromptIdRef = useRef<string | null>(null);
   const outputFetchedRef = useRef(false);
   const outputFetchInFlightRef = useRef(false);
+
+  // Keep the ref in sync with state — state can be updated from WS events
+  // in AppContext (not just from submitGeneration), and WS handlers read
+  // the ref synchronously. Without this sync, a page refresh mid-run or
+  // a prompt originating from another tab would leave the ref stale/null.
+  useEffect(() => {
+    activePromptIdRef.current = activePromptId;
+  }, [activePromptId]);
 
   const fetchOutputFromHistory = useCallback((promptId: string) => {
     // Skip if already resolved or a fetch is already racing for this prompt.

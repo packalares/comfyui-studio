@@ -20,6 +20,15 @@ export default {
           700: '#1d4ed8',
         },
       },
+      keyframes: {
+        shimmer: {
+          '0%':   { transform: 'translateX(-100%) skewX(-12deg)' },
+          '100%': { transform: 'translateX(400%) skewX(-12deg)' },
+        },
+      },
+      animation: {
+        shimmer: 'shimmer 2.5s ease-in-out infinite',
+      },
     },
   },
   plugins: [animate],

@@ -20,8 +20,10 @@ import {
 import type { GalleryItem } from '../types';
 import { api } from '../services/comfyui';
 import { useApp } from '../context/AppContext';
+import { isThreeDFilename } from '../lib/media';
 import { Checkbox } from './ui/checkbox';
 import AppModal from './AppModal';
+import ThreeDViewer from './ThreeDViewer';
 
 interface Props {
   item: GalleryItem;
@@ -59,7 +61,11 @@ export default function GalleryDetailModal({
       }
     })();
     return () => { cancelled = true; };
-  }, [item.id, item]);
+    // Deps intentionally narrow: the parent re-emits new `item` object
+    // identities whenever a WS `gallery` broadcast lands. Keeping `item`
+    // in the deps refetched on every broadcast, flickering the metadata
+    // panel. `item.id` is the only part that drives the refetch.
+  }, [item.id]);
 
   // Regenerate needs the stored workflow AND a reachable ComfyUI. Studio's
   // generate button uses the same `connected` gate (see Studio.tsx:351).
@@ -185,6 +191,16 @@ function MediaViewer({ item }: { item: GalleryItem }): JSX.Element {
             </div>
           );
         }
+        // 3D assets (.glb/.gltf/...) are classified upstream as mediaType=image
+        // so they live alongside images in the gallery; the actual renderer
+        // needs to be <model-viewer>, not <img>.
+        if (isThreeDFilename(item.filename)) {
+          return (
+            <div className="w-full h-[60vh] rounded-lg overflow-hidden">
+              <ThreeDViewer src={item.url} alt={item.filename} />
+            </div>
+          );
+        }
         return (
           <img
             src={item.url}
@@ -208,18 +224,43 @@ interface MetadataRow {
   multiline?: boolean;
 }
 
+function formatDuration(ms: number | null | undefined): string | null {
+  if (ms == null || !Number.isFinite(ms) || ms < 0) return null;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.round((ms % 60_000) / 1000);
+  return `${minutes}m ${seconds}s`;
+}
+
+// Multi-entry model lists go through a single row with `\n` separators so the
+// modal's existing multiline rendering handles them without a new layout type.
+function formatModels(models: string[] | null | undefined, fallback: string | null | undefined): string | null {
+  if (Array.isArray(models) && models.length > 0) {
+    return models.length === 1 ? models[0]! : models.join('\n');
+  }
+  return fallback ?? null;
+}
+
 function MetadataSection({ item }: { item: GalleryItem }): JSX.Element | null {
   const dimensions = item.width && item.height
     ? `${item.width} × ${item.height}` : null;
+  const modelsValue = formatModels(item.models, item.model);
+  const multiModel = Array.isArray(item.models) && item.models.length > 1;
   const rows: MetadataRow[] = [
     { label: 'Prompt', value: item.promptText, multiline: true },
     { label: 'Negative prompt', value: item.negativeText || null, multiline: true },
-    { label: 'Model', value: item.model, mono: true },
+    { label: multiModel ? 'Models' : 'Model', value: modelsValue, mono: true, multiline: multiModel },
     { label: 'Seed', value: item.seed != null ? String(item.seed) : null, mono: true },
     { label: 'Sampler', value: item.sampler, mono: true },
+    { label: 'Scheduler', value: item.scheduler, mono: true },
     { label: 'Steps', value: item.steps != null ? String(item.steps) : null },
     { label: 'CFG', value: item.cfg != null ? String(item.cfg) : null },
+    { label: 'Denoise', value: item.denoise != null ? String(item.denoise) : null },
+    { label: 'Batch size', value: item.batchSize != null ? String(item.batchSize) : null },
     { label: 'Dimensions', value: dimensions },
+    { label: 'Length', value: item.lengthFrames != null ? String(item.lengthFrames) : null },
+    { label: 'FPS', value: item.fps != null ? String(item.fps) : null },
+    { label: 'Duration', value: formatDuration(item.durationMs) },
     { label: 'Template', value: item.templateName },
   ].filter((r) => r.value != null && r.value !== '');
 

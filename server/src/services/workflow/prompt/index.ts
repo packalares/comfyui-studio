@@ -19,9 +19,9 @@ import { getObjectInfo } from '../objectInfo.js';
 import { buildSetterMap, type ResolveCtx } from '../resolve.js';
 import {
   applyFormInputs,
+  applyPrimitiveOverrides,
   injectUserPrompt,
   randomizeSeeds,
-  seedPrimitiveStringHolders,
 } from './inject.js';
 import { emitNodesFromWorkflow } from './nodeEmit.js';
 import type { ApiPrompt } from './types.js';
@@ -56,19 +56,24 @@ export async function workflowToApiPrompt(
   // Phase 1 — flatten.
   const { nodes, links } = flattenWorkflow(wf);
 
-  // Mutate PrimitiveString* holders BEFORE the resolve context is built so
-  // their values carry into every downstream consumer via resolveInput.
-  seedPrimitiveStringHolders(nodes, userInputs.prompt);
-
   const ctx = buildResolveCtx(nodes, links, objectInfo);
 
   // Phase 2 — emit nodes.
   const prompt = emitNodesFromWorkflow(nodes, objectInfo, ctx);
 
-  // Phase 3 — form input bindings.
+  // Phase 3 — form input bindings (image/audio/video uploads) + Primitive
+  // overrides (Prompt / Width / Height / ... form fields → Primitive.value).
+  // Primitive overrides run first so they populate the canonical fields;
+  // applyFormInputs writes upload filenames onto LoadImage nodes.
+  applyPrimitiveOverrides(prompt, userInputs);
   applyFormInputs(prompt, formInputs, userInputs);
 
-  // Phase 4 — inject user prompt into one node.
+  // Phase 4 — inject user prompt into one node. Only fires for workflows
+  // that don't have a Primitive-titled "Prompt" — in that case the
+  // applyPrimitiveOverrides above handled it, and the first multiline
+  // STRING target is that same Primitive (idempotent). For flat workflows
+  // that route prompts through CLIPTextEncode directly, this is the only
+  // path that plumbs the user's text in.
   const promptText = userInputs.prompt;
   if (typeof promptText === 'string' && promptText !== '') {
     injectUserPrompt(prompt, nodes, objectInfo, promptText);

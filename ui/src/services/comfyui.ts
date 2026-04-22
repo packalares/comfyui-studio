@@ -7,6 +7,7 @@ import type {
   DependencyCheck,
   AdvancedSetting,
   EnumeratedWidget,
+  FormInput,
   Plugin,
   PluginTaskProgress,
   PluginHistoryEntry,
@@ -192,7 +193,16 @@ export const api = {
     fetchJson<{ settings: AdvancedSetting[] }>(`/workflow-settings/${encodeURIComponent(templateName)}`),
 
   getTemplateWidgets: (templateName: string) =>
-    fetchJson<{ widgets: EnumeratedWidget[] }>(`/template-widgets/${encodeURIComponent(templateName)}`),
+    fetchJson<{ widgets: EnumeratedWidget[]; primitiveFormFields?: FormInput[] }>(
+      `/template-widgets/${encodeURIComponent(templateName)}`,
+    ),
+
+  /** Debug/compare: return the /api/prompt payload our converter would produce. */
+  getTemplateApiPrompt: (templateName: string, signal?: AbortSignal) =>
+    fetchJson<{ templateName: string; apiPrompt: Record<string, unknown> }>(
+      `/template-api-prompt/${encodeURIComponent(templateName)}`,
+      { signal },
+    ),
 
   saveExposedWidgets: (templateName: string, exposed: Array<{ nodeId: string; widgetName: string }>) =>
     fetchJson<{ exposed: Array<{ nodeId: string; widgetName: string }> }>(`/template-widgets/${encodeURIComponent(templateName)}`, {

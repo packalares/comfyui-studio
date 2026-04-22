@@ -24,7 +24,27 @@ function makeCtx(
 }
 
 describe('resolveInput', () => {
-  it('inlines a PrimitiveNode literal value', () => {
+  it('inlines a legacy PrimitiveNode literal value', () => {
+    // Pre-subgraph flat workflows used `PrimitiveNode` (no suffix) as a
+    // widget promoter: its value inlined into downstream consumers at
+    // resolve time. Still supported for back-compat.
+    const ctx = makeCtx(
+      [
+        { id: 'p', type: 'PrimitiveNode', inputs: [], widgets_values: [7] },
+        { id: 's', type: 'Sink', inputs: [{ name: 'x', link: 1 }], widgets_values: [] },
+      ],
+      [{ id: 1, origin_id: 'p', origin_slot: 0, target_id: 's', target_slot: 0 }],
+    );
+    const r = resolveInput(1, ctx);
+    expect(r).toEqual({ kind: 'literal', value: 7 });
+  });
+
+  it('keeps a typed PrimitiveInt as a real-node ref (not inlined)', () => {
+    // Modern ComfyUI (0.3.51+) exposes PrimitiveInt/Float/Boolean/
+    // String/StringMultiline as executable nodes in /api/object_info.
+    // resolveInput must therefore return a `ref` so downstream consumers
+    // get a wire reference, not a literal — mirroring what ComfyUI's own
+    // frontend emits.
     const ctx = makeCtx(
       [
         { id: 'p', type: 'PrimitiveInt', inputs: [], widgets_values: [7] },
@@ -33,7 +53,7 @@ describe('resolveInput', () => {
       [{ id: 1, origin_id: 'p', origin_slot: 0, target_id: 's', target_slot: 0 }],
     );
     const r = resolveInput(1, ctx);
-    expect(r).toEqual({ kind: 'literal', value: 7 });
+    expect(r).toEqual({ kind: 'ref', nodeId: 'p', slot: 0 });
   });
 
   it('follows a Reroute hop to the real source', () => {

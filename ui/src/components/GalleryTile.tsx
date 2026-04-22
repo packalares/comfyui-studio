@@ -21,10 +21,11 @@ import type { MouseEvent as ReactMouseEvent } from 'react';
 import {
   Check, Star, StarOff,
   Image as ImageIcon, Video, Music,
-  Play, Pause, Trash2,
+  Play, Pause, Trash2, Box,
 } from 'lucide-react';
 import type { GalleryItem } from '../types';
 import { imgProxy } from '../lib/imgProxy';
+import { isThreeDFilename } from '../lib/media';
 
 const TILE_WIDTH = 320;
 
@@ -109,7 +110,21 @@ export default function GalleryTile({
 function MediaPreview({ item }: { item: GalleryItem }) {
   if (item.mediaType === 'video') return <VideoPreview item={item} />;
   if (item.mediaType === 'audio') return <AudioPreview item={item} />;
+  // 3D assets (.glb / .gltf / ...) are classified as `image` upstream so they
+  // share the image filter bucket; the tile swaps in a cube-icon placeholder
+  // instead of `<img>` (live WebGL in a grid of tiles would be wasteful).
+  // The detail modal / Studio result panel mount the actual <model-viewer>.
+  if (isThreeDFilename(item.filename)) return <ThreeDPreview />;
   return <ImagePreview item={item} />;
+}
+
+function ThreeDPreview() {
+  return (
+    <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-gradient-to-br from-slate-100 to-slate-200">
+      <Box className="w-10 h-10 text-slate-400" />
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">3D</span>
+    </div>
+  );
 }
 
 function ImagePreview({ item }: { item: GalleryItem }) {

@@ -1,13 +1,6 @@
-// Gallery repository. Backs `GET /gallery` and the generation-complete hook.
-//
-// Rows are keyed on `<promptId>-<filename>` to match the existing id scheme
-// from `getGalleryItems()` — this keeps per-execution appends idempotent
-// (the same prompt/file pair processed twice won't duplicate) and lets the
-// event-driven path use `INSERT OR IGNORE` so a user-deleted row never
-// resurrects from a stale ComfyUI history entry.
-//
-// Every query is a prepared statement; parameters are positional so the
-// driver escapes them — never string-concatenate into SQL here.
+// Gallery repository. Rows are keyed on `<promptId>-<filename>` so per-
+// execution appends stay idempotent. Every query is a prepared statement
+// with positional params — never string-concatenate values into SQL here.
 
 import type Database from 'better-sqlite3';
 import type {
@@ -57,6 +50,15 @@ function rowToSlim(r: Record<string, unknown>): GalleryListRow {
   };
 }
 
+function parseModels(v: unknown): string[] | null {
+  if (typeof v !== 'string' || v === '') return null;
+  try {
+    const parsed = JSON.parse(v) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    return parsed.filter((s): s is string => typeof s === 'string');
+  } catch { return null; }
+}
+
 function rowToItem(r: Record<string, unknown>): GalleryItem {
   return {
     ...rowToSlim(r),
@@ -71,6 +73,13 @@ function rowToItem(r: Record<string, unknown>): GalleryItem {
     width:  nullableNumber(r.width),
     height: nullableNumber(r.height),
     workflowHash: nullableString(r.workflowHash),
+    scheduler:    nullableString(r.scheduler),
+    denoise:      nullableNumber(r.denoise),
+    lengthFrames: nullableNumber(r.lengthFrames),
+    fps:          nullableNumber(r.fps),
+    batchSize:    nullableNumber(r.batchSize),
+    durationMs:   nullableNumber(r.durationMs),
+    models:       parseModels(r.modelsJson),
   };
 }
 
@@ -79,16 +88,21 @@ const LIST_COLUMNS =
   'id, filename, subfolder, type, mediaType, url, promptId, ' +
   'templateName, sizeBytes, createdAt';
 
-export function insert(item: GalleryRow, db: Database.Database = getDb()): void {
-  db.prepare(`
-    INSERT OR REPLACE INTO gallery
-      (id, filename, subfolder, mediaType, createdAt, templateName,
-       promptId, sizeBytes, url, type,
-       workflowJson, promptText, negativeText, seed, model,
-       sampler, steps, cfg, width, height, workflowHash)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
+function serializeModels(v: unknown): string | null {
+  if (!Array.isArray(v)) return null;
+  return JSON.stringify(v.filter((s): s is string => typeof s === 'string'));
+}
+
+const GALLERY_COLUMNS =
+  'id, filename, subfolder, mediaType, createdAt, templateName, ' +
+  'promptId, sizeBytes, url, type, workflowJson, promptText, negativeText, ' +
+  'seed, model, sampler, steps, cfg, width, height, workflowHash, ' +
+  'scheduler, denoise, lengthFrames, fps, batchSize, durationMs, modelsJson';
+
+const GALLERY_VALUES_PLACEHOLDERS = new Array(28).fill('?').join(', ');
+
+function rowParams(item: GalleryRow): unknown[] {
+  return [
     item.id, item.filename, item.subfolder ?? '', item.mediaType,
     item.createdAt, item.templateName ?? null, item.promptId ?? null,
     item.sizeBytes ?? null, item.url ?? '', item.type ?? 'output',
@@ -96,7 +110,16 @@ export function insert(item: GalleryRow, db: Database.Database = getDb()): void 
     item.negativeText ?? null, item.seed ?? null, item.model ?? null,
     item.sampler ?? null, item.steps ?? null, item.cfg ?? null,
     item.width ?? null, item.height ?? null, item.workflowHash ?? null,
-  );
+    item.scheduler ?? null, item.denoise ?? null, item.lengthFrames ?? null,
+    item.fps ?? null, item.batchSize ?? null, item.durationMs ?? null,
+    serializeModels(item.models),
+  ];
+}
+
+export function insert(item: GalleryRow, db: Database.Database = getDb()): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO gallery (${GALLERY_COLUMNS}) VALUES (${GALLERY_VALUES_PLACEHOLDERS})`,
+  ).run(...rowParams(item));
 }
 
 /**
@@ -115,37 +138,23 @@ export function appendFromHistory(
   // full history data, we DO NOT want INSERT OR IGNORE to skip the update.
   // Instead: COALESCE against existing values so nulls get filled in and
   // previously-set fields are preserved.
-  const info = db.prepare(`
-    INSERT INTO gallery
-      (id, filename, subfolder, mediaType, createdAt, templateName,
-       promptId, sizeBytes, url, type,
-       workflowJson, promptText, negativeText, seed, model,
-       sampler, steps, cfg, width, height, workflowHash)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      workflowJson = COALESCE(gallery.workflowJson, excluded.workflowJson),
-      promptText   = COALESCE(gallery.promptText,   excluded.promptText),
-      negativeText = COALESCE(gallery.negativeText, excluded.negativeText),
-      seed         = COALESCE(gallery.seed,         excluded.seed),
-      model        = COALESCE(gallery.model,        excluded.model),
-      sampler      = COALESCE(gallery.sampler,      excluded.sampler),
-      steps        = COALESCE(gallery.steps,        excluded.steps),
-      cfg          = COALESCE(gallery.cfg,          excluded.cfg),
-      width        = COALESCE(gallery.width,        excluded.width),
-      height       = COALESCE(gallery.height,       excluded.height),
-      templateName = COALESCE(gallery.templateName, excluded.templateName),
-      sizeBytes    = COALESCE(gallery.sizeBytes,    excluded.sizeBytes),
-      workflowHash = COALESCE(gallery.workflowHash, excluded.workflowHash)
-  `).run(
-    item.id, item.filename, item.subfolder ?? '', item.mediaType,
-    item.createdAt, item.templateName ?? null, item.promptId ?? null,
-    item.sizeBytes ?? null, item.url ?? '', item.type ?? 'output',
-    item.workflowJson ?? null, item.promptText ?? null,
-    item.negativeText ?? null, item.seed ?? null, item.model ?? null,
-    item.sampler ?? null, item.steps ?? null, item.cfg ?? null,
-    item.width ?? null, item.height ?? null, item.workflowHash ?? null,
-  );
+  // Columns that should COALESCE against existing non-null values when an
+  // older row already carries metadata from an earlier event. `id`,
+  // `filename`, `mediaType`, `type`, `url`, `createdAt`, `subfolder`,
+  // `promptId` are identity/locator fields and stay as-is on conflict.
+  const coalesceCols = [
+    'workflowJson', 'promptText', 'negativeText', 'seed', 'model',
+    'sampler', 'steps', 'cfg', 'width', 'height', 'templateName',
+    'sizeBytes', 'workflowHash', 'scheduler', 'denoise', 'lengthFrames',
+    'fps', 'batchSize', 'durationMs', 'modelsJson',
+  ];
+  const updateSet = coalesceCols
+    .map(c => `${c} = COALESCE(gallery.${c}, excluded.${c})`)
+    .join(', ');
+  const info = db.prepare(
+    `INSERT INTO gallery (${GALLERY_COLUMNS}) VALUES (${GALLERY_VALUES_PLACEHOLDERS}) ` +
+    `ON CONFLICT(id) DO UPDATE SET ${updateSet}`,
+  ).run(...rowParams(item));
   return info.changes > 0;
 }
 

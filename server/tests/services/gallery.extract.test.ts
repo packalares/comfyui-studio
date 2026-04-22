@@ -1,25 +1,35 @@
 // Unit tests for the gallery metadata extractor.
 //
-// Covers the defensive cases required by Wave F:
-//  - Full KSampler workflow → every field populated.
-//  - Missing CLIPTextEncode → falls back to longest text encoder / null.
-//  - Missing KSampler → all sampler fields null, prompt still resolves via
-//    "longest CLIPTextEncode" heuristic.
-//  - Empty/unknown input → all null, no throw.
+// Covers:
+//  - Back-compat: classic SD KSampler workflow → every legacy field populated.
+//  - Modern subgraph video (LTX2): title-based width/height/length/fps,
+//    wire-chased prompt, all loader models collected.
+//  - Trivial math wires (a/2) resolved as numeric literals.
+//  - Duration from ComfyUI history `status.messages` timestamps.
+//  - Legacy call signature (apiPrompt only) keeps working.
 
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'fs';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import {
   extractMetadata,
   randomizeSeeds,
   type ApiPrompt,
 } from '../../src/services/gallery.extract.js';
 
+const HERE = dirname(fileURLToPath(import.meta.url));
+const FIXTURE_DIR = resolve(HERE, '..', 'fixtures', 'workflows');
+
 describe('extractMetadata', () => {
   it('returns all-null for empty/invalid input', () => {
-    expect(extractMetadata(null)).toEqual({
+    const empty = {
       promptText: null, negativeText: null, seed: null, model: null,
-      sampler: null, steps: null, cfg: null, width: null, height: null,
-    });
+      sampler: null, scheduler: null, steps: null, cfg: null, denoise: null,
+      width: null, height: null, length: null, fps: null, batchSize: null,
+      durationMs: null, models: [],
+    };
+    expect(extractMetadata(null)).toEqual(empty);
     expect(extractMetadata(undefined)).toEqual(extractMetadata(null));
     expect(extractMetadata({} as ApiPrompt)).toEqual(extractMetadata(null));
   });
@@ -136,6 +146,97 @@ describe('extractMetadata', () => {
     expect(meta.seed).toBe(77);
     expect(meta.model).toBe('flux-dev.safetensors');
     expect(meta.steps).toBe(4);
+  });
+});
+
+describe('extractMetadata v4 — workflow-agnostic', () => {
+  it('pulls dimensions + length + fps + models from an LTX2 subgraph workflow', () => {
+    const apiPrompt = JSON.parse(readFileSync(
+      resolve(FIXTURE_DIR, 'ltx2_i2v.prompt.json'), 'utf8',
+    )) as ApiPrompt;
+    const workflowJson = JSON.parse(readFileSync(
+      resolve(FIXTURE_DIR, 'ltx2_i2v.workflow.json'), 'utf8',
+    )) as unknown;
+
+    const meta = extractMetadata(apiPrompt, workflowJson);
+
+    // Titles in subgraph definitions are authoritative for dimensions.
+    expect(meta.width).toBe(1280);
+    expect(meta.height).toBe(720);
+    expect(meta.length).toBe(121);
+    expect(meta.fps).toBe(25);
+    expect(meta.batchSize).toBe(1);
+
+    // Sampler params come from widget scanning.
+    expect(meta.sampler).toBe('euler_cfg_pp');
+
+    // Prompt text: title-match on PrimitiveStringMultiline titled "Prompt"
+    // wins over the wire chain through the Gemma generator.
+    expect(meta.promptText).not.toBeNull();
+    expect(meta.promptText).toContain('Egyptian royal');
+
+    // Every loader's safetensors filename landed in the models list.
+    expect(meta.models).toEqual(expect.arrayContaining([
+      'ltx-2.3-22b-dev-fp8.safetensors',
+      'ltx-2.3-22b-distilled-lora-384.safetensors',
+      'ltx-2.3-spatial-upscaler-x2-1.1.safetensors',
+      'gemma_3_12B_it_fp4_mixed.safetensors',
+      'gemma-3-12b-it-abliterated_lora_rank64_bf16.safetensors',
+    ]));
+    // Back-compat alias: single `model` is the first of the list.
+    expect(meta.model).toBeTruthy();
+  });
+
+  it('resolves trivial math expressions (a/2) on wire-connected inputs', () => {
+    const prompt: ApiPrompt = {
+      '10': {
+        class_type: 'PrimitiveInt',
+        inputs: { value: 1280 },
+      },
+      '20': {
+        class_type: 'ComfyMathExpression',
+        inputs: { expression: 'a/2', 'values.a': ['10', 0] },
+      },
+      '30': {
+        class_type: 'EmptyLTXVLatentVideo',
+        inputs: {
+          width: ['20', 0],
+          height: 720,
+          length: 121,
+          batch_size: 1,
+        },
+      },
+    };
+    const meta = extractMetadata(prompt);
+    expect(meta.width).toBe(640);
+    expect(meta.height).toBe(720);
+    expect(meta.length).toBe(121);
+  });
+
+  it('computes durationMs from history status.messages', () => {
+    const apiPrompt: ApiPrompt = {
+      '1': {
+        class_type: 'CLIPTextEncode',
+        inputs: { text: 'a scene' },
+      },
+    };
+    const status = [
+      ['execution_start',   { prompt_id: 'p1', timestamp: 1_700_000_000_000 }],
+      ['execution_cached',  { nodes: [], prompt_id: 'p1', timestamp: 1_700_000_000_010 }],
+      ['execution_success', { prompt_id: 'p1', timestamp: 1_700_000_042_500 }],
+    ];
+    const meta = extractMetadata(apiPrompt, undefined, status);
+    expect(meta.durationMs).toBe(42_500);
+  });
+
+  it('back-compat: single-argument signature still works', () => {
+    const prompt: ApiPrompt = {
+      '1': { class_type: 'CLIPTextEncode', inputs: { text: 'hello' } },
+    };
+    const meta = extractMetadata(prompt);
+    expect(meta.promptText).toBe('hello');
+    expect(meta.durationMs).toBeNull();
+    expect(meta.width).toBeNull();
   });
 });
 

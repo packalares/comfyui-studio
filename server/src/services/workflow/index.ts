@@ -30,3 +30,5 @@ export {
 } from './rawWidgets/index.js';
 
 export { workflowToApiPrompt } from './prompt/index.js';
+
+export { extractPrimitiveFormFields } from './primitiveFields.js';

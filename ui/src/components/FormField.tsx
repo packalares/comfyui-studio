@@ -1,5 +1,6 @@
-import { useState, useRef, useCallback, useLayoutEffect } from 'react';
+import { useState, useRef, useCallback, useLayoutEffect, useEffect } from 'react';
 import { Info, Upload, X, Minus, Plus } from 'lucide-react';
+import { toast } from 'sonner';
 import type { FormInput } from '../types';
 import { Tooltip, TooltipTrigger, TooltipContent } from './ui/tooltip';
 import { Slider } from './ui/slider';
@@ -136,7 +137,7 @@ function TextareaField({ input, value, onChange }: Props) {
     const el = ref.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 280)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
   }, [text]);
 
   return (
@@ -145,7 +146,7 @@ function TextareaField({ input, value, onChange }: Props) {
       value={text}
       onChange={e => onChange(e.target.value)}
       placeholder={input.placeholder}
-      rows={3}
+      rows={2}
       className="field-textarea"
     />
   );
@@ -210,21 +211,91 @@ function SliderField({ input, value, onChange }: Props) {
   );
 }
 
+/** HEIC/HEIF detection by extension + mimetype. Browsers can't render
+ *  HEIC natively (Chrome/Firefox reject it in <img> and createImageBitmap;
+ *  only Safari decodes). ComfyUI's PIL also lacks HEIC support without
+ *  pillow-heif. So we must either convert or reject at the form gate —
+ *  doing nothing means the preview breaks and generation fails at
+ *  LoadImage with an unhelpful error. */
+function isHeicFile(file: File): boolean {
+  const mt = (file.type || '').toLowerCase();
+  if (mt === 'image/heic' || mt === 'image/heif') return true;
+  const name = file.name.toLowerCase();
+  return name.endsWith('.heic') || name.endsWith('.heif');
+}
+
+/** Best-effort in-browser HEIC → JPEG via `createImageBitmap` + canvas.
+ *  Works on Safari (which decodes HEIC natively). On Chrome/Firefox the
+ *  createImageBitmap call throws and we fall through to a null return;
+ *  caller surfaces a sonner toast asking the user to convert the file
+ *  manually. No heavy WASM decoder is bundled for the desktop browsers
+ *  that can't do it natively — adding ~500 KB of libheif for a fallback
+ *  most users will never need isn't worth it. */
+async function convertHeicToJpeg(file: File): Promise<File | null> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    const blob: Blob | null = await new Promise(resolve =>
+      canvas.toBlob(resolve, 'image/jpeg', 0.92),
+    );
+    if (!blob) return null;
+    const newName = file.name.replace(/\.(heic|heif)$/i, '.jpg');
+    return new File([blob], newName, { type: 'image/jpeg' });
+  } catch {
+    return null;
+  }
+}
+
 function ImageField({ input, value, onChange }: Props) {
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageValue = value as { file?: File; preview?: string; url?: string } | null;
 
-  const handleFile = useCallback((file: File) => {
-    const preview = URL.createObjectURL(file);
-    onChange({ file, preview });
+  // Blob URLs created via URL.createObjectURL hold a reference to the File
+  // until revoked. We intentionally DO NOT revoke on unmount: this field
+  // unmounts whenever the Form/JSON tab is toggled, but the URL is still
+  // held by Studio's form state and the image needs to reappear when the
+  // user switches back. Revoking on unmount produced a broken preview on
+  // tab-return. Instead, revoke only when the preview URL changes to a
+  // NEW URL (superseded by a fresh upload) — leaks from navigating fully
+  // away from Studio are preferred over the broken-preview UX.
+  const prevPreviewRef = useRef<string | null>(null);
+  useEffect(() => {
+    const url = imageValue?.preview ?? null;
+    if (prevPreviewRef.current && prevPreviewRef.current !== url) {
+      URL.revokeObjectURL(prevPreviewRef.current);
+    }
+    prevPreviewRef.current = url;
+  }, [imageValue?.preview]);
+
+  const handleFile = useCallback(async (file: File) => {
+    let effective = file;
+    if (isHeicFile(file)) {
+      const converted = await convertHeicToJpeg(file);
+      if (!converted) {
+        toast.error('HEIC not supported', {
+          description:
+            'Your browser cannot decode HEIC images. Open the photo in Preview / Files and save as JPEG or PNG, then upload that instead.',
+        });
+        return;
+      }
+      effective = converted;
+    }
+    const preview = URL.createObjectURL(effective);
+    onChange({ file: effective, preview });
   }, [onChange]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
     const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
+    if (file) void handleFile(file);
   }, [handleFile]);
 
   const handleClear = useCallback(() => {
@@ -263,15 +334,15 @@ function ImageField({ input, value, onChange }: Props) {
       >
         <Upload className="w-6 h-6 text-gray-400 mb-1.5" />
         <p className="text-xs text-gray-500">Drop image here or click to browse</p>
-        <p className="text-[10px] text-gray-400 mt-0.5">PNG, JPG, WebP</p>
+        <p className="text-[10px] text-gray-400 mt-0.5">PNG, JPG, WebP, HEIC</p>
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept="image/*,.heic,.heif"
           className="hidden"
           onChange={e => {
             const file = e.target.files?.[0];
-            if (file) handleFile(file);
+            if (file) void handleFile(file);
           }}
         />
       </div>

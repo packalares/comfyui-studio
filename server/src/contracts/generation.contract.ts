@@ -53,6 +53,22 @@ export interface GalleryItem extends GalleryListItem {
    * produced the outputs the current (cached) prompt_id points to.
    */
   workflowHash?: string | null;
+  /**
+   * Schema v4 metadata — workflow-agnostic extractor output. Populated by
+   * the new `extractMetadata()` pipeline across classic SD, modern subgraph
+   * video (LTX2/Wan/Hunyuan), and audio workflows. All optional + nullable
+   * so pre-v4 rows (and callers that never set them) keep compiling.
+   */
+  scheduler?: string | null;
+  denoise?: number | null;
+  /** Video frames or audio samples per generation. */
+  lengthFrames?: number | null;
+  fps?: number | null;
+  batchSize?: number | null;
+  /** Execution duration in ms, derived from history `status.messages` timestamps. */
+  durationMs?: number | null;
+  /** Every referenced model filename across loaders. Serialised as JSON in sqlite. */
+  models?: string[] | null;
 }
 
 /** One output row returned from `GET /api/history/:promptId`. */

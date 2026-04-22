@@ -61,6 +61,16 @@ function extOf(filename: string): string {
   return i < 0 ? '' : filename.slice(i).toLowerCase();
 }
 
+/**
+ * Strip any directory segments the client supplied. `file.originalname` is
+ * attacker-controlled; even though ComfyUI's own upload endpoint sanitizes
+ * downstream, we defense-in-depth at the boundary so traversal payloads
+ * (`../../evil.png`) can't leak into anything that echoes the name back.
+ */
+function safeFilename(originalname: string): string {
+  return path.basename(originalname);
+}
+
 // Exported for tests. Accepts a narrow shape so test code doesn't have to
 // fabricate a full Express.Multer.File.
 export function uploadRejectionReason(
@@ -69,19 +79,21 @@ export function uploadRejectionReason(
   if (!ALLOWED_MIME_PREFIXES.some(p => file.mimetype.startsWith(p))) {
     return 'mimetype not allowed';
   }
-  if (DENY_EXTS.has(extOf(file.originalname))) {
+  if (DENY_EXTS.has(extOf(safeFilename(file.originalname)))) {
     return 'extension on deny-list';
   }
   return null;
 }
 
 async function forwardToComfy(file: Express.Multer.File): ReturnType<typeof fetch> {
-  // Stream the on-disk spool file straight to ComfyUI — no in-memory copy.
-  // `undici` FormData accepts a File-like Blob with a stream-backed body.
-  const buf = await fs.promises.readFile(file.path);
+  // Stream the on-disk spool straight to ComfyUI, no in-memory copy.
+  // `fs.openAsBlob` (Node 19.8+) backs the Blob with the file on disk, so
+  // undici's multipart encoder pulls bytes lazily as the socket drains.
+  // The prior `readFile(...) + new Blob([...])` dance silently defeated the
+  // whole point of diskStorage for large (video) uploads.
+  const blob = await fs.openAsBlob(file.path, { type: file.mimetype });
   const form = new FormData();
-  const blob = new Blob([new Uint8Array(buf)], { type: file.mimetype });
-  form.append('image', blob, file.originalname);
+  form.append('image', blob, safeFilename(file.originalname));
   return fetch(`${COMFYUI_URL}/api/upload/image`, { method: 'POST', body: form });
 }
 

@@ -90,10 +90,12 @@ export async function getHistoryForPrompt(
 ): Promise<{
   prompt?: unknown;
   outputs?: Record<string, Record<string, unknown>>;
+  status?: { messages?: unknown[] };
 } | null> {
   const data = await fetchComfyUI<Record<string, {
     prompt?: unknown;
     outputs?: Record<string, Record<string, unknown>>;
+    status?: { messages?: unknown[] };
   }>>(`/api/history/${promptId}`);
   return data[promptId] ?? null;
 }

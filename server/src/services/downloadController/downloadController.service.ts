@@ -118,6 +118,51 @@ export async function downloadModelByName(
   }
 }
 
+// Retry policy for network-level failures. HF's xethub CDN routinely drops
+// long-running connections (~10min); without retry, a single `aborted` kills
+// a 9 GB download that was 40% done. Retries are safe because the engine
+// already resumes via Range header off the `.download` temp file.
+const RETRY_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 2_000;
+
+/** True for errors worth retrying (transient network), false for terminal. */
+function shouldRetryError(err: unknown, progress: DownloadProgress): boolean {
+  // User cancel takes precedence — never retry.
+  if (progress.canceled) return false;
+  if (progress.abortController?.signal.aborted) return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = (err as NodeJS.ErrnoException | undefined)?.code;
+  // HTTP 4xx will not succeed on retry (auth, 404, etc).
+  if (/^HTTP 4\d\d$/.test(msg)) return false;
+  // Malformed redirect from upstream — retrying same URL produces the same response.
+  if (msg.includes('redirect') && msg.includes('missing location')) return false;
+  // Explicit cancel messages from the engine.
+  if (msg === 'download canceled' || msg === 'download canceled by callback') return false;
+  // Retryable: OS socket errors commonly seen on dropped CDN connections.
+  if (code && ['ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ENETUNREACH', 'ECONNREFUSED', 'EAI_AGAIN', 'ENOTFOUND'].includes(code)) {
+    return true;
+  }
+  // Retryable: engine-emitted messages for transient failures.
+  if (msg === 'aborted' || msg.includes('socket timeout') || msg.includes('request timeout') || msg.includes('premature close')) {
+    return true;
+  }
+  return false;
+}
+
+/** Sleep `ms`, but wake early (rejecting) if the user cancels the task. */
+function sleepOrCancel(ms: number, progress: DownloadProgress): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const signal = progress.abortController?.signal;
+    if (signal?.aborted) { reject(new Error('download canceled')); return; }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => { clearTimeout(timer); reject(new Error('download canceled')); };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 async function runEngine(
   url: string,
   outputPath: string,
@@ -125,27 +170,48 @@ async function runEngine(
   progress: DownloadProgress,
   authHeaders: Record<string, string> | undefined,
 ): Promise<void> {
-  await downloadFile(
-    url,
-    outputPath,
-    (percent, downloaded, total) => {
-      progress.currentModelProgress = percent;
-      progress.overallProgress = percent;
-      progress.downloadedBytes = downloaded;
-      progress.totalBytes = total;
-      const now = Date.now();
-      if (!progress.lastLogTime || now - progress.lastLogTime > 200) {
-        emit(taskId);
-        progress.lastLogTime = now;
+  const onEngineProgress = (percent: number, downloaded: number, total: number): void => {
+    progress.currentModelProgress = percent;
+    progress.overallProgress = percent;
+    progress.downloadedBytes = downloaded;
+    progress.totalBytes = total;
+    const now = Date.now();
+    if (!progress.lastLogTime || now - progress.lastLogTime > 200) {
+      emit(taskId);
+      progress.lastLogTime = now;
+    }
+  };
+  const engineOptions = {
+    abortController: progress.abortController || new AbortController(),
+    onProgress: () => { /* engine calls the positional cb above */ },
+    authHeaders,
+  };
+
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
+    try {
+      await downloadFile(url, outputPath, onEngineProgress, engineOptions, progress);
+      if (attempt > 1) {
+        logger.info('download succeeded after retry', { attempt, url });
       }
-    },
-    {
-      abortController: progress.abortController || new AbortController(),
-      onProgress: () => { /* engine calls the positional cb above */ },
-      authHeaders,
-    },
-    progress,
-  );
+      return;
+    } catch (err) {
+      lastErr = err;
+      const retriable = shouldRetryError(err, progress);
+      if (attempt === RETRY_ATTEMPTS || !retriable) throw err;
+      const delay = Math.round(
+        RETRY_BASE_DELAY_MS * 2 ** (attempt - 1) + Math.random() * 500,
+      );
+      logger.warn('download retry scheduled', {
+        attempt,
+        maxAttempts: RETRY_ATTEMPTS,
+        delayMs: delay,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      await sleepOrCancel(delay, progress);
+    }
+  }
+  throw lastErr;
 }
 
 function markCompleted(progress: DownloadProgress, taskId: string): void {
@@ -188,6 +254,12 @@ function handleDownloadError(
   progress.status = 'error';
   progress.error = err instanceof Error ? err.message : String(err);
   emit(taskId);
+  // Release the filename→taskId mapping so the next install click creates a
+  // fresh task instead of hitting the dedup short-circuit in downloadCustom.
+  // Without this, a failed task pins the mapping forever and Resume/Retry is
+  // silently a no-op (returns the old errored task ID). Cancel path already
+  // does this (cancelTask above); error path used to leak.
+  tracker.removeModelMappingByTaskId(taskId);
   history.updateHistoryItem(historyId, {
     status: 'failed',
     endTime: Date.now(),

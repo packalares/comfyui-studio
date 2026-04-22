@@ -15,6 +15,7 @@
 // true and `disabled` is false.
 
 import { paths } from '../../config/paths.js';
+import { MODEL_SUBDIRS } from '../../config/modelDirs.js';
 import { statModelOnDisk } from '../../lib/fs.js';
 import { logger } from '../../lib/logger.js';
 import * as templateRepo from '../../lib/db/templates.repo.js';
@@ -73,15 +74,10 @@ async function loadPluginsView(): Promise<PluginsView> {
 function modelOnDisk(filename: string): boolean {
   const root = paths.modelsDir;
   if (!root) return false;
-  // Stat every known subdir; we don't know which one owns the file so we try
-  // each one and stop on the first hit.
-  const subdirs = [
-    'checkpoints', 'loras', 'vae', 'controlnet', 'upscale_models',
-    'embeddings', 'inpaint', 'diffusion_models', 'clip', 'clip_vision',
-    'hypernetworks', 'ipadapter', 'unet', 'style_models',
-    'facerestore_models', 'text_encoders',
-  ];
-  for (const dir of subdirs) {
+  // Stat every known subdir; we don't know which one owns the file so we
+  // try each one and stop on the first hit. The MODEL_SUBDIRS list is
+  // shared with install.service.ts — see config/modelDirs.ts.
+  for (const dir of MODEL_SUBDIRS) {
     if (statModelOnDisk(root, dir, filename) !== null) return true;
   }
   return false;

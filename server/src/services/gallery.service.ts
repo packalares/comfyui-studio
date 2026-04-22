@@ -126,6 +126,7 @@ export async function appendHistoryEntry(promptId: string): Promise<number> {
       outputs: entry.outputs,
       apiPrompt: normalisePromptField(entry.prompt),
       createdAt: Date.now(),
+      statusMessages: entry.status?.messages,
     });
     let inserted = 0;
     for (const row of rows) {
@@ -178,6 +179,7 @@ export async function syncFromComfyUI(): Promise<ImportFromComfyUIResult> {
           outputs: entry.outputs,
           apiPrompt: normalisePromptField(entry.prompt),
           createdAt: now - batchIdx,
+          statusMessages: entry.status?.messages,
         });
         for (const row of rows) {
           if (repo.appendFromHistory(row)) imported += 1;
