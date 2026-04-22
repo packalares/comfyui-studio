@@ -47,6 +47,10 @@ function rowToSlim(r: Record<string, unknown>): GalleryListRow {
     templateName: nullableString(r.templateName),
     sizeBytes: nullableNumber(r.sizeBytes),
     createdAt: typeof r.createdAt === 'number' ? r.createdAt : 0,
+    // Surfaced on slim rows so the tile grid can render a duration pill
+    // on audio/video items without a second /api/gallery/:id round-trip
+    // per tile. Cheap — number column, null for images.
+    durationMs: nullableNumber(r.durationMs),
   };
 }
 
@@ -86,7 +90,7 @@ function rowToItem(r: Record<string, unknown>): GalleryItem {
 /** Columns selected for slim list queries — never includes the fat fields. */
 const LIST_COLUMNS =
   'id, filename, subfolder, type, mediaType, url, promptId, ' +
-  'templateName, sizeBytes, createdAt';
+  'templateName, sizeBytes, createdAt, durationMs';
 
 function serializeModels(v: unknown): string | null {
   if (!Array.isArray(v)) return null;

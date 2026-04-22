@@ -340,30 +340,10 @@ export default function Explore() {
           <div className="flex flex-col lg:flex-row min-h-[calc(100vh-180px)]">
             {/* ===== Left sidebar ===== */}
             <aside className={`${filtersOpen ? 'block' : 'hidden'} lg:block w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 p-4 space-y-5 bg-white`}>
-              {/* Search */}
-              <div>
-                <label className="field-label mb-1.5 block">Search</label>
-                <div className="field-wrap">
-                  <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  <input
-                    type="text"
-                    className="field-input"
-                    placeholder="Search workflows..."
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                  />
-                  {searchQuery !== '' && (
-                    <button
-                      type="button"
-                      onClick={() => setSearchQuery('')}
-                      aria-label="Clear search"
-                      className="shrink-0 text-slate-400 hover:text-slate-700 transition-colors"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
+              {/* Search + Ready-to-use moved to the main-pane toolbar below,
+                  mirroring the Models page layout (search as a flex-1 input,
+                  filter as a right-aligned tab strip). Keeps the sidebar
+                  focused on taxonomy (Source / Feed / Tags / Stats). */}
 
               {/* Source — always shown now. User imported + CivitAI don't
                   require an API key; only the `api` option does. */}
@@ -409,23 +389,8 @@ export default function Explore() {
                 </div>
               )}
 
-              {/* Ready to use — local templates only. Not meaningful for
-                  remote civitai workflow listings. */}
-              {sourceFilter !== 'civitai' && (
-                <div>
-                  <label className="field-label mb-1.5 block">Ready to use</label>
-                  <Select value={readyFilter} onValueChange={(v) => setReadyFilter(v as ReadyFilter)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All</SelectItem>
-                      <SelectItem value="yes">Ready</SelectItem>
-                      <SelectItem value="no">Missing deps</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
+              {/* Ready-to-use moved to the main-pane toolbar as a tab strip
+                  (matches the Models page pattern). */}
 
               {/* Category — local templates only. CivitAI exposes its own
                   taxonomy we don't map through. */}
@@ -472,17 +437,20 @@ export default function Explore() {
                 </div>
               )}
 
-              {/* Stats */}
+              {/* Stats — vertical row list, matches Models page's Storage
+                  panel language (icon + label left, value right-aligned). */}
               <div className="pt-4 border-t border-slate-200">
-                <label className="field-label mb-3 block">Stats</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="stat-box bg-slate-50 ring-slate-200">
-                    <p className="stat-box-label text-slate-500">Total</p>
-                    <p className="stat-box-value text-slate-700">{templates.length}</p>
+                <label className="field-label mb-2 block">Stats</label>
+                <div className="divide-y divide-slate-100 rounded-lg ring-1 ring-inset ring-slate-200 overflow-hidden bg-white">
+                  <div className="flex items-center gap-2 px-3 py-2">
+                    <Layers className="w-4 h-4 text-slate-500 shrink-0" />
+                    <span className="text-xs text-slate-600 flex-1">Total</span>
+                    <span className="font-mono text-sm font-semibold text-slate-900">{templates.length}</span>
                   </div>
-                  <div className="stat-box bg-teal-50 ring-teal-100">
-                    <p className="stat-box-label text-teal-700/70">Filtered</p>
-                    <p className="stat-box-value text-teal-700">{paged.total}</p>
+                  <div className="flex items-center gap-2 px-3 py-2">
+                    <SlidersHorizontal className="w-4 h-4 text-teal-600 shrink-0" />
+                    <span className="text-xs text-slate-600 flex-1">Filtered</span>
+                    <span className="font-mono text-sm font-semibold text-slate-900">{paged.total}</span>
                   </div>
                 </div>
               </div>
@@ -502,6 +470,58 @@ export default function Explore() {
 
             {/* ===== Right content ===== */}
             <main className="flex-1 p-4 overflow-y-auto">
+              {/* Toolbar — search (always) + ready-to-use tab strip (local
+                  sources only). Mirrors the Models page's top-bar layout:
+                  flex-1 search input on the left, right-aligned tab-strip
+                  for the secondary filter. */}
+              <div className="flex flex-col md:flex-row md:items-center gap-2 mb-4">
+                <div className="flex-1 field-wrap">
+                  <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <input
+                    type="text"
+                    className="field-input"
+                    placeholder="Search workflows..."
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                  />
+                  {searchQuery !== '' && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      aria-label="Clear search"
+                      className="shrink-0 text-slate-400 hover:text-slate-700 transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                {sourceFilter !== 'civitai' && (
+                  <div
+                    role="tablist"
+                    aria-label="Ready to use filter"
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm self-start md:self-auto"
+                  >
+                    {(['all', 'yes', 'no'] as const).map(v => {
+                      const labelMap = { all: 'All', yes: 'Ready', no: 'Missing' };
+                      const active = readyFilter === v;
+                      return (
+                        <button
+                          key={v}
+                          role="tab"
+                          aria-selected={active}
+                          onClick={() => setReadyFilter(v)}
+                          className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold transition ${
+                            active ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          {labelMap[v]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
               {sourceFilter !== 'civitai' && templates.length === 0 ? (
                 <div className="text-center py-20">
                   {!connected ? (

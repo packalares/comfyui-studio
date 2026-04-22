@@ -5,6 +5,7 @@ import {
   Download, Trash2, X,
   Image as ImageIcon, Video, Music, ArrowRight, SlidersHorizontal,
   LayoutGrid, CheckSquare, AlertCircle, DownloadCloud, Loader2,
+  Images, Star,
 } from 'lucide-react';
 import type { GalleryItem } from '../types';
 import { api } from '../services/comfyui';
@@ -300,17 +301,20 @@ export default function Gallery() {
                 </button>
               </div>
 
-              {/* Stats */}
+              {/* Stats — vertical row list, matches Models page's Storage
+                  panel language (icon + label left, value right-aligned). */}
               <div className="pt-4 border-t border-slate-200">
-                <label className="field-label mb-3 block">Stats</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="stat-box bg-slate-50 ring-slate-200">
-                    <p className="stat-box-label text-slate-500">Total</p>
-                    <p className="stat-box-value text-slate-700">{paged.total}</p>
+                <label className="field-label mb-2 block">Stats</label>
+                <div className="divide-y divide-slate-100 rounded-lg ring-1 ring-inset ring-slate-200 overflow-hidden bg-white">
+                  <div className="flex items-center gap-2 px-3 py-2">
+                    <Images className="w-4 h-4 text-slate-500 shrink-0" />
+                    <span className="text-xs text-slate-600 flex-1">Total</span>
+                    <span className="font-mono text-sm font-semibold text-slate-900">{paged.total}</span>
                   </div>
-                  <div className="stat-box bg-amber-50 ring-amber-100">
-                    <p className="stat-box-label text-amber-700/70">Favorites</p>
-                    <p className="stat-box-value text-amber-700">{favorites.size}</p>
+                  <div className="flex items-center gap-2 px-3 py-2">
+                    <Star className="w-4 h-4 text-amber-500 shrink-0" />
+                    <span className="text-xs text-slate-600 flex-1">Favorites</span>
+                    <span className="font-mono text-sm font-semibold text-slate-900">{favorites.size}</span>
                   </div>
                 </div>
               </div>

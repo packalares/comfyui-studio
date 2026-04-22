@@ -3,6 +3,7 @@ import { ChevronDown, Shuffle, Minus, Plus, Info } from 'lucide-react';
 import type { AdvancedSetting } from '../types';
 import { Slider } from './ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Combobox, COMBOBOX_SEARCH_THRESHOLD } from './ui/combobox';
 import { Switch } from './ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
@@ -288,14 +289,27 @@ function SettingControl({
       );
     }
 
-    case 'select':
+    case 'select': {
+      const options = setting.options ?? [];
+      const current = (value as string) ?? '';
+      if (options.length > COMBOBOX_SEARCH_THRESHOLD) {
+        return (
+          <Combobox
+            value={current}
+            onValueChange={v => onChange(v)}
+            options={options}
+            searchPlaceholder={`Search ${setting.label.toLowerCase()}…`}
+            emptyMessage="No matching option"
+          />
+        );
+      }
       return (
-        <Select value={(value as string) ?? ''} onValueChange={v => onChange(v)}>
+        <Select value={current} onValueChange={v => onChange(v)}>
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {setting.options?.map(opt => (
+            {options.map(opt => (
               <SelectItem key={opt.value} value={opt.value}>
                 {opt.label}
               </SelectItem>
@@ -303,6 +317,7 @@ function SettingControl({
           </SelectContent>
         </Select>
       );
+    }
 
     case 'text':
       return (

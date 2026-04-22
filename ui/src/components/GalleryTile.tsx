@@ -17,17 +17,50 @@
 //    at the top of the tile so scanning a grid still reads as "audio".
 
 import { useEffect, useRef, useState } from 'react';
-import type { MouseEvent as ReactMouseEvent } from 'react';
 import {
   Check, Star, StarOff,
   Image as ImageIcon, Video, Music,
-  Play, Pause, Trash2, Box,
+  Play, Trash2, Box, Clock,
 } from 'lucide-react';
 import type { GalleryItem } from '../types';
 import { imgProxy } from '../lib/imgProxy';
 import { isThreeDFilename } from '../lib/media';
 
 const TILE_WIDTH = 320;
+
+// Format milliseconds as m:ss (or h:mm:ss for >1h). Returns null when the
+// input is missing so callers can skip rendering the duration pill.
+function formatDuration(ms: number | null | undefined): string | null {
+  if (ms == null || !Number.isFinite(ms) || ms <= 0) return null;
+  const total = Math.round(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+// Type badge — one visual language for every media type. Rendered bottom-
+// left on the tile; duration pill (when available) sits to its right.
+function TypeBadge({ icon: Icon, label }: { icon: typeof Video; label: string }) {
+  return (
+    <div className="badge-pill bg-black/60 text-white border-transparent text-[10px] px-1.5 py-0.5">
+      <Icon className="w-3 h-3" />
+      {label}
+    </div>
+  );
+}
+
+function DurationBadge({ ms }: { ms: number | null | undefined }) {
+  const text = formatDuration(ms);
+  if (!text) return null;
+  return (
+    <div className="badge-pill bg-black/60 text-white border-transparent text-[10px] px-1.5 py-0.5">
+      <Clock className="w-3 h-3" />
+      {text}
+    </div>
+  );
+}
 
 interface GalleryTileProps {
   item: GalleryItem;
@@ -51,9 +84,15 @@ export default function GalleryTile({
     >
       <button
         onClick={onOpen}
-        className="block w-full aspect-square overflow-hidden"
+        className="block w-full aspect-[4/3] overflow-hidden relative"
       >
         <MediaPreview item={item} />
+        {/* Type + duration pills — bottom-left of the media area. One
+            visual language across image / video / audio / 3D. */}
+        <div className="absolute bottom-1 left-1 flex items-center gap-1 pointer-events-none">
+          <MediaTypeBadge item={item} />
+          <DurationBadge ms={item.durationMs} />
+        </div>
       </button>
 
       {/* Hover dim + gradient so overlaid icons stay legible over bright media. */}
@@ -116,6 +155,14 @@ function MediaPreview({ item }: { item: GalleryItem }) {
   // The detail modal / Studio result panel mount the actual <model-viewer>.
   if (isThreeDFilename(item.filename)) return <ThreeDPreview />;
   return <ImagePreview item={item} />;
+}
+
+/** Picks the right TypeBadge based on the item. */
+function MediaTypeBadge({ item }: { item: GalleryItem }) {
+  if (item.mediaType === 'video') return <TypeBadge icon={Video} label="Video" />;
+  if (item.mediaType === 'audio') return <TypeBadge icon={Music} label="Audio" />;
+  if (isThreeDFilename(item.filename)) return <TypeBadge icon={Box} label="3D" />;
+  return <TypeBadge icon={ImageIcon} label="Image" />;
 }
 
 function ThreeDPreview() {
@@ -243,54 +290,18 @@ function VideoPreview({ item }: { item: GalleryItem }) {
           </div>
         </div>
       )}
-      <div className="absolute bottom-1 left-1 badge-pill bg-black/60 text-white border-transparent text-[10px] px-1.5 py-0.5">
-        <Video className="w-3 h-3" />
-        Video
-      </div>
+      {/* Type badge lives on the outer tile — no per-component pill here. */}
     </div>
   );
 }
 
-function AudioPreview({ item }: { item: GalleryItem }) {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [playing, setPlaying] = useState(false);
-
-  const togglePlay = (e: ReactMouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation();
-    const el = audioRef.current;
-    if (!el) return;
-    if (playing) {
-      el.pause();
-      setPlaying(false);
-    } else {
-      el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
-    }
-  };
-
+// Static preview — the inline play button + <audio> element were removed.
+// Audio playback belongs in the detail modal (which has a real
+// <audio controls> player). Clicking the tile opens the modal.
+function AudioPreview({ item: _item }: { item: GalleryItem }) {
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-gradient-to-br from-slate-50 to-slate-200 px-3">
+    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-200">
       <Music className="w-10 h-10 text-slate-400" />
-      {item.url ? (
-        <>
-          <button
-            onClick={togglePlay}
-            className="w-10 h-10 rounded-full bg-teal-600 hover:bg-teal-700 text-white flex items-center justify-center shadow-sm transition-colors"
-            aria-label={playing ? 'Pause' : 'Play'}
-          >
-            {playing
-              ? <Pause className="w-4 h-4" fill="currentColor" />
-              : <Play className="w-4 h-4" fill="currentColor" />}
-          </button>
-          <audio
-            ref={audioRef}
-            src={item.url}
-            preload="none"
-            onEnded={() => setPlaying(false)}
-            onPause={() => setPlaying(false)}
-            onPlay={() => setPlaying(true)}
-          />
-        </>
-      ) : null}
     </div>
   );
 }

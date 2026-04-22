@@ -17,6 +17,7 @@ import ModelInfoModal, { type ModelInfoSource } from '../components/ModelInfoMod
 import { formatBytes } from '../lib/utils';
 import { imgProxy } from '../lib/imgProxy';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Combobox, COMBOBOX_SEARCH_THRESHOLD } from '../components/ui/combobox';
 import { Checkbox } from '../components/ui/checkbox';
 import {
   AlertDialog,
@@ -563,23 +564,45 @@ export default function Models() {
                   concepts). */}
               {source === 'local' && (
                 <>
-                  {/* Template filter */}
+                  {/* Template filter — the list can be 300+ entries on a
+                      full catalog, so we swap to the searchable Combobox
+                      beyond the shared threshold. */}
                   <div>
                     <label className="field-label mb-1.5 block">Filter by template</label>
-                    <Select
-                      value={selectedWorkflow || 'all'}
-                      onValueChange={(v) => setSelectedWorkflow(v === 'all' ? '' : v)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="All Models" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Models</SelectItem>
-                        {templates.filter(t => t.openSource === true).map(t => (
-                          <SelectItem key={t.name} value={t.name}>{t.title}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {(() => {
+                      const templateOptions = [
+                        { label: 'All Models', value: 'all' },
+                        ...templates
+                          .filter(t => t.openSource === true)
+                          .map(t => ({ label: t.title, value: t.name })),
+                      ];
+                      const current = selectedWorkflow || 'all';
+                      const handle = (v: string) => setSelectedWorkflow(v === 'all' ? '' : v);
+                      if (templateOptions.length > COMBOBOX_SEARCH_THRESHOLD) {
+                        return (
+                          <Combobox
+                            value={current}
+                            onValueChange={handle}
+                            options={templateOptions}
+                            placeholder="All Models"
+                            searchPlaceholder="Search templates…"
+                            emptyMessage="No matching template"
+                          />
+                        );
+                      }
+                      return (
+                        <Select value={current} onValueChange={handle}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="All Models" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {templateOptions.map(o => (
+                              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      );
+                    })()}
                   </div>
 
                   {/* Installed filter */}

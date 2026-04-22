@@ -6,6 +6,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from './ui/tooltip';
 import { Slider } from './ui/slider';
 import { Switch } from './ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Combobox, COMBOBOX_SEARCH_THRESHOLD } from './ui/combobox';
 
 interface Props {
   input: FormInput;
@@ -87,22 +88,37 @@ function FieldControl({ input, value, onChange }: Props) {
     case 'slider':
       return <SliderField input={input} value={value} onChange={onChange} />;
 
-    case 'select':
+    case 'select': {
+      const options = input.options ?? [];
+      const current = (value as string) ?? (input.default as string) ?? '';
+      if (options.length > COMBOBOX_SEARCH_THRESHOLD) {
+        return (
+          <Combobox
+            value={current}
+            onValueChange={onChange as (v: string) => void}
+            options={options}
+            placeholder={input.placeholder || 'Select an option'}
+            searchPlaceholder={`Search ${input.label.toLowerCase()}…`}
+            emptyMessage="No matching option"
+          />
+        );
+      }
       return (
         <Select
-          value={(value as string) ?? (input.default as string) ?? ''}
+          value={current}
           onValueChange={onChange}
         >
           <SelectTrigger>
             <SelectValue placeholder="Select…" />
           </SelectTrigger>
           <SelectContent>
-            {input.options?.map(opt => (
+            {options.map(opt => (
               <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
             ))}
           </SelectContent>
         </Select>
       );
+    }
 
     case 'image':
       return <ImageField input={input} value={value} onChange={onChange} />;

@@ -27,6 +27,13 @@ export interface GalleryListItem {
    * keep compiling.
    */
   createdAt?: number;
+  /**
+   * Generation wall-clock duration in milliseconds (captured from ComfyUI
+   * status messages at write time). Surfaced on slim rows so the tile grid
+   * can render a duration pill on audio/video items. Null on images and on
+   * rows older than Wave F.
+   */
+  durationMs?: number | null;
 }
 
 export interface GalleryItem extends GalleryListItem {
