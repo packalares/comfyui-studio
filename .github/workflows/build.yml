@@ -23,6 +23,21 @@ jobs:
           - target: dev
             suffix: "-dev"
     steps:
+      # Ubuntu-latest runners ship with ~14 GB free. Our comfyui-studio
+      # image + build cache can exceed that. Nuke the pre-installed
+      # tooling (Android SDK, .NET, Haskell, big caches) that the Docker
+      # build never needs — reclaims ~20 GB so the build has headroom.
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: false
+
       - uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
