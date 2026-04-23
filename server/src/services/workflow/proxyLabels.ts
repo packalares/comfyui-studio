@@ -40,7 +40,7 @@ export function findSubgraphDef(
 
 // Map subgraph input slot -> the internal (targetNodeId, inputName) it
 // connects to, following -10 wires.
-function buildSlotTargetMap(
+export function buildSlotTargetMap(
   sgNodes: Array<Record<string, unknown>>,
   sgLinks: Array<Record<string, unknown>>,
 ): Map<number, SlotTarget> {
@@ -117,6 +117,42 @@ function labelPartsFor(
 }
 
 /**
+ * Resolve each proxyWidget entry into a `(innerNodeId, widgetName)` pair
+ * using compound IDs for subgraph-input (`-1`) entries so they line up
+ * with the flattener's IDs (e.g. `98:6`). Used by the form↔advanced dedup
+ * filter to compare against the form's `bindNodeId|bindWidgetName` keys
+ * without tripping on the `-1` raw form.
+ */
+export function resolveProxyBoundKeys(
+  wrapperNode: Record<string, unknown>,
+  proxyWidgets: string[][],
+  workflow: Record<string, unknown>,
+): Array<{ nodeId: string; widgetName: string }> {
+  const sg = findSubgraphDef(wrapperNode, workflow);
+  const sgNodes = (sg?.nodes || []) as Array<Record<string, unknown>>;
+  const sgLinks = (sg?.links || []) as Array<Record<string, unknown>>;
+  const sgInputs = (sg?.inputs || []) as Array<Record<string, unknown>>;
+  const slotTargets = buildSlotTargetMap(sgNodes, sgLinks);
+  const wrapperId = String(wrapperNode.id ?? '');
+  return proxyWidgets.map(([innerId, widgetName]) => {
+    if (innerId === '-1') {
+      const sgIdx = sgInputs.findIndex(
+        (inp) => (inp as Record<string, unknown>).name === widgetName,
+      );
+      const target = sgIdx >= 0 ? slotTargets.get(sgIdx) : undefined;
+      if (target) {
+        const compound = wrapperId ? `${wrapperId}:${target.nodeId}` : String(target.nodeId);
+        return { nodeId: compound, widgetName: target.inputName || widgetName };
+      }
+    }
+    // Non-subgraph-input entries: the inner node is a direct subgraph node.
+    // Prepend the wrapper id so keys align with the flattener's compound ids.
+    const compound = wrapperId ? `${wrapperId}:${innerId}` : innerId;
+    return { nodeId: compound, widgetName };
+  });
+}
+
+/**
  * Resolve a human-readable label for each proxyWidget entry.
  *
  *   1. When innerNodeId is "-1" (subgraph-self), follow the subgraph link
@@ -171,19 +207,42 @@ function resolveInnerWidgetValue(
   widgetName: string,
   sgNodes: Array<Record<string, unknown>>,
   objectInfo: Record<string, Record<string, unknown>>,
-): { value: unknown; classType: string | null } {
-  const innerNode = sgNodes.find(n => String(n.id) === innerNodeId);
-  if (!innerNode) return { value: null, classType: null };
+  sgInputs?: Array<Record<string, unknown>>,
+  slotTargets?: Map<number, SlotTarget>,
+): { value: unknown; classType: string | null; resolvedWidgetName: string } {
+  let innerNode: Record<string, unknown> | undefined;
+  let resolvedWidgetName = widgetName;
+  // `-1` is ComfyUI's modern subgraph convention: the proxy targets one of
+  // the subgraph's declared inputs, not a direct inner node. Follow the
+  // input slot's link down to the consuming node (VAELoader, UNETLoader, …)
+  // so we can read its class from objectInfo. `labelPartsFor` already does
+  // this walk for the display label; we do the same here for the shape.
+  if (innerNodeId === '-1' && sgInputs && slotTargets) {
+    const sgIdx = sgInputs.findIndex(
+      inp => (inp as Record<string, unknown>).name === widgetName,
+    );
+    const target = sgIdx >= 0 ? slotTargets.get(sgIdx) : undefined;
+    if (target) {
+      innerNode = sgNodes.find(n => (n.id as number) === target.nodeId);
+      // Use the consumer node's actual input name when looking up the widget
+      // index — the subgraph input name may differ (e.g. subgraph input
+      // `turbo_lora` → inner `LoraLoaderModelOnly.lora_name`).
+      if (target.inputName) resolvedWidgetName = target.inputName;
+    }
+  } else {
+    innerNode = sgNodes.find(n => String(n.id) === innerNodeId);
+  }
+  if (!innerNode) return { value: null, classType: null, resolvedWidgetName };
   const classType = (innerNode.type as string) || null;
-  if (!classType) return { value: null, classType: null };
+  if (!classType) return { value: null, classType: null, resolvedWidgetName };
 
   const names = widgetNamesFor(objectInfo, classType);
-  const position = names.indexOf(widgetName);
-  if (position < 0) return { value: null, classType };
+  const position = names.indexOf(resolvedWidgetName);
+  if (position < 0) return { value: null, classType, resolvedWidgetName };
 
   const values = filteredWidgetValues(innerNode.widgets_values as unknown[] | undefined);
   const value = position < values.length ? values[position] : null;
-  return { value, classType };
+  return { value, classType, resolvedWidgetName };
 }
 
 /**
@@ -209,19 +268,30 @@ export function extractAdvancedSettings(
   labels: string[],
   sgNodes: Array<Record<string, unknown>>,
   scopeLabels?: Array<string | undefined>,
+  sgInputs?: Array<Record<string, unknown>>,
+  sgLinks?: Array<Record<string, unknown>>,
 ): AdvancedSetting[] {
+  const slotTargets = sgInputs && sgLinks
+    ? buildSlotTargetMap(sgNodes, sgLinks)
+    : undefined;
   const settings: AdvancedSetting[] = [];
   for (let i = 0; i < proxyWidgets.length; i++) {
     const [innerNodeId, widgetName] = proxyWidgets[i];
     const label = labels[i] ?? titleCase(widgetName);
 
-    const resolved = resolveInnerWidgetValue(innerNodeId, widgetName, sgNodes, objectInfo);
+    const resolved = resolveInnerWidgetValue(
+      innerNodeId, widgetName, sgNodes, objectInfo, sgInputs, slotTargets,
+    );
     const value = resolved.classType === null || resolved.value === null
       ? (i < widgetValues.length ? widgetValues[i] : resolved.value)
       : resolved.value;
     const classType = resolved.classType ?? '';
 
-    const shape = inferWidgetShape(objectInfo, classType, widgetName, value);
+    // Use the resolved inner widget name (for `-1` proxies that redirect
+    // through a subgraph input) so `inferWidgetShape` finds the right spec
+    // on the consuming node — e.g. proxied `lora_name` → inner
+    // `LoraLoaderModelOnly.lora_name` (COMBO).
+    const shape = inferWidgetShape(objectInfo, classType, resolved.resolvedWidgetName, value);
     // A select with no options means the schema marked the widget COMBO but
     // failed to surface an options list (defensive: shouldn't happen in
     // ComfyUI's objectInfo). Render as plain text so the field stays usable.

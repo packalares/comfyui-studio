@@ -222,4 +222,31 @@ router.post(['/models/download-history/clear', '/launcher/models/download-histor
 router.post(['/models/download-history/delete', '/launcher/models/download-history/delete'], handleHistoryDelete);
 router.post(['/models/download-custom', '/launcher/models/download-custom'], downloadCustomLimiter, handleDownloadCustom);
 
+const handleDownloadHfRepo: RequestHandler = async (req: Request, res: Response) => {
+  try {
+    const { hfRepo, directory, name, hfToken } = (req.body || {}) as {
+      hfRepo?: string; directory?: string; name?: string; hfToken?: string;
+    };
+    if (!hfRepo || !/^[A-Za-z0-9_.\-]+\/[A-Za-z0-9_.\-]+$/.test(hfRepo)) {
+      res.status(400).json({ error: 'hfRepo required (format "owner/repo")' });
+      return;
+    }
+    if (!directory || directory.includes('..') || directory.startsWith('/')) {
+      res.status(400).json({ error: 'directory required; must be relative without ".."' });
+      return;
+    }
+    const out = await models.downloadHfRepo(
+      hfRepo, directory, name || hfRepo,
+      { hfToken: hfToken || settings.getHfToken() },
+    );
+    trackDownload(out.taskId, { modelName: out.modelName, filename: out.modelName });
+    res.json({ success: true, taskId: out.taskId, modelName: out.modelName });
+  } catch (err) { sendError(res, err, 500, 'HF repo download failed'); }
+};
+
+router.post(
+  ['/models/download-hf-repo', '/launcher/models/download-hf-repo'],
+  downloadCustomLimiter, handleDownloadHfRepo,
+);
+
 export default router;

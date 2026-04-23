@@ -22,11 +22,14 @@ import {
 import type { CatalogModelEntry } from './download.service.js';
 import {
   createDownloadTask, downloadModelByName, getTaskProgress, cancelTask,
+  updateTaskProgress,
 } from '../downloadController/downloadController.service.js';
 import {
   setModelMapping, getModelTaskId, clearModelMapping,
 } from '../downloadController/progressTracker.js';
 import { essentialModels } from '../essentialModels/essentialModels.data.js';
+import { spawn } from 'child_process';
+import fs from 'fs';
 
 export type { CatalogModelEntry };
 
@@ -189,6 +192,107 @@ export async function downloadCustom(
     bus.emit('model:download-failed', { filename: fileName, error: msg });
   });
   return { taskId, fileName, saveDir };
+}
+
+/**
+ * Download an entire HuggingFace repo via `huggingface-cli download`. Used by
+ * the custom-node registry path (IndexTTS2 etc.) where the model is a multi-
+ * file package and a single-URL download isn't enough. Hooks into the same
+ * download-task + bus infrastructure as `downloadCustom` so the existing
+ * progress UI and install-scan handlers work unchanged.
+ *
+ * `directory` is relative to COMFYUI_PATH (NOT to `models/`) — registry
+ * entries for custom nodes target
+ * `custom_nodes/<plugin>/checkpoints` directly, not the standard
+ * `models/<type>` tree.
+ */
+export async function downloadHfRepo(
+  hfRepo: string, directory: string, displayName: string,
+  opts: { hfToken?: string } = {},
+): Promise<{ taskId: string; modelName: string; saveDir: string }> {
+  if (!hfRepo || !/^[A-Za-z0-9_.\-]+\/[A-Za-z0-9_.\-]+$/.test(hfRepo)) {
+    throw new Error('Invalid hfRepo (expected "owner/repo")');
+  }
+  if (!directory || directory.includes('..') || directory.startsWith('/')) {
+    throw new Error('Invalid directory (must be a relative path under COMFYUI_PATH)');
+  }
+
+  const modelName = displayName || hfRepo;
+  const existing = getModelTaskId(modelName);
+  if (existing) return { taskId: existing, modelName, saveDir: directory };
+
+  const taskId = createDownloadTask();
+  setModelMapping(modelName, taskId);
+  const absDir = path.join(env.COMFYUI_PATH, directory);
+  fs.mkdirSync(absDir, { recursive: true });
+
+  updateTaskProgress(taskId, {
+    status: 'downloading',
+    startTime: Date.now(),
+    abortController: new AbortController(),
+  });
+  logger.info('hf repo download starting', { hfRepo, absDir });
+
+  const args = ['download', hfRepo, '--local-dir', absDir];
+  const envVars: Record<string, string | undefined> = { ...process.env };
+  if (opts.hfToken) envVars.HF_TOKEN = opts.hfToken;
+
+  void new Promise<void>((resolve, reject) => {
+    const proc = spawn('huggingface-cli', args, { env: envVars as NodeJS.ProcessEnv });
+    let lastStderrLine = '';
+    proc.stderr.on('data', (buf: Buffer) => {
+      const text = buf.toString();
+      for (const line of text.split('\n')) {
+        const t = line.trim();
+        if (!t) continue;
+        lastStderrLine = t;
+        // Parse tqdm-style percentage + bytes where possible so the UI
+        // progress bar shows motion. HF CLI prints lines like
+        //   `model.safetensors:  45%|███  | 2.3G/5.0G`
+        const pct = t.match(/(\d+(?:\.\d+)?)%/);
+        if (pct) {
+          const p = Number(pct[1]);
+          if (Number.isFinite(p)) {
+            // Mirror onto both the per-file and the top-level progress
+            // fields — the DependencyModal's bar reads `progress` while
+            // the batch counter reads `currentModelProgress`.
+            updateTaskProgress(taskId, {
+              currentModelProgress: p, overallProgress: p,
+            });
+          }
+        }
+        // HF CLI emits total + downloaded bytes in tqdm lines like
+        //   `file:  45%|███| 2.3G/5.0G [01:20<01:30,  ...]`
+        const bytes = t.match(/\b(\d+(?:\.\d+)?)(K|M|G|T)?B?\/(\d+(?:\.\d+)?)(K|M|G|T)?B?\b/);
+        if (bytes) {
+          const scale = (u?: string) => u === 'K' ? 1e3 : u === 'M' ? 1e6 : u === 'G' ? 1e9 : u === 'T' ? 1e12 : 1;
+          const dl = Number(bytes[1]) * scale(bytes[2]);
+          const tot = Number(bytes[3]) * scale(bytes[4]);
+          if (Number.isFinite(dl) && Number.isFinite(tot) && tot > 0) {
+            updateTaskProgress(taskId, { downloadedBytes: dl, totalBytes: tot });
+          }
+        }
+      }
+    });
+    proc.on('error', (err) => reject(err));
+    proc.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`huggingface-cli exited ${code}: ${lastStderrLine}`));
+    });
+  }).then(() => {
+    updateTaskProgress(taskId, {
+      status: 'completed', completed: true, currentModelProgress: 100,
+    });
+    bus.emit('model:installed', { filename: modelName });
+    scanAndRefresh().catch(() => { /* best effort */ });
+  }).catch((err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error('hf repo download failed', { message: msg });
+    updateTaskProgress(taskId, { status: 'error', error: msg });
+    bus.emit('model:download-failed', { filename: modelName, error: msg });
+  });
+
+  return { taskId, modelName, saveDir: directory };
 }
 
 /** Delete a model from disk; refreshes the install-state cache after. */

@@ -25,14 +25,51 @@ export interface PluginDependencyReport {
 }
 
 /** Parse a requirements.txt body into { name, version-spec } entries. */
+/**
+ * Evaluate a PEP 508 environment marker against the current runtime.
+ * Supports the markers seen in the wild in ComfyUI custom node
+ * requirements.txt files: `platform_system`, `platform_machine`,
+ * `python_version`. Unknown / unparseable markers default to `true` so we
+ * never silently drop a requirement we don't understand.
+ */
+function evalMarker(marker: string): boolean {
+  const m = marker.trim();
+  if (!m) return true;
+  const platformSystem =
+    process.platform === 'linux' ? 'Linux'
+      : process.platform === 'darwin' ? 'Darwin'
+        : process.platform === 'win32' ? 'Windows'
+          : '';
+  const platformMachine = process.arch === 'x64' ? 'x86_64' : process.arch;
+  const match = m.match(
+    /^(platform_system|platform_machine|sys_platform)\s*(==|!=)\s*["']([^"']+)["']$/,
+  );
+  if (!match) return true;
+  const key = match[1];
+  const op = match[2];
+  const value = match[3];
+  const actual = key === 'platform_system' ? platformSystem
+    : key === 'platform_machine' ? platformMachine
+      : key === 'sys_platform' ? process.platform
+        : '';
+  return op === '==' ? actual === value : actual !== value;
+}
+
 export function parseRequirements(content: string): DependencyItem[] {
   const deps: DependencyItem[] = [];
-  const lines = content
+  const rawLines = content
     .split('\n')
     .map((line) => line.split('#')[0].trim())
     .filter((line) => line.length > 0);
-  for (const line of lines) {
-    const match = line.match(/^([a-zA-Z0-9_\-]+)([<>=!~].+)?$/);
+  for (const raw of rawLines) {
+    // Split PEP 508 marker. Without the split, markers leak into the version
+    // spec and `isCompatible()` reports spurious versionMismatch (e.g.
+    // `pynini==2.1.6; platform_system!="Windows"` leaked the marker as part
+    // of the version). We also evaluate the marker against the current
+    // platform so `wetext; platform_system == "Darwin"` is skipped on Linux.
+    const [spec, marker = ''] = raw.split(';').map((s) => s.trim());
+    if (!evalMarker(marker)) continue;
+    const match = spec.match(/^([a-zA-Z0-9_\-]+)([<>=!~].+)?$/);
     if (match) deps.push({ name: match[1], version: match[2] || '' });
   }
   return deps;

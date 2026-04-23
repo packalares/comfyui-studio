@@ -106,6 +106,48 @@ function stepCatalog(filename: string): AutoResolvedModel | null {
   return out;
 }
 
+// Step 0 — workflow's own `properties.models[]` declaring a whole-HF-repo
+// download via the `hfRepo` field. Used by custom-node models whose weights
+// are a multi-file package (IndexTTS2 etc.). Producing an AutoResolvedModel
+// entry here makes the staging + commit flow treat the row as "covered" so
+// Import isn't blocked — and carries `hfRepo` + `suggestedFolder` through
+// to the download step which shells out to `huggingface-cli download`.
+function stepHfRepo(
+  filename: string, workflow: Record<string, unknown>,
+): AutoResolvedModel | null {
+  const nodes = (workflow?.nodes as Array<Record<string, unknown>> | undefined) || [];
+  // Also walk subgraph-internal nodes — the entry may live on a nested node.
+  const inner: Array<Record<string, unknown>> = [];
+  const defs = (workflow?.definitions as Record<string, unknown> | undefined)?.subgraphs;
+  if (Array.isArray(defs)) {
+    for (const sg of defs as Array<Record<string, unknown>>) {
+      const sgNodes = (sg?.nodes as Array<Record<string, unknown>> | undefined) || [];
+      inner.push(...sgNodes);
+    }
+  }
+  for (const node of [...nodes, ...inner]) {
+    const props = node.properties as Record<string, unknown> | undefined;
+    const arr = (props?.models as Array<Record<string, unknown>> | undefined) || [];
+    for (const raw of arr) {
+      if (!raw || typeof raw !== 'object') continue;
+      const name = raw.name as string | undefined;
+      const hfRepo = raw.hfRepo as string | undefined;
+      const dir = raw.directory as string | undefined;
+      if (name === filename && hfRepo) {
+        const out: AutoResolvedModel = {
+          source: 'hfRepo',
+          downloadUrl: '',
+          hfRepo,
+          confidence: 'high',
+        };
+        if (dir) out.suggestedFolder = dir;
+        return out;
+      }
+    }
+  }
+  return null;
+}
+
 // Step 2 — MarkdownNote URL basename match.
 
 async function stepMarkdown(
@@ -166,6 +208,10 @@ function searchesEnabled(): boolean {
 async function resolveOne(
   filename: string, wf: StagedWorkflowEntry, caches: SearchCaches,
 ): Promise<AutoResolvedModel | null> {
+  // Whole-HF-repo declarations on a workflow's own `properties.models` win
+  // over everything else — the author was explicit, no need to search.
+  const s0 = stepHfRepo(filename, wf.workflow);
+  if (s0) return s0;
   const s1 = stepCatalog(filename);
   if (s1) return s1;
   const s2 = await stepMarkdown(filename, wf.modelUrls || []);

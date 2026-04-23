@@ -20,8 +20,20 @@ export function applyFormInputs(
 ): void {
   for (const binding of formInputs) {
     const val = userInputs[binding.id];
-    if (val == null) continue;
     if (binding.nodeId == null) continue;
+    const isMedia = binding.mediaType === 'image'
+      || binding.mediaType === 'audio'
+      || binding.mediaType === 'video';
+    // Empty media field → the user declined the upload (allowed when the
+    // downstream socket is optional). Remove the LoadImage/Audio/Video
+    // node from the API prompt AND any `[<id>, <slot>]` refs on other
+    // nodes so ComfyUI doesn't try to validate a loader pointing at a
+    // missing file. Non-media bindings fall through to `continue` as
+    // before — empty literals preserve the workflow's baked-in default.
+    if (val == null || val === '') {
+      if (isMedia) removeNodeAndRefs(prompt, String(binding.nodeId));
+      continue;
+    }
     const entry = prompt[String(binding.nodeId)];
     if (!entry) continue;
     if (binding.mediaType === 'image') {
@@ -33,6 +45,27 @@ export function applyFormInputs(
     } else if (binding.mediaType === 'video') {
       entry.inputs.video = val;
       entry.inputs.upload = 'video';
+    }
+  }
+}
+
+/**
+ * Strip a node from the API prompt and scrub every reference to it from
+ * any other node's inputs. References in ComfyUI's API-prompt format are
+ * `[nodeId, slot]` tuples. Dropping the input key (rather than leaving a
+ * dangling ref) is what ComfyUI expects — optional sockets accept "not
+ * supplied" but not "supplied as dangling link".
+ */
+function removeNodeAndRefs(prompt: ApiPrompt, nodeId: string): void {
+  if (!prompt[nodeId]) return;
+  delete prompt[nodeId];
+  for (const entry of Object.values(prompt)) {
+    const inputs = entry.inputs ?? {};
+    for (const key of Object.keys(inputs)) {
+      const v = inputs[key];
+      if (Array.isArray(v) && v.length === 2 && String(v[0]) === nodeId) {
+        delete inputs[key];
+      }
     }
   }
 }

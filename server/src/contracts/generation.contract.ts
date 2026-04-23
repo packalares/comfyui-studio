@@ -103,6 +103,14 @@ export interface RequiredModelInfo {
   name: string;
   directory: string;
   url: string;
+  /**
+   * HuggingFace repo id (e.g. `IndexTeam/IndexTTS-2`). Present instead of
+   * `url` when the entry represents a whole-repo download — the UI renders
+   * "Download repo from HF" and the server shells out to `huggingface-cli
+   * download <hfRepo> --local-dir <directory>`. `url` stays empty here
+   * since there's no single-file artifact.
+   */
+  hfRepo?: string;
   size?: number;
   /** Pretty-formatted size string (e.g. "9.14 GB"), derived from catalog's size_bytes. */
   size_pretty?: string;

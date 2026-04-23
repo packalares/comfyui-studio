@@ -15,6 +15,7 @@ import { extractPrimitiveFormFields } from '../workflow/primitiveFields.js';
 // in `claimed.ts` which imports from `../../templates/index.ts`, creating
 // a cycle (templates → workflow → templates).
 import { filteredWidgetValues, widgetNamesFor } from '../workflow/rawWidgets/shapes.js';
+import { flattenWorkflow } from '../workflow/flatten/index.js';
 import type { FormInputData, RawTemplate } from './types.js';
 
 // Human labels for well-known prompt-surface widget names. Anything not in
@@ -61,17 +62,47 @@ function defaultPromptField(description?: string): FormInputData {
   };
 }
 
+/**
+ * Walk `workflow.links` from the loader's output → find the downstream
+ * node's input. Return true when the terminal input is marked optional
+ * (`shape === 7` in LiteGraph's convention). `null` when we can't tell
+ * — caller treats unknown as required (safe default).
+ */
+function loaderFeedsOptionalInput(
+  workflow: Record<string, unknown> | undefined,
+  loaderNodeId: number,
+): boolean | null {
+  if (!workflow) return null;
+  const links = (workflow.links as unknown[] | undefined) ?? [];
+  const nodes = (workflow.nodes as Array<Record<string, unknown>> | undefined) ?? [];
+  // LiteGraph link shape: [id, originNodeId, originSlot, targetNodeId, targetSlot, type]
+  for (const raw of links) {
+    if (!Array.isArray(raw) || raw.length < 5) continue;
+    const originNodeId = raw[1];
+    if (originNodeId !== loaderNodeId) continue;
+    const targetNodeId = raw[3] as number;
+    const targetSlot = raw[4] as number;
+    const target = nodes.find((n) => (n.id as number) === targetNodeId);
+    const targetInputs = (target?.inputs as Array<Record<string, unknown>> | undefined) ?? [];
+    const inp = targetInputs[targetSlot];
+    if (inp && inp.shape === 7) return true;
+  }
+  return false;
+}
+
 function mediaInput(
   mediaType: 'image' | 'audio' | 'video',
   index: number,
   input: { nodeId: number; nodeType: string; file?: string; mediaType: string },
+  workflow?: Record<string, unknown>,
 ): FormInputData {
   const defaultLabel = `${mediaType.charAt(0).toUpperCase()}${mediaType.slice(1)} ${index + 1}`;
+  const isOptional = loaderFeedsOptionalInput(workflow, input.nodeId) === true;
   return {
     id: `${mediaType}_${index}`,
     label: input.file ? cleanFileName(input.file) : defaultLabel,
     type: mediaType,
-    required: true,
+    required: !isOptional,
     nodeId: input.nodeId,
     nodeType: input.nodeType,
     mediaType,
@@ -93,7 +124,21 @@ function promptSurfaceFieldsFromNodes(
   workflow: Record<string, unknown>,
   objectInfo: Record<string, Record<string, unknown>>,
 ): FormInputData[] | null {
-  const nodes = (workflow.nodes as Array<Record<string, unknown>> | undefined) || [];
+  // Flatten first so CLIPTextEncode (or any encoder) nested inside a
+  // subgraph wrapper surfaces as a bound form field. Compound IDs like
+  // `98:6` from the flattener double as the `bindNodeId` the server's
+  // `applyBoundFormInputs` already understands. Fall back to top-level
+  // node iteration if flattening throws — preserves legacy behaviour for
+  // non-subgraph / malformed workflows.
+  let flatNodes: Array<Record<string, unknown>> | null = null;
+  try {
+    const flat = flattenWorkflow(workflow);
+    flatNodes = Array.from(flat.nodes.values()) as unknown as Array<Record<string, unknown>>;
+  } catch {
+    flatNodes = null;
+  }
+  const nodes: Array<Record<string, unknown>> = flatNodes
+    ?? ((workflow.nodes as Array<Record<string, unknown>> | undefined) || []);
   for (const node of nodes) {
     const classType = (node.type as string | undefined) || (node.class_type as string | undefined);
     if (!classType) continue;
@@ -199,9 +244,9 @@ export function generateFormInputs(
 
   for (let i = 0; i < ioInputs.length; i++) {
     const input = ioInputs[i];
-    if (input.mediaType === 'image') inputs.push(mediaInput('image', i, input));
-    else if (input.mediaType === 'audio') inputs.push(mediaInput('audio', i, input));
-    else if (input.mediaType === 'video') inputs.push(mediaInput('video', i, input));
+    if (input.mediaType === 'image') inputs.push(mediaInput('image', i, input, workflow));
+    else if (input.mediaType === 'audio') inputs.push(mediaInput('audio', i, input, workflow));
+    else if (input.mediaType === 'video') inputs.push(mediaInput('video', i, input, workflow));
   }
 
   if (inputs.length === 0) {

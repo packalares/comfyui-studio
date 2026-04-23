@@ -22,11 +22,21 @@ export function buildTemplatesWhere(filter: TemplateListFilter): WhereClause {
 
   const q = (filter.q ?? '').trim().toLowerCase();
   if (q) {
+    // Last clause searches required-model filenames via the `template_models`
+    // side table so e.g. `flux` or `wan2.2` surfaces workflows that pull those
+    // weights, not just workflows whose name/description mention them.
     clauses.push(
-      "(LOWER(name) LIKE ? OR LOWER(displayName) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ? OR LOWER(COALESCE(category,'')) LIKE ? OR LOWER(COALESCE(tags_json,'')) LIKE ?)",
+      "(LOWER(name) LIKE ? " +
+      "OR LOWER(displayName) LIKE ? " +
+      "OR LOWER(COALESCE(description,'')) LIKE ? " +
+      "OR LOWER(COALESCE(category,'')) LIKE ? " +
+      "OR LOWER(COALESCE(tags_json,'')) LIKE ? " +
+      "OR EXISTS (SELECT 1 FROM template_models tm " +
+      "WHERE tm.template = templates.name " +
+      "AND LOWER(tm.model_filename) LIKE ?))",
     );
     const needle = `%${q}%`;
-    params.push(needle, needle, needle, needle, needle);
+    params.push(needle, needle, needle, needle, needle, needle);
   }
   if (filter.category && filter.category !== 'All') {
     clauses.push('category = ?');

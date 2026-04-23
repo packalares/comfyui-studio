@@ -360,6 +360,22 @@ export const api = {
    * metadata + a "Downloading" badge immediately, instead of waiting for
    * the disk scan to pick up the file on completion.
    */
+  /**
+   * Download a whole HuggingFace repo (used by custom-node entries whose
+   * weights are a multi-file package — IndexTTS2 etc.). Server shells out
+   * to `huggingface-cli download`. Hooks into the same task/progress WS
+   * system as single-file downloads, so the DependencyModal progress bar
+   * reuses the existing wire-up.
+   */
+  downloadHfRepo: (hfRepo: string, directory: string, name?: string) =>
+    fetchJson<{ success: boolean; taskId: string; modelName: string }>(
+      '/models/download-hf-repo',
+      {
+        method: 'POST',
+        body: JSON.stringify({ hfRepo, directory, name }),
+      },
+    ),
+
   downloadCustomModel: (
     hfUrl: string,
     modelDir: string,

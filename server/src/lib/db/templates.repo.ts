@@ -182,6 +182,24 @@ export function findTemplatesRequiringModel(
   return rows.map((r) => r.template);
 }
 
+/**
+ * Full-text-style lookup: every template whose required-model filename
+ * contains `needle` (case-insensitive substring). Used by the /templates
+ * search endpoint so typing a model filename surfaces every workflow that
+ * pulls it, not just the ones whose title/description happen to mention it.
+ */
+export function findTemplatesByModelSubstring(
+  needle: string,
+  db: Database.Database = getDb(),
+): string[] {
+  const trimmed = needle.trim();
+  if (!trimmed) return [];
+  const rows = db.prepare(
+    'SELECT DISTINCT template FROM template_models WHERE LOWER(model_filename) LIKE ? ORDER BY template',
+  ).all(`%${trimmed.toLowerCase()}%`) as Array<{ template: string }>;
+  return rows.map((r) => r.template);
+}
+
 export function findTemplatesRequiringPlugin(
   pluginId: string,
   db: Database.Database = getDb(),

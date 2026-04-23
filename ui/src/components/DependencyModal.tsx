@@ -100,7 +100,9 @@ export default function DependencyModal({ missing, onClose, onDownloadComplete }
     for (const model of missing) {
       // Skip if a download for this model is already running.
       if (findDownloadForModel(downloads, { name: model.name })) continue;
-      if (!model.url) {
+      // Whole-HF-repo entries (custom-node registry: IndexTTS2 etc.) route
+      // through the hf-cli download path instead of single-URL.
+      if (!model.url && !model.hfRepo) {
         setLocalState(prev => new Map(prev).set(model.name, { status: 'error', progress: 0, error: 'No download URL available' }));
         continue;
       }
@@ -109,10 +111,14 @@ export default function DependencyModal({ missing, onClose, onDownloadComplete }
       if (model.gated && !hfTokenConfigured) continue;
       setLocalState(prev => new Map(prev).set(model.name, { status: 'downloading', progress: 0 }));
       try {
-        await api.downloadCustomModel(model.url, model.directory || 'checkpoints', {
-          modelName: model.name,
-          filename: model.name,
-        });
+        if (model.hfRepo) {
+          await api.downloadHfRepo(model.hfRepo, model.directory, model.name);
+        } else {
+          await api.downloadCustomModel(model.url, model.directory || 'checkpoints', {
+            modelName: model.name,
+            filename: model.name,
+          });
+        }
         // Keep the local 'downloading' placeholder; it's overridden by the live WS state
         // inside `view` once the first progress message arrives.
       } catch (err) {

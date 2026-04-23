@@ -9,6 +9,7 @@
 
 import { generateFormInputs } from '../templates/templates.formInputs.js';
 import * as templates from '../templates/index.js';
+import { resolveProxyBoundKeys } from './proxyLabels.js';
 import type { RawTemplate } from '../templates/types.js';
 import type { AdvancedSetting } from '../../contracts/workflow.contract.js';
 
@@ -41,11 +42,18 @@ export function computeFormBoundKeys(
  * `proxyWidgets` and `settings` share an index (proxyIndex) — we look up
  * each setting's (innerNodeId, widgetName) via that index and drop it when
  * the same pair is already bound to a main-form field.
+ *
+ * `resolvedKeys` is optional; when provided (from
+ * `resolveProxyBoundKeys`) it carries compound-id pairs like
+ * `{nodeId: "98:6", widgetName: "text"}` so dedup works for subgraph-
+ * proxied widgets too (those with `innerNodeId === "-1"`). Falls back to
+ * the raw proxy entry otherwise.
  */
 export function filterProxySettingsByBoundKeys(
   settings: AdvancedSetting[],
   proxyWidgets: string[][],
   boundKeys: Set<string>,
+  resolvedKeys?: Array<{ nodeId: string; widgetName: string }>,
 ): AdvancedSetting[] {
   return settings.filter(s => {
     // Raw-widget entries use proxyIndex === -1 as the sentinel; they're handled
@@ -54,7 +62,14 @@ export function filterProxySettingsByBoundKeys(
     const entry = proxyWidgets[s.proxyIndex];
     if (!entry) return true;
     const [innerId, widgetName] = entry;
-    return !boundKeys.has(`${innerId}|${widgetName}`);
+    // Check raw form (legacy pairs) AND compound/resolved form (new
+    // subgraph-aware form walker). Dropping the entry if EITHER matches.
+    if (boundKeys.has(`${innerId}|${widgetName}`)) return false;
+    const resolved = resolvedKeys?.[s.proxyIndex];
+    if (resolved && boundKeys.has(`${resolved.nodeId}|${resolved.widgetName}`)) {
+      return false;
+    }
+    return true;
   });
 }
 
@@ -65,7 +80,11 @@ export function filterProxySettingsAgainstForm(
   templateName: string,
   workflow: Record<string, unknown>,
   objectInfo: Record<string, Record<string, unknown>>,
+  wrapperNode?: Record<string, unknown>,
 ): AdvancedSetting[] {
   const boundKeys = computeFormBoundKeys(templateName, workflow, objectInfo);
-  return filterProxySettingsByBoundKeys(settings, proxyWidgets, boundKeys);
+  const resolvedKeys = wrapperNode
+    ? resolveProxyBoundKeys(wrapperNode, proxyWidgets, workflow)
+    : undefined;
+  return filterProxySettingsByBoundKeys(settings, proxyWidgets, boundKeys, resolvedKeys);
 }

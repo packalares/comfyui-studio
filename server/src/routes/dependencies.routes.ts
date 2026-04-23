@@ -7,6 +7,8 @@
 // lags behind download-custom writes).
 
 import { Router, type Request, type Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import * as catalog from '../services/catalog.js';
 import * as templatesSvc from '../services/templates/index.js';
 import { collectAllWorkflowNodes, LOADER_TYPES } from '../services/workflow/index.js';
@@ -24,9 +26,24 @@ const COMFYUI_URL = env.COMFYUI_URL;
 
 const router = Router();
 
+interface RepoEntryData {
+  name: string;
+  hfRepo: string;
+  directory: string;
+  description?: string;
+}
+
 interface CollectedRequirements {
   required: Set<string>;
   templateDir: Map<string, string>;
+  /**
+   * Whole-HF-repo entries declared directly on a node's `properties.models`
+   * via the `hfRepo` field (no `url` — the whole repo is the artifact).
+   * Used for custom nodes whose weights are multi-file packages
+   * (IndexTTS2, etc.). Author puts these on the node in the workflow JSON
+   * the same way they'd put single-file entries for standard loaders.
+   */
+  repoEntries: Map<string, RepoEntryData>;
 }
 
 // Walk every node; upsert each declared `properties.models[]` entry into our
@@ -43,6 +60,7 @@ function collectRequirements(
   // cat.save_path when we build the RequiredModelInfo response so the launcher
   // saves to exactly where the template's widget_values expects to find it.
   const templateDir = new Map<string, string>();
+  const repoEntries = new Map<string, RepoEntryData>();
 
   for (const node of allNodes) {
     const nodeTemplateModels = (node.properties as Record<string, unknown> | undefined)?.models;
@@ -50,9 +68,23 @@ function collectRequirements(
       for (const raw of nodeTemplateModels as Array<Record<string, unknown>>) {
         const name = raw.name as string | undefined;
         const url = raw.url as string | undefined;
+        const hfRepo = raw.hfRepo as string | undefined;
         const dir = raw.directory as string | undefined;
         if (!name) continue;
         if (dir) templateDir.set(name, dir);
+        // Whole-HF-repo entry: no single `url`, just a repo id + target
+        // directory. Used for custom nodes whose weights are multi-file
+        // packages (IndexTTS2, etc.). Download path runs
+        // `huggingface-cli download <hfRepo> --local-dir <directory>`.
+        if (hfRepo && dir) {
+          if (!repoEntries.has(name)) {
+            repoEntries.set(name, {
+              name, hfRepo, directory: dir,
+              description: raw.description as string | undefined,
+            });
+          }
+          continue;
+        }
         if (url) {
           catalog.upsertModel({
             filename: name,
@@ -79,7 +111,7 @@ function collectRequirements(
       }
     }
   }
-  return { required, templateDir };
+  return { required, templateDir, repoEntries };
 }
 
 async function fetchInstalledModels(): Promise<LauncherModelEntry[]> {
@@ -112,6 +144,7 @@ function buildRequiredList(
   templateDir: Map<string, string>,
   installedModels: LauncherModelEntry[],
   installedSet: Set<string>,
+  repoEntries: Map<string, RepoEntryData>,
 ): { required: RequiredModelInfo[]; missing: RequiredModelInfo[] } {
   const modelsDir = paths.modelsDir;
   const required: RequiredModelInfo[] = [];
@@ -148,7 +181,38 @@ function buildRequiredList(
     if (!isInstalled) missing.push(entry);
   }
 
+  // Whole-repo entries: "installed" = target directory exists AND is
+  // non-empty. We don't know the exact file list, so a non-empty dir is
+  // the practical readiness signal.
+  for (const entry of repoEntries.values()) {
+    // `directory` on the entry is relative to ComfyUI root. `env.COMFYUI_PATH`
+    // points there; `modelsDir` is `<comfyRoot>/models`, so we resolve from
+    // COMFYUI_PATH directly instead of a `../` trick that falls apart when
+    // modelsDir isn't exactly that sub-tree.
+    const absDir = path.resolve(env.COMFYUI_PATH, entry.directory);
+    const installed = dirHasAnyFile(absDir);
+    const info: RequiredModelInfo = {
+      name: entry.name,
+      url: '',
+      hfRepo: entry.hfRepo,
+      directory: entry.directory,
+      installed,
+    };
+    required.push(info);
+    if (!installed) missing.push(info);
+  }
+
   return { required, missing };
+}
+
+function dirHasAnyFile(dir: string): boolean {
+  try {
+    if (!fs.existsSync(dir)) return false;
+    const entries = fs.readdirSync(dir);
+    return entries.some((name) => !name.startsWith('.'));
+  } catch {
+    return false;
+  }
 }
 
 async function fetchTemplateNodes(templateName: string): Promise<WorkflowNode[]> {
@@ -209,9 +273,9 @@ router.post('/check-dependencies', async (req: Request, res: Response) => {
     // Seed catalog (no-op after first call).
     await catalog.seedFromComfyUI();
 
-    const { required: requiredFilenames, templateDir } =
+    const { required: requiredFilenames, templateDir, repoEntries } =
       collectRequirements(allNodes, templateName);
-    if (requiredFilenames.size === 0) {
+    if (requiredFilenames.size === 0 && repoEntries.size === 0) {
       res.json({ ready: true, required: [], missing: [] });
       return;
     }
@@ -226,6 +290,7 @@ router.post('/check-dependencies', async (req: Request, res: Response) => {
       templateDir,
       installedModels,
       installedSet,
+      repoEntries,
     );
     res.json({ ready: missing.length === 0, required, missing });
   } catch (err) {

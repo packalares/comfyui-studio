@@ -215,11 +215,21 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
               scheduleTimer(() => _fetchOutputFromHistory(promptId), 500);
             }
           } else if (msg.type === 'progress_state') {
+            // Use the prompt_id carried by the message first — by the time
+            // the final `progress_state` arrives, another branch may have
+            // already cleared `_activePromptIdRef` (execution_success
+            // handler does this unconditionally). For workflows where
+            // `progress_state` is the ONLY terminal event (IndexTTS2 and
+            // other non-sampler custom nodes that don't emit the legacy
+            // events), missing this fallback leaves the card stuck with
+            // no output fetch ever firing.
             const nodes = msg.data?.nodes;
-            if (nodes && promptId) {
+            const pid = (typeof msg.data?.prompt_id === 'string' ? msg.data.prompt_id : null)
+              ?? promptId;
+            if (nodes && pid) {
               const allFinished = Object.values(nodes).every((n: unknown) => (n as Record<string, string>).state === 'finished');
               if (allFinished) {
-                scheduleTimer(() => _fetchOutputFromHistory(promptId), 500);
+                scheduleTimer(() => _fetchOutputFromHistory(pid), 500);
               }
             }
           } else if (msg.type === 'execution_success' || msg.type === 'execution_complete') {

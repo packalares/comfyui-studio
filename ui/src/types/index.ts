@@ -293,6 +293,13 @@ export interface RequiredModel {
   name: string;
   directory: string;
   url: string;
+  /**
+   * HuggingFace repo id (e.g. `IndexTeam/IndexTTS-2`). Present instead of
+   * `url` for whole-repo entries (custom-node registry). DependencyModal
+   * routes those through `api.downloadHfRepo` instead of the single-URL
+   * `downloadCustomModel` path.
+   */
+  hfRepo?: string;
   size?: number;
   size_pretty?: string;
   installed: boolean;
@@ -533,11 +540,14 @@ export interface StagedWorkflowResolvedModel {
  * considers "covered" when deciding whether the Commit button is enabled.
  */
 export type StagedWorkflowAutoResolveSource =
-  | 'catalog' | 'markdown' | 'huggingface' | 'civitai';
+  | 'catalog' | 'markdown' | 'huggingface' | 'civitai' | 'hfRepo';
 
 export interface StagedWorkflowAutoResolvedModel {
   source: StagedWorkflowAutoResolveSource;
+  /** Empty string for `source: 'hfRepo'` — the whole repo is the artifact. */
   downloadUrl: string;
+  /** HuggingFace repo id for whole-repo downloads (e.g. `IndexTeam/IndexTTS-2`). */
+  hfRepo?: string;
   suggestedFolder?: string;
   sizeBytes?: number;
   confidence: 'high';

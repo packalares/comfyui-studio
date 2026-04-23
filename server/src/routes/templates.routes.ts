@@ -9,6 +9,7 @@
 import { Router, type Request, type Response } from 'express';
 import * as templates from '../services/templates/index.js';
 import * as settings from '../services/settings.js';
+import { findTemplatesByModelSubstring } from '../lib/db/templates.repo.js';
 import { env } from '../config/env.js';
 import { sendError } from '../middleware/errors.js';
 import { parsePageQuery, paginate } from '../lib/pagination.js';
@@ -75,6 +76,12 @@ router.get('/templates', async (req: Request, res: Response) => {
   if (readyFilter === 'yes') rows = rows.filter((t) => t.ready);
   else if (readyFilter === 'no') rows = rows.filter((t) => !t.ready);
   if (q) {
+    // Also pull template names from sqlite's `template_models` whose model
+    // filename matches the needle. The in-memory `t.models` only carries
+    // upstream-index-declared files; the sqlite side table is workflow-
+    // parsed and covers every reference (e.g. `mistral_3_small_flux2_bf16`
+    // lives in sqlite but not in the in-memory list).
+    const modelMatchNames = new Set(findTemplatesByModelSubstring(q));
     rows = rows.filter((t) =>
       t.title.toLowerCase().includes(q) ||
       t.name.toLowerCase().includes(q) ||
@@ -82,7 +89,8 @@ router.get('/templates', async (req: Request, res: Response) => {
       (t.category || '').toLowerCase().includes(q) ||
       (t.username || '').toLowerCase().includes(q) ||
       t.models.some((m) => m.toLowerCase().includes(q)) ||
-      t.tags.some((tag) => tag.toLowerCase().includes(q)),
+      t.tags.some((tag) => tag.toLowerCase().includes(q)) ||
+      modelMatchNames.has(t.name),
     );
   }
   res.json(paginate(rows, pq.page, pq.pageSize));
@@ -102,11 +110,37 @@ const handleRefresh = async (_req: Request, res: Response): Promise<void> => {
 router.post('/templates/refresh', handleRefresh);
 router.post('/launcher/templates/refresh', handleRefresh);
 
-router.get('/templates/:name', (req: Request, res: Response) => {
-  const t = templates.getTemplate(req.params.name as string);
+router.get('/templates/:name', async (req: Request, res: Response) => {
+  const name = req.params.name as string;
+  const t = templates.getTemplate(name);
   if (!t) {
     res.status(404).json({ error: 'Template not found' });
     return;
+  }
+  // For user-imported workflows, re-compute `formInputs` against live
+  // objectInfo so prompt textareas from custom-node classes that only
+  // registered AFTER initial import (IndexTTS2 etc., which need weights
+  // present before their __init__.py succeeds) become visible without
+  // requiring a re-import.
+  if (templates.isUserWorkflow(name)) {
+    try {
+      const { generateFormInputs } = await import('../services/templates/templates.formInputs.js');
+      const { getObjectInfo } = await import('../services/workflow/index.js');
+      const wf = templates.getUserWorkflowJson(name);
+      if (wf) {
+        const objectInfo = await getObjectInfo();
+        const freshInputs = generateFormInputs(
+          { name: t.name, title: t.title, description: t.description,
+            mediaType: t.mediaType, tags: t.tags, models: t.models, io: t.io },
+          wf,
+          objectInfo,
+        );
+        res.json({ ...t, formInputs: freshInputs });
+        return;
+      }
+    } catch {
+      // Non-fatal: fall through to cached.
+    }
   }
   res.json(t);
 });

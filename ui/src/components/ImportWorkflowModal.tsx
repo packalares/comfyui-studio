@@ -915,7 +915,7 @@ interface MissingModelsSectionProps {
 /** Wave L: row state is one of — paste-resolved, auto-resolved, or unresolved. */
 type MissingModelRowKind =
   | { state: 'resolved'; source: 'huggingface' | 'civitai'; downloadUrl: string; suggestedFolder?: string }
-  | { state: 'auto'; source: 'catalog' | 'markdown' | 'huggingface' | 'civitai'; downloadUrl: string; suggestedFolder?: string }
+  | { state: 'auto'; source: 'catalog' | 'markdown' | 'huggingface' | 'civitai' | 'hfRepo'; downloadUrl: string; hfRepo?: string; suggestedFolder?: string }
   | { state: 'unresolved' };
 
 interface MissingModelRow {
@@ -958,6 +958,7 @@ function collectMissingModelRows(
           state: 'auto',
           source: auto.source,
           downloadUrl: auto.downloadUrl,
+          hfRepo: auto.hfRepo,
           suggestedFolder: auto.suggestedFolder,
         };
       } else {
@@ -1053,12 +1054,13 @@ interface MissingModelRowViewProps {
   onResolveModelUrl: MissingModelsSectionProps['onResolveModelUrl'];
 }
 
-function viaLabel(source: 'catalog' | 'markdown' | 'huggingface' | 'civitai'): string {
+function viaLabel(source: 'catalog' | 'markdown' | 'huggingface' | 'civitai' | 'hfRepo'): string {
   switch (source) {
     case 'catalog': return 'via catalog';
     case 'markdown': return 'via markdown note';
     case 'huggingface': return 'via HuggingFace';
     case 'civitai': return 'via CivitAI';
+    case 'hfRepo': return 'via HF repo';
   }
 }
 
@@ -1093,9 +1095,10 @@ function MissingModelRowView(p: MissingModelRowViewProps): JSX.Element {
         )}
         {row.kind.state === 'auto' && (
           <span className="inline-flex items-center gap-1 rounded bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800"
-            title={row.kind.downloadUrl}>
+            title={row.kind.hfRepo || row.kind.downloadUrl}>
             <CheckCircle2 className="w-3 h-3" />
             auto-resolved {viaLabel(row.kind.source)}
+            {row.kind.source === 'hfRepo' && row.kind.hfRepo ? ` — ${row.kind.hfRepo}` : ''}
             {row.kind.suggestedFolder ? ` (${row.kind.suggestedFolder})` : ''}
           </span>
         )}

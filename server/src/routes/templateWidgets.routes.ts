@@ -83,7 +83,12 @@ router.get('/workflow-settings/:templateName', async (req: Request, res: Respons
       const scopeLabels = parts.map(p => p.scopeLabel);
       const sg = findSubgraphDef(wrapperNode, workflow);
       const sgNodes = (sg?.nodes || []) as Array<Record<string, unknown>>;
-      settings = extractAdvancedSettings(proxyWidgets, widgetValues, objectInfo, labels, sgNodes, scopeLabels);
+      const sgInputs = (sg?.inputs || []) as Array<Record<string, unknown>>;
+      const sgLinks = (sg?.links || []) as Array<Record<string, unknown>>;
+      settings = extractAdvancedSettings(
+        proxyWidgets, widgetValues, objectInfo, labels, sgNodes, scopeLabels,
+        sgInputs, sgLinks,
+      );
       // Dedup: a proxy entry whose (innerNodeId, widgetName) matches a bound
       // main-form field is redundant — the main form is the authoritative
       // surface for bound widgets (Phase 1). Showing the same widget in
@@ -96,6 +101,7 @@ router.get('/workflow-settings/:templateName', async (req: Request, res: Respons
         templateName,
         workflow,
         objectInfo,
+        wrapperNode,
       );
     }
 

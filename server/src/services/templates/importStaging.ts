@@ -8,11 +8,19 @@ import { randomUUID } from 'crypto';
 import type { PluginResolution } from './extractDepsAsync.js';
 
 /** Wave L auto-resolution record. Declared here to avoid circular imports. */
-export type AutoResolveSource = 'catalog' | 'markdown' | 'huggingface' | 'civitai';
+export type AutoResolveSource = 'catalog' | 'markdown' | 'huggingface' | 'civitai' | 'hfRepo';
 
 export interface AutoResolvedModel {
   source: AutoResolveSource;
+  /** Empty for `source: 'hfRepo'` — the whole repo is the artifact. */
   downloadUrl: string;
+  /**
+   * HuggingFace repo id (e.g. `IndexTeam/IndexTTS-2`). Populated when the
+   * workflow's `properties.models` entry used the `hfRepo`-shape (whole
+   * repo download) instead of a single-file `url`. Consumed by the
+   * download path to call `huggingface-cli download <hfRepo>`.
+   */
+  hfRepo?: string;
   suggestedFolder?: string;
   sizeBytes?: number;
   /** Reserved for future ambiguity scoring; always 'high' today. */
