@@ -13,9 +13,10 @@
 //   3. Wire-chasing through Primitive/Reroute/trivial-math wrappers.
 // Extraction never throws; every unresolved field stays null.
 
-import { extractFromTitles } from './gallery.extract.titles.js';
+import { extractFromTitles, extractFromApiPromptTitles } from './gallery.extract.titles.js';
 import { scanWidgets } from './gallery.extract.scan.js';
 import { resolveLiteral, followWireToSource, wireTargetId } from './gallery.extract.wires.js';
+import { UI_ONLY_TYPES } from './workflow/constants.js';
 import type {
   ApiPrompt, ApiPromptNode, ExtractedMetadata,
 } from './gallery.extract.types.js';
@@ -24,6 +25,15 @@ export type { ApiPrompt, ApiPromptNode, ExtractedMetadata };
 
 const KSAMPLER_TYPES = new Set(['KSampler', 'KSamplerAdvanced']);
 const TEXT_ENCODE_RX = /TextEncode/i;
+// Wire-chase depth cap matches gallery.extract.wires.ts MAX_DEPTH. Stock
+// LTX 2.3 chains are ~4 hops (KSampler → CLIPTextEncode → TextGenerateLTX2Prompt
+// → PrimitiveStringMultiline); user reroutes can add more.
+const PROMPT_CHASE_MAX_DEPTH = 10;
+// Inputs we follow when chasing a prompt wire backward through encoders /
+// generators. Listed in priority order: `prompt` is the convention for
+// TextGenerate* and similar wrappers; `text` is the CLIP convention; `value`
+// is the Primitive* convention.
+const PROMPT_WIRE_INPUT_NAMES = ['prompt', 'text', 'value'];
 
 /**
  * Domain-specific encoder nodes that don't use CLIP's `text` convention.
@@ -80,12 +90,60 @@ function resolveDomainSpecificPrompt(prompt: ApiPrompt): string | null {
   return null;
 }
 
+/**
+ * Chase a prompt-bearing wire backward through Primitive holders, UI-only
+ * pass-through nodes, and any TextGenerate / encoder node that has a
+ * `prompt` / `text` / `value` input we can follow. Returns the first
+ * non-empty string literal we land on, or null when the chain doesn't
+ * terminate in one (complex math, missing wires, depth cap, cycles).
+ *
+ * This is the missing link for modern LTX 2.3 / Wan / Hunyuan workflows
+ * where the user's typed prompt sits in a PrimitiveStringMultiline that
+ * feeds a TextGenerateLTX2Prompt that feeds the positive CLIPTextEncode.
+ * Without recursive chasing we'd stop at the encoder's wired `text` input
+ * and miss the user prompt entirely.
+ */
+function chasePromptWire(
+  prompt: ApiPrompt,
+  value: unknown,
+  depth = 0,
+): string | null {
+  if (depth > PROMPT_CHASE_MAX_DEPTH) return null;
+  if (typeof value === 'string') return value.trim() === '' ? null : value;
+  if (!Array.isArray(value)) return null;
+  const id = wireTargetId(value);
+  if (!id) return null;
+  const node = prompt[id];
+  if (!node?.class_type) return null;
+  // Try the standard literal-resolver first — handles Primitive* and
+  // ComfyMathExpression cases consistently with the rest of the extractor.
+  const lit = resolveLiteral(prompt, value, depth);
+  if (typeof lit === 'string' && lit.trim() !== '') return lit;
+  if (UI_ONLY_TYPES.has(node.class_type)) {
+    const first = Object.values(node.inputs ?? {})[0];
+    return chasePromptWire(prompt, first, depth + 1);
+  }
+  // Generator / encoder node: keep chasing through whichever named input
+  // carries the prompt text upstream.
+  const inputs = node.inputs ?? {};
+  for (const name of PROMPT_WIRE_INPUT_NAMES) {
+    if (!(name in inputs)) continue;
+    const next = (inputs as Record<string, unknown>)[name];
+    const chased = chasePromptWire(prompt, next, depth + 1);
+    if (chased !== null) return chased;
+  }
+  return null;
+}
+
 function resolvePromptText(prompt: ApiPrompt): string | null {
   // Step 0: domain-specific encoders (ACE-Step audio `tags`, etc.).
   const domain = resolveDomainSpecificPrompt(prompt);
   if (domain !== null) return domain;
 
-  // Step 1: KSampler → CLIPTextEncode literal.
+  // Step 1: KSampler-like sampler → positive wire → CLIPTextEncode.text →
+  // recursive chase to the literal source. Handles classic SD (literal text
+  // on the encoder), modern LTX/Wan/Hunyuan (wired through TextGenerate*
+  // back to a Primitive), and reroute chains transparently.
   for (const node of Object.values(prompt)) {
     if (!node?.class_type || !KSAMPLER_TYPES.has(node.class_type)) continue;
     const posId = wireTargetId(node.inputs?.positive);
@@ -93,10 +151,19 @@ function resolvePromptText(prompt: ApiPrompt): string | null {
     const target = prompt[posId];
     if (target?.class_type !== 'CLIPTextEncode') continue;
     const t = target.inputs?.text;
-    if (typeof t === 'string') return t;
+    if (typeof t === 'string' && t.trim() !== '') return t;
+    if (Array.isArray(t)) {
+      const chased = chasePromptWire(prompt, t);
+      if (chased !== null) return chased;
+    }
   }
 
-  // Step 2: longest literal CLIPTextEncode.
+  // Step 2: longest literal CLIPTextEncode, EXCLUDING any encoder whose
+  // output flows into a sampler's `negative` slot. Without that exclusion
+  // (the legacy behaviour) workflows that wire the positive and leave a
+  // long negative-prompt default like "pc game, console game, video game,
+  // cartoon, childish, ugly" would mistakenly label the negative as the
+  // user prompt.
   const longest = longestCLIPTextEncode(prompt);
   if (longest !== null) return longest;
 
@@ -122,11 +189,52 @@ function resolvePromptText(prompt: ApiPrompt): string | null {
   return null;
 }
 
-/** Classic heuristic fallback — longest CLIPTextEncode string wins. */
-function longestCLIPTextEncode(prompt: ApiPrompt): string | null {
-  let best: string | null = null;
+/**
+ * Collect the set of encoder node IDs whose output flows (directly or via
+ * pass-through nodes) into ANY sampler-like node's `negative` slot. We
+ * walk every node looking for `inputs.negative` / `inputs.negative_*` wires
+ * and follow them backward through UI-only / Primitive holders to land on
+ * the encoder. Same idea as resolveNegative's wire chase, but materialised
+ * as a set so longestCLIPTextEncode can exclude them.
+ */
+function collectNegativeEncoderIds(prompt: ApiPrompt): Set<string> {
+  const out = new Set<string>();
+  const visit = (id: string | null, depth: number): void => {
+    if (!id || depth > PROMPT_CHASE_MAX_DEPTH) return;
+    const node = prompt[id];
+    if (!node?.class_type) return;
+    if (node.class_type === 'CLIPTextEncode') {
+      out.add(id);
+      // Don't return — text input may itself be wired through a Primitive,
+      // but we only mark the encoder; further chasing isn't useful here.
+      return;
+    }
+    if (UI_ONLY_TYPES.has(node.class_type)) {
+      const first = Object.values(node.inputs ?? {})[0];
+      visit(wireTargetId(first), depth + 1);
+    }
+  };
   for (const node of Object.values(prompt)) {
+    if (!node?.inputs) continue;
+    for (const [key, val] of Object.entries(node.inputs)) {
+      if (key !== 'negative' && !key.startsWith('negative')) continue;
+      visit(wireTargetId(val), 0);
+    }
+  }
+  return out;
+}
+
+/**
+ * Classic heuristic fallback — longest CLIPTextEncode string wins, but
+ * skip encoders that we've identified as the negative-conditioning source
+ * (their long defaults would otherwise mislabel the prompt).
+ */
+function longestCLIPTextEncode(prompt: ApiPrompt): string | null {
+  const negatives = collectNegativeEncoderIds(prompt);
+  let best: string | null = null;
+  for (const [id, node] of Object.entries(prompt)) {
     if (node?.class_type !== 'CLIPTextEncode') continue;
+    if (negatives.has(id)) continue;
     const t = node.inputs?.text;
     if (typeof t !== 'string') continue;
     if (best === null || t.length > best.length) best = t;
@@ -205,13 +313,19 @@ export function extractMetadata(
   }
 
   const titleFields = extractFromTitles(workflowJson);
+  // Importer paths (gallery.service.ts::syncFromComfyUI etc.) only have
+  // the API prompt — ComfyUI's /history doesn't return the workflow JSON.
+  // Walk the API-prompt-format Primitives by `_meta.title` so the same
+  // role-name extraction works regardless of which payload reached us.
+  const apiTitleFields = extractFromApiPromptTitles(apiPrompt);
   const scanFields = scanWidgets(apiPrompt);
 
-  // Titles win; scan fills the gaps.
+  // Precedence: workflow titles > apiPrompt titles > widget-name scan.
   const pick = <K extends keyof ExtractedMetadata>(key: K): ExtractedMetadata[K] => {
     const t = (titleFields as Record<string, unknown>)[key];
+    const a = (apiTitleFields as Record<string, unknown>)[key];
     const s = (scanFields as Record<string, unknown>)[key];
-    return (t ?? s ?? null) as ExtractedMetadata[K];
+    return (t ?? a ?? s ?? null) as ExtractedMetadata[K];
   };
 
   out.width     = pick('width');
@@ -226,8 +340,8 @@ export function extractMetadata(
   out.sampler   = pick('sampler');
   out.scheduler = pick('scheduler');
 
-  const titlePrompt = titleFields.promptText ?? null;
-  const titleNegative = titleFields.negativeText ?? null;
+  const titlePrompt = titleFields.promptText ?? apiTitleFields.promptText ?? null;
+  const titleNegative = titleFields.negativeText ?? apiTitleFields.negativeText ?? null;
   // `resolvePromptText` already tries `longestCLIPTextEncode` as its Step 2,
   // so the tail fallback (previously: `?? longestCLIPTextEncode(apiPrompt)`)
   // was guaranteed to return null whenever wiredPrompt was null — redundant.

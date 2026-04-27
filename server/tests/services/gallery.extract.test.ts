@@ -253,6 +253,90 @@ describe('extractMetadata v4 — workflow-agnostic', () => {
     expect(meta.durationMs).toBeNull();
     expect(meta.width).toBeNull();
   });
+
+  // Regression: importer paths (gallery.service.ts::syncFromComfyUI etc.) reach
+  // extractMetadata with apiPrompt-only — ComfyUI's /history doesn't return the
+  // workflow JSON. Without an apiPrompt-format title walk + multi-hop wire
+  // chase, the extractor mislabelled LTX 2.3 i2av imports with the negative
+  // encoder's default ("pc game, console game, video game, cartoon, …").
+  describe('LTX 2.3 i2av — no workflowJson available', () => {
+    const ltxApiPrompt: ApiPrompt = {
+      '340:285': { class_type: 'RandomNoise', inputs: { noise_seed: 42 } },
+      '340:290': {
+        class_type: 'CFGGuider',
+        inputs: { positive: ['340:306', 0], negative: ['340:314', 0] },
+      },
+      '340:306': {
+        class_type: 'CLIPTextEncode',
+        inputs: { clip: ['340:318', 0], text: ['340:342', 0] },
+        _meta: { title: 'CLIP Text Encode (Prompt)' },
+      } as unknown as ApiPrompt[string],
+      '340:314': {
+        class_type: 'CLIPTextEncode',
+        inputs: {
+          clip: ['340:318', 0],
+          text: 'pc game, console game, video game, cartoon, childish, ugly',
+        },
+        _meta: { title: 'CLIP Text Encode (Prompt)' },
+      } as unknown as ApiPrompt[string],
+      '340:319': {
+        class_type: 'PrimitiveStringMultiline',
+        inputs: { value: 'The fuzzy cactus creature is talking to the viewer.' },
+        _meta: { title: 'Prompt' },
+      } as unknown as ApiPrompt[string],
+      '340:342': {
+        class_type: 'TextGenerateLTX2Prompt',
+        inputs: { prompt: ['340:319', 0] },
+      },
+    };
+
+    it('apiPrompt-format Primitive title pins the user prompt', () => {
+      const meta = extractMetadata(ltxApiPrompt);
+      expect(meta.promptText).toContain('fuzzy cactus creature');
+      expect(meta.promptText).not.toContain('pc game');
+    });
+
+    it('multi-hop wire chase resolves prompt without titles', () => {
+      // Strip the Primitive title so the apiPrompt-titles fallback can't fire.
+      const noTitle: ApiPrompt = JSON.parse(JSON.stringify(ltxApiPrompt));
+      delete (noTitle['340:319'] as unknown as { _meta?: unknown })._meta;
+      // Add a sampler so resolvePromptText Step 1 (KSampler.positive) fires;
+      // CFGGuider alone isn't a KSampler-typed node.
+      const withSampler: ApiPrompt = {
+        ...noTitle,
+        sampler: {
+          class_type: 'KSamplerAdvanced',
+          inputs: { positive: ['340:306', 0], negative: ['340:314', 0] },
+        },
+      };
+      const meta = extractMetadata(withSampler);
+      expect(meta.promptText).toContain('fuzzy cactus creature');
+    });
+
+    it('longest-literal fallback excludes the negative encoder', () => {
+      // Bypass Step 1: drop the sampler entirely so resolvePromptText reaches
+      // Step 2 (longestCLIPTextEncode). Only the negative encoder has a literal
+      // — historically it would have been picked. With the negative-aware
+      // exclusion, we get null instead of the wrong text.
+      const positiveLiteral: ApiPrompt = {
+        guider: {
+          class_type: 'CFGGuider',
+          inputs: { positive: ['enc-pos', 0], negative: ['enc-neg', 0] },
+        },
+        'enc-pos': {
+          class_type: 'CLIPTextEncode',
+          inputs: { text: 'a short prompt' },
+        },
+        'enc-neg': {
+          class_type: 'CLIPTextEncode',
+          inputs: { text: 'pc game, console game, video game, cartoon, childish, ugly' },
+        },
+      };
+      const meta = extractMetadata(positiveLiteral);
+      expect(meta.promptText).toBe('a short prompt');
+      expect(meta.negativeText).toContain('pc game');
+    });
+  });
 });
 
 describe('randomizeSeeds', () => {

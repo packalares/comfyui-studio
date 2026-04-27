@@ -3,6 +3,10 @@
 .local/
 docs/
 
+# Sibling ComfyUI plugins developed alongside the studio. Each subfolder is its
+# own git repo and is published separately to ComfyRegistry / GitHub.
+plugins/
+
 # Dependencies — reinstalled per-environment from the lockfile.
 node_modules/
 

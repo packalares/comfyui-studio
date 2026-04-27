@@ -9,6 +9,7 @@ import * as exposedWidgets from '../../exposedWidgets.js';
 import { isEnumerableWidget, titleCase } from '../constants.js';
 import { getObjectInfo } from '../objectInfo.js';
 import { computeFormClaimedWidgets } from './claimed.js';
+import { findSubgraphDef } from '../proxyLabels.js';
 import {
   filteredWidgetValues,
   inferWidgetShape,
@@ -98,6 +99,44 @@ export async function enumerateTemplateWidgets(
   return out;
 }
 
+// Depth cap mirrors subgraphWalk.ts MAX_SUBGRAPH_DEPTH; guards against
+// self-referential subgraph defs.
+const RAW_WIDGET_MAX_DEPTH = 8;
+
+/**
+ * Flatten every node addressable from the workflow root — top level plus
+ * every nested subgraph definition — into a single Map keyed by the same
+ * compound IDs the flattener emits (`parentInstanceId:innerNodeId`,
+ * recursively). Inner-node lookups for exposed widgets like
+ * `340:314|text` need this; the legacy top-level-only map silently
+ * dropped any entry whose nodeId wasn't a bare top-level instance id.
+ */
+function flattenNodesById(
+  workflow: Record<string, unknown>,
+): Map<string, Record<string, unknown>> {
+  const map = new Map<string, Record<string, unknown>>();
+  const walk = (
+    nodes: Array<Record<string, unknown>>,
+    prefix: string,
+    depth: number,
+  ): void => {
+    if (depth > RAW_WIDGET_MAX_DEPTH) return;
+    for (const n of nodes) {
+      const localId = String(n.id);
+      const compoundId = prefix ? `${prefix}:${localId}` : localId;
+      map.set(compoundId, n);
+      const props = n.properties as Record<string, unknown> | undefined;
+      if (!props?.proxyWidgets) continue;
+      const sgDef = findSubgraphDef(n, workflow);
+      if (!sgDef) continue;
+      const inner = (sgDef.nodes || []) as Array<Record<string, unknown>>;
+      walk(inner, compoundId, depth + 1);
+    }
+  };
+  walk((workflow.nodes || []) as Array<Record<string, unknown>>, '', 0);
+  return map;
+}
+
 /**
  * Build AdvancedSetting entries for user-exposed raw-node widgets. Uses
  * `proxyIndex: -1` as the marker that routes the value through
@@ -110,10 +149,7 @@ export function buildRawWidgetSettings(
   templateName?: string,
 ): AdvancedSetting[] {
   const result: AdvancedSetting[] = [];
-  const byId = new Map<string, Record<string, unknown>>();
-  for (const n of (workflow.nodes || []) as Array<Record<string, unknown>>) {
-    byId.set(String(n.id), n);
-  }
+  const byId = flattenNodesById(workflow);
   // Exclude anything already driven by the main form (positive prompt + upload bindings) —
   // otherwise stale entries in the saved exposed-widgets JSON would render in the Advanced
   // Settings panel at the same time the main Prompt textarea is driving the same widget.

@@ -117,6 +117,28 @@ function isMultilineStringSpec(spec: unknown): boolean {
   return (spec[1] as { multiline?: boolean } | undefined)?.multiline === true;
 }
 
+// True if `widgetName` on this node has been "converted to input" — i.e. an
+// entry exists in node.inputs[] with that name (or `widget.name`) AND a
+// non-null link, meaning the value flows in from an upstream wire (Primitive,
+// TextGenerateLTX2Prompt, etc). When wired, the widget is no longer the
+// user-editable surface — the upstream node is — so we must NOT emit a form
+// field for it (would render as a duplicate empty textarea sitting alongside
+// the upstream Primitive's bound field).
+function isWidgetWired(node: Record<string, unknown>, widgetName: string): boolean {
+  const inputs = node.inputs;
+  if (!Array.isArray(inputs)) return false;
+  for (const raw of inputs) {
+    if (!raw || typeof raw !== 'object') continue;
+    const slot = raw as Record<string, unknown>;
+    const slotName = typeof slot.name === 'string' ? slot.name : undefined;
+    const widgetMeta = slot.widget as { name?: string } | undefined;
+    const matches = slotName === widgetName || widgetMeta?.name === widgetName;
+    if (!matches) continue;
+    if (slot.link != null) return true;
+  }
+  return false;
+}
+
 // Emit one prompt-surface field per multiline STRING widget on the first
 // non-negative node that has any. Stops at that node. Returns `null` when
 // no such node exists OR no objectInfo for its class_type.
@@ -154,7 +176,10 @@ function promptSurfaceFieldsFromNodes(
     const declared = { ...(schema.input.required || {}), ...(schema.input.optional || {}) };
     const targets: string[] = [];
     for (const [name, spec] of Object.entries(declared)) {
-      if (isMultilineStringSpec(spec)) targets.push(name);
+      if (!isMultilineStringSpec(spec)) continue;
+      // Skip widgets whose value comes from upstream — see isWidgetWired.
+      if (isWidgetWired(node, name)) continue;
+      targets.push(name);
     }
     if (targets.length === 0) continue;
     // Positional defaults — align widgetNamesFor with filteredWidgetValues
