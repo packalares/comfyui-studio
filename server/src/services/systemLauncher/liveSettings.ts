@@ -30,6 +30,8 @@ export interface LiveSettings {
   pipSource: string;
   /** Extra hosts allowed for plugin install URLs (in addition to the built-in trio). */
   pluginTrustedHosts: string[];
+  /** Extra hosts allowed for model-download URLs (in addition to the built-in set). */
+  modelTrustedHosts: string[];
   /** When true, the pip-source validator accepts `http://` URLs on private IPs. */
   allowPrivateIpMirrors: boolean;
 }
@@ -48,6 +50,7 @@ const state: LiveSettings = {
   githubProxy: env.GITHUB_PROXY,
   pipSource: env.PIP_INDEX_URL,
   pluginTrustedHosts: parseHostList(env.PLUGIN_TRUSTED_HOSTS),
+  modelTrustedHosts: parseHostList(env.MODEL_TRUSTED_HOSTS),
   allowPrivateIpMirrors: env.PIP_ALLOW_PRIVATE_IP === true,
 };
 
@@ -78,6 +81,12 @@ export function hydrate(snapshot: Partial<LiveSettings>): void {
       .map(h => h.trim().toLowerCase())
       .filter(h => h.length > 0);
   }
+  if (Array.isArray(snapshot.modelTrustedHosts)) {
+    state.modelTrustedHosts = snapshot.modelTrustedHosts
+      .filter((h): h is string => typeof h === 'string')
+      .map(h => h.trim().toLowerCase())
+      .filter(h => h.length > 0);
+  }
   if (typeof snapshot.allowPrivateIpMirrors === 'boolean') {
     state.allowPrivateIpMirrors = snapshot.allowPrivateIpMirrors;
   }
@@ -99,6 +108,10 @@ export function getPipSource(): string {
 
 export function getPluginTrustedHosts(): string[] {
   return [...state.pluginTrustedHosts];
+}
+
+export function getModelTrustedHosts(): string[] {
+  return [...state.modelTrustedHosts];
 }
 
 export function getAllowPrivateIpMirrors(): boolean {
@@ -140,6 +153,16 @@ export function setPipSource(url: string): void {
 }
 
 export function setPluginTrustedHosts(hosts: string[]): void {
+  state.pluginTrustedHosts = cleanHostList(hosts);
+  writeThrough();
+}
+
+export function setModelTrustedHosts(hosts: string[]): void {
+  state.modelTrustedHosts = cleanHostList(hosts);
+  writeThrough();
+}
+
+function cleanHostList(hosts: string[]): string[] {
   const seen = new Set<string>();
   const cleaned: string[] = [];
   for (const raw of hosts) {
@@ -149,8 +172,7 @@ export function setPluginTrustedHosts(hosts: string[]): void {
     seen.add(h);
     cleaned.push(h);
   }
-  state.pluginTrustedHosts = cleaned;
-  writeThrough();
+  return cleaned;
 }
 
 export function setAllowPrivateIpMirrors(allow: boolean): void {

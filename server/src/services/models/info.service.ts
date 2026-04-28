@@ -1,14 +1,15 @@
 // Catalog access (in-memory + bundled JSON).
 //
-// We intentionally skip remote fetch of `model-list.json`; we rely on the
-// bundled `server/data/model-list.json` that Agent F copied in.
+// Cascade read: local cache → bundled JSON → empty. The cache file is
+// refreshed on boot via `services/models/modelListCache.ts` so seeding
+// works offline once an initial fetch has succeeded.
 
 import fs from 'fs';
 import path from 'path';
-import { paths } from '../../config/paths.js';
 import { logger } from '../../lib/logger.js';
 import { env } from '../../config/env.js';
 import { resolveModelFilePath } from './sharedModelHub.js';
+import { cascadeRead } from './modelListCache.js';
 import type { CatalogModelEntry } from './download.service.js';
 import type { EssentialModel } from '../../contracts/models.contract.js';
 
@@ -21,25 +22,14 @@ interface CachedCatalog {
 
 let memCache: CachedCatalog | null = null;
 
-/** Path to the bundled model-list.json. */
-function bundledListPath(): string {
-  return path.join(paths.dataDir, 'model-list.json');
-}
-
-/** Load from bundled JSON; re-read at most once per CACHE_DURATION. */
+/** Load from cascade (cache → bundled → empty); re-read at most once per CACHE_DURATION. */
 export function getModelList(mode: 'cache' | 'local' | 'remote' = 'cache'): CatalogModelEntry[] {
   if (mode === 'cache' && memCache && Date.now() - memCache.ts < CACHE_DURATION) {
     return memCache.models;
   }
   try {
-    const file = bundledListPath();
-    if (!fs.existsSync(file)) {
-      logger.warn('model-list.json missing', { file });
-      return [];
-    }
-    const raw = fs.readFileSync(file, 'utf8');
-    const parsed = JSON.parse(raw) as { models?: CatalogModelEntry[] };
-    const models = parsed.models || [];
+    const body = cascadeRead();
+    const models = (body.models as CatalogModelEntry[] | undefined) || [];
     memCache = { models, ts: Date.now() };
     return models;
   } catch (err) {

@@ -72,35 +72,53 @@ interface ParsedHfFile {
   repoId: string;
   revision: string;
   pathInRepo: string;
+  /** Repo type controls the URL prefix used when reconstructing /resolve/. */
+  repoType: 'model' | 'dataset';
 }
 
 /**
- * Accepts the two shapes HF exposes publicly:
+ * Accepts the four file-URL shapes HF exposes publicly:
  *   - https://huggingface.co/<org>/<repo>/blob/<ref>/<path>
  *   - https://huggingface.co/<org>/<repo>/resolve/<ref>/<path>
- * Repo-root URLs (no /blob/ or /resolve/) return null.
+ *   - https://huggingface.co/datasets/<org>/<repo>/blob/<ref>/<path>
+ *   - https://huggingface.co/datasets/<org>/<repo>/resolve/<ref>/<path>
+ *
+ * Repo-root URLs (no /blob/ or /resolve/) return null; Spaces URLs are
+ * rejected because they aren't single-file artifacts.
  */
-function parseHfFileUrl(raw: string): ParsedHfFile | null {
+export function parseHfFileUrl(raw: string): ParsedHfFile | null {
   let u: URL;
   try { u = new URL(raw); }
   catch { return null; }
   const host = u.hostname.toLowerCase();
   if (host !== 'huggingface.co' && host !== 'www.huggingface.co') return null;
   const parts = u.pathname.split('/').filter((p) => p.length > 0);
-  if (parts.length < 5) return null;
-  const [org, repo, kind, ref, ...rest] = parts;
+  if (parts.length === 0) return null;
+  if (parts[0] === 'spaces') return null;
+  let repoType: 'model' | 'dataset' = 'model';
+  let cursor = 0;
+  if (parts[0] === 'datasets') { repoType = 'dataset'; cursor = 1; }
+  // Need org, repo, kind, ref, +1 path part.
+  if (parts.length - cursor < 5) return null;
+  const org = parts[cursor];
+  const repo = parts[cursor + 1];
+  const kind = parts[cursor + 2];
+  const ref = parts[cursor + 3];
+  const rest = parts.slice(cursor + 4);
   if (kind !== 'blob' && kind !== 'resolve') return null;
   if (rest.length === 0) return null;
   return {
     repoId: `${org}/${repo}`,
     revision: ref,
     pathInRepo: rest.join('/'),
+    repoType,
   };
 }
 
-function buildResolveUrl(repoId: string, revision: string, pathInRepo: string): string {
-  const encodedPath = pathInRepo.split('/').map(encodeURIComponent).join('/');
-  return `https://huggingface.co/${repoId}/resolve/${encodeURIComponent(revision)}/${encodedPath}`;
+function buildResolveUrl(parsed: ParsedHfFile): string {
+  const encodedPath = parsed.pathInRepo.split('/').map(encodeURIComponent).join('/');
+  const prefix = parsed.repoType === 'dataset' ? 'datasets/' : '';
+  return `https://huggingface.co/${prefix}${parsed.repoId}/resolve/${encodeURIComponent(parsed.revision)}/${encodedPath}`;
 }
 
 function hfAuthHeaders(): Record<string, string> {
@@ -136,7 +154,7 @@ export async function resolveHuggingfaceUrl(url: string): Promise<ResolvedModel 
   if (typeof url !== 'string' || url.length === 0) return null;
   const parsed = parseHfFileUrl(url);
   if (!parsed) return null;
-  const downloadUrl = buildResolveUrl(parsed.repoId, parsed.revision, parsed.pathInRepo);
+  const downloadUrl = buildResolveUrl(parsed);
   const fileName = parsed.pathInRepo.split('/').pop() || parsed.pathInRepo;
   const suggestedFolder = guessFolder(parsed.pathInRepo, fileName);
   const sizeBytes = await headSize(downloadUrl);

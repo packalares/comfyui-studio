@@ -2,13 +2,19 @@
 //
 // No network side effects: everything here is pure URL manipulation. The
 // actual downloading flows through `downloadController.service.ts`.
+//
+// Catalog → URL builders moved to `download.urlBuild.ts`; re-exported here
+// so existing call sites keep working.
 
 import fs from 'fs';
 import path from 'path';
 import { env } from '../../config/env.js';
-import { logger } from '../../lib/logger.js';
 import { safeResolve } from '../../lib/fs.js';
-import * as liveSettings from '../systemLauncher/liveSettings.js';
+
+export {
+  buildDownloadUrl, getAllDownloadUrls, processHfEndpoint, buildResolveUrl,
+} from './download.urlBuild.js';
+export type { CatalogModelEntry } from './download.urlBuild.js';
 
 /** Models directory category -> subdir mapping (matches launcher exactly). */
 export function getModelSaveDir(modelType: string): string {
@@ -41,101 +47,6 @@ export function inferModelType(modelName: string): string {
   return 'checkpoint';
 }
 
-/** Catalog entry shape (matches launcher's info.ts ModelInfo record). */
-export interface CatalogModelEntry {
-  name: string;
-  type?: string;
-  base_url?: string;
-  save_path: string;
-  description?: string;
-  reference?: string;
-  filename?: string;
-  sha256?: string;
-  installed?: boolean;
-  url?: string | { hf?: string; mirror?: string; cdn?: string };
-  fileStatus?: 'complete' | 'incomplete' | 'corrupted' | 'unknown';
-  fileSize?: number;
-  size?: string;
-  base?: string;
-}
-
-/**
- * Build the preferred download URL. Honours `source` (hf | mirror | cdn).
- * If the catalog entry stores URL as a plain string, the `hf -> hf-mirror.com`
- * rewrite still applies for non-hf sources.
- */
-export function buildDownloadUrl(
-  modelInfo: CatalogModelEntry,
-  source: string = 'hf',
-): string {
-  const raw = modelInfo.url;
-  if (raw) {
-    if (typeof raw === 'string') return rewriteStringUrl(raw, source);
-    if (raw.hf || raw.mirror || raw.cdn) return pickFromUrlObject(raw, source);
-    const first = Object.values(raw)[0];
-    if (first) return first;
-  }
-  return buildFallbackUrl(modelInfo, source);
-}
-
-function rewriteStringUrl(url: string, source: string): string {
-  if (source !== 'hf' && url.includes('huggingface.co')) {
-    return url.replace('huggingface.co', 'hf-mirror.com');
-  }
-  return url;
-}
-
-function pickFromUrlObject(
-  url: { hf?: string; mirror?: string; cdn?: string },
-  source: string,
-): string {
-  if (source === 'cdn' && url.cdn) return url.cdn;
-  if (source === 'mirror' && url.mirror) return url.mirror;
-  if (url.hf) return url.hf;
-  return url.mirror || url.cdn || '';
-}
-
-function buildFallbackUrl(modelInfo: CatalogModelEntry, source: string): string {
-  const baseUrl = source === 'hf' ? 'https://huggingface.co/' : 'https://hf-mirror.com/';
-  const repo = `models/${modelInfo.name}`;
-  const filename = modelInfo.filename || modelInfo.name;
-  return `${baseUrl}${repo}/resolve/main/${filename}`;
-}
-
-/**
- * All viable download URLs in launcher's priority order:
- *   user-chosen primary -> cdn fallback -> alternative primary.
- */
-export function getAllDownloadUrls(
-  modelInfo: CatalogModelEntry,
-  source: string = 'hf',
-): Array<{ url: string; source: string }> {
-  const out: Array<{ url: string; source: string }> = [];
-  const raw = modelInfo.url;
-  if (typeof raw === 'string') return [{ url: raw, source: 'default' }];
-  if (!raw) return [{ url: buildDownloadUrl(modelInfo, source), source }];
-  const primarySrc = source === 'mirror' ? 'mirror' : 'hf';
-  const primaryUrl = source === 'mirror' ? raw.mirror : raw.hf;
-  if (primaryUrl) out.push({ url: primaryUrl, source: primarySrc });
-  if (raw.cdn) out.push({ url: raw.cdn, source: 'cdn' });
-  const altSrc = source === 'mirror' ? 'hf' : 'mirror';
-  const altUrl = source === 'mirror' ? raw.hf : raw.mirror;
-  if (altUrl && altUrl !== primaryUrl) out.push({ url: altUrl, source: altSrc });
-  return out;
-}
-
-/** Replace `huggingface.co` with a user-configured mirror endpoint. */
-export function processHfEndpoint(
-  downloadUrl: string,
-  hfEndpoint: string = liveSettings.getHfEndpoint(),
-): string {
-  if (hfEndpoint && downloadUrl.includes('huggingface.co')) {
-    logger.info('download HF endpoint override applied', { endpoint: hfEndpoint });
-    return downloadUrl.replace('huggingface.co/', hfEndpoint.replace(/^https?:\/\//, ''));
-  }
-  return downloadUrl;
-}
-
 /** Validate a HF URL provided by a user. Returns a parsed filename on success. */
 export function validateHfUrl(
   hfUrl: string,
@@ -152,6 +63,56 @@ export function validateHfUrl(
     return { isValid: true, fileName: pathParts[pathParts.length - 1] };
   } catch {
     return { isValid: false, fileName: '', error: 'Invalid URL format' };
+  }
+}
+
+/**
+ * Validate a GitHub release URL of the form
+ * `github.com/<owner>/<repo>/releases/download/<tag>/<file>`. The release
+ * URL DOES encode the filename in its last segment, so we can derive it
+ * here for the unified download endpoint without forcing the caller to
+ * supply a `filename` body field.
+ */
+export function validateGithubUrl(
+  url: string,
+): { isValid: boolean; fileName: string; error?: string } {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    if (host !== 'github.com' && host !== 'www.github.com') {
+      return { isValid: false, fileName: '', error: 'Only github.com URLs are supported' };
+    }
+    const parts = u.pathname.split('/').filter(Boolean);
+    if (parts.length < 6 || parts[2] !== 'releases' || parts[3] !== 'download') {
+      return {
+        isValid: false, fileName: '',
+        error: 'GitHub URL must target /releases/download/:tag/:file',
+      };
+    }
+    const fileName = decodeURIComponent(parts[parts.length - 1]);
+    return { isValid: true, fileName };
+  } catch {
+    return { isValid: false, fileName: '', error: 'Invalid URL format' };
+  }
+}
+
+/**
+ * Last-resort validator for an arbitrary http(s) URL on an allow-listed
+ * host. The caller has already checked the allow-list (see
+ * `services/models/downloadAllowlist.ts`); this only confirms the URL
+ * itself is well-formed and not a non-http scheme.
+ */
+export function validateGenericUrl(
+  url: string,
+): { isValid: boolean; error?: string } {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+      return { isValid: false, error: 'Only http(s) URLs are supported' };
+    }
+    return { isValid: true };
+  } catch {
+    return { isValid: false, error: 'Invalid URL format' };
   }
 }
 
@@ -185,28 +146,27 @@ export function validateCivitaiUrl(
 }
 
 /** Identify the upstream host family for a given download URL. */
-export type DownloadHost = 'huggingface' | 'civitai';
+export type DownloadHost = 'huggingface' | 'civitai' | 'github' | 'generic';
 
 export function detectDownloadHost(url: string): DownloadHost | null {
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    if (host === 'huggingface.co' || host === 'www.huggingface.co' || host === 'hf-mirror.com') {
-      return 'huggingface';
-    }
-    if (host === 'civitai.com' || host === 'www.civitai.com') {
-      return 'civitai';
-    }
-    return null;
-  } catch {
-    return null;
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { return null; }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+  const host = parsed.hostname.toLowerCase();
+  if (host === 'huggingface.co' || host === 'www.huggingface.co' || host === 'hf-mirror.com') {
+    return 'huggingface';
   }
-}
-
-/** Replace `/blob/` with `/resolve/` in HF URLs. */
-export function buildResolveUrl(hfUrl: string): string {
-  const resolved = hfUrl.replace('/blob/', '/resolve/');
-  if (resolved === hfUrl) logger.info('download URL already in resolve form');
-  return resolved;
+  if (host === 'civitai.com' || host === 'www.civitai.com') {
+    return 'civitai';
+  }
+  if (host === 'github.com' || host === 'www.github.com') {
+    return 'github';
+  }
+  // Any other valid http(s) URL becomes the generic streamer's responsibility.
+  // Allow-list enforcement happens at the route layer (see
+  // `services/models/downloadAllowlist.ts`); this branch only supplies the
+  // host family for the unified-download dispatcher.
+  return 'generic';
 }
 
 /** Ensure the destination directory exists under the ComfyUI install root. */

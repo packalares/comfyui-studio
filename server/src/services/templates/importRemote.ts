@@ -1,22 +1,15 @@
-// Remote-URL + paste-JSON → staging helpers.
-//
-// Powers the GitHub and Paste-JSON tabs of the import modal. Does not touch
-// Phase 1's staging pipeline; normalises a URL (or a raw JSON blob) into the
-// same `StagedImport` shape produced by `importZip.ts`.
-//
-// URL normalisation + host allow-list live in `importRemote.urls.ts` so this
-// file stays under the structure line cap.
-//
-// Security summary:
-//   * Host allow-list: only GitHub-owned hostnames.
-//   * `hostIsPrivate` guards every outbound URL.
-//   * Payloads cap at the zip-upload limit (20 MB).
+// Remote-URL + paste-JSON → staging helpers. Powers the GitHub and Paste-JSON
+// tabs of the import modal. URL normalisation + host allow-list live in
+// `importRemote.urls.ts` so this file stays under the structure line cap.
+// Security: GitHub-only host allow-list, `hostIsPrivate` guard on every
+// outbound URL, 20 MB payload cap (matches the zip upload limit).
 
 import { env } from '../../config/env.js';
 import {
-  IMPORT_LIMITS, looksLikeLitegraph, newStagedImport, storeStaging,
+  IMPORT_LIMITS, newStagedImport, storeStaging,
   type StagedImport, type StagedWorkflowEntry,
 } from './importStaging.js';
+import { extractLitegraph } from './extractLitegraph.js';
 import { stageFromJson, stageFromZip } from './importZip.js';
 import { extractDepsWithPluginResolution } from './extractDepsAsync.js';
 import { deriveMediaType, extractWorkflowIo } from './metadata.js';
@@ -137,17 +130,22 @@ function looksLikeJsonByMeta(contentType: string, fileName: string): boolean {
   return /json/i.test(contentType) || /\.json$/i.test(fileName);
 }
 
+// `defaults` carries wrapper-extracted overrides — when the source JSON was a
+// TemplateData wrapper, the author's explicit title/description beats the
+// filename-derived fallback the staged row would otherwise use.
 async function entryToWorkflow(
   name: string, workflow: Record<string, unknown>, size: number,
+  defaults?: { defaultTitle?: string; defaultDescription?: string },
 ): Promise<StagedWorkflowEntry> {
   const deps = await extractDepsWithPluginResolution(workflow);
   const io = extractWorkflowIo(workflow);
   const base = name.split('/').pop() ?? name;
-  const title = base.replace(/\.json$/i, '').replace(/[_-]+/g, ' ').trim() || 'Imported workflow';
+  const fallback = base.replace(/\.json$/i, '').replace(/[_-]+/g, ' ').trim() || 'Imported workflow';
   return {
-    entryName: name, title,
+    entryName: name, title: defaults?.defaultTitle ?? fallback,
+    description: defaults?.defaultDescription,
     nodeCount: Array.isArray(workflow.nodes) ? (workflow.nodes as unknown[]).length : 0,
-    models: deps.models,
+    models: deps.models, modelLoaderClasses: deps.modelLoaderClasses,
     modelUrls: extractModelUrlsFromWorkflow(workflow),
     plugins: deps.plugins,
     mediaType: deriveMediaType(io), jsonBytes: size, workflow,
@@ -169,13 +167,13 @@ async function stageFromRawFile(rawUrl: string): Promise<StagedImport> {
   let parsed: unknown;
   try { parsed = JSON.parse(text); }
   catch (err) { throw new Error(`File is not valid JSON: ${err instanceof Error ? err.message : String(err)}`); }
-  if (!looksLikeLitegraph(parsed)) {
-    throw new Error('JSON has no top-level `nodes` array; not a LiteGraph document.');
-  }
-  return stageFromJson(parsed as Record<string, unknown>, {
+  const extracted = extractLitegraph(parsed);
+  if (!extracted) throw new Error('JSON is not a LiteGraph workflow or TemplateData wrapper.');
+  return stageFromJson(extracted.workflow, {
     source: 'upload', sourceUrl: fetched.resolvedUrl,
     entryName: fetched.fileName,
     defaultTitle: fetched.fileName.replace(/\.json$/i, ''),
+    ...extracted.defaults,
   });
 }
 
@@ -197,8 +195,9 @@ async function stageFromRepoWalk(
     let parsed: unknown;
     try { parsed = JSON.parse(text); }
     catch { throw new Error(`File is not valid JSON: ${cand.path}`); }
-    if (!looksLikeLitegraph(parsed)) throw new Error(`${cand.path} is not a LiteGraph document.`);
-    return entryToWorkflow(cand.path, parsed as Record<string, unknown>, text.length);
+    const extracted = extractLitegraph(parsed);
+    if (!extracted) throw new Error(`${cand.path} is not a LiteGraph workflow or TemplateData wrapper.`);
+    return entryToWorkflow(cand.path, extracted.workflow, text.length, extracted.defaults);
   })());
   const settled = await Promise.allSettled(promises);
   const workflows: StagedWorkflowEntry[] = [];
@@ -235,12 +234,12 @@ export async function stageFromPastedJson(
   let parsed: unknown;
   try { parsed = JSON.parse(text); }
   catch (err) { throw new Error(`File is not valid JSON: ${err instanceof Error ? err.message : String(err)}`); }
-  if (!looksLikeLitegraph(parsed)) {
-    throw new Error('JSON has no top-level `nodes` array; not a LiteGraph document.');
-  }
+  const extracted = extractLitegraph(parsed);
+  if (!extracted) throw new Error('JSON is not a LiteGraph workflow or TemplateData wrapper.');
   const title = typeof opts.title === 'string' && opts.title.trim() ? opts.title.trim() : undefined;
-  return stageFromJson(parsed as Record<string, unknown>, {
+  return stageFromJson(extracted.workflow, {
     source: 'upload', entryName: 'pasted-workflow.json', defaultTitle: title,
+    ...extracted.defaults,
   });
 }
 

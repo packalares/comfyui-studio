@@ -17,6 +17,7 @@ export interface EnvConfigFile {
   GITHUB_PROXY?: string;
   PIP_INDEX_URL?: string;
   PLUGIN_TRUSTED_HOSTS?: string[];
+  MODEL_TRUSTED_HOSTS?: string[];
   PIP_ALLOW_PRIVATE_IP?: boolean;
 }
 
@@ -109,6 +110,7 @@ function writeFile(snapshot: LiveSettings): void {
   if (snapshot.githubProxy) payload.GITHUB_PROXY = snapshot.githubProxy;
   if (snapshot.pipSource) payload.PIP_INDEX_URL = snapshot.pipSource;
   if (snapshot.pluginTrustedHosts.length > 0) payload.PLUGIN_TRUSTED_HOSTS = snapshot.pluginTrustedHosts;
+  if (snapshot.modelTrustedHosts.length > 0) payload.MODEL_TRUSTED_HOSTS = snapshot.modelTrustedHosts;
   if (snapshot.allowPrivateIpMirrors) payload.PIP_ALLOW_PRIVATE_IP = true;
   atomicWrite(FILE, JSON.stringify(payload, null, 2));
   logger.info('configurator: env-config persisted', { path: FILE });
@@ -128,6 +130,7 @@ export function loadPersisted(): void {
     githubProxy: saved.GITHUB_PROXY,
     pipSource: saved.PIP_INDEX_URL,
     pluginTrustedHosts: Array.isArray(saved.PLUGIN_TRUSTED_HOSTS) ? saved.PLUGIN_TRUSTED_HOSTS : undefined,
+    modelTrustedHosts: Array.isArray(saved.MODEL_TRUSTED_HOSTS) ? saved.MODEL_TRUSTED_HOSTS : undefined,
     allowPrivateIpMirrors: typeof saved.PIP_ALLOW_PRIVATE_IP === 'boolean' ? saved.PIP_ALLOW_PRIVATE_IP : undefined,
   });
 }
@@ -156,14 +159,27 @@ export function setGithubProxy(url: string): ConfigureResult {
 }
 
 export function setPluginTrustedHosts(hosts: string[]): ConfigureResult {
-  if (!Array.isArray(hosts)) return { success: false, message: 'hosts must be an array', data: null };
-  for (const h of hosts) {
-    if (typeof h !== 'string' || !/^[a-zA-Z0-9.\-:]+$/.test(h)) {
-      return { success: false, message: `invalid host: ${String(h)}`, data: null };
-    }
-  }
+  const v = validateHostList(hosts);
+  if (!v.ok) return { success: false, message: v.error ?? 'invalid hosts', data: null };
   liveSettings.setPluginTrustedHosts(hosts);
   return { success: true, message: 'plugin trusted hosts updated', data: null };
+}
+
+export function setModelTrustedHosts(hosts: string[]): ConfigureResult {
+  const v = validateHostList(hosts);
+  if (!v.ok) return { success: false, message: v.error ?? 'invalid hosts', data: null };
+  liveSettings.setModelTrustedHosts(hosts);
+  return { success: true, message: 'model trusted hosts updated', data: null };
+}
+
+function validateHostList(hosts: unknown): { ok: boolean; error?: string } {
+  if (!Array.isArray(hosts)) return { ok: false, error: 'hosts must be an array' };
+  for (const h of hosts) {
+    if (typeof h !== 'string' || !/^[a-zA-Z0-9.\-:]+$/.test(h)) {
+      return { ok: false, error: `invalid host: ${String(h)}` };
+    }
+  }
+  return { ok: true };
 }
 
 export function setAllowPrivateIpMirrors(allow: boolean): ConfigureResult {

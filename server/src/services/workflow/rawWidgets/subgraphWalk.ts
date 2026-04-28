@@ -21,7 +21,9 @@ import {
 const MAX_SUBGRAPH_DEPTH = 8;
 
 // Build a lookup set of `(innerNodeId|widgetName)` for a wrapper's proxy
-// list so the walker can skip anything the proxy pipeline already surfaces.
+// list. Used by the inner walker to flag widgets the proxy pipeline
+// already surfaces, plus by `collectProxyCoveredWidgets` below to build
+// the workflow-wide compound-id set the Advanced-Settings dedupe relies on.
 function buildProxySkipSet(
   wrapper: Record<string, unknown>,
 ): Set<string> {
@@ -39,6 +41,45 @@ function buildProxySkipSet(
     skip.add(`${innerId}|${widgetName}`);
   }
   return skip;
+}
+
+/**
+ * Walk every wrapper node in the workflow (top-level + nested) and return
+ * the set of `${compoundNodeId}|${widgetName}` pairs that any wrapper's
+ * `proxyWidgets` list covers. Used by `buildRawWidgetSettings` to filter
+ * out user-exposed entries that duplicate a proxied control, and by the
+ * Edit-advanced modal to render those rows as proxy-exposed (checked +
+ * read-only). Compound IDs match the flattener's convention so the keys
+ * line up with the rest of the rawWidgets pipeline.
+ */
+export function collectProxyCoveredWidgets(
+  workflow: Record<string, unknown>,
+): Set<string> {
+  const out = new Set<string>();
+  const recurse = (
+    nodes: Array<Record<string, unknown>>,
+    prefix: string,
+    depth: number,
+  ): void => {
+    if (depth > MAX_SUBGRAPH_DEPTH) return;
+    for (const n of nodes) {
+      const props = n.properties as Record<string, unknown> | undefined;
+      if (!props?.proxyWidgets) continue;
+      const localPrefix = prefix ? `${prefix}:${n.id}` : String(n.id);
+      const skip = buildProxySkipSet(n);
+      for (const key of skip) {
+        const [innerId, widgetName] = key.split('|');
+        out.add(`${localPrefix}:${innerId}|${widgetName}`);
+      }
+      const sgDef = findSubgraphDef(n, workflow);
+      if (!sgDef) continue;
+      const inner = (sgDef.nodes || []) as Array<Record<string, unknown>>;
+      recurse(inner, localPrefix, depth + 1);
+    }
+  };
+  const top = (workflow.nodes || []) as Array<Record<string, unknown>>;
+  recurse(top, '', 0);
+  return out;
 }
 
 // Split the inner-widget display into primary label (widget name) and
@@ -78,11 +119,17 @@ function emitLeafEntries(
 
   for (let i = 0; i < wv.length && i < names.length; i++) {
     const widgetName = names[i];
-    if (!isEnumerableWidget(widgetName)) continue;
-    // Proxy dedupe: the parent's proxyWidgets list already surfaces this
-    // (innerNodeId, widgetName) pair via the proxy pipeline. Emitting here
-    // would show the same control twice in the expose modal.
-    if (proxySkip.has(`${localInnerId}|${widgetName}`)) continue;
+    // Proxy coverage: the parent's proxyWidgets list already surfaces this
+    // widget via the proxy pipeline. Emit anyway so the Edit-advanced
+    // modal can show the row as checked + read-only — the user owns one
+    // truth ("is this in Advanced?") instead of two disjoint stores.
+    const proxyExposed = proxySkip.has(`${localInnerId}|${widgetName}`);
+    // Generic isEnumerableWidget filter hides model-file dropdowns
+    // (ckpt_name, lora_name, vae_name…) so the modal isn't cluttered with
+    // ten downloads-style selectors per workflow. But when the workflow
+    // author explicitly proxies that widget, they've overridden the
+    // heuristic — show it anyway, locked.
+    if (!proxyExposed && !isEnumerableWidget(widgetName)) continue;
 
     const shape = inferWidgetShape(objectInfo, classType, widgetName, wv[i]);
     const labelParts = buildInnerLabelParts(subgraphName, innerNode, classType, widgetName);
@@ -103,6 +150,7 @@ function emitLeafEntries(
       // Inner widgets are strictly opt-in via the expose modal; the main
       // form's claim semantics only operate on top-level nodes.
       formClaimed: false,
+      proxyExposed,
       scopeName: subgraphName,
     });
   }

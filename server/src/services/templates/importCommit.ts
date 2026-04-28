@@ -12,9 +12,12 @@ import { logger } from '../../lib/logger.js';
 import { extractDeps } from './depExtract.js';
 import { resolutionsToRepoKeys } from './extractDepsAsync.js';
 import { extractWorkflowIo, deriveMediaType, mediaTypeToStudioCategory } from './metadata.js';
+import fsPath from 'path';
+import { paths } from '../../config/paths.js';
 import { saveUserWorkflow, slugifyTemplateName } from './userTemplates.js';
 import { consumeStaging, getStaging, type StagedImport, type StagedWorkflowEntry } from './importStaging.js';
 import { rewriteLoadImageReferences } from './rewriteLoadImage.js';
+import { WorkflowNameCollisionError } from './errors.js';
 import type { TemplatePluginEntry } from './types.js';
 
 export interface CommitSelection {
@@ -22,6 +25,12 @@ export interface CommitSelection {
   workflowIndices: number[];
   /** When true, reference images are copied into `${COMFYUI_PATH}/input/`. */
   imagesCopy: boolean;
+  /**
+   * Per-index title override. Used by the "Use suggested name" retry after a
+   * `WorkflowNameCollisionError` — the UI re-submits commit with the
+   * suggested slug here so the second attempt lands at a free slot.
+   */
+  titleOverrides?: Record<number, string>;
 }
 
 export interface CommitResult {
@@ -30,10 +39,9 @@ export interface CommitResult {
 }
 
 /**
- * Wave L: thrown when a commit can't proceed because one or more selected
- * workflows still have unresolved dependencies. The route layer maps this
- * to 409 Conflict with `unresolvedModels` + `unresolvedPlugins` arrays in
- * the JSON body so the UI can surface the exact rows that block.
+ * Wave L: thrown when one or more selected workflows still have unresolved
+ * deps. The route layer maps this to 409 Conflict with `unresolvedModels` +
+ * `unresolvedPlugins` arrays so the UI can surface the exact blocking rows.
  */
 export class CommitBlockedError extends Error {
   readonly unresolvedModels: string[];
@@ -48,16 +56,11 @@ export class CommitBlockedError extends Error {
 
 /**
  * Validate that every selected workflow's models are resolved. A model is
- * "covered" if it appears in either `resolvedModels` (user-paste) or
- * `autoResolvedModels` (staging-time auto-resolve). Missing models block
- * commit — they'd cause a runtime error the user can't recover from in
- * Studio.
- *
- * Plugins are NOT blocking. Manager is often offline in dev, and a locally-
- * installed plugin may carry no aux_id in the workflow (e.g. legacy saves),
- * both of which produce empty resolver matches even though the plugin is
- * fine. The unresolved list is still surfaced on the error for the frontend
- * to show as a warning in the review step, but commit proceeds.
+ * "covered" by `resolvedModels` (user-paste) or `autoResolvedModels`
+ * (staging-time auto-resolve). Missing models block — they'd cause an
+ * unrecoverable Studio runtime error. Plugins are NOT blocking: Manager is
+ * often offline and legacy saves carry no aux_id, both of which yield empty
+ * resolver matches even when the plugin is installed.
  */
 export function validateCommitReady(
   staged: StagedImport, indices: number[],
@@ -79,6 +82,16 @@ export function validateCommitReady(
 
 function inputDir(): string {
   return safeResolve(env.COMFYUI_PATH, 'input');
+}
+
+// Bounded loop so a degenerate collection of past imports can't lock the
+// search. Same shape as `nextAvailableSlug` inside userTemplates.ts.
+function suggestSlugSlot(slug: string): string {
+  for (let i = 2; i <= 500; i += 1) {
+    const cand = fsPath.join(paths.userTemplatesDir, `${slug}-${i}.json`);
+    if (!fs.existsSync(cand)) return `${slug}-${i}`;
+  }
+  return `${slug}-501`;
 }
 
 function copyImagesFor(staged: StagedImport, slug: string, imagesCopy: boolean): string[] {
@@ -118,6 +131,22 @@ export async function commitStaging(id: string, selection: CommitSelection): Pro
   const peek = getStaging(id);
   if (!peek) throw new Error('Staging not found or expired');
   validateCommitReady(peek, selection.workflowIndices);
+  // Pre-flight slug collision check — runs before we consume the staging
+  // row so the user can rename + retry without re-uploading. The first
+  // colliding slug throws; the route layer maps that to a 409 + the
+  // suggested fallback slug for one-click retry. `titleOverrides` lets the
+  // retry submit a fresh title for any colliding index in the same call.
+  const overrides = selection.titleOverrides ?? {};
+  for (const idx of selection.workflowIndices) {
+    const wf = peek.workflows[idx];
+    if (!wf) continue;
+    const effectiveTitle = overrides[idx] || wf.title || wf.entryName;
+    const slug = slugifyTemplateName(effectiveTitle);
+    const target = fsPath.join(paths.userTemplatesDir, `${slug}.json`);
+    if (fs.existsSync(target)) {
+      throw new WorkflowNameCollisionError(slug, suggestSlugSlot(slug), idx);
+    }
+  }
 
   const staged = consumeStaging(id);
   if (!staged) throw new Error('Staging not found or expired');
@@ -130,13 +159,12 @@ export async function commitStaging(id: string, selection: CommitSelection): Pro
   for (const idx of selection.workflowIndices) {
     const wf = staged.workflows[idx];
     if (!wf) continue;
-    // Compute the slug first so we can build the LoadImage rename map
-    // consistently with the filenames that land in ComfyUI/input/.
-    const tentativeSlug = slugifyTemplateName(wf.title || wf.entryName);
-    // Build the image rename map only when we're actually copying images —
-    // no rename happens on disk if copyImages is off, so the workflow must
-    // keep pointing at the original filenames. The `copyImagesFor` helper
-    // uses the same `<slug>__<name>` policy so this mapping matches 1:1.
+    // Apply the per-index title override (collision retry) before slugging.
+    const effectiveTitle = overrides[idx] || wf.title || wf.entryName;
+    const tentativeSlug = slugifyTemplateName(effectiveTitle);
+    // Image rename map only built when actually copying images — without a
+    // copy the workflow must keep pointing at the original filenames. The
+    // `copyImagesFor` helper uses the same `<slug>__<name>` policy.
     const renameMap: Record<string, string> = {};
     if (selection.imagesCopy && staged.images.length > 0) {
       for (const img of staged.images) {
@@ -150,12 +178,10 @@ export async function commitStaging(id: string, selection: CommitSelection): Pro
     const mediaType = deriveMediaType(io);
     const studioCat = mediaTypeToStudioCategory(mediaType);
     const deps = extractDeps(rewrittenWorkflow);
-    // Preserve the Manager-resolved plugin list from staging. We don't
-    // re-run resolution here because (a) it's slower, (b) Manager may have
-    // gone offline between staging + commit, and (c) the user already
-    // reviewed the list. `resolutionsToRepoKeys` collapses the detailed
-    // match structures into the string form persisted in `template_plugins`
-    // so readiness tracking has the same edges the resolver produced.
+    // Preserve the Manager-resolved plugin list from staging — re-running
+    // resolution here is slower, may now find Manager offline, and the user
+    // already reviewed the list. `resolutionsToRepoKeys` collapses the
+    // matches into the string form persisted in `template_plugins`.
     const pluginEntries: TemplatePluginEntry[] = [];
     for (const r of wf.plugins) {
       for (const m of r.matches) {
@@ -166,8 +192,8 @@ export async function commitStaging(id: string, selection: CommitSelection): Pro
     }
     const pluginRepoKeys = resolutionsToRepoKeys(wf.plugins);
     const saved = saveUserWorkflow({
-      name: wf.title || wf.entryName,
-      title: wf.title || wf.entryName,
+      name: effectiveTitle,
+      title: effectiveTitle,
       description: wf.description ?? staged.defaultDescription ?? '',
       workflow: rewrittenWorkflow,
       sourceUrl: staged.sourceUrl,
@@ -181,16 +207,14 @@ export async function commitStaging(id: string, selection: CommitSelection): Pro
       civitaiMeta: staged.civitaiMeta,
     });
     imported.push(saved.name);
-    // Persist the template_plugins edges so readiness + the
-    // install-missing-plugins route can find them. Lazy import keeps this
-    // file cheap to import in tests that only exercise staging.
+    // Persist template_plugins edges so readiness + install-missing-plugins
+    // can find them. Lazy import keeps this file cheap in staging-only tests.
+    // Existing branch preserves prior source/workflow_json/installed so an
+    // upstream->user rename doesn't reset readiness; new branch inserts a
+    // full row for user-imported workflows.
     try {
       const repo = await import('../../lib/db/templates.repo.js');
       const existing = repo.getTemplate(saved.name);
-      // Existing branch preserves prior source/workflow_json/installed so an
-      // upstream->user rename doesn't reset readiness. New branch inserts a
-      // full row for user-imported workflows so install-missing-plugins and
-      // the readiness recompute can find them.
       repo.upsertTemplate(
         {
           name: saved.name,

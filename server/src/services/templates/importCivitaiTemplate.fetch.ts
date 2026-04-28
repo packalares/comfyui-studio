@@ -5,7 +5,10 @@
 import { env } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
 import { getCivitaiAuthHeaders } from '../../lib/http.js';
-import { looksLikeLitegraph } from './importStaging.js';
+import {
+  extractLitegraph,
+  type ExtractedLitegraphDefaults,
+} from './extractLitegraph.js';
 import { ImportCivitaiError } from './importCivitaiTemplate.urls.js';
 
 const CIVITAI_IMAGES_URL = 'https://civitai.com/api/v1/images';
@@ -35,6 +38,12 @@ export interface WorkflowCandidate {
   bytes: number;
   source: 'file' | 'image-meta';
   originFileName?: string;
+  /**
+   * Wrapper-extracted defaults when the source JSON was a TemplateData
+   * wrapper rather than a raw LiteGraph. Civitai's API metadata still wins
+   * over these — see `stageFromCivitaiUrl` for the spread order.
+   */
+  wrapperDefaults?: ExtractedLitegraphDefaults;
 }
 
 /** Fetch JSON from civitai (or its CDN). Enforces MAX_WORKFLOW_BYTES. */
@@ -97,9 +106,13 @@ export async function findWorkflow(versions: CivitaiModelVersion[]): Promise<Wor
       if (!isWorkflow || !downloadUrl) continue;
       try {
         const parsed = await fetchJsonBytes(downloadUrl);
-        if (!looksLikeLitegraph(parsed)) continue;
-        const bytes = JSON.stringify(parsed).length;
-        return { workflow: parsed, bytes, source: 'file', originFileName: name };
+        const extracted = extractLitegraph(parsed);
+        if (!extracted) continue;
+        const bytes = JSON.stringify(extracted.workflow).length;
+        return {
+          workflow: extracted.workflow, bytes, source: 'file',
+          originFileName: name, wrapperDefaults: extracted.defaults,
+        };
       } catch (err) {
         if (err instanceof ImportCivitaiError && err.code === 'PAYLOAD_TOO_LARGE') throw err;
         logger.warn('civitai workflow file fetch failed', {
@@ -145,10 +158,14 @@ function scanImagesForWorkflow(
       try { wf = JSON.parse(raw); } catch { continue; }
     }
     if (!wf || typeof wf !== 'object') continue;
-    if (!looksLikeLitegraph(wf)) continue;
-    const bytes = JSON.stringify(wf).length;
+    const extracted = extractLitegraph(wf);
+    if (!extracted) continue;
+    const bytes = JSON.stringify(extracted.workflow).length;
     if (bytes > MAX_WORKFLOW_BYTES) continue;
-    return { workflow: wf as Record<string, unknown>, bytes, source: 'image-meta' };
+    return {
+      workflow: extracted.workflow, bytes, source: 'image-meta',
+      wrapperDefaults: extracted.defaults,
+    };
   }
   return null;
 }

@@ -25,6 +25,7 @@ import { logger } from '../../lib/logger.js';
 import { env, autoResolveSearchEnabled } from '../../config/env.js';
 import { resolveHuggingfaceUrl, type ResolvedModel } from '../models/resolveHuggingface.js';
 import { resolveCivitaiUrl } from '../models/resolveCivitai.js';
+import { folderForLoaderClass } from '../workflow/loaderFolders.js';
 import { hfFindExactMatch, type HfSearchCache } from './autoResolve.hf.js';
 import { civitaiFindExactMatch, type CivitaiSearchCache } from './autoResolve.civitai.js';
 import type {
@@ -58,18 +59,27 @@ function urlBasename(raw: string): string | null {
 
 /** Build the shared `AutoResolvedModel` envelope the UI consumes. */
 function toAutoResolved(
-  source: AutoResolveSource, resolved: ResolvedModel,
+  source: AutoResolveSource, resolved: ResolvedModel, loaderClass?: string,
 ): AutoResolvedModel {
   const out: AutoResolvedModel = {
     source, downloadUrl: resolved.downloadUrl, confidence: 'high',
   };
-  if (resolved.suggestedFolder) out.suggestedFolder = resolved.suggestedFolder;
+  // Loader-class wins over URL guess — see commitOverrides.ts for the
+  // motivating bug. `LatentUpscaleModelLoader` files default to
+  // `upscale_models` from filename heuristics; `LTXAVTextEncoderLoader`
+  // files fall to the `checkpoints` ext fallback. Both wrong.
+  const folder = folderForLoaderClass(loaderClass) || resolved.suggestedFolder;
+  if (folder) out.suggestedFolder = folder;
   if (typeof resolved.sizeBytes === 'number') out.sizeBytes = resolved.sizeBytes;
   return out;
 }
 
-function upsertCatalogFromAuto(filename: string, resolved: ResolvedModel): void {
-  const folder = resolved.suggestedFolder || 'checkpoints';
+function upsertCatalogFromAuto(
+  filename: string, resolved: ResolvedModel, loaderClass?: string,
+): void {
+  const folder = folderForLoaderClass(loaderClass)
+    || resolved.suggestedFolder
+    || 'checkpoints';
   const sizeBytes = typeof resolved.sizeBytes === 'number' ? resolved.sizeBytes : undefined;
   try {
     catalog.upsertModel({
@@ -151,7 +161,7 @@ function stepHfRepo(
 // Step 2 — MarkdownNote URL basename match.
 
 async function stepMarkdown(
-  filename: string, modelUrls: string[],
+  filename: string, modelUrls: string[], loaderClass?: string,
 ): Promise<AutoResolvedModel | null> {
   for (const url of modelUrls) {
     const base = urlBasename(url);
@@ -163,8 +173,8 @@ async function stepMarkdown(
       else if (/civitai\.com$/i.test(host)) resolved = await resolveCivitaiUrl(url);
     } catch { resolved = null; }
     if (!resolved || !sameFile(resolved.fileName, filename)) continue;
-    upsertCatalogFromAuto(filename, resolved);
-    return toAutoResolved('markdown', resolved);
+    upsertCatalogFromAuto(filename, resolved, loaderClass);
+    return toAutoResolved('markdown', resolved, loaderClass);
   }
   return null;
 }
@@ -172,23 +182,23 @@ async function stepMarkdown(
 // Step 3 — HuggingFace search (delegated to autoResolve.hf.ts).
 
 async function stepHuggingface(
-  filename: string, caches: SearchCaches,
+  filename: string, caches: SearchCaches, loaderClass?: string,
 ): Promise<AutoResolvedModel | null> {
   const resolved = await hfFindExactMatch(filename, basenameOf(filename), caches.hf);
   if (!resolved) return null;
-  upsertCatalogFromAuto(filename, resolved);
-  return toAutoResolved('huggingface', resolved);
+  upsertCatalogFromAuto(filename, resolved, loaderClass);
+  return toAutoResolved('huggingface', resolved, loaderClass);
 }
 
 // Step 4 — CivitAI search (delegated to autoResolve.civitai.ts).
 
 async function stepCivitai(
-  filename: string, caches: SearchCaches,
+  filename: string, caches: SearchCaches, loaderClass?: string,
 ): Promise<AutoResolvedModel | null> {
   const resolved = await civitaiFindExactMatch(filename, basenameOf(filename), caches.civitai);
   if (!resolved) return null;
-  upsertCatalogFromAuto(filename, resolved);
-  return toAutoResolved('civitai', resolved);
+  upsertCatalogFromAuto(filename, resolved, loaderClass);
+  return toAutoResolved('civitai', resolved, loaderClass);
 }
 
 // ---------------------------------------------------------------------------
@@ -208,18 +218,19 @@ function searchesEnabled(): boolean {
 async function resolveOne(
   filename: string, wf: StagedWorkflowEntry, caches: SearchCaches,
 ): Promise<AutoResolvedModel | null> {
+  const loaderClass = wf.modelLoaderClasses?.[filename];
   // Whole-HF-repo declarations on a workflow's own `properties.models` win
   // over everything else — the author was explicit, no need to search.
   const s0 = stepHfRepo(filename, wf.workflow);
   if (s0) return s0;
   const s1 = stepCatalog(filename);
   if (s1) return s1;
-  const s2 = await stepMarkdown(filename, wf.modelUrls || []);
+  const s2 = await stepMarkdown(filename, wf.modelUrls || [], loaderClass);
   if (s2) return s2;
   if (!searchesEnabled()) return null;
-  const s3 = await stepHuggingface(filename, caches);
+  const s3 = await stepHuggingface(filename, caches, loaderClass);
   if (s3) return s3;
-  const s4 = await stepCivitai(filename, caches);
+  const s4 = await stepCivitai(filename, caches, loaderClass);
   if (s4) return s4;
   return null;
 }

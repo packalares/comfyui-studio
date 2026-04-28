@@ -119,18 +119,32 @@ const handleGithubProxy: RequestHandler = (req, res) => {
   });
 };
 
-const handlePluginTrustedHosts: RequestHandler = (req, res) => {
+function readHostList(req: Request): { ok: true; hosts: string[] } | { ok: false; message: string } {
   const body = req.body as { hosts?: unknown };
-  let hosts: string[] = [];
   if (Array.isArray(body?.hosts)) {
-    hosts = body.hosts.filter((h): h is string => typeof h === 'string');
-  } else if (typeof body?.hosts === 'string') {
-    hosts = body.hosts.split(',').map(h => h.trim()).filter(Boolean);
-  } else {
-    res.status(400).json({ code: 400, message: 'hosts must be string[] or comma-separated string', data: null });
-    return;
+    return { ok: true, hosts: body.hosts.filter((h): h is string => typeof h === 'string') };
   }
-  const result = configurator.setPluginTrustedHosts(hosts);
+  if (typeof body?.hosts === 'string') {
+    return { ok: true, hosts: body.hosts.split(',').map(h => h.trim()).filter(Boolean) };
+  }
+  return { ok: false, message: 'hosts must be string[] or comma-separated string' };
+}
+
+const handlePluginTrustedHosts: RequestHandler = (req, res) => {
+  const parsed = readHostList(req);
+  if (!parsed.ok) { res.status(400).json({ code: 400, message: parsed.message, data: null }); return; }
+  const result = configurator.setPluginTrustedHosts(parsed.hosts);
+  res.status(result.success ? 200 : 400).json({
+    code: result.success ? 200 : 400,
+    message: result.message,
+    data: result.data ?? null,
+  });
+};
+
+const handleModelTrustedHosts: RequestHandler = (req, res) => {
+  const parsed = readHostList(req);
+  if (!parsed.ok) { res.status(400).json({ code: 400, message: parsed.message, data: null }); return; }
+  const result = configurator.setModelTrustedHosts(parsed.hosts);
   res.status(result.success ? 200 : 400).json({
     code: result.success ? 200 : 400,
     message: result.message,
@@ -165,6 +179,7 @@ router.post(['/system/pip-source', '/launcher/system/pip-source'], configLimiter
 router.post(['/system/huggingface-endpoint', '/launcher/system/huggingface-endpoint'], configLimiter, handleHfEndpoint);
 router.post(['/system/github-proxy', '/launcher/system/github-proxy'], configLimiter, handleGithubProxy);
 router.post(['/system/plugin-trusted-hosts', '/launcher/system/plugin-trusted-hosts'], configLimiter, handlePluginTrustedHosts);
+router.post(['/system/model-trusted-hosts', '/launcher/system/model-trusted-hosts'], configLimiter, handleModelTrustedHosts);
 router.post(['/system/pip-allow-private-ip', '/launcher/system/pip-allow-private-ip'], configLimiter, handleAllowPrivateIp);
 
 // Load persisted values once at import time so `liveSettings` reflects the

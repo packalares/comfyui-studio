@@ -155,13 +155,22 @@ export async function stageFromCivitaiUrl(url: string): Promise<StagedImport> {
   if (ctx.description) civitaiMeta.description = ctx.description;
   civitaiMeta.originalUrl = originalUrl;
 
+  // Civitai's API metadata is more authoritative than anything embedded in
+  // the JSON wrapper, so we layer civitai-supplied fields on top of any
+  // wrapper defaults. Only set keys the API actually returned (otherwise
+  // an undefined would clobber the wrapper's value).
+  const civitaiOpts: {
+    defaultTitle?: string; defaultDescription?: string; defaultTags?: string[];
+  } = {};
+  if (ctx.displayName) civitaiOpts.defaultTitle = ctx.displayName;
+  if (ctx.description) civitaiOpts.defaultDescription = ctx.description;
+  if (ctx.tags.length > 0) civitaiOpts.defaultTags = ctx.tags;
   const staged = await stageFromJson(candidate.workflow, {
+    ...(candidate.wrapperDefaults ?? {}),
+    ...civitaiOpts,
     source: 'civitai',
     sourceUrl: originalUrl,
     entryName: candidate.originFileName ?? `civitai-${ctx.modelId}.json`,
-    defaultTitle: ctx.displayName,
-    defaultDescription: ctx.description,
-    defaultTags: ctx.tags,
   });
   staged.civitaiMeta = civitaiMeta;
   logger.info('civitai url staged', {

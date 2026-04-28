@@ -10,6 +10,7 @@ import { extractDepsWithPluginResolution } from './extractDepsAsync.js';
 import { extractWorkflowIo, deriveMediaType } from './metadata.js';
 import { extractModelUrlsFromWorkflow } from './scanMarkdownNotes.js';
 import { autoResolveStagedImport } from './autoResolveModels.js';
+import { extractLitegraph } from './extractLitegraph.js';
 import {
   newStagedImport,
   storeStaging,
@@ -45,10 +46,12 @@ function mimeFor(name: string): string {
   return 'application/octet-stream';
 }
 
+// `defaults` carries wrapper-extracted overrides — when the zip entry was a
+// TemplateData wrapper, the author's explicit title/description beats the
+// filename-derived fallback the staged row would otherwise use.
 async function entryToWorkflow(
-  name: string,
-  workflow: Record<string, unknown>,
-  size: number,
+  name: string, workflow: Record<string, unknown>, size: number,
+  defaults?: { defaultTitle?: string; defaultDescription?: string },
 ): Promise<StagedWorkflowEntry> {
   // Manager resolution is async — we fan out per workflow in `stageFromZip`
   // via `Promise.all` below. ComfyUI-offline degrades gracefully: the
@@ -57,9 +60,11 @@ async function entryToWorkflow(
   const io = extractWorkflowIo(workflow);
   return {
     entryName: name,
-    title: titleFromEntryName(name),
+    title: defaults?.defaultTitle ?? titleFromEntryName(name),
+    description: defaults?.defaultDescription,
     nodeCount: countNodes(workflow),
     models: deps.models,
+    modelLoaderClasses: deps.modelLoaderClasses,
     modelUrls: extractModelUrlsFromWorkflow(workflow),
     plugins: deps.plugins,
     mediaType: deriveMediaType(io),
@@ -103,9 +108,10 @@ export async function stageFromZip(
       const text = await entry.async('string');
       let parsed: unknown;
       try { parsed = JSON.parse(text); } catch { continue; }
-      if (!looksLikeLitegraph(parsed)) continue;
+      const extracted = extractLitegraph(parsed);
+      if (!extracted) continue;
       workflowPromises.push(
-        entryToWorkflow(name, parsed as Record<string, unknown>, text.length),
+        entryToWorkflow(name, extracted.workflow, text.length, extracted.defaults),
       );
     } else if (IMAGE_EXT_RE.test(name)) {
       const bytes = await entry.async('uint8array');

@@ -40,6 +40,9 @@ export {
   toManifest,
   looksLikeLitegraph,
 } from './importStaging.js';
+export { extractLitegraph } from './extractLitegraph.js';
+export type { ExtractedLitegraph, ExtractedLitegraphDefaults } from './extractLitegraph.js';
+export { WorkflowNameCollisionError } from './errors.js';
 export type {
   StagedImport,
   StagedImportManifest,

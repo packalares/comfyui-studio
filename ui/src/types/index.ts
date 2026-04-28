@@ -348,8 +348,19 @@ export interface EnumeratedWidget {
   step?: number;
   options?: { label: string; value: string }[];
   exposed: boolean;
-  /** True when the widget is driven by the main form (Prompt / upload field). Modal hides these. */
+  /**
+   * True when the widget is driven by the main form (Prompt / upload field).
+   * The modal renders these as checked + read-only so the user sees that
+   * the row is in Advanced (the main form put it there) without being able
+   * to toggle it off.
+   */
   formClaimed?: boolean;
+  /**
+   * True when the widget is exposed via a wrapper subgraph's `proxyWidgets`
+   * list (the workflow author's curated Advanced Settings). Same UX as
+   * `formClaimed`: checked + read-only in the modal.
+   */
+  proxyExposed?: boolean;
   /** Subgraph name this widget lives in (present only for compound-id inner widgets). */
   scopeName?: string;
 }

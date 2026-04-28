@@ -19,6 +19,7 @@ import * as catalog from '../catalog.js';
 import { formatBytes } from '../../lib/format.js';
 import { resolveHuggingfaceUrl, type ResolvedModel } from '../models/resolveHuggingface.js';
 import { resolveCivitaiUrl } from '../models/resolveCivitai.js';
+import { folderForLoaderClass } from '../workflow/loaderFolders.js';
 import { getStaging } from './importStaging.js';
 
 export type ResolverErrorCode = 'UNSUPPORTED_HOST' | 'RESOLVER_FAILED' | 'STAGING_NOT_FOUND' | 'WORKFLOW_INDEX_OUT_OF_RANGE';
@@ -61,8 +62,21 @@ async function runResolver(url: string): Promise<ResolvedModel | null> {
  * available; otherwise we let the existing mergeMissingInto guard leave
  * whatever the catalog already had.
  */
-function upsertFromResolved(resolved: ResolvedModel, targetFileName: string): void {
-  const folder = resolved.suggestedFolder || 'checkpoints';
+function upsertFromResolved(
+  resolved: ResolvedModel,
+  targetFileName: string,
+  loaderClass?: string,
+): void {
+  // Loader-class wins over URL-side guess: the workflow node that uses
+  // the file is unambiguous about which `models/<folder>/` directory
+  // ComfyUI will read from, while `resolved.suggestedFolder` can only
+  // see the URL. Without this, files referenced by
+  // `LatentUpscaleModelLoader` got written as `upscale_models` (wrong)
+  // and text-encoder weights for `LTXAVTextEncoderLoader` defaulted to
+  // `checkpoints` via the ext fallback.
+  const folder = folderForLoaderClass(loaderClass)
+    || resolved.suggestedFolder
+    || 'checkpoints';
   const sizeBytes = typeof resolved.sizeBytes === 'number' ? resolved.sizeBytes : undefined;
   catalog.upsertModel({
     filename: targetFileName,
@@ -112,12 +126,13 @@ export async function resolveModelForStaging(
   // filename may differ when the URL points at a mirror or a versioned
   // tarball, and we need the catalog key to match the workflow's widget.
   const fileName = input.missingFileName || resolved.fileName;
-  upsertFromResolved(resolved, fileName);
+  const loaderClass = wf.modelLoaderClasses?.[fileName];
+  upsertFromResolved(resolved, fileName, loaderClass);
   if (!wf.resolvedModels) wf.resolvedModels = {};
   wf.resolvedModels[fileName] = {
     downloadUrl: resolved.downloadUrl,
     source: resolved.source as 'huggingface' | 'civitai',
-    suggestedFolder: resolved.suggestedFolder,
+    suggestedFolder: folderForLoaderClass(loaderClass) || resolved.suggestedFolder,
     sizeBytes: resolved.sizeBytes,
   };
   if (!wf.modelUrls.includes(input.url)) wf.modelUrls = [...wf.modelUrls, input.url];

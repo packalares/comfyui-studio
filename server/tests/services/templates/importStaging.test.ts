@@ -24,6 +24,23 @@ import {
 import { commitStaging } from '../../../src/services/templates/importCommit.js';
 import * as catalog from '../../../src/services/catalog.js';
 import { seedObjectInfoCache } from '../../../src/services/workflow/objectInfo.js';
+import { paths } from '../../../src/config/paths.js';
+
+// `paths.userTemplatesDir` is frozen at module load via `os.homedir()`, so
+// `process.env.HOME = tmpRoot` doesn't divert saveUserWorkflow writes here.
+// Wipe the dir before/after to keep the post-batch-2 collision check from
+// rejecting a slug that a previous test run already wrote.
+function clearUserTemplatesDir(): void {
+  try {
+    if (!fs.existsSync(paths.userTemplatesDir)) return;
+    for (const f of fs.readdirSync(paths.userTemplatesDir)) {
+      if (f.endsWith('.json')) {
+        try { fs.rmSync(path.join(paths.userTemplatesDir, f), { force: true }); }
+        catch { /* best effort */ }
+      }
+    }
+  } catch { /* best effort */ }
+}
 
 function tinyWorkflow(suffix: string): Record<string, unknown> {
   return {
@@ -132,6 +149,7 @@ describe('commitStaging partial selection', () => {
     // (UNETLoader, SaveImage) are filtered out of plugin resolution and
     // the staged workflow ends up with an empty `plugins[]`.
     seedObjectInfoCache({ UNETLoader: {}, SaveImage: {} });
+    clearUserTemplatesDir();
   });
 
   afterEach(() => {
@@ -140,6 +158,7 @@ describe('commitStaging partial selection', () => {
     if (savedComfyPath !== undefined) process.env.COMFYUI_PATH = savedComfyPath;
     else delete process.env.COMFYUI_PATH;
     fs.rmSync(tmpRoot, { recursive: true, force: true });
+    clearUserTemplatesDir();
   });
 
   it('writes only the selected workflows and optionally copies images', async () => {

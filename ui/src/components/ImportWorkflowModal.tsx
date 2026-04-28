@@ -6,7 +6,7 @@ import {
   Package, Link2,
 } from 'lucide-react';
 import type { StagedImportManifest } from '../types';
-import { api } from '../services/comfyui';
+import { api, ApiError } from '../services/comfyui';
 import { Checkbox } from './ui/checkbox';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
 import AppModal from './AppModal';
@@ -71,6 +71,13 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
   const [pasteText, setPasteText] = useState<string>('');
   const [pasteTitle, setPasteTitle] = useState<string>('');
   const [civitaiUrl, setCivitaiUrl] = useState<string>('');
+  // Surface a NAME_COLLISION 409 from the commit endpoint so the user can
+  // pick the suggested slug or cancel. `workflowIndex` is the staged-row
+  // index whose computed slug collided — used as the key for the retry's
+  // `titleOverrides`. Cleared on successful commit / close.
+  const [collision, setCollision] = useState<{
+    existingSlug: string; suggestedSlug: string; workflowIndex?: number;
+  } | null>(null);
 
   // Jump to review when we're handed a prestaged manifest (civitai path).
   useEffect(() => {
@@ -93,6 +100,7 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
     setPasteText('');
     setPasteTitle('');
     setCivitaiUrl('');
+    setCollision(null);
   }, [open, initialManifest]);
 
   // Default every unique plugin repo across the selected workflows to
@@ -237,7 +245,9 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
     });
   };
 
-  const handleCommit = useCallback(async (): Promise<void> => {
+  const handleCommit = useCallback(async (
+    titleOverrides?: Record<number, string>,
+  ): Promise<void> => {
     if (!manifest) return;
     const indices = Array.from(selectedIndices).sort((a, b) => a - b);
     if (indices.length === 0) {
@@ -245,12 +255,14 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
       return;
     }
     setError(null);
+    setCollision(null);
     setCommitting(true);
     setInstallProgress(null);
     try {
       const result = await api.commitImportStaging(manifest.id, {
         workflowIndices: indices,
         imagesCopy: manifest.images.length > 0 ? copyImages : false,
+        titleOverrides,
       });
       // Opt-in plugin installs: for each committed template, the backend
       // already persisted the template_plugins edges. We filter by the
@@ -275,6 +287,27 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
       else navigate(`/explore?source=user&imported=${result.imported.length}`);
       onClose();
     } catch (err) {
+      // Detect the typed 409 NAME_COLLISION payload and pop the rename
+      // modal instead of dropping the user back at the generic error
+      // banner. The staging row is still alive on the server side, so the
+      // retry can re-submit with `titleOverrides` populated.
+      if (
+        err instanceof ApiError && err.status === 409
+        && err.data && typeof err.data === 'object'
+        && (err.data as { code?: string }).code === 'NAME_COLLISION'
+      ) {
+        const data = err.data as {
+          existingSlug?: string; suggestedSlug?: string; workflowIndex?: number;
+        };
+        if (typeof data.existingSlug === 'string' && typeof data.suggestedSlug === 'string') {
+          setCollision({
+            existingSlug: data.existingSlug,
+            suggestedSlug: data.suggestedSlug,
+            workflowIndex: typeof data.workflowIndex === 'number' ? data.workflowIndex : undefined,
+          });
+          return;
+        }
+      }
       setError(err instanceof Error ? err.message : 'Import failed');
     } finally {
       setCommitting(false);
@@ -339,7 +372,7 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
                 type="button"
                 className="btn-primary"
                 disabled={committing || selectedIndices.size === 0 || !commitBlockers.canCommit}
-                onClick={handleCommit}
+                onClick={() => { void handleCommit(); }}
                 title={
                   !commitBlockers.canCommit
                     ? 'Resolve the highlighted model + plugin rows before importing.'
@@ -397,7 +430,66 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
           <span>{error}</span>
         </div>
       )}
+      {collision && (
+        <CollisionPrompt
+          existingSlug={collision.existingSlug}
+          suggestedSlug={collision.suggestedSlug}
+          busy={committing}
+          onCancel={() => setCollision(null)}
+          onUseSuggested={() => {
+            const overrides: Record<number, string> = {};
+            // Server reports the colliding index when available; fall back
+            // to the first selected index so single-workflow imports still
+            // work even if the response is missing the field.
+            const targetIndex = collision.workflowIndex
+              ?? Array.from(selectedIndices).sort((a, b) => a - b)[0];
+            if (typeof targetIndex === 'number') {
+              overrides[targetIndex] = collision.suggestedSlug;
+            }
+            void handleCommit(overrides);
+          }}
+        />
+      )}
     </AppModal>
+  );
+}
+
+interface CollisionPromptProps {
+  existingSlug: string;
+  suggestedSlug: string;
+  busy: boolean;
+  onCancel: () => void;
+  onUseSuggested: () => void;
+}
+
+function CollisionPrompt(props: CollisionPromptProps): JSX.Element {
+  const { existingSlug, suggestedSlug, busy, onCancel, onUseSuggested } = props;
+  return (
+    <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-900">
+      <div className="flex items-start gap-2">
+        <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+        <div className="flex-1">
+          <div className="font-medium">A workflow named &quot;{existingSlug}&quot; already exists.</div>
+          <div className="mt-1">
+            Use suggested name <span className="font-mono">{suggestedSlug}</span> or cancel?
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button" className="btn-primary"
+              disabled={busy} onClick={onUseSuggested}
+            >
+              Use suggested
+            </button>
+            <button
+              type="button" className="btn-secondary"
+              disabled={busy} onClick={onCancel}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

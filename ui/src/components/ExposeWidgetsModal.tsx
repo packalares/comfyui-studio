@@ -62,14 +62,18 @@ export default function ExposeWidgetsModal({ templateName, onClose, onSaved }: P
     api.getTemplateWidgets(templateName)
       .then(res => {
         if (cancelled) return;
-        // The backend returns every editable widget, including those already driven
-        // by the main form (prompt textarea, image/audio/video uploads) flagged
-        // `formClaimed: true`. Hide those from the modal — the user can't expose
-        // duplicates of controls they already have.
-        const visible = res.widgets.filter(w => !w.formClaimed);
-        setWidgets(visible);
+        // Show every widget. Three categories render differently:
+        //   - exposed: user toggled — checked + toggleable (their pref).
+        //   - proxyExposed: wrapper proxyWidgets covers it — checked + locked.
+        //   - formClaimed: main-form binding owns it — checked + locked.
+        // The locked rows make this modal a single source of truth for
+        // "is this widget visible in Advanced?" — anything checked = yes.
+        setWidgets(res.widgets);
+        // Seed the toggleable selection with only the user-exposed entries;
+        // proxy/form-claimed rows stay outside the `selected` set because
+        // the user can't toggle them off without editing the workflow.
         const initial = new Set<string>();
-        for (const w of visible) if (w.exposed) initial.add(`${w.nodeId}|${w.widgetName}`);
+        for (const w of res.widgets) if (w.exposed) initial.add(`${w.nodeId}|${w.widgetName}`);
         setSelected(initial);
         setLoading(false);
       })
@@ -204,19 +208,43 @@ export default function ExposeWidgetsModal({ templateName, onClose, onSaved }: P
                     <div className="space-y-0.5 border border-gray-100 rounded overflow-hidden">
                       {g.widgets.map(w => {
                         const key = `${w.nodeId}|${w.widgetName}`;
-                        const checked = selected.has(key);
+                        const lockedReason = w.proxyExposed
+                          ? 'workflow'
+                          : w.formClaimed
+                            ? 'main form'
+                            : null;
+                        const locked = lockedReason !== null;
+                        // User toggle drives only their own preferences;
+                        // workflow-author-baked or main-form-bound rows
+                        // appear checked + read-only so the modal mirrors
+                        // exactly what's visible in Advanced Settings.
+                        const checked = locked || selected.has(key);
                         return (
                           <label
                             key={key}
-                            className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm"
+                            className={
+                              'flex items-center gap-3 px-3 py-2 text-sm '
+                              + (locked
+                                ? 'bg-gray-50/50 cursor-not-allowed'
+                                : 'hover:bg-gray-50 cursor-pointer')
+                            }
+                            title={locked ? `Exposed via ${lockedReason}` : undefined}
                           >
                             <Checkbox
                               checked={checked}
-                              onCheckedChange={() => toggle(w.nodeId, w.widgetName)}
+                              disabled={locked}
+                              onCheckedChange={
+                                locked ? undefined : () => toggle(w.nodeId, w.widgetName)
+                              }
                             />
                             <span className="font-mono text-xs text-gray-700 flex-1 truncate">
                               {w.widgetName}
                             </span>
+                            {lockedReason && (
+                              <span className="text-[10px] text-gray-400 italic">
+                                via {lockedReason}
+                              </span>
+                            )}
                             <span className="text-xs text-gray-400 truncate max-w-[40%]">
                               {formatValue(w.value)}
                             </span>

@@ -1,18 +1,16 @@
-// New import routes — Phase 1 MVP.
-//
+// Import routes (Phase 1 MVP):
 //   POST   /templates/import/upload           (multipart .json | .zip)
 //   GET    /templates/import/staging/:id
 //   POST   /templates/import/staging/:id/commit
 //   DELETE /templates/import/staging/:id
-//
-// Every route dual-mounted at /launcher/... so the catch-all proxy can reach
-// it. See `templates.routes.ts` for mount wiring.
+// Dual-mounted at /launcher/... — see `templates.routes.ts` for mount wiring.
 
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import multer from 'multer';
 import * as templates from '../services/templates/index.js';
 import { resolveModelForStaging, ResolverError } from '../services/templates/commitOverrides.js';
 import { CommitBlockedError } from '../services/templates/importCommit.js';
+import { WorkflowNameCollisionError } from '../services/templates/errors.js';
 import { sendError } from '../middleware/errors.js';
 import { logger } from '../lib/logger.js';
 
@@ -38,6 +36,18 @@ function looksLikeJsonMime(mime: string, name: string): boolean {
   return false;
 }
 
+// Wire shape: `{ "0": "title" }`. Parse keys back to ints, drop non-string
+// values so a malformed body can't smuggle junk into the slug helper.
+function parseTitleOverrides(raw: unknown): Record<number, string> {
+  const out: Record<number, string> = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const idx = parseInt(k, 10);
+    if (Number.isFinite(idx) && idx >= 0 && typeof v === 'string' && v.trim()) out[idx] = v;
+  }
+  return out;
+}
+
 const handleUpload: RequestHandler = async (req, res) => {
   try {
     const file = (req as Request & { file?: Express.Multer.File }).file;
@@ -53,8 +63,7 @@ const handleUpload: RequestHandler = async (req, res) => {
     const mime = file.mimetype;
     if (looksLikeZipMime(mime, name)) {
       const staged = await templates.stageFromZip(file.buffer, {
-        source: 'upload',
-        defaultTitle: name.replace(/\.zip$/i, ''),
+        source: 'upload', defaultTitle: name.replace(/\.zip$/i, ''),
       });
       if (staged.workflows.length === 0) {
         templates.abortStaging(staged.id);
@@ -73,14 +82,18 @@ const handleUpload: RequestHandler = async (req, res) => {
         });
         return;
       }
-      if (!templates.looksLikeLitegraph(parsed)) {
-        res.status(400).json({ error: 'JSON has no top-level `nodes` array; not a LiteGraph document.' });
+      const extracted = templates.extractLitegraph(parsed);
+      if (!extracted) {
+        res.status(400).json({ error: 'JSON is not a LiteGraph workflow or TemplateData wrapper.' });
         return;
       }
-      const staged = await templates.stageFromJson(parsed as Record<string, unknown>, {
-        source: 'upload',
-        entryName: name,
+      // Wrapper defaults spread last so explicit author metadata wins over
+      // the filename-derived fallback. Route opts still own source /
+      // entryName since the wrapper never produces those keys.
+      const staged = await templates.stageFromJson(extracted.workflow, {
+        source: 'upload', entryName: name,
         defaultTitle: name.replace(/\.json$/i, ''),
+        ...extracted.defaults,
       });
       res.json(templates.toManifest(staged));
       return;
@@ -113,6 +126,7 @@ const handleCommit: RequestHandler = async (req, res) => {
     const body = (req.body || {}) as {
       workflowIndices?: unknown;
       imagesCopy?: unknown;
+      titleOverrides?: unknown;
     };
     const indicesRaw = Array.isArray(body.workflowIndices) ? body.workflowIndices : [];
     const indices: number[] = [];
@@ -125,7 +139,10 @@ const handleCommit: RequestHandler = async (req, res) => {
       return;
     }
     const imagesCopy = Boolean(body.imagesCopy);
-    const result = await templates.commitStaging(id, { workflowIndices: indices, imagesCopy });
+    const titleOverrides = parseTitleOverrides(body.titleOverrides);
+    const result = await templates.commitStaging(id, {
+      workflowIndices: indices, imagesCopy, titleOverrides,
+    });
     try { await templates.refreshTemplates(); }
     catch { /* best effort; the UI will still show the new rows after the next GET */ }
     res.json(result);
@@ -136,6 +153,16 @@ const handleCommit: RequestHandler = async (req, res) => {
         code: 'COMMIT_BLOCKED',
         unresolvedModels: err.unresolvedModels,
         unresolvedPlugins: err.unresolvedPlugins,
+      });
+      return;
+    }
+    if (err instanceof WorkflowNameCollisionError) {
+      res.status(409).json({
+        error: 'A workflow with this name already exists',
+        code: 'NAME_COLLISION',
+        existingSlug: err.existingSlug,
+        suggestedSlug: err.suggestedSlug,
+        workflowIndex: err.workflowIndex,
       });
       return;
     }
@@ -150,44 +177,29 @@ const handleCommit: RequestHandler = async (req, res) => {
 
 const handleResolveModel: RequestHandler = async (req, res) => {
   const id = String(req.params.id ?? '');
-  const body = (req.body || {}) as {
-    workflowIndex?: unknown;
-    missingFileName?: unknown;
-    url?: unknown;
-  };
+  const body = (req.body || {}) as { workflowIndex?: unknown; missingFileName?: unknown; url?: unknown };
   const workflowIndex = typeof body.workflowIndex === 'number'
-    ? body.workflowIndex
-    : parseInt(String(body.workflowIndex ?? ''), 10);
+    ? body.workflowIndex : parseInt(String(body.workflowIndex ?? ''), 10);
   const missingFileName = typeof body.missingFileName === 'string' ? body.missingFileName : '';
   const url = typeof body.url === 'string' ? body.url : '';
   if (!Number.isFinite(workflowIndex) || workflowIndex < 0) {
     res.status(400).json({ error: 'workflowIndex must be a non-negative integer', code: 'BAD_INPUT' });
     return;
   }
-  if (!missingFileName) {
-    res.status(400).json({ error: 'missingFileName is required', code: 'BAD_INPUT' });
-    return;
-  }
-  if (!url) {
-    res.status(400).json({ error: 'url is required', code: 'BAD_INPUT' });
-    return;
-  }
+  if (!missingFileName) { res.status(400).json({ error: 'missingFileName is required', code: 'BAD_INPUT' }); return; }
+  if (!url) { res.status(400).json({ error: 'url is required', code: 'BAD_INPUT' }); return; }
   try {
-    const result = await resolveModelForStaging({
-      stagingId: id, workflowIndex, missingFileName, url,
-    });
+    const result = await resolveModelForStaging({ stagingId: id, workflowIndex, missingFileName, url });
     const staged = templates.getStaging(id);
     res.json({
-      resolved: result.resolved,
-      fileName: result.fileName,
+      resolved: result.resolved, fileName: result.fileName,
       manifest: staged ? templates.toManifest(staged) : null,
     });
   } catch (err) {
     if (err instanceof ResolverError) {
       const status = err.code === 'UNSUPPORTED_HOST' ? 400
         : err.code === 'STAGING_NOT_FOUND' ? 404
-        : err.code === 'WORKFLOW_INDEX_OUT_OF_RANGE' ? 400
-        : 422;
+        : err.code === 'WORKFLOW_INDEX_OUT_OF_RANGE' ? 400 : 422;
       res.status(status).json({ error: err.message, code: err.code });
       return;
     }

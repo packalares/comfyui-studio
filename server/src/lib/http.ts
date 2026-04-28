@@ -32,6 +32,32 @@ export function getCivitaiAuthHeaders(
 }
 
 /**
+ * Authorization headers for GitHub-hosted assets (release downloads + the
+ * api.github.com size-probe used by `resolveGithub`). GitHub accepts both
+ * `Bearer <pat>` and `token <pat>`; we use Bearer for parity with HF+civitai.
+ *
+ * Allowed hosts include the canonical github.com / api.github.com plus the
+ * signed-asset CDN that releases redirect to (objects.githubusercontent.com)
+ * — without that the redirect strips Authorization and the download fails
+ * with a 403 even when the token is valid.
+ */
+export function getGithubAuthHeaders(
+  url: string,
+  token: string | undefined,
+): Record<string, string> {
+  if (!token) return {};
+  let host = '';
+  try { host = new URL(url).hostname.toLowerCase(); } catch { return {}; }
+  const allow = new Set([
+    'github.com', 'www.github.com', 'api.github.com',
+    'objects.githubusercontent.com', 'github-releases.githubusercontent.com',
+    'release-assets.githubusercontent.com',
+  ]);
+  if (!allow.has(host)) return {};
+  return { Authorization: `Bearer ${token}` };
+}
+
+/**
  * Host-aware auth header resolver used by the unified `download-custom`
  * endpoint. Picks the correct token based on the URL's host family and
  * silently returns an empty object for unsupported hosts so callers get a
@@ -39,11 +65,13 @@ export function getCivitaiAuthHeaders(
  */
 export function getHostAuthHeaders(
   url: string,
-  tokens: { hfToken?: string; civitaiToken?: string },
+  tokens: { hfToken?: string; civitaiToken?: string; githubToken?: string },
 ): Record<string, string> {
   const hf = getHfAuthHeaders(url, tokens.hfToken);
   if (Object.keys(hf).length > 0) return hf;
-  return getCivitaiAuthHeaders(url, tokens.civitaiToken);
+  const civitai = getCivitaiAuthHeaders(url, tokens.civitaiToken);
+  if (Object.keys(civitai).length > 0) return civitai;
+  return getGithubAuthHeaders(url, tokens.githubToken);
 }
 
 export interface FetchWithRetryOptions {

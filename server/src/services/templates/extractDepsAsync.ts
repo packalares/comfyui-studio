@@ -29,6 +29,8 @@ export type { PluginResolution } from '../plugins/nodeMap.service.js';
 export interface ExtractedDepsAsync {
   models: string[];
   plugins: PluginResolution[];
+  /** See `ExtractedDeps.modelLoaderClasses`. */
+  modelLoaderClasses: Record<string, string>;
 }
 
 // Manager returns these as placeholders for ComfyUI's own built-in node
@@ -115,6 +117,7 @@ export async function extractDepsWithPluginResolution(
   return {
     models: cheap.models,
     plugins: mergeResolutions(cheap.plugins, managerResolutions),
+    modelLoaderClasses: cheap.modelLoaderClasses,
   };
 }
 

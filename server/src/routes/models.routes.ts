@@ -25,7 +25,10 @@ import {
 } from '../services/downloadController/downloadHistory.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { sendError } from '../middleware/errors.js';
-import { hostIsPrivate, isHttpUrl } from './models.validation.js';
+import { hostIsPrivate } from './models.validation.js';
+import {
+  validateAllowedUrl, urlEncodesFilename,
+} from '../services/models/downloadAllowlist.js';
 import { parsePageQuery, paginate } from '../lib/pagination.js';
 import { prepopulateCatalog, type DownloadCustomMeta } from './models.prepopulate.js';
 
@@ -116,7 +119,15 @@ const handleProgress: RequestHandler = async (req, res) => {
 
 const handleHistory: RequestHandler = async (req, res) => {
   try {
-    const history = listHistory();
+    // listHistory returns rows in raw insertion order (oldest pushed
+    // first). Without this sort the paginator gives back page 1 = oldest
+    // 25, and any in-progress / newly added download lives on the last
+    // page — invisible to the user who's watching the list. Sort by
+    // `endTime ?? startTime` descending so newest is always page 1;
+    // matches the client-side per-page sort in `DownloadsTab.tsx:175`
+    // so the two layers agree on order.
+    const history = [...listHistory()].sort((a, b) =>
+      (b.endTime ?? b.startTime ?? 0) - (a.endTime ?? a.startTime ?? 0));
     const pq = parsePageQuery(req, { defaultPageSize: 20, maxPageSize: 100 });
     if (!pq.isPaginated) {
       res.json({ success: true, count: history.length, history });
@@ -140,42 +151,25 @@ const handleHistoryDelete: RequestHandler = async (req, res) => {
   res.json({ success: true, message: `History item deleted: ${removed.modelName}` });
 };
 
-// Allow-listed hosts for the unified download endpoint. `hfUrl` retains its
-// historical name but now accepts huggingface + civitai URLs; see the doc
-// block at the top of the file.
-const DOWNLOAD_ALLOWED_HOSTS = new Set([
-  'huggingface.co', 'www.huggingface.co', 'hf-mirror.com',
-  'civitai.com', 'www.civitai.com',
-]);
-
-function isAllowedDownloadHost(url: string): boolean {
-  try { return DOWNLOAD_ALLOWED_HOSTS.has(new URL(url).hostname.toLowerCase()); }
-  catch { return false; }
-}
-
 const handleDownloadCustom: RequestHandler = async (req: Request, res: Response) => {
   try {
-    const { modelName, filename, hfUrl, modelDir, hfToken, civitaiToken, meta } = (req.body || {}) as {
+    const { modelName, filename, hfUrl, modelDir, hfToken, civitaiToken, githubToken, meta } = (req.body || {}) as {
       modelName?: string; filename?: string; hfUrl?: string; modelDir?: string;
-      hfToken?: string; civitaiToken?: string; meta?: DownloadCustomMeta;
+      hfToken?: string; civitaiToken?: string; githubToken?: string;
+      meta?: DownloadCustomMeta;
     };
-    if (hfUrl !== undefined && !isHttpUrl(hfUrl)) { res.status(400).json({ error: 'hfUrl must be http(s)' }); return; }
-    if (hfUrl !== undefined && hostIsPrivate(hfUrl)) { res.status(400).json({ error: 'hfUrl points at a private/loopback host' }); return; }
-    if (hfUrl !== undefined && !isAllowedDownloadHost(hfUrl)) {
-      res.status(400).json({ error: 'hfUrl host not allowed (huggingface.co, hf-mirror.com, civitai.com only)' });
-      return;
+    if (hfUrl !== undefined) {
+      const v = validateAllowedUrl(hfUrl);
+      if (!v.ok) { res.status(400).json({ error: v.error }); return; }
     }
-    // Resolve filename. HF URLs encode it in the last path segment; civitai
-    // `/api/download/models/:versionId` does NOT — caller must supply it
-    // explicitly. We accept either an explicit `filename` or derive from HF.
+    // Resolve filename. HF/GitHub URLs encode it in the last path segment;
+    // civitai `/api/download/models/:versionId` does NOT — caller must
+    // supply it explicitly. The walker re-derives this from the dispatch
+    // result; here we only need a best-guess for the dedup key + catalog
+    // pre-populate.
     let resolvedFilename = filename;
-    if (!resolvedFilename && hfUrl) {
-      try {
-        const host = new URL(hfUrl).hostname.toLowerCase();
-        if (host !== 'civitai.com' && host !== 'www.civitai.com') {
-          resolvedFilename = hfUrl.split('/').pop();
-        }
-      } catch { /* bubble up below */ }
+    if (!resolvedFilename && hfUrl && urlEncodesFilename(hfUrl)) {
+      resolvedFilename = hfUrl.split('/').pop();
     }
     const id = { modelName, filename: resolvedFilename };
     const existing = findByIdentity(id);
@@ -195,14 +189,11 @@ const handleDownloadCustom: RequestHandler = async (req: Request, res: Response)
     const tokens = {
       hfToken: hfToken || settings.getHfToken(),
       civitaiToken: civitaiToken || settings.getCivitaiToken(),
+      githubToken: githubToken || settings.getGithubToken(),
     };
     const out = await models.downloadCustom(hfUrl, modelDir, tokens, resolvedFilename);
     // Populate AFTER the download service returns so `downloading: true` never
-    // lands on a row whose task didn't actually start. Route-level dedup above
-    // (findByIdentity/findQueuedByIdentity) handles the already-active case;
-    // this guards future edge cases where downloadCustom rejects internally.
-    // The BEFORE→AFTER window is ~10 ms — the async download continues past
-    // the return — so the Models page's next poll still sees the row.
+    // lands on a row whose task didn't actually start.
     if (resolvedFilename) prepopulateCatalog(resolvedFilename, modelDir, hfUrl, meta, modelName);
     trackDownload(out.taskId, { modelName: out.fileName, filename: out.fileName });
     res.json({ success: true, taskId: out.taskId, message: `Starting download: ${out.fileName} -> ${out.saveDir}` });

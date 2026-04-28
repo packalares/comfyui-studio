@@ -57,12 +57,26 @@ describe('detectDownloadHost', () => {
       .toBe('civitai');
   });
 
-  it('returns null for unsupported hosts', () => {
-    expect(detectDownloadHost('https://example.com/x')).toBeNull();
+  it('classifies github.com release URLs', () => {
+    expect(detectDownloadHost('https://github.com/foo/bar/releases/download/v1/asset.bin'))
+      .toBe('github');
+  });
+
+  it('classifies any other valid http(s) host as generic', () => {
+    // After the urlSources / generic-streamer work, the dispatcher does
+    // not reject an arbitrary host here — the route-level allow-list
+    // (services/models/downloadAllowlist.ts) is the gate, while the host
+    // detector just labels the URL family for the unified-download
+    // dispatcher.
+    expect(detectDownloadHost('https://example.com/x')).toBe('generic');
   });
 
   it('returns null for malformed URLs', () => {
     expect(detectDownloadHost('not a url')).toBeNull();
+  });
+
+  it('returns null for non-http(s) schemes', () => {
+    expect(detectDownloadHost('file:///etc/passwd')).toBeNull();
   });
 });
 

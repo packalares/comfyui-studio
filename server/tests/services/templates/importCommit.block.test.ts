@@ -20,6 +20,24 @@ import {
 import type { StagedImport } from '../../../src/services/templates/importStaging.js';
 import * as catalog from '../../../src/services/catalog.js';
 import { seedObjectInfoCache } from '../../../src/services/workflow/objectInfo.js';
+import { paths } from '../../../src/config/paths.js';
+
+// `paths.userTemplatesDir` is frozen at module load against `os.homedir()`,
+// so the per-test `process.env.HOME = tmpRoot` doesn't actually divert
+// saveUserWorkflow writes. Clear the dir before every test that exercises
+// the commit path so a previous run's leftover slug doesn't trip the
+// (post-batch-2) collision check.
+function clearUserTemplatesDir(): void {
+  try {
+    if (!fs.existsSync(paths.userTemplatesDir)) return;
+    for (const f of fs.readdirSync(paths.userTemplatesDir)) {
+      if (f.endsWith('.json')) {
+        try { fs.rmSync(path.join(paths.userTemplatesDir, f), { force: true }); }
+        catch { /* best effort */ }
+      }
+    }
+  } catch { /* best effort */ }
+}
 
 function stagedFixture(wfs: StagedImport['workflows']): StagedImport {
   return {
@@ -149,6 +167,7 @@ describe('commitStaging block integration', () => {
     // Keep plugin extraction clean (no unresolved plugin noise from the
     // commit-block tests below — they only exercise the model path).
     seedObjectInfoCache({ UNETLoader: {}, SaveImage: {} });
+    clearUserTemplatesDir();
   });
 
   afterEach(() => {
@@ -157,6 +176,7 @@ describe('commitStaging block integration', () => {
     if (savedConfig !== undefined) process.env.STUDIO_CONFIG_FILE = savedConfig;
     else delete process.env.STUDIO_CONFIG_FILE;
     fs.rmSync(tmpRoot, { recursive: true, force: true });
+    clearUserTemplatesDir();
   });
 
   async function makeZip(entries: Record<string, string>): Promise<Uint8Array> {

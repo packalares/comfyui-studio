@@ -16,6 +16,7 @@ import { extractPrimitiveFormFields } from '../workflow/primitiveFields.js';
 // a cycle (templates → workflow → templates).
 import { filteredWidgetValues, widgetNamesFor } from '../workflow/rawWidgets/shapes.js';
 import { flattenWorkflow } from '../workflow/flatten/index.js';
+import { findSubgraphDef, resolveProxyBoundKeys } from '../workflow/proxyLabels.js';
 import type { FormInputData, RawTemplate } from './types.js';
 
 // Human labels for well-known prompt-surface widget names. Anything not in
@@ -208,6 +209,102 @@ function promptSurfaceFieldsFromNodes(
 }
 
 /**
+ * Promote wrapper-proxy prompt widgets to main-form fields when nothing
+ * else surfaces them. Many upstream comfy-org workflows (Z-Image-Turbo
+ * Fun Union ControlNet, Flux.2 Dev t2i, …) wrap a CLIPTextEncode inside
+ * a subgraph wrapper whose `proxyWidgets` list exposes the encoder's
+ * `text` widget. The author's clear intent is "this is the user-editable
+ * prompt", but because:
+ *   - the workflow has no Primitive titled "Prompt", and
+ *   - the inner encoder's `text` input is wired (from the subgraph input
+ *     port driven by the proxy), so the widget-walker correctly skips it,
+ * Studio falls all the way to the legacy unbound `defaultPromptField`.
+ * The user then sees the prompt only inside Advanced Settings (under the
+ * proxy label "Text"), with a useless duplicate generic prompt textbox in
+ * the main form.
+ *
+ * Promotion fix: walk wrapper.proxyWidgets, find proxied widgets whose
+ * inner-node spec is a multiline STRING, and emit BOUND main-form fields
+ * pointing at the inner node via compound id (`<wrapperId>:<innerId>`).
+ * `applyBoundFormInputs` already understands compound ids — same plumbing
+ * used by primitive-walked subgraph fields. The matching proxy entry then
+ * auto-drops from Advanced via `filterProxySettingsByBoundKeys` because
+ * the form now claims it.
+ */
+function promotedProxyPromptFields(
+  workflow: Record<string, unknown>,
+  objectInfo: Record<string, Record<string, unknown>>,
+): FormInputData[] {
+  const out: FormInputData[] = [];
+  const wrappers = (workflow.nodes as Array<Record<string, unknown>> | undefined) || [];
+  for (const wrapper of wrappers) {
+    const props = wrapper.properties as Record<string, unknown> | undefined;
+    const proxyList = props?.proxyWidgets as unknown;
+    if (!Array.isArray(proxyList)) continue;
+    const sgDef = findSubgraphDef(wrapper, workflow);
+    if (!sgDef) continue;
+    const innerNodes = (sgDef.nodes as Array<Record<string, unknown>> | undefined) || [];
+    // resolveProxyBoundKeys follows ComfyUI's `-1` subgraph-input convention
+    // for us — for each `[innerId, widgetName]` proxy entry it returns the
+    // compound `{nodeId: 'wrapperId:innerId', widgetName}` that the
+    // flattener emits. Without this, modern wrapper-only templates whose
+    // proxy entries are all `[-1, '<port>']` produce zero promoted fields
+    // (the entries don't point at concrete inner nodes directly).
+    const resolved = resolveProxyBoundKeys(
+      wrapper, proxyList as string[][], workflow,
+    );
+    for (const { nodeId, widgetName } of resolved) {
+      // Compound id `wrapperId:innerId`; pull the local inner id off the tail.
+      const lastColon = nodeId.lastIndexOf(':');
+      const innerId = lastColon >= 0 ? nodeId.slice(lastColon + 1) : nodeId;
+      const inner = innerNodes.find(n => String(n.id) === innerId);
+      if (!inner) continue;
+      const classType = (inner.type as string | undefined)
+        || (inner.class_type as string | undefined);
+      if (!classType) continue;
+      // Skip explicitly-negative-titled inner encoders (mirrors the
+      // widget-walker's `/negative/i` rule).
+      const innerTitle = (inner.title as string | undefined) || '';
+      if (/negative/i.test(innerTitle)) continue;
+      // Only promote multiline STRING inputs — everything else is a knob,
+      // not a prompt, and belongs in Advanced. Schema check is the
+      // authoritative path; the well-known-name fallback covers the case
+      // where ComfyUI is intermittently unreachable so objectInfo is
+      // empty: every recognised prompt encoder uses `text` or `prompt`
+      // as the multiline-STRING widget name, so we can promote on name
+      // alone without false positives.
+      const schema = objectInfo[classType] as {
+        input?: { required?: Record<string, unknown>; optional?: Record<string, unknown> };
+      } | undefined;
+      const declared = schema?.input
+        ? { ...(schema.input.required || {}), ...(schema.input.optional || {}) }
+        : null;
+      const schemaSaysMultiline = declared
+        ? isMultilineStringSpec(declared[widgetName])
+        : false;
+      const knownPromptName = widgetName === 'text' || widgetName === 'prompt';
+      if (!schemaSaysMultiline && !knownPromptName) continue;
+
+      const widgetNames = widgetNamesFor(objectInfo, classType);
+      const wv = filteredWidgetValues(inner.widgets_values as unknown[] | undefined);
+      const pos = widgetNames.indexOf(widgetName);
+      const defaultRaw = pos >= 0 ? wv[pos] : undefined;
+      const field: FormInputData = {
+        id: widgetName,
+        label: WIDGET_LABELS[widgetName] ?? titleCaseWidget(widgetName),
+        type: 'textarea',
+        required: true,
+        bindNodeId: nodeId,
+        bindWidgetName: widgetName,
+      };
+      if (typeof defaultRaw === 'string') field.default = defaultRaw;
+      out.push(field);
+    }
+  }
+  return out;
+}
+
+/**
  * Build the form-input list. `objectInfo` is required to read widget specs;
  * caller-of-last-resort (upstream catalog where no workflow is available) can
  * pass an empty object — the function falls through to the tag-only prompt
@@ -243,6 +340,23 @@ export function generateFormInputs(
       for (const f of walked) {
         const key = `${f.bindNodeId}|${f.bindWidgetName}`;
         if (!seen.has(key)) promptFields.push(f);
+      }
+      // Last resort before the unbound fallback: lift any wrapper-proxy
+      // prompt widgets to bound main-form fields. Fires when neither the
+      // primitive walk nor the widget walk produced anything (the upstream
+      // wrapper-only workflows like Z-Image-Turbo Fun Union ControlNet and
+      // Flux.2 Dev t2i). Dedupe vs. existing entries by bind key — won't
+      // double up on a workflow that already has a titled Primitive
+      // covering the same `(compoundId, widgetName)` pair.
+      if (promptFields.length === 0) {
+        const promoted = promotedProxyPromptFields(workflow, objectInfo);
+        for (const f of promoted) {
+          const key = `${f.bindNodeId}|${f.bindWidgetName}`;
+          if (!seen.has(key)) {
+            promptFields.push(f);
+            seen.add(key);
+          }
+        }
       }
     }
   }

@@ -111,6 +111,8 @@ export interface NetworkConfigView {
   pipSource: string;
   /** Extra hosts accepted by the plugin-install URL validator. */
   pluginTrustedHosts: string[];
+  /** Extra hosts accepted by the model-download URL validator. */
+  modelTrustedHosts: string[];
   /** When true, pip-source accepts http:// on private IPs. */
   allowPrivateIpMirrors: boolean;
   /** Last-known reachability for each service (unknown until the first check runs). */
@@ -139,6 +141,7 @@ export function getNetworkConfig(lastStatus: ReachabilityStatus | null): Network
     githubProxy: snap.githubProxy || 'https://github.com/',
     pipSource: snap.pipSource || 'https://pypi.org/simple/',
     pluginTrustedHosts: snap.pluginTrustedHosts,
+    modelTrustedHosts: snap.modelTrustedHosts,
     allowPrivateIpMirrors: snap.allowPrivateIpMirrors,
     reachability: {
       github: {

@@ -138,6 +138,14 @@ export const api = {
   clearCivitaiToken: () =>
     fetchJson<{ configured: boolean }>('/settings/civitai-token', { method: 'DELETE' }),
 
+  setGithubToken: (token: string) =>
+    fetchJson<{ configured: boolean }>('/settings/github-token', {
+      method: 'PUT',
+      body: JSON.stringify({ token }),
+    }),
+  clearGithubToken: () =>
+    fetchJson<{ configured: boolean }>('/settings/github-token', { method: 'DELETE' }),
+
   setPexelsApiKey: (apiKey: string) =>
     fetchJson<{ configured: boolean }>('/settings/pexels-api-key', {
       method: 'PUT',
@@ -152,6 +160,7 @@ export const api = {
     apiKeyConfigured?: boolean;
     hfTokenConfigured?: boolean;
     civitaiTokenConfigured?: boolean;
+    githubTokenConfigured?: boolean;
     pexelsApiKeyConfigured?: boolean;
     uploadMaxBytes?: number;
   }>('/system'),
@@ -498,6 +507,12 @@ export const api = {
 
   setPluginTrustedHosts: (hosts: string[]) =>
     fetchJson<Record<string, unknown>>('/launcher/system/plugin-trusted-hosts', {
+      method: 'POST',
+      body: JSON.stringify({ hosts }),
+    }),
+
+  setModelTrustedHosts: (hosts: string[]) =>
+    fetchJson<Record<string, unknown>>('/launcher/system/model-trusted-hosts', {
       method: 'POST',
       body: JSON.stringify({ hosts }),
     }),
@@ -852,7 +867,14 @@ export const api = {
    */
   commitImportStaging: (
     id: string,
-    selection: { workflowIndices: number[]; imagesCopy: boolean },
+    selection: {
+      workflowIndices: number[];
+      imagesCopy: boolean;
+      // Per-index title override used by the "use suggested name" retry
+      // after the server returns 409 NAME_COLLISION. Wire shape: numeric
+      // index → fresh title.
+      titleOverrides?: Record<number, string>;
+    },
   ) =>
     fetchJson<{ imported: string[]; imagesCopied: string[] }>(
       `/templates/import/staging/${encodeURIComponent(id)}/commit`,

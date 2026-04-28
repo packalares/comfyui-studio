@@ -6,10 +6,11 @@ import { extractDeps } from '../../../src/services/templates/depExtract.js';
 
 describe('extractDeps', () => {
   it('returns empty arrays for non-workflow inputs', () => {
-    expect(extractDeps(null)).toEqual({ models: [], plugins: [] });
-    expect(extractDeps(undefined)).toEqual({ models: [], plugins: [] });
-    expect(extractDeps('not a workflow')).toEqual({ models: [], plugins: [] });
-    expect(extractDeps({})).toEqual({ models: [], plugins: [] });
+    const empty = { models: [], plugins: [], modelLoaderClasses: {} };
+    expect(extractDeps(null)).toEqual(empty);
+    expect(extractDeps(undefined)).toEqual(empty);
+    expect(extractDeps('not a workflow')).toEqual(empty);
+    expect(extractDeps({})).toEqual(empty);
   });
 
   it('collects model filenames from properties.models[]', () => {
@@ -86,5 +87,36 @@ describe('extractDeps', () => {
     const deps = extractDeps(wf);
     expect(deps.models).toEqual(['m.safetensors']);
     expect(deps.plugins).toEqual(['alice/pack']);
+  });
+
+  // Regression: each loader's class_type must be recorded against the
+  // filename(s) it references so the import resolver can route them to
+  // the right `models/<folder>/` directory regardless of URL/filename
+  // heuristics. Covers the LTX 2.3 i2av case where the same workflow
+  // refers to a `LatentUpscaleModelLoader` and an `LTXAVTextEncoderLoader`
+  // — both previously got mis-routed to upscale_models / checkpoints.
+  it('records the loader class_type per filename in modelLoaderClasses', () => {
+    const wf = {
+      nodes: [
+        {
+          type: 'LatentUpscaleModelLoader',
+          widgets_values: ['ltx-2.3-spatial-upscaler-x2-1.0.safetensors'],
+        },
+        {
+          type: 'LTXAVTextEncoderLoader',
+          widgets_values: ['gemma_3_12B_it_fp8_e4m3fn.safetensors'],
+        },
+        {
+          type: 'CheckpointLoaderSimple',
+          widgets_values: ['ltx-2.3-22b-dev-fp8.safetensors'],
+        },
+      ],
+    };
+    const deps = extractDeps(wf);
+    expect(deps.modelLoaderClasses).toEqual({
+      'ltx-2.3-spatial-upscaler-x2-1.0.safetensors': 'LatentUpscaleModelLoader',
+      'gemma_3_12B_it_fp8_e4m3fn.safetensors': 'LTXAVTextEncoderLoader',
+      'ltx-2.3-22b-dev-fp8.safetensors': 'CheckpointLoaderSimple',
+    });
   });
 });

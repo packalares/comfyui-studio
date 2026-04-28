@@ -9,6 +9,8 @@ interface Settings {
   huggingFaceToken?: string;
   civitaiToken?: string;
   pexelsApiKey?: string;
+  /** GitHub PAT used for github-release downloads + (already-existing) GitHub API auth. */
+  githubToken?: string;
 }
 
 let cache: Settings | null = null;
@@ -111,5 +113,25 @@ export function setPexelsApiKey(key: string): void {
 export function clearPexelsApiKey(): void {
   const settings = load();
   const { pexelsApiKey: _removed, ...rest } = settings;
+  save(rest);
+}
+
+export function getGithubToken(): string | undefined {
+  return load().githubToken;
+}
+
+export function isGithubTokenConfigured(): boolean {
+  const token = getGithubToken();
+  return typeof token === 'string' && token.length > 0;
+}
+
+export function setGithubToken(token: string): void {
+  const settings = load();
+  save({ ...settings, githubToken: token });
+}
+
+export function clearGithubToken(): void {
+  const settings = load();
+  const { githubToken: _removed, ...rest } = settings;
   save(rest);
 }

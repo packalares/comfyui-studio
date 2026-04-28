@@ -543,7 +543,103 @@ function CivitaiTokenCard() {
 }
 
 /* =================================================================
-   1d. Pexels API Key Card
+   1d. GitHub Token Card
+   ================================================================= */
+
+function GithubTokenCard() {
+  const { githubTokenConfigured: configured, refreshSystem } = useApp();
+  const [token, setToken] = useState('');
+  const [showToken, setShowToken] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const handleSave = async () => {
+    if (!token.trim()) return;
+    setBusy(true);
+    try {
+      await api.setGithubToken(token.trim());
+      await refreshSystem();
+      setToken('');
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleClear = async () => {
+    setBusy(true);
+    try {
+      await api.clearGithubToken();
+      await refreshSystem();
+      setToken('');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveDisabled = busy || token.trim().length === 0;
+
+  return (
+    <section className="panel">
+      <CardHeader
+        icon={Key}
+        title="GitHub Token"
+        description="Adds authentication for github.com release downloads and lifts the unauthenticated 60/h API rate limit."
+        right={<StatusBadge ok={configured} labelOk="Configured" labelBad="Not set" />}
+      />
+      <div className="space-y-3 panel-body">
+        <label className="field-label">
+          Access token
+        </label>
+        <div className="field-wrap">
+          <input
+            type={showToken ? 'text' : 'password'}
+            value={token}
+            onChange={e => setToken(e.target.value)}
+            className="field-input font-mono"
+            placeholder={configured ? 'Token is set — type a new one to replace' : 'github_pat_…'}
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <button
+            type="button"
+            onClick={() => setShowToken(v => !v)}
+            className="text-slate-400 transition hover:text-slate-700"
+            aria-label={showToken ? 'Hide token' : 'Show token'}
+          >
+            {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        </div>
+        <div className="info-box">
+          <p>
+            Create a fine-grained <strong>read</strong> token at <code>github.com/settings/tokens</code>.
+            Stored server-side; attached as <code>Authorization: Bearer</code>
+            to github.com release downloads + api.github.com calls. Never echoed back to the browser.
+          </p>
+        </div>
+      </div>
+      <div className="panel-footer">
+        <p className="panel-footer-note">Changes are applied immediately.</p>
+        <div className="btn-group">
+          {configured && (
+            <button onClick={handleClear} disabled={busy} className="btn-secondary !text-red-600 hover:!bg-red-50">
+              <Trash2 className="h-3.5 w-3.5" />
+              Clear
+            </button>
+          )}
+          <button onClick={handleSave} disabled={saveDisabled} className="btn-primary">
+            {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
+            {saved ? 'Saved' : configured ? 'Replace' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* =================================================================
+   1e. Pexels API Key Card
    ================================================================= */
 
 function PexelsApiKeyCard() {
@@ -1121,6 +1217,7 @@ function NetworkCard() {
   const [githubProxy, setGithubProxy] = useState('');
   const [pipSource, setPipSource] = useState('');
   const [trustedHosts, setTrustedHosts] = useState('');
+  const [modelTrustedHosts, setModelTrustedHosts] = useState('');
   const [allowPrivateIp, setAllowPrivateIp] = useState(false);
   const [reach, setReach] = useState<{ github?: Reachability; pip?: Reachability; huggingface?: Reachability }>({});
   const [loading, setLoading] = useState(true);
@@ -1133,6 +1230,8 @@ function NetworkCard() {
   const [savedPip, setSavedPip] = useState(false);
   const [savingHosts, setSavingHosts] = useState(false);
   const [savedHosts, setSavedHosts] = useState(false);
+  const [savingModelHosts, setSavingModelHosts] = useState(false);
+  const [savedModelHosts, setSavedModelHosts] = useState(false);
   const [savingAllow, setSavingAllow] = useState(false);
 
   const loadConfig = useCallback(async () => {
@@ -1146,6 +1245,8 @@ function NetworkCard() {
       setPipSource(String(unwrapped.pipSource || unwrapped.pip_source || ''));
       const hosts = Array.isArray(unwrapped.pluginTrustedHosts) ? unwrapped.pluginTrustedHosts : [];
       setTrustedHosts(hosts.join(', '));
+      const mhosts = Array.isArray(unwrapped.modelTrustedHosts) ? unwrapped.modelTrustedHosts : [];
+      setModelTrustedHosts(mhosts.join(', '));
       setAllowPrivateIp(Boolean(unwrapped.allowPrivateIpMirrors));
       const r = unwrapped.reachability as { github?: Reachability; pip?: Reachability; huggingface?: Reachability } | undefined;
       setReach(r || {});
@@ -1209,6 +1310,19 @@ function NetworkCard() {
       setError('Failed to save plugin trusted hosts');
     } finally {
       setSavingHosts(false);
+    }
+  };
+  const saveModelHosts = async () => {
+    setSavingModelHosts(true);
+    try {
+      const hosts = modelTrustedHosts.split(',').map(s => s.trim()).filter(Boolean);
+      await api.setModelTrustedHosts(hosts);
+      setSavedModelHosts(true);
+      setTimeout(() => setSavedModelHosts(false), 2000);
+    } catch {
+      setError('Failed to save model trusted hosts');
+    } finally {
+      setSavingModelHosts(false);
     }
   };
   const toggleAllow = async (next: boolean) => {
@@ -1302,6 +1416,16 @@ function NetworkCard() {
                 onSave={saveHosts}
                 saving={savingHosts}
                 saved={savedHosts}
+              />
+              <NetworkRow
+                label="Model Trusted Hosts"
+                icon={Shield}
+                placeholder="cdn.example.com, mirror.example.org"
+                value={modelTrustedHosts}
+                onChange={setModelTrustedHosts}
+                onSave={saveModelHosts}
+                saving={savingModelHosts}
+                saved={savedModelHosts}
               />
             </div>
             <div className="flex items-center justify-between gap-3 pt-1">
@@ -1458,11 +1582,12 @@ export default function Settings() {
     <>
       <PageSubbar title="Settings" description="Configure your workspace" />
       <div className="page-container space-y-3">
-        {/* API keys row — Comfy Org | HuggingFace | CivitAI | Pexels */}
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+        {/* API keys row — Comfy Org | HuggingFace | CivitAI | GitHub | Pexels */}
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <ApiKeyCard />
           <HfTokenCard />
           <CivitaiTokenCard />
+          <GithubTokenCard />
           <PexelsApiKeyCard />
         </div>
         {/* Storage + Network row */}

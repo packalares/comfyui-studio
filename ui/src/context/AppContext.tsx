@@ -38,6 +38,7 @@ interface AppContextType {
   apiKeyConfigured: boolean;
   hfTokenConfigured: boolean;
   civitaiTokenConfigured: boolean;
+  githubTokenConfigured: boolean;
   pexelsApiKeyConfigured: boolean;
   uploadMaxBytes: number;
   downloads: Record<string, DownloadState>;
@@ -82,6 +83,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setApiKeyConfigured,
     _setHfTokenConfigured,
     _setCivitaiTokenConfigured,
+    _setGithubTokenConfigured,
     _setPexelsApiKeyConfigured,
     _setUploadMaxBytes,
     _systemStatsRef,
@@ -104,6 +106,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       const {
         queue, gallery: galleryInfo,
         apiKeyConfigured, hfTokenConfigured, civitaiTokenConfigured,
+        githubTokenConfigured,
         pexelsApiKeyConfigured,
         uploadMaxBytes,
         ...stats
@@ -118,6 +121,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       if (typeof apiKeyConfigured === 'boolean') _setApiKeyConfigured(apiKeyConfigured);
       if (typeof hfTokenConfigured === 'boolean') _setHfTokenConfigured(hfTokenConfigured);
       if (typeof civitaiTokenConfigured === 'boolean') _setCivitaiTokenConfigured(civitaiTokenConfigured);
+      if (typeof githubTokenConfigured === 'boolean') _setGithubTokenConfigured(githubTokenConfigured);
       if (typeof pexelsApiKeyConfigured === 'boolean') _setPexelsApiKeyConfigured(pexelsApiKeyConfigured);
       if (typeof uploadMaxBytes === 'number' && Number.isFinite(uploadMaxBytes)) {
         _setUploadMaxBytes(uploadMaxBytes);
@@ -135,6 +139,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setApiKeyConfigured,
     _setHfTokenConfigured,
     _setCivitaiTokenConfigured,
+    _setGithubTokenConfigured,
     _setPexelsApiKeyConfigured,
     _setUploadMaxBytes,
     _setConnected,
@@ -449,6 +454,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       apiKeyConfigured: system.apiKeyConfigured,
       hfTokenConfigured: system.hfTokenConfigured,
       civitaiTokenConfigured: system.civitaiTokenConfigured,
+      githubTokenConfigured: system.githubTokenConfigured,
       pexelsApiKeyConfigured: system.pexelsApiKeyConfigured,
       uploadMaxBytes: system.uploadMaxBytes,
       downloads: jobs.downloads,
@@ -478,6 +484,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       system.apiKeyConfigured,
       system.hfTokenConfigured,
       system.civitaiTokenConfigured,
+      system.githubTokenConfigured,
       system.pexelsApiKeyConfigured,
       system.uploadMaxBytes,
       jobs.queueStatus,

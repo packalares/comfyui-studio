@@ -250,8 +250,10 @@ describe('stageFromPastedJson', () => {
   });
 
   it('rejects non-LiteGraph docs', async () => {
+    // Paste path now also accepts TemplateData wrappers, so the error
+    // message changed; the wrapper detector is the chokepoint.
     await expect(stageFromPastedJson(JSON.stringify({ foo: 'bar' })))
-      .rejects.toThrow(/nodes/);
+      .rejects.toThrow(/LiteGraph workflow or TemplateData wrapper/);
   });
 
   it('rejects payloads over the 20 MB cap', async () => {

@@ -44,11 +44,23 @@ export interface EnumeratedWidget {
   exposed: boolean;
   /**
    * True when this widget is already driven by the main form (positive prompt,
-   * image/audio/video upload targets). The "Edit advanced fields" modal hides
-   * these so the user can't expose duplicates; other consumers (e.g. the
-   * Studio page's Prompt prefill) read them to learn the template's defaults.
+   * image/audio/video upload targets). The "Edit advanced fields" modal renders
+   * these as checked + read-only so the user sees the truth ("this IS in
+   * Advanced, the main form put it there") without being able to toggle off
+   * something the workflow's binding owns. Other consumers (e.g. the Studio
+   * page's Prompt prefill) read this to learn the template's defaults.
    */
   formClaimed: boolean;
+  /**
+   * True when this widget is already exposed via a wrapper subgraph's
+   * `proxyWidgets` list (the workflow author's curated Advanced Settings).
+   * Same UX rule as `formClaimed`: the modal renders the row checked +
+   * read-only — the workflow author baked this in, the user can't toggle it
+   * off without editing the workflow itself. Avoids the duplicate-row bug
+   * where a proxied widget plus a user-exposed entry for the same widget
+   * both render in Advanced.
+   */
+  proxyExposed: boolean;
   /**
    * Display name of the subgraph this widget was enumerated from. Absent for
    * top-level widgets (nodeId has no `:`). For inner-subgraph widgets whose

@@ -61,6 +61,23 @@ router.delete('/settings/civitai-token', (_req: Request, res: Response) => {
   res.json({ configured: false });
 });
 
+// ---- GitHub token (for github-release downloads + REST API auth) ----
+// Status flag is carried on `GET /api/system`. Only writes remain.
+router.put('/settings/github-token', (req: Request, res: Response) => {
+  const { token } = req.body as { token?: unknown };
+  if (typeof token !== 'string' || token.trim().length === 0) {
+    res.status(400).json({ error: 'token must be a non-empty string' });
+    return;
+  }
+  settings.setGithubToken(token.trim());
+  res.json({ configured: true });
+});
+
+router.delete('/settings/github-token', (_req: Request, res: Response) => {
+  settings.clearGithubToken();
+  res.json({ configured: false });
+});
+
 // ---- Pexels API key (stock-photo fallback for audio thumbnails) ----
 // Unset → audio rows without embedded cover art skip straight to Picsum.
 // Status flag is carried on `GET /api/system`. Only writes remain.

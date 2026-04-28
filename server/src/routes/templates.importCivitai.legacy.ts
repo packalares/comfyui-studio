@@ -26,7 +26,7 @@ function resolveVersionId(body: unknown): string {
   return raw != null ? String(raw) : '';
 }
 
-const looksLikeLitegraph = templates.looksLikeLitegraph;
+const extractLitegraph = templates.extractLitegraph;
 
 async function fetchRemoteBytes(
   url: string,
@@ -141,13 +141,18 @@ export async function handleImportCivitai(req: Request, res: Response): Promise<
         });
         return;
       }
-      if (!looksLikeLitegraph(parsed)) {
+      const extracted = extractLitegraph(parsed);
+      if (!extracted) {
         res.status(400).json({
-          error: 'Workflow JSON has no top-level `nodes` array; not a LiteGraph document.',
+          error: 'Workflow JSON is not a LiteGraph workflow or TemplateData wrapper.',
         });
         return;
       }
-      staged = await templates.stageFromJson(parsed as Record<string, unknown>, {
+      // Reverse spread: civitai's API metadata is more authoritative than
+      // anything embedded in the JSON wrapper, so route opts win. Wrapper
+      // defaults still fill in fields the API didn't provide.
+      staged = await templates.stageFromJson(extracted.workflow, {
+        ...extracted.defaults,
         source: 'civitai',
         sourceUrl,
         entryName: meta.fileName,
@@ -208,7 +213,7 @@ export async function handleImportCivitai(req: Request, res: Response): Promise<
     res.json({ staged: true, manifest: templates.toManifest(staged) });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (/Missing workflow version ID|not valid JSON|no top-level|nodes array/.test(msg)) {
+    if (/Missing workflow version ID|not valid JSON|no top-level|nodes array|TemplateData wrapper/.test(msg)) {
       res.status(400).json({ error: msg });
       return;
     }

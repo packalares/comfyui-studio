@@ -5,17 +5,18 @@
 // and re-exports the persistent-store helpers so existing call sites keep
 // working without changes.
 
-import { getHfToken } from './settings.js';
+import { getHfToken, getCivitaiToken, getGithubToken } from './settings.js';
 import { paths } from '../config/paths.js';
 import { formatBytes } from '../lib/format.js';
-import { getHfAuthHeaders } from '../lib/http.js';
+import { getHostAuthHeaders } from '../lib/http.js';
 import { statModelOnDisk } from '../lib/fs.js';
 import {
   load, persist, persistCurrent, seedFromComfyUI,
   markInstalled, markDownloadFailed,
 } from './catalogStore.js';
 import { fetchLauncherScan, type LauncherScanEntry } from './catalog.scan.js';
-import type { CatalogModel, MergedModel, FileStatus } from '../contracts/catalog.contract.js';
+import { declaredByFor, mergeIntoExisting, urlSourceFor } from './catalog.urlSources.js';
+import type { CatalogModel, MergedModel, FileStatus, UrlSource } from '../contracts/catalog.contract.js';
 
 export type { CatalogModel, MergedModel, FileStatus };
 export { seedFromComfyUI, markInstalled, markDownloadFailed };
@@ -39,7 +40,7 @@ export function upsertModel(
   const data = load();
   const existing = data.models.find(m => m.filename === entry.filename);
   if (existing) {
-    mergeMissingInto(existing, entry);
+    mergeIntoExisting(existing, entry);
     persist(data);
     return existing;
   }
@@ -49,39 +50,16 @@ export function upsertModel(
     size_fetched_at: entry.size_fetched_at ?? null,
     ...entry,
   } as CatalogModel;
+  // Synthesize urlSources[] from the legacy `url` field on first insert.
+  // declaredBy mirrors the entry's source tag so the catalog records WHO
+  // first declared the URL; absent that, fall back to 'seed'.
+  if (fresh.url) {
+    const src = urlSourceFor(fresh.url, declaredByFor(entry));
+    if (src) fresh.urlSources = [src];
+  }
   data.models.push(fresh);
   persist(data);
   return fresh;
-}
-
-function mergeMissingInto(existing: CatalogModel, entry: Partial<CatalogModel>): void {
-  if (!existing.url && entry.url) existing.url = entry.url;
-  if (!existing.name && entry.name) existing.name = entry.name;
-  if (!existing.type && entry.type) existing.type = entry.type;
-  // save_path: templates + user-initiated downloads are authoritative for their
-  // expected path, so let them overwrite the seed-time value. Seed-source
-  // upserts still respect an existing save_path.
-  if (
-    entry.save_path
-    && (entry.source?.startsWith('template:') || entry.source === 'user' || !existing.save_path)
-  ) {
-    existing.save_path = entry.save_path;
-  }
-  if (!existing.description && entry.description) existing.description = entry.description;
-  if (!existing.reference && entry.reference) existing.reference = entry.reference;
-  if (!existing.base && entry.base) existing.base = entry.base;
-  // Download-time metadata: thumbnail + downloading flag + error are
-  // overwritten when explicitly supplied (a fresh Download click must be
-  // able to clear a stale error and restart the spinner).
-  if (entry.thumbnail !== undefined) existing.thumbnail = entry.thumbnail;
-  if (entry.downloading !== undefined) existing.downloading = entry.downloading;
-  if (entry.error !== undefined) existing.error = entry.error;
-  // Pre-populated size: if upsert supplied size_bytes and we don't have one yet,
-  // adopt it so the row can show a size immediately (refreshSize later overwrites).
-  if ((!existing.size_bytes || existing.size_bytes === 0) && entry.size_bytes) {
-    existing.size_bytes = entry.size_bytes;
-    if (entry.size_pretty) existing.size_pretty = entry.size_pretty;
-  }
 }
 
 export function isSizeStale(model: CatalogModel): boolean {
@@ -97,12 +75,15 @@ function detectGated(res: Response): string | null {
   return null;
 }
 
-function collectMirrors(model: CatalogModel): string[] {
-  const out = [model.url];
-  for (const m of load().models) {
-    if (m.filename === model.filename && m.url && !out.includes(m.url)) out.push(m.url);
-  }
-  return out;
+/**
+ * URLs to HEAD for size-refresh, in priority order. After the urlSources
+ * migration this just walks the row's own `urlSources[]`; legacy rows
+ * fall back to a single-element list synthesized from `model.url`.
+ */
+function refreshCandidates(model: CatalogModel): UrlSource[] {
+  if (model.urlSources && model.urlSources.length > 0) return model.urlSources;
+  const src = urlSourceFor(model.url, 'seed');
+  return src ? [src] : [];
 }
 
 function applySizeHeaders(model: CatalogModel, res: Response): void {
@@ -129,13 +110,19 @@ export async function refreshSize(
   if (!opts.force && !isSizeStale(model) && !model.gated) return model;
   if (!model.url) return model;
 
-  for (const url of collectMirrors(model)) {
-    const headers = getHfAuthHeaders(url, getHfToken());
+  const tokens = {
+    hfToken: getHfToken(),
+    civitaiToken: getCivitaiToken(),
+    githubToken: getGithubToken(),
+  };
+  for (const src of refreshCandidates(model)) {
+    const url = src.url;
+    const headers = getHostAuthHeaders(url, tokens);
     try {
       const res = await fetch(url, { method: 'HEAD', headers, redirect: 'follow' });
       if (res.status === 401 || res.status === 403) {
         model.gated = true;
-        model.gated_message = detectGated(res) || 'This model requires HuggingFace authentication.';
+        model.gated_message = detectGated(res) || 'This model requires authentication.';
         model.url = url;
         persistCurrent();
         return model;

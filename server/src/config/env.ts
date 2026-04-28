@@ -113,6 +113,8 @@ const LAUNCHER = {
   NVSHARE_MANAGED_MEMORY: process.env.NVSHARE_MANAGED_MEMORY ?? '',
   /** Extra trusted hostnames for plugin installs (comma-separated). */
   PLUGIN_TRUSTED_HOSTS: process.env.PLUGIN_TRUSTED_HOSTS ?? '',
+  /** Extra trusted hostnames for model downloads (comma-separated). Same shape as PLUGIN_TRUSTED_HOSTS. */
+  MODEL_TRUSTED_HOSTS: process.env.MODEL_TRUSTED_HOSTS ?? '',
   /** Initial value for the live "allow http:// pip mirrors on private IPs" toggle. */
   PIP_ALLOW_PRIVATE_IP: String(process.env.PIP_ALLOW_PRIVATE_IP ?? '').toLowerCase() === 'true',
   /** CivitAI API base URL. Defaults to public public endpoint. */

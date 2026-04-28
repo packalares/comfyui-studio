@@ -41,6 +41,17 @@ export interface StagedWorkflowEntry {
   /** Model filenames this workflow depends on (extracted by `extractDeps`). */
   models: string[];
   /**
+   * Filename → loader-node `class_type` that referenced it. Drives
+   * `commitOverrides::resolveModelForStaging` and `autoResolveModels`
+   * to pick the correct `models/<folder>/` directory for the file —
+   * the URL-side `guessFolder` heuristic is too coarse on its own
+   * (e.g. it returns `upscale_models` for files used by
+   * `LatentUpscaleModelLoader`, which actually reads from
+   * `latent_upscale_models`). Optional: workflows that predate this
+   * field stay backwards compatible.
+   */
+  modelLoaderClasses?: Record<string, string>;
+  /**
    * Model URLs discovered inside MarkdownNote / Note bodies (HuggingFace +
    * CivitAI hosts only). Wave E surfaces these in the review UI as
    * one-click "Resolve via URL" suggestions when a referenced filename has

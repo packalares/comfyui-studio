@@ -115,4 +115,36 @@ describe('resolveHuggingfaceUrl', () => {
     );
     expect(out!.suggestedFolder).toBe('vae');
   });
+
+  it('accepts /datasets/<org>/<repo>/blob/<ref>/<path> URLs', async () => {
+    mockHead(2048);
+    const out = await resolveHuggingfaceUrl(
+      'https://huggingface.co/datasets/org/repo/blob/main/data/file.bin',
+    );
+    expect(out).not.toBeNull();
+    expect(out!.repoId).toBe('org/repo');
+    expect(out!.revision).toBe('main');
+    expect(out!.fileName).toBe('file.bin');
+    expect(out!.downloadUrl).toBe(
+      'https://huggingface.co/datasets/org/repo/resolve/main/data/file.bin',
+    );
+  });
+
+  it('accepts /datasets/.../resolve/... URLs unchanged', async () => {
+    mockHead(2048);
+    const out = await resolveHuggingfaceUrl(
+      'https://huggingface.co/datasets/org/repo/resolve/abc123/sub/file.bin',
+    );
+    expect(out!.downloadUrl).toBe(
+      'https://huggingface.co/datasets/org/repo/resolve/abc123/sub/file.bin',
+    );
+    expect(out!.revision).toBe('abc123');
+  });
+
+  it('rejects /spaces/... URLs', async () => {
+    const out = await resolveHuggingfaceUrl(
+      'https://huggingface.co/spaces/org/space/blob/main/app.py',
+    );
+    expect(out).toBeNull();
+  });
 });

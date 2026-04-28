@@ -103,7 +103,7 @@ describe('enumerateTemplateWidgets — inner subgraph walk', () => {
     expect(seedWidget?.formClaimed).toBe(false);
   });
 
-  it('dedupes inner widgets already covered by proxyWidgets', async () => {
+  it('emits proxy-covered widgets with proxyExposed:true so the modal can render them as locked', async () => {
     const wf = makeWorkflow();
     const wrapper = (wf.nodes as Array<Record<string, unknown>>)[0];
     (wrapper.properties as Record<string, unknown>).proxyWidgets = [[216, 'sampler_name']];
@@ -111,10 +111,15 @@ describe('enumerateTemplateWidgets — inner subgraph walk', () => {
     const compoundMatches = out.filter(
       w => w.nodeId === '267:216' && w.widgetName === 'sampler_name',
     );
-    // Proxy already covers sampler_name on inner 216 — must NOT re-emit it.
-    expect(compoundMatches.length).toBe(0);
-    // Other widgets on the same inner node still surface.
-    expect(out.some(w => w.nodeId === '267:216' && w.widgetName === 'steps')).toBe(true);
+    // Proxy covers sampler_name on inner 216 — emit it once, flagged as
+    // proxy-exposed so the Edit-advanced modal can render checked + locked.
+    expect(compoundMatches.length).toBe(1);
+    expect(compoundMatches[0].proxyExposed).toBe(true);
+    expect(compoundMatches[0].exposed).toBe(false);
+    // Other widgets on the same inner node still surface, not proxy-locked.
+    const stepsHit = out.find(w => w.nodeId === '267:216' && w.widgetName === 'steps');
+    expect(stepsHit).toBeDefined();
+    expect(stepsHit?.proxyExposed).toBe(false);
   });
 
   it('chains prefixes across nested subgraphs', async () => {
@@ -226,7 +231,7 @@ describe('enumerateTemplateWidgets — flatten round-trip (real LTX2 fixture)', 
     }
   });
 
-  it('does not double-emit the 13 proxy-covered widgets for video_ltx2_3_i2v', async () => {
+  it('flags every proxy-covered widget as proxyExposed for video_ltx2_3_i2v (was: skipped emission, now: emit + lock)', async () => {
     const wf = readJson('ltx2_i2v.workflow.json');
     const widgets = await enumerateTemplateWidgets(wf, 'ltx2-proxy-dedupe');
 
@@ -238,14 +243,23 @@ describe('enumerateTemplateWidgets — flatten round-trip (real LTX2 fixture)', 
     const wrapperId = String(wrapper!.id);
     const proxyList = (wrapper!.properties as Record<string, unknown>).proxyWidgets as Array<[string, string]>;
 
+    // ComfyUI auto-attaches a `control_after_generate` widget alongside
+    // numeric seed widgets — it's a frontend-only convention, not in
+    // `objectInfo`, so the enumerator can't see it. Skip it from the
+    // assertion. Every other proxy entry MUST appear with
+    // proxyExposed:true so the Edit-advanced modal can render it locked.
+    const FRONTEND_ONLY = new Set(['control_after_generate']);
     for (const [innerId, widgetName] of proxyList) {
       if (innerId === '-1') continue;
+      if (FRONTEND_ONLY.has(widgetName)) continue;
       const compoundId = `${wrapperId}:${innerId}`;
       const hit = widgets.find(w => w.nodeId === compoundId && w.widgetName === widgetName);
       expect(
         hit,
-        `proxy-covered widget (${compoundId}, ${widgetName}) must not be re-emitted as a raw-widget`,
-      ).toBeUndefined();
+        `proxy-covered widget (${compoundId}, ${widgetName}) must be emitted with proxyExposed:true`,
+      ).toBeDefined();
+      expect(hit!.proxyExposed).toBe(true);
+      expect(hit!.exposed).toBe(false);
     }
   });
 });

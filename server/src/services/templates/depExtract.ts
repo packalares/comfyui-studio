@@ -35,6 +35,15 @@ const STATIC_BUILTIN_CLASSES = new Set<string>([
 export interface ExtractedDeps {
   models: string[];
   plugins: string[];
+  /**
+   * Filename → loader-node class_type that referenced it. Used downstream
+   * by the import resolver to put the file in the correct
+   * `models/<folder>/` directory regardless of any URL-side heuristics.
+   * When the same filename is referenced by multiple loader nodes (rare)
+   * the first one wins — class_types are usually stable across duplicate
+   * references (e.g. two LoraLoader nodes both pointing at the same lora).
+   */
+  modelLoaderClasses: Record<string, string>;
 }
 
 /**
@@ -79,7 +88,11 @@ function collectNodeTemplateModels(node: WorkflowNode, out: Set<string>): void {
   }
 }
 
-function collectLoaderFilenames(node: WorkflowNode, out: Set<string>): void {
+function collectLoaderFilenames(
+  node: WorkflowNode,
+  out: Set<string>,
+  loaderClasses: Record<string, string>,
+): void {
   const nodeType = (node.type as string | undefined)
     || (node.class_type as string | undefined)
     || '';
@@ -89,6 +102,10 @@ function collectLoaderFilenames(node: WorkflowNode, out: Set<string>): void {
     if (typeof val !== 'string') continue;
     if (!MODEL_FILE_EXT.test(val)) continue;
     out.add(val);
+    // Record the class_type the first time we see this filename so the
+    // resolver can pick the right folder. Don't overwrite — duplicates
+    // typically share the class anyway and we want stable behaviour.
+    if (!(val in loaderClasses)) loaderClasses[val] = nodeType;
   }
 }
 
@@ -119,18 +136,20 @@ function normalizePluginId(raw: string): string {
 export function extractDeps(workflow: unknown): ExtractedDeps {
   const models = new Set<string>();
   const plugins = new Set<string>();
+  const modelLoaderClasses: Record<string, string> = {};
   if (!workflow || typeof workflow !== 'object') {
-    return { models: [], plugins: [] };
+    return { models: [], plugins: [], modelLoaderClasses };
   }
   const nodes = collectAllWorkflowNodes(workflow as Record<string, unknown>);
   for (const node of nodes) {
     collectNodeTemplateModels(node, models);
-    collectLoaderFilenames(node, models);
+    collectLoaderFilenames(node, models, modelLoaderClasses);
     collectNodePlugin(node, plugins);
   }
   return {
     models: Array.from(models).sort(),
     plugins: Array.from(plugins).sort(),
+    modelLoaderClasses,
   };
 }
 

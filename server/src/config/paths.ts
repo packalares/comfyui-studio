@@ -39,6 +39,11 @@ export const paths = {
   /** Root for runtime-written state (persists across image rebuilds). */
   runtimeStateDir: RUNTIME_STATE_DIR,
   catalogFile: env.STUDIO_CATALOG_FILE ?? path.join(STUDIO_CONFIG_ROOT, 'catalog.json'),
+  /**
+   * Local cache of ltdrdata/ComfyUI-Manager `model-list.json`. Refreshed on
+   * boot (best-effort) so catalog seeding tolerates upstream outages.
+   */
+  modelListCachePath: path.join(STUDIO_CONFIG_ROOT, 'model-list.cache.json'),
   configFile: env.STUDIO_CONFIG_FILE ?? path.join(STUDIO_CONFIG_ROOT, 'config.json'),
   exposedWidgetsDir: env.STUDIO_EXPOSED_WIDGETS_DIR
     ?? path.join(STUDIO_CONFIG_ROOT, 'exposed_widgets'),

@@ -17,6 +17,7 @@ import { paths } from '../../config/paths.js';
 import { logger } from '../../lib/logger.js';
 import { generateFormInputs } from './templates.formInputs.js';
 import { readMeta, writeMeta, deleteMeta } from './userTemplatesMeta.js';
+import { WorkflowNameCollisionError } from './errors.js';
 import type { TemplateData, RawTemplate, TemplatePluginEntry, TemplateCivitaiMeta } from './types.js';
 
 const DIR = (): string => paths.userTemplatesDir;
@@ -85,9 +86,31 @@ export interface SaveWorkflowInput {
   civitaiMeta?: TemplateCivitaiMeta;
 }
 
+/**
+ * Find the next available slug suffix when `<slug>.json` is already on disk.
+ * Returns `<slug>-2`, `<slug>-3`, ... up to a fixed cap so a pathological
+ * collection of past imports can't lock the loop. The cap is far above any
+ * realistic per-base count and only exists to keep the search bounded.
+ */
+function nextAvailableSlug(slug: string): string {
+  const MAX_ATTEMPTS = 500;
+  for (let i = 2; i <= MAX_ATTEMPTS; i += 1) {
+    const candidate = `${slug}-${i}`;
+    if (!fs.existsSync(filePath(candidate))) return candidate;
+  }
+  return `${slug}-${MAX_ATTEMPTS + 1}`;
+}
+
 export function saveUserWorkflow(input: SaveWorkflowInput): TemplateData {
   ensureDir();
   const slug = slugifyTemplateName(input.name);
+
+  // Refuse to silently overwrite an existing user workflow. The route layer
+  // turns this into a 409 with a `suggestedSlug` payload so the UI can
+  // offer a one-click retry under the suggested name.
+  if (fs.existsSync(filePath(slug))) {
+    throw new WorkflowNameCollisionError(slug, nextAvailableSlug(slug));
+  }
 
   const mediaType = input.mediaType || 'image';
   // The form-inputs generator works off a RawTemplate shape. Synthesise one

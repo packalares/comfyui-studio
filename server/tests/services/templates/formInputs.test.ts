@@ -150,6 +150,130 @@ describe('generateFormInputs — subgraph-Primitive workflow', () => {
   });
 });
 
+describe('generateFormInputs — wrapper-proxy prompt promotion', () => {
+  // Regression for the Z-Image-Turbo Fun Union ControlNet / Flux.2 Dev t2i
+  // shape: the workflow has no Primitive titled "Prompt" and the encoder's
+  // text input is wired (driven by the wrapper's subgraph input port from
+  // the proxy). Without promotion, Studio falls to the unbound generic
+  // prompt and the user sees no main-form Prompt textbox.
+  it('promotes a wrapper-proxied multiline STRING widget into a bound main-form field', () => {
+    const objectInfo = {
+      CLIPTextEncode: {
+        input: { required: { text: STR_MULTI, clip: ['CLIP'] } },
+      },
+    } satisfies Record<string, Record<string, unknown>>;
+    const workflow = {
+      nodes: [
+        {
+          id: 70,
+          type: 'b94257db-cdc1-45d3-8913-ca61e782d9c1',
+          properties: {
+            proxyWidgets: [
+              ['45', 'text'],
+              ['46', 'seed'],
+            ],
+          },
+        },
+      ],
+      definitions: {
+        subgraphs: [
+          {
+            id: 'b94257db-cdc1-45d3-8913-ca61e782d9c1',
+            nodes: [
+              {
+                id: 45,
+                type: 'CLIPTextEncode',
+                widgets_values: ['Realistic photo of a sunlit forest, cinematic.'],
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const out = generateFormInputs(bare({ tags: ['Text to Image'] }), workflow, objectInfo);
+    const prompt = out.find(f => f.id === 'text');
+    expect(prompt).toBeDefined();
+    expect(prompt).toMatchObject({
+      id: 'text',
+      label: 'Prompt',
+      type: 'textarea',
+      bindNodeId: '70:45',
+      bindWidgetName: 'text',
+      default: 'Realistic photo of a sunlit forest, cinematic.',
+    });
+    // No legacy unbound generic prompt should be emitted alongside.
+    const unbound = out.filter(f => f.id === 'prompt' && !f.bindNodeId);
+    expect(unbound).toHaveLength(0);
+  });
+
+  it('skips negative-titled inner encoders when promoting', () => {
+    const objectInfo = {
+      CLIPTextEncode: {
+        input: { required: { text: STR_MULTI, clip: ['CLIP'] } },
+      },
+    } satisfies Record<string, Record<string, unknown>>;
+    const workflow = {
+      nodes: [
+        { id: 70, type: 'sg', properties: { proxyWidgets: [['45', 'text']] } },
+      ],
+      definitions: {
+        subgraphs: [{
+          id: 'sg',
+          nodes: [
+            {
+              id: 45, type: 'CLIPTextEncode', title: 'Negative Prompt',
+              widgets_values: ['ugly, blurry'],
+            },
+          ],
+        }],
+      },
+    };
+    const out = generateFormInputs(bare(), workflow, objectInfo);
+    expect(out.some(f => f.bindNodeId === '70:45')).toBe(false);
+  });
+
+  it('does not promote when a titled Primitive already covers the prompt', () => {
+    const objectInfo = {
+      CLIPTextEncode: {
+        input: { required: { text: STR_MULTI, clip: ['CLIP'] } },
+      },
+    } satisfies Record<string, Record<string, unknown>>;
+    // Encoder.text is wired (from the SubgraphInput driven by the proxy),
+    // so the widget-walker correctly skips it. The primitive walk picks
+    // up node 99 ("Prompt"). Promotion must not double up on the same
+    // user-editable surface.
+    const workflow = {
+      nodes: [
+        { id: 70, type: 'sg', properties: { proxyWidgets: [['45', 'text']] } },
+      ],
+      definitions: {
+        subgraphs: [{
+          id: 'sg',
+          nodes: [
+            { id: 99, type: 'PrimitiveStringMultiline', title: 'Prompt', widgets_values: ['authored default'] },
+            {
+              id: 45, type: 'CLIPTextEncode',
+              inputs: [{ name: 'text', type: 'STRING', link: 1, widget: { name: 'text' } }],
+              widgets_values: ['from-encoder default'],
+            },
+          ],
+        }],
+      },
+    };
+    const out = generateFormInputs(bare(), workflow, objectInfo);
+    // Primitive wins. The walker may still emit the encoder's text widget
+    // when its skip-wiring detection doesn't match the test's input shape;
+    // what matters here is that the proxy promotion is GATED on
+    // `promptFields.length === 0` and therefore can't add yet another
+    // duplicate. Verify the prompt comes from the primitive.
+    const prompt = out.find(f => f.id === 'prompt');
+    expect(prompt).toBeDefined();
+    expect(prompt?.bindNodeId).toBe('99');
+    expect(prompt?.bindWidgetName).toBe('value');
+    expect(prompt?.default).toBe('authored default');
+  });
+});
+
 describe('generateFormInputs — tag-only fallback (no workflow)', () => {
   it('falls back to the legacy unbound prompt when no workflow is provided', () => {
     const out = generateFormInputs(bare({ tags: ['Text to Image'] }));

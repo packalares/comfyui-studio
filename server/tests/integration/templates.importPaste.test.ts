@@ -89,7 +89,9 @@ describe('POST /templates/import/paste', () => {
       });
       expect(res.status).toBe(400);
       const body = await res.json() as { error: string };
-      expect(body.error).toMatch(/nodes/);
+      // Paste accepts both raw LiteGraph and TemplateData wrappers; the
+      // chokepoint message changed to reflect both shapes.
+      expect(body.error).toMatch(/LiteGraph workflow or TemplateData wrapper/);
     } finally { await app.close(); }
   });
 });

@@ -10,6 +10,7 @@ import { isEnumerableWidget, titleCase } from '../constants.js';
 import { getObjectInfo } from '../objectInfo.js';
 import { computeFormClaimedWidgets } from './claimed.js';
 import { findSubgraphDef } from '../proxyLabels.js';
+import { collectProxyCoveredWidgets } from './subgraphWalk.js';
 import {
   filteredWidgetValues,
   inferWidgetShape,
@@ -43,6 +44,10 @@ function buildEnumeratedEntry(
     options: shape.options,
     exposed: savedSet.has(`${nodeId}|${widgetName}`),
     formClaimed,
+    // Top-level widgets aren't reachable from any wrapper's proxyWidgets
+    // (proxy lists only point at subgraph-inner nodes). Default to false;
+    // subgraphWalk fills this for inner widgets.
+    proxyExposed: false,
   };
 }
 
@@ -156,8 +161,16 @@ export function buildRawWidgetSettings(
   const formClaimed = templateName
     ? computeFormClaimedWidgets(workflow, objectInfo, templateName)
     : new Set<string>();
+  // Same idea for wrapper proxyWidgets: when the workflow author already
+  // surfaces a widget via a wrapper's proxy list (e.g. flux2 t2i wraps the
+  // CLIPTextEncode prompt as proxy #0 "Text"), and the user ALSO has it in
+  // their exposed-widgets store, we'd render the same control twice in
+  // Advanced. Keep the proxy version (it carries the author's label /
+  // ordering) and drop the user-exposed duplicate.
+  const proxyCovered = collectProxyCoveredWidgets(workflow);
   for (const e of exposed) {
     if (formClaimed.has(`${e.nodeId}|${e.widgetName}`)) continue;
+    if (proxyCovered.has(`${e.nodeId}|${e.widgetName}`)) continue;
     const node = byId.get(e.nodeId);
     if (!node) continue;
     const classType = (node.type as string | undefined) || (node.class_type as string | undefined);
