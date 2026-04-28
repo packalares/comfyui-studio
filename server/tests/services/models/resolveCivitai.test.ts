@@ -115,6 +115,44 @@ describe('resolveCivitaiUrl', () => {
     expect(out).toBeNull();
   });
 
+  // Status mapping (Wave M Gap 2): a 401/403 from civitai means the user
+  // needs to paste a CivitAI token in Settings — surface a gated stub
+  // instead of nulling the resolution. 5xx / network errors keep the URL
+  // alive without flagging it gated (transient).
+  describe('HTTP status -> action mapping', () => {
+    it('401 on model-versions → gated stub with Settings prompt', async () => {
+      respondOnce(() => new Response('', { status: 401 }));
+      const out = await resolveCivitaiUrl('https://civitai.com/api/download/models/2222');
+      expect(out).not.toBeNull();
+      expect(out!.gated).toBe(true);
+      expect(out!.gatedMessage).toMatch(/CivitAI token/);
+    });
+
+    it('403 on /models/<id> → gated stub', async () => {
+      respondOnce(() => new Response('', { status: 403 }));
+      const out = await resolveCivitaiUrl('https://civitai.com/models/1111');
+      expect(out).not.toBeNull();
+      expect(out!.gated).toBe(true);
+    });
+
+    it('404 on model-versions → null (URL truly bad)', async () => {
+      respondOnce(() => new Response('', { status: 404 }));
+      const out = await resolveCivitaiUrl('https://civitai.com/api/download/models/9999');
+      expect(out).toBeNull();
+    });
+
+    it('503 on model-versions → bare stub (no size, no gated — transient)', async () => {
+      respondOnce(() => new Response('', { status: 503 }));
+      const out = await resolveCivitaiUrl('https://civitai.com/api/download/models/2222');
+      // Transient errors keep the URL so the catalog row is still useful;
+      // size + civitai metadata are absent until a successful retry.
+      expect(out).not.toBeNull();
+      expect(out!.gated).toBeUndefined();
+      expect(out!.sizeBytes).toBeUndefined();
+      expect(out!.civitai).toBeUndefined();
+    });
+  });
+
   it('maps model types to the right folders', async () => {
     const cases: Array<{ type: string; folder: string }> = [
       { type: 'Checkpoint', folder: 'checkpoints' },

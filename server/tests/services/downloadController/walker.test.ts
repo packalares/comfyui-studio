@@ -148,4 +148,49 @@ describe('walkAndDownload', () => {
       tokens: {},
     })).rejects.toThrow(/No download candidates/);
   });
+
+  // Wave M Gap 3: the catalog row's full `urlSources[]` is now passed
+  // to the walker, exercising the multi-URL fallback in production.
+  it('multi-URL fallback: first 404 → second 200 → success', async () => {
+    let calls = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) return new Response(null, { status: 404 });
+      return new Response(null, { status: 200 });
+    });
+    mockedDownload.mockResolvedValueOnce(undefined);
+    const out = await walkAndDownload({
+      modelName: 'multi.bin',
+      outputPath: '/tmp/multi.bin',
+      taskId: 'task-multi-1',
+      candidates: [
+        urlSource('https://huggingface.co/dead', 'hf'),
+        urlSource('https://civitai.com/api/download/models/2', 'civitai'),
+      ],
+      tokens: {},
+    });
+    expect(out.url).toBe('https://civitai.com/api/download/models/2');
+    expect(calls).toBe(2);
+    expect(mockedDownload).toHaveBeenCalledTimes(1);
+  });
+
+  it('multi-URL stop-on-auth: first URL 401 halts the walker (gated, not bad)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, { status: 401 }),
+    );
+    await expect(walkAndDownload({
+      modelName: 'gated.bin',
+      outputPath: '/tmp/gated.bin',
+      taskId: 'task-multi-2',
+      candidates: [
+        urlSource('https://huggingface.co/gated', 'hf'),
+        urlSource('https://civitai.com/api/download/models/1', 'civitai'),
+      ],
+      tokens: {},
+    })).rejects.toThrow(/HTTP 401/);
+    // Walker stops at the first URL — auth is terminal because a token
+    // missing on the user's side won't materialize on a different mirror.
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(mockedDownload).not.toHaveBeenCalled();
+  });
 });

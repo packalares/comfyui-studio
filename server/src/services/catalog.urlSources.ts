@@ -125,6 +125,12 @@ export function mergeIntoExisting(
   if (entry.thumbnail !== undefined) existing.thumbnail = entry.thumbnail;
   if (entry.downloading !== undefined) existing.downloading = entry.downloading;
   if (entry.error !== undefined) existing.error = entry.error;
+  // Gated state propagates (set OR clear). A later non-gated upsert needs to
+  // be able to clear stale gated flags after the user pastes a token, so
+  // `entry.gated === false` is treated as authoritative; `undefined` leaves
+  // the existing value alone.
+  if (entry.gated !== undefined) existing.gated = entry.gated;
+  if (entry.gated_message !== undefined) existing.gated_message = entry.gated_message;
   if ((!existing.size_bytes || existing.size_bytes === 0) && entry.size_bytes) {
     existing.size_bytes = entry.size_bytes;
     if (entry.size_pretty) existing.size_pretty = entry.size_pretty;

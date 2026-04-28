@@ -23,6 +23,10 @@ export interface AutoResolvedModel {
   hfRepo?: string;
   suggestedFolder?: string;
   sizeBytes?: number;
+  /** Set when the resolver got a 401/403 from the upstream — the file
+   * exists but the user must paste a host-specific token in Settings. */
+  gated?: boolean;
+  gatedMessage?: string;
   /** Reserved for future ambiguity scoring; always 'high' today. */
   confidence: 'high';
 }

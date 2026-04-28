@@ -33,6 +33,14 @@ export interface ResolvedModel {
   repoId?: string;
   /** Git ref (branch, tag, commit). Present on HF results. */
   revision?: string;
+  /**
+   * Set when a HEAD-probe came back 401/403. The catalog row + UI can then
+   * surface a "paste your token in Settings" prompt instead of treating the
+   * URL as broken. Transient errors (5xx, network) leave this undefined so
+   * the row still gets populated and a later retry can succeed.
+   */
+  gated?: boolean;
+  gatedMessage?: string;
   /** CivitAI-only metadata. */
   civitai?: {
     modelId: number;
@@ -127,28 +135,40 @@ function hfAuthHeaders(): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
 }
 
-async function headSize(url: string): Promise<number | undefined> {
+/** HEAD outcome: numeric `status` is always set; `sizeBytes` is populated
+ * only on a 200. `status: 0` flags a network/timeout/transient failure where
+ * the caller should keep the URL but skip the size + gated branches. */
+interface HeadOutcome { status: number; sizeBytes?: number }
+
+async function headSize(url: string): Promise<HeadOutcome> {
   try {
     const res = await fetch(url, {
       method: 'HEAD',
       headers: hfAuthHeaders(),
       redirect: 'follow',
     });
-    if (!res.ok) return undefined;
+    if (res.status !== 200) return { status: res.status };
     const linked = res.headers.get('x-linked-size');
     const contentLength = res.headers.get('content-length');
     const bytes = linked ? Number(linked) : contentLength ? Number(contentLength) : NaN;
-    return Number.isFinite(bytes) && bytes > 0 ? bytes : undefined;
+    const out: HeadOutcome = { status: 200 };
+    if (Number.isFinite(bytes) && bytes > 0) out.sizeBytes = bytes;
+    return out;
   } catch {
-    return undefined;
+    return { status: 0 };
   }
 }
 
 /**
  * Resolve a HuggingFace URL into a `ResolvedModel`. Returns null (not
  * throws) for malformed URLs or repo-root links we cannot disambiguate.
- * HEAD failures degrade gracefully: the result still ships with
- * `sizeBytes: undefined` so the caller can prompt the user to retry later.
+ *
+ * HEAD status mapping:
+ *   - 200      → populate `sizeBytes`, return resolved.
+ *   - 401/403  → return resolved with `gated: true` + a Settings-token prompt.
+ *   - 404/410  → return null (URL is truly bad, caller treats as unresolved).
+ *   - 5xx / network / timeout / 0 → return resolved with no size, no gated
+ *     flag (transient — let the caller retry later).
  */
 export async function resolveHuggingfaceUrl(url: string): Promise<ResolvedModel | null> {
   if (typeof url !== 'string' || url.length === 0) return null;
@@ -157,7 +177,8 @@ export async function resolveHuggingfaceUrl(url: string): Promise<ResolvedModel 
   const downloadUrl = buildResolveUrl(parsed);
   const fileName = parsed.pathInRepo.split('/').pop() || parsed.pathInRepo;
   const suggestedFolder = guessFolder(parsed.pathInRepo, fileName);
-  const sizeBytes = await headSize(downloadUrl);
+  const head = await headSize(downloadUrl);
+  if (head.status === 404 || head.status === 410) return null;
   const resolved: ResolvedModel = {
     source: 'huggingface',
     downloadUrl,
@@ -165,7 +186,11 @@ export async function resolveHuggingfaceUrl(url: string): Promise<ResolvedModel 
     repoId: parsed.repoId,
     revision: parsed.revision,
   };
-  if (typeof sizeBytes === 'number') resolved.sizeBytes = sizeBytes;
+  if (head.status === 401 || head.status === 403) {
+    resolved.gated = true;
+    resolved.gatedMessage = 'paste your Hugging Face token in Settings to download';
+  }
+  if (typeof head.sizeBytes === 'number') resolved.sizeBytes = head.sizeBytes;
   if (suggestedFolder) resolved.suggestedFolder = suggestedFolder;
   return resolved;
 }

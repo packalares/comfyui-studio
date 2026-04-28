@@ -20,17 +20,18 @@
 // `newSearchCaches()` — don't reuse across stagings.
 
 import * as catalog from '../catalog.js';
-import { formatBytes } from '../../lib/format.js';
 import { logger } from '../../lib/logger.js';
 import { env, autoResolveSearchEnabled } from '../../config/env.js';
 import { resolveHuggingfaceUrl, type ResolvedModel } from '../models/resolveHuggingface.js';
 import { resolveCivitaiUrl } from '../models/resolveCivitai.js';
-import { folderForLoaderClass } from '../workflow/loaderFolders.js';
+import { getModelInfo } from '../models/info.service.js';
+import { buildDownloadUrl } from '../models/download.urlBuild.js';
 import { hfFindExactMatch, type HfSearchCache } from './autoResolve.hf.js';
 import { civitaiFindExactMatch, type CivitaiSearchCache } from './autoResolve.civitai.js';
 import {
   stepHfRepo, stepWorkflowDeclaredUrl,
 } from './autoResolve.workflowDeclared.js';
+import { toAutoResolved, upsertCatalogFromAuto } from './autoResolve.envelope.js';
 import type {
   AutoResolvedModel, AutoResolveSource,
   StagedImport, StagedWorkflowEntry,
@@ -60,63 +61,38 @@ function urlBasename(raw: string): string | null {
   }
 }
 
-/** Build the shared `AutoResolvedModel` envelope the UI consumes. */
-function toAutoResolved(
-  source: AutoResolveSource, resolved: ResolvedModel, loaderClass?: string,
-): AutoResolvedModel {
-  const out: AutoResolvedModel = {
-    source, downloadUrl: resolved.downloadUrl, confidence: 'high',
-  };
-  // Loader-class wins over URL guess — see commitOverrides.ts for the
-  // motivating bug. `LatentUpscaleModelLoader` files default to
-  // `upscale_models` from filename heuristics; `LTXAVTextEncoderLoader`
-  // files fall to the `checkpoints` ext fallback. Both wrong.
-  const folder = folderForLoaderClass(loaderClass) || resolved.suggestedFolder;
-  if (folder) out.suggestedFolder = folder;
-  if (typeof resolved.sizeBytes === 'number') out.sizeBytes = resolved.sizeBytes;
-  return out;
-}
-
-function upsertCatalogFromAuto(
-  filename: string, resolved: ResolvedModel, loaderClass?: string,
-): void {
-  const folder = folderForLoaderClass(loaderClass)
-    || resolved.suggestedFolder
-    || 'checkpoints';
-  const sizeBytes = typeof resolved.sizeBytes === 'number' ? resolved.sizeBytes : undefined;
-  try {
-    catalog.upsertModel({
-      filename,
-      name: filename,
-      type: folder,
-      save_path: folder,
-      url: resolved.downloadUrl,
-      size_bytes: sizeBytes,
-      size_pretty: typeof sizeBytes === 'number' ? formatBytes(sizeBytes) : undefined,
-      size_fetched_at: typeof sizeBytes === 'number' ? new Date().toISOString() : null,
-      source: `auto-resolve:${resolved.source}`,
-    });
-  } catch (err) {
-    // Non-fatal: auto-resolve must not break staging if the catalog write
-    // fails (read-only FS, etc.). Log for ops visibility.
-    logger.warn('autoResolveModels: catalog upsert failed', {
-      filename, error: err instanceof Error ? err.message : String(err),
-    });
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Step 1 — catalog.
 
 function stepCatalog(filename: string): AutoResolvedModel | null {
   const row = catalog.getModel(filename);
-  if (!row || !row.url) return null;
-  const out: AutoResolvedModel = {
-    source: 'catalog', downloadUrl: row.url, confidence: 'high',
-  };
-  if (row.save_path) out.suggestedFolder = row.save_path;
-  if (row.size_bytes && row.size_bytes > 0) out.sizeBytes = row.size_bytes;
-  return out;
+  if (row && row.url) {
+    const out: AutoResolvedModel = {
+      source: 'catalog', downloadUrl: row.url, confidence: 'high',
+    };
+    if (row.save_path) out.suggestedFolder = row.save_path;
+    if (row.size_bytes && row.size_bytes > 0) out.sizeBytes = row.size_bytes;
+    return out;
+  }
+  // Fallback: bundled known-models list. Catches models Studio ships with
+  // metadata for but never seeded into catalog.json (e.g. fresh installs
+  // where seedFromComfyUI didn't include them, or the row exists without
+  // a URL because a non-seed source created it first). `getModelInfo` keys
+  // on `name`, which mirrors `filename` for the bundled list.
+  const bundled = getModelInfo(filename);
+  if (bundled) {
+    // `url` may be a string or `{hf,mirror,cdn}` object; reuse the launcher's
+    // builder so the priority order matches `installFromCatalog`.
+    const bundledUrl = buildDownloadUrl(bundled, 'hf');
+    if (bundledUrl) {
+      const out: AutoResolvedModel = {
+        source: 'catalog', downloadUrl: bundledUrl, confidence: 'high',
+      };
+      if (bundled.save_path) out.suggestedFolder = bundled.save_path;
+      return out;
+    }
+  }
+  return null;
 }
 
 // Step 2 — MarkdownNote URL basename match.

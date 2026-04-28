@@ -4,8 +4,13 @@
 // over this module; no HTTP types live here.
 
 import { logger } from '../../lib/logger.js';
-import { getHfAuthHeaders } from '../../lib/http.js';
 import * as bus from '../../lib/events.js';
+// Read directly from `catalogStore` (the persistent JSON store) instead of
+// the higher-level `catalog.ts` to avoid a cycle: catalog.ts -> catalog.scan
+// -> models.service.ts -> catalog.ts.
+import { load as loadCatalogStore } from '../catalogStore.js';
+import { urlSourceFor } from '../catalog.urlSources.js';
+import * as settings from '../settings.js';
 import {
   getModelList, getModelInfo, updateCache, convertEssentialModelsToEntries,
 } from './info.service.js';
@@ -18,8 +23,10 @@ import {
 } from './download.service.js';
 import type { CatalogModelEntry } from './download.service.js';
 import {
-  createDownloadTask, downloadModelByName, getTaskProgress, cancelTask,
+  createDownloadTask, getTaskProgress, cancelTask,
 } from '../downloadController/downloadController.service.js';
+import { walkAndDownload } from '../downloadController/walker.js';
+import type { UrlSource } from '../../contracts/catalog.contract.js';
 import {
   setModelMapping, getModelTaskId, clearModelMapping,
 } from '../downloadController/progressTracker.js';
@@ -105,15 +112,23 @@ export async function installFromCatalog(
   const modelType = inferModelType(modelName);
   const saveDir = getModelSaveDir(modelType);
   const outputPath = resolveOutputPath(saveDir, modelName);
-  let url = buildDownloadUrl(info, source);
-  url = processHfEndpoint(url);
-  logger.info('install download starting', { url, path: outputPath });
+  // Build the candidate list for the walker. Catalog row's urlSources[] (when
+  // present) drives the priority order; bundled-list entries fall back to the
+  // single-URL legacy build (`buildDownloadUrl`). HF endpoint override applies
+  // to every candidate so a self-hosted mirror works across the whole walk.
+  const candidates = buildCatalogCandidates(modelName, info, source);
+  logger.info('install download starting', {
+    candidateCount: candidates.length, path: outputPath,
+  });
 
-  void downloadModelByName(modelName, url, outputPath, taskId, {
-    source, authHeaders: getHfAuthHeaders(url, hfToken),
+  const tokens = {
+    hfToken: hfToken || settings.getHfToken(),
+    civitaiToken: settings.getCivitaiToken(),
+    githubToken: settings.getGithubToken(),
+  };
+  void walkAndDownload({
+    modelName, outputPath, taskId, candidates, tokens, source,
   }).then(() => {
-    // Notify readiness subscribers that a new file landed on disk. Rescan
-    // is best-effort; readiness hooks run their own scan.
     bus.emit('model:installed', { filename: modelName });
     scanAndRefresh().catch(() => { /* best effort */ });
   }).catch((err) => {
@@ -123,6 +138,25 @@ export async function installFromCatalog(
   });
   return { taskId, fileName: modelName };
 }
+
+/** Resolve the priority-ordered candidate URLs for a catalog install. */
+function buildCatalogCandidates(
+  modelName: string, info: CatalogModelEntry, source: string,
+): UrlSource[] {
+  const filename = info.filename || modelName;
+  // Catalog row first: if the user (or a previous staging op) accumulated
+  // multiple sources for this filename, walk them in priority order.
+  const row = loadCatalogStore().models.find((m) => m.filename === filename);
+  if (row && row.urlSources && row.urlSources.length > 0) {
+    return row.urlSources.map((s) => ({ ...s, url: processHfEndpoint(s.url) }));
+  }
+  // Bundled-list fallback: build the legacy single URL via the existing
+  // helper, then synth a UrlSource so the walker shape stays uniform.
+  const legacy = processHfEndpoint(buildDownloadUrl(info, source));
+  const synth = urlSourceFor(legacy, 'seed');
+  return synth ? [synth] : [];
+}
+
 
 /**
  * Start a custom download. Thin wrapper around `downloadCustom.ts` that

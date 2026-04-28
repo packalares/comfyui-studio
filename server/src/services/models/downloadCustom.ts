@@ -26,7 +26,12 @@ import {
 import { createDownloadTask, getTaskProgress } from '../downloadController/downloadController.service.js';
 import { walkAndDownload } from '../downloadController/walker.js';
 import { setModelMapping, getModelTaskId } from '../downloadController/progressTracker.js';
-import { urlSourceFor } from '../catalog.urlSources.js';
+import { mergeUrlSources, urlSourceFor } from '../catalog.urlSources.js';
+// Read directly from `catalogStore` (the persistent JSON store) instead of
+// the higher-level `catalog.ts` to avoid pulling its `catalog.scan` import,
+// which would re-import this file and form a cycle.
+import { load as loadCatalogStore } from '../catalogStore.js';
+import type { UrlSource } from '../../contracts/catalog.contract.js';
 
 export interface DownloadCustomTokens {
   hfToken?: string;
@@ -69,8 +74,18 @@ export async function downloadCustom(
   const progress = getTaskProgress(taskId);
   if (progress) progress.abortController = new AbortController();
 
-  const candidate = urlSourceFor(url, 'manual');
-  const candidates = candidate ? [candidate] : [];
+  // Walker candidates: start with the user-pasted URL (priority for the
+  // Download dialog — they explicitly chose this source), then merge any
+  // additional URLs the catalog already accumulated for this filename
+  // (catalog seed + previous staging ops). `mergeUrlSources` dedups + sorts
+  // by host priority, so the user URL still wins ties on its own host but
+  // a higher-priority HF mirror added by staging will be tried first.
+  const userCandidate = urlSourceFor(url, 'manual');
+  const userOnly: UrlSource[] = userCandidate ? [userCandidate] : [];
+  const row = loadCatalogStore().models.find((m) => m.filename === fileName);
+  const candidates = row?.urlSources && row.urlSources.length > 0
+    ? mergeUrlSources(userOnly, row.urlSources)
+    : userOnly;
 
   void walkAndDownload({
     modelName: fileName,

@@ -147,4 +147,76 @@ describe('resolveHuggingfaceUrl', () => {
     );
     expect(out).toBeNull();
   });
+
+  // Status mapping (Wave M Gap 2): the HEAD probe's HTTP status drives the
+  // returned envelope so the catalog row can present a token-prompt for
+  // gated repos and avoid catalog-poisoning a 404.
+  describe('HEAD status -> action mapping', () => {
+    it('200 → resolved with sizeBytes populated', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(null, { status: 200, headers: { 'content-length': '4096' } }),
+      );
+      const out = await resolveHuggingfaceUrl(
+        'https://huggingface.co/o/r/blob/main/m.safetensors',
+      );
+      expect(out).not.toBeNull();
+      expect(out!.sizeBytes).toBe(4096);
+      expect(out!.gated).toBeUndefined();
+    });
+
+    it('401 → resolved with gated + Settings prompt, no size', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 401 }));
+      const out = await resolveHuggingfaceUrl(
+        'https://huggingface.co/o/r/blob/main/m.safetensors',
+      );
+      expect(out).not.toBeNull();
+      expect(out!.gated).toBe(true);
+      expect(out!.gatedMessage).toMatch(/Hugging Face token/);
+      expect(out!.sizeBytes).toBeUndefined();
+    });
+
+    it('403 → resolved with gated', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 403 }));
+      const out = await resolveHuggingfaceUrl(
+        'https://huggingface.co/o/r/blob/main/m.safetensors',
+      );
+      expect(out!.gated).toBe(true);
+    });
+
+    it('404 → null (URL truly bad, caller treats as unresolved)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 404 }));
+      const out = await resolveHuggingfaceUrl(
+        'https://huggingface.co/o/r/blob/main/missing.safetensors',
+      );
+      expect(out).toBeNull();
+    });
+
+    it('410 → null', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 410 }));
+      const out = await resolveHuggingfaceUrl(
+        'https://huggingface.co/o/r/blob/main/gone.safetensors',
+      );
+      expect(out).toBeNull();
+    });
+
+    it('503 → resolved with no size, no gated (transient — retry later)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 503 }));
+      const out = await resolveHuggingfaceUrl(
+        'https://huggingface.co/o/r/blob/main/m.safetensors',
+      );
+      expect(out).not.toBeNull();
+      expect(out!.gated).toBeUndefined();
+      expect(out!.sizeBytes).toBeUndefined();
+    });
+
+    it('network error → resolved with no size, no gated', async () => {
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ECONNRESET'));
+      const out = await resolveHuggingfaceUrl(
+        'https://huggingface.co/o/r/blob/main/m.safetensors',
+      );
+      expect(out).not.toBeNull();
+      expect(out!.gated).toBeUndefined();
+      expect(out!.sizeBytes).toBeUndefined();
+    });
+  });
 });

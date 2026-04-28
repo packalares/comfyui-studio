@@ -262,6 +262,17 @@ export function findDownloadForModel(
   return undefined;
 }
 
+/** Host family for a catalog URL source. Mirrors the server contract. */
+export type UrlHost = 'hf' | 'civitai' | 'github' | 'generic';
+
+/** One declared download URL on a catalog row. */
+export interface UrlSource {
+  url: string;
+  host: UrlHost;
+  /** Discovery context: 'seed' | 'template:<name>' | 'user' | 'manual' | 'scan'. */
+  declaredBy: string;
+}
+
 /** Catalog entry merged with on-disk scan state — the thing the Models page renders. */
 export interface CatalogModel {
   filename: string;
@@ -272,6 +283,9 @@ export interface CatalogModel {
   description?: string;
   reference?: string;
   url: string;
+  /** Priority-sorted list of all known download URLs (hf, civitai, github,
+   * generic). Mirrors `urlSources[0].url` onto the legacy `url` field. */
+  urlSources?: UrlSource[];
   size_pretty: string;
   size_bytes: number;
   size_fetched_at: string | null;

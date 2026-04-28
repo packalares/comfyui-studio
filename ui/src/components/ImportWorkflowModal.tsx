@@ -67,6 +67,11 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
   const [pluginInstallChoices, setPluginInstallChoices] = useState<Record<string, boolean>>({});
   const [installProgress, setInstallProgress] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Belt-and-suspenders scroll target for the CollisionPrompt — see the
+  // useEffect below. The prompt is rendered above the ReviewStep but on a
+  // very tall workflow list the modal can still scroll; this brings the
+  // prompt back into view the moment a 409 NAME_COLLISION lands.
+  const collisionRef = useRef<HTMLDivElement | null>(null);
   const [githubUrl, setGithubUrl] = useState<string>('');
   const [pasteText, setPasteText] = useState<string>('');
   const [pasteTitle, setPasteTitle] = useState<string>('');
@@ -117,6 +122,17 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
     }
     setPluginInstallChoices(next);
   }, [manifest]);
+
+  // Scroll the CollisionPrompt into view the moment a 409 NAME_COLLISION
+  // lands. Without this, tall workflow lists pushed the prompt below the
+  // modal fold and users perceived the Commit click as a no-op.
+  useEffect(() => {
+    if (!collision) return;
+    const el = collisionRef.current;
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [collision]);
 
   /**
    * Wave L: derive the "can commit" state for the current selection. The
@@ -410,6 +426,33 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
           onFetchCivitai={handleFetchCivitai}
         />
       )}
+      {/* CollisionPrompt sits BEFORE the review step so it's visible at the
+          top of the modal body — tall workflow lists previously hid the
+          prompt below the fold and the user thought the Commit button did
+          nothing on a 409 NAME_COLLISION. The companion useEffect above
+          scrolls it into view as a belt-and-suspenders measure. */}
+      {collision && (
+        <div ref={collisionRef}>
+          <CollisionPrompt
+            existingSlug={collision.existingSlug}
+            suggestedSlug={collision.suggestedSlug}
+            busy={committing}
+            onCancel={() => setCollision(null)}
+            onUseSuggested={() => {
+              const overrides: Record<number, string> = {};
+              // Server reports the colliding index when available; fall back
+              // to the first selected index so single-workflow imports still
+              // work even if the response is missing the field.
+              const targetIndex = collision.workflowIndex
+                ?? Array.from(selectedIndices).sort((a, b) => a - b)[0];
+              if (typeof targetIndex === 'number') {
+                overrides[targetIndex] = collision.suggestedSlug;
+              }
+              void handleCommit(overrides);
+            }}
+          />
+        </div>
+      )}
       {step === 'review' && manifest && (
         <ReviewStep
           manifest={manifest}
@@ -429,26 +472,6 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
           <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
           <span>{error}</span>
         </div>
-      )}
-      {collision && (
-        <CollisionPrompt
-          existingSlug={collision.existingSlug}
-          suggestedSlug={collision.suggestedSlug}
-          busy={committing}
-          onCancel={() => setCollision(null)}
-          onUseSuggested={() => {
-            const overrides: Record<number, string> = {};
-            // Server reports the colliding index when available; fall back
-            // to the first selected index so single-workflow imports still
-            // work even if the response is missing the field.
-            const targetIndex = collision.workflowIndex
-              ?? Array.from(selectedIndices).sort((a, b) => a - b)[0];
-            if (typeof targetIndex === 'number') {
-              overrides[targetIndex] = collision.suggestedSlug;
-            }
-            void handleCommit(overrides);
-          }}
-        />
       )}
     </AppModal>
   );

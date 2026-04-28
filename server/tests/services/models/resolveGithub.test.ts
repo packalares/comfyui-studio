@@ -86,4 +86,51 @@ describe('resolveGithubReleaseUrl', () => {
     const out = await resolveGithubReleaseUrl('https://github.com/owner/repo');
     expect(out).toBeNull();
   });
+
+  // Status mapping (Wave M Gap 2): mirror HF / CivitAI semantics for the
+  // size-probe API. github's tags-API is a SIDE channel — a 404 there
+  // doesn't mean the actual download URL is bad, so we keep the row alive
+  // (no null) and just skip the size.
+  describe('size-probe status -> action mapping', () => {
+    it('401 → resolved with gated + Settings prompt', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 401 }));
+      const out = await resolveGithubReleaseUrl(
+        'https://github.com/o/r/releases/download/v1/asset.bin',
+      );
+      expect(out).not.toBeNull();
+      expect(out!.gated).toBe(true);
+      expect(out!.gatedMessage).toMatch(/GitHub token/);
+    });
+
+    it('403 → resolved with gated', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 403 }));
+      const out = await resolveGithubReleaseUrl(
+        'https://github.com/o/r/releases/download/v1/asset.bin',
+      );
+      expect(out!.gated).toBe(true);
+    });
+
+    it('404 on the tags API → resolved without size (download URL still valid)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 404 }));
+      const out = await resolveGithubReleaseUrl(
+        'https://github.com/o/r/releases/download/v1/asset.bin',
+      );
+      // For HF / CivitAI we'd null here — but the github tags API is a
+      // SIZE-only side channel. The local URL parse still gives us a
+      // valid download URL; only the size is missing.
+      expect(out).not.toBeNull();
+      expect(out!.sizeBytes).toBeUndefined();
+      expect(out!.gated).toBeUndefined();
+    });
+
+    it('503 → resolved with no size, no gated', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 503 }));
+      const out = await resolveGithubReleaseUrl(
+        'https://github.com/o/r/releases/download/v1/asset.bin',
+      );
+      expect(out).not.toBeNull();
+      expect(out!.sizeBytes).toBeUndefined();
+      expect(out!.gated).toBeUndefined();
+    });
+  });
 });

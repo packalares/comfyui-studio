@@ -106,13 +106,19 @@ function civitaiAuthHeaders(): Record<string, string> {
   return headers;
 }
 
-async function fetchJson<T>(url: string): Promise<T | null> {
+/** Outcome of a CivitAI JSON fetch carrying enough info for status branching.
+ * `status: 0` is reserved for network/timeout/transient errors so the caller
+ * can keep the URL on the row but skip the size + gated branches. */
+interface JsonOutcome<T> { status: number; body?: T }
+
+async function fetchJson<T>(url: string): Promise<JsonOutcome<T>> {
   try {
     const res = await fetch(url, { headers: civitaiAuthHeaders() });
-    if (!res.ok) return null;
-    return (await res.json()) as T;
+    if (res.status !== 200) return { status: res.status };
+    const body = (await res.json()) as T;
+    return { status: 200, body };
   } catch {
-    return null;
+    return { status: 0 };
   }
 }
 
@@ -154,26 +160,71 @@ function buildResolvedFromVersion(
   return resolved;
 }
 
+/** Build a minimal `ResolvedModel` carrying only a downloadUrl + filename
+ * placeholder. The caller decorates it with `gated` (401/403) or leaves it
+ * naked (5xx / network) so the row gets recorded but no size/folder/civitai
+ * metadata is invented from thin air. */
+function stubResolved(downloadUrl: string, fileName: string): ResolvedModel {
+  return { source: 'civitai', downloadUrl, fileName };
+}
+
+function withGated(stub: ResolvedModel): ResolvedModel {
+  return {
+    ...stub,
+    gated: true,
+    gatedMessage: 'paste your CivitAI token in Settings to download',
+  };
+}
+
+/** Map civitai HTTP status -> resolver result.
+ *   - 200 (with body): full resolution from `files[]`.
+ *   - 401 / 403: stub + `gated: true`.
+ *   - 404 / 410: null (URL truly bad).
+ *   - 5xx / network: bare stub (no size, no gated) so the catalog row keeps
+ *     a usable URL while we wait for a retry.
+ */
 async function resolveByVersionId(versionId: number): Promise<ResolvedModel | null> {
-  const version = await fetchJson<CivitaiModelVersion>(
+  const downloadUrl = `https://civitai.com/api/download/models/${versionId}`;
+  const fileName = `civitai-${versionId}`;
+  const out = await fetchJson<CivitaiModelVersion>(
     `${apiBase()}/model-versions/${versionId}`,
   );
-  if (!version || typeof version.id !== 'number') return null;
-  return buildResolvedFromVersion(version, version.model?.type);
+  if (out.status === 404 || out.status === 410) return null;
+  if (out.status === 401 || out.status === 403) return withGated(stubResolved(downloadUrl, fileName));
+  if (out.status === 200) {
+    if (!out.body || typeof out.body.id !== 'number') return null;
+    return buildResolvedFromVersion(out.body, out.body.model?.type);
+  }
+  // 5xx / network / 0: keep the URL, drop the size + folder.
+  return stubResolved(downloadUrl, fileName);
 }
 
 async function resolveByModelId(
   modelId: number, versionId?: number,
 ): Promise<ResolvedModel | null> {
   if (typeof versionId === 'number') return resolveByVersionId(versionId);
-  const model = await fetchJson<CivitaiModel>(`${apiBase()}/models/${modelId}`);
-  if (!model || !Array.isArray(model.modelVersions) || model.modelVersions.length === 0) {
-    return null;
+  const out = await fetchJson<CivitaiModel>(`${apiBase()}/models/${modelId}`);
+  // We don't know a versionId yet; the placeholder URL points at the
+  // model page so the catalog still records the host requirement.
+  const placeholderUrl = `https://civitai.com/models/${modelId}`;
+  const placeholderFile = `civitai-${modelId}`;
+  if (out.status === 404 || out.status === 410) return null;
+  if (out.status === 401 || out.status === 403) {
+    return withGated(stubResolved(placeholderUrl, placeholderFile));
   }
-  const version = model.modelVersions[0];
-  // Inject the parent modelId when the embedded version doesn't carry it.
-  if (typeof version.modelId !== 'number') version.modelId = model.id;
-  return buildResolvedFromVersion(version, model.type ?? version.model?.type);
+  if (out.status === 200) {
+    if (!out.body || !Array.isArray(out.body.modelVersions) || out.body.modelVersions.length === 0) {
+      return null;
+    }
+    const model = out.body;
+    const version = model.modelVersions![0];
+    // Inject the parent modelId when the embedded version doesn't carry it.
+    if (typeof version.modelId !== 'number') version.modelId = model.id;
+    return buildResolvedFromVersion(version, model.type ?? version.model?.type);
+  }
+  // 5xx / network / 0: keep the URL placeholder so the catalog still
+  // records the host, drop everything we'd normally fill from `files[]`.
+  return stubResolved(placeholderUrl, placeholderFile);
 }
 
 /**

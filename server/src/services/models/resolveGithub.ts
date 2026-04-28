@@ -56,7 +56,11 @@ interface GhReleaseResponse {
   assets?: GhAsset[];
 }
 
-async function fetchAssetSize(p: ParsedGhRelease): Promise<number | undefined> {
+/** Outcome of a release-tags GET. `status: 0` flags network/timeout/transient
+ * errors; the caller keeps the URL but skips size + gated branches. */
+interface AssetOutcome { status: number; sizeBytes?: number }
+
+async function fetchAssetSize(p: ParsedGhRelease): Promise<AssetOutcome> {
   const apiUrl = `https://api.github.com/repos/${encodeURIComponent(p.owner)}/${encodeURIComponent(p.repo)}/releases/tags/${encodeURIComponent(p.tag)}`;
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github+json',
@@ -65,16 +69,16 @@ async function fetchAssetSize(p: ParsedGhRelease): Promise<number | undefined> {
   };
   try {
     const res = await fetch(apiUrl, { headers, redirect: 'follow' });
-    if (!res.ok) return undefined;
+    if (res.status !== 200) return { status: res.status };
     const body = await res.json() as GhReleaseResponse;
     const asset = (body.assets || []).find(a => a.name === p.fileName);
-    if (!asset || typeof asset.size !== 'number' || asset.size <= 0) return undefined;
-    return asset.size;
+    if (!asset || typeof asset.size !== 'number' || asset.size <= 0) return { status: 200 };
+    return { status: 200, sizeBytes: asset.size };
   } catch (err) {
     logger.warn('resolveGithub size probe failed', {
       url: apiUrl, message: err instanceof Error ? err.message : String(err),
     });
-    return undefined;
+    return { status: 0 };
   }
 }
 
@@ -82,6 +86,15 @@ async function fetchAssetSize(p: ParsedGhRelease): Promise<number | undefined> {
  * Resolve a GitHub release asset URL into a `ResolvedModel`. Returns null
  * for any URL outside the release-asset shape so callers can fall through
  * to other resolvers.
+ *
+ * API status mapping:
+ *   - 200      → populate sizeBytes when present, return resolved.
+ *   - 401/403  → return resolved with `gated: true` + Settings-token prompt.
+ *   - 404/410 / 5xx / network — return resolved with no size and no gated
+ *     flag. Unlike HF/CivitAI we never null on 404 here: the API endpoint
+ *     we probe (`releases/tags/<tag>`) is a SIZE-only side-channel — the
+ *     download URL itself is parsed locally from the user's input and
+ *     remains valid even if the tags API can't see the release.
  *
  * Note: `source` borrows the existing `ResolvedModel.source` enum — github
  * isn't currently listed there, but we cast to keep the wire shape stable
@@ -91,17 +104,18 @@ export async function resolveGithubReleaseUrl(url: string): Promise<ResolvedMode
   if (typeof url !== 'string' || url.length === 0) return null;
   const parsed = parseGithubReleaseUrl(url);
   if (!parsed) return null;
-  const sizeBytes = await fetchAssetSize(parsed);
+  const probe = await fetchAssetSize(parsed);
   const suggestedFolder: SuggestedFolder | undefined = guessFolder('', parsed.fileName);
-  // ResolvedModel.source is currently 'huggingface' | 'civitai'; widen via
-  // an explicit cast so we don't touch every consumer in batch 1. The
-  // walker uses `host` from urlSources for routing instead of `source`.
   const out: ResolvedModel = {
     source: 'github' as unknown as ResolvedModel['source'],
     downloadUrl: parsed.canonicalUrl,
     fileName: parsed.fileName,
   };
-  if (typeof sizeBytes === 'number') out.sizeBytes = sizeBytes;
+  if (probe.status === 401 || probe.status === 403) {
+    out.gated = true;
+    out.gatedMessage = 'paste your GitHub token in Settings to download';
+  }
+  if (typeof probe.sizeBytes === 'number') out.sizeBytes = probe.sizeBytes;
   if (suggestedFolder) out.suggestedFolder = suggestedFolder;
   return out;
 }
