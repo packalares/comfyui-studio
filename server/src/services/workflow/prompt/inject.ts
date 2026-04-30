@@ -205,7 +205,7 @@ export function randomizeSeeds(prompt: ApiPrompt): void {
 /**
  * Post-emit: apply user edits from Primitive-derived form fields onto the
  * corresponding Primitive* node in the API prompt. Field ids produced by
- * `extractPrimitiveFormFields` are either:
+ * the form-field plan's primitive collector are either:
  *   - `prompt`          → the Primitive titled "Prompt" (by convention).
  *   - `primitive:<id>`  → a specific Primitive node by its inner id.
  *

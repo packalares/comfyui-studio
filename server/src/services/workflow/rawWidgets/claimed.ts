@@ -1,40 +1,33 @@
-// Compute the set of widgets already claimed by the main form — the
-// "Expose fields" modal must not offer these (they would be silently
-// clobbered by the generate pipeline). Two paths:
+// Compute the set of widgets already claimed by the main form. Single source
+// of truth: the `claimSet` returned by `buildFormFieldPlan(workflow,
+// objectInfo, template)` — every bound form field auto-claims its widget so
+// the "Expose fields" modal can hide it.
 //
-//  1. Primary: read `template.formInputs` and claim exactly the
-//     (bindNodeId, bindWidgetName) pairs — one form field, one claim.
-//     Deterministic and aligned with the bound injector in
-//     `workflow/prompt/inject.ts::applyBoundFormInputs`.
+// The plan's claimSet covers:
+//   - primitive walk (every titled Primitive's `value` widget),
+//   - widget walk (every multiline-STRING widget on every encoder),
+//   - proxy promotion (wrapper-proxy prompts surfaced to the main form),
+//   - any future collector that emits bound fields.
 //
-//  2. Fallback: for tag-only templates whose formInputs carry no
-//     bindings (upstream catalog entries that never saw their workflow
-//     at generation time), mirror the legacy heuristic: the first
-//     non-negative-titled node's multiline-STRING widgets. This path
-//     exists solely to keep the generic-prompt fan-out case hiding the
-//     same widgets it used to hide — once every template flows through
-//     the bound path, this block becomes dead code and can be removed.
+// File-upload widgets on media-loader nodes are added on top because they
+// don't go through the bind path (they use `nodeId` + a per-mediaType
+// allowlist of widget names), and the legacy fan-out fallback for tag-only
+// templates is still added when the bound path produced nothing.
 
+import { buildFormFieldPlan } from '../../templates/formFieldPlan/index.js';
 import * as templates from '../../templates/index.js';
+import type { RawTemplate } from '../../templates/types.js';
 
-// Per-mediaType allowlist of widget names that the main form's media-upload
-// binding actually fills. ANY OTHER widget on a media-loader node
-// (VHS_LoadVideo's custom_width / frame_load_cap / select_every_nth, …)
-// stays unclaimed so the user can opt to expose it via the "Edit advanced
-// fields" modal.
-//
-// Names cover the loader variants we ship support for: LoadImage uses
-// `image` (the file name) and `upload` (a UI-only media-flag value); the
-// VHS_LoadAudio variants use `audio` or the older `audio_file`; VHS_LoadVideo
-// uses `video`.
 const UPLOAD_WIDGETS_BY_MEDIA_TYPE: Record<string, readonly string[]> = {
   image: ['image', 'upload'],
   audio: ['audio', 'audio_file'],
   video: ['video'],
 };
 
-// Fallback path: mirror the legacy node-walk used by the non-bound
-// `injectUserPrompt` fan-out. Only runs when no bound formInputs exist.
+// Fallback: when no bound prompt fields exist (tag-only templates whose
+// formInputs don't carry bindings), mirror the legacy first-eligible-node
+// fan-out so the modal still hides what the prompt-injection path will
+// later overwrite.
 function collectLegacyPromptClaimedWidgets(
   nodes: Array<Record<string, unknown>>,
   objectInfo: Record<string, Record<string, unknown>>,
@@ -60,18 +53,15 @@ function collectLegacyPromptClaimedWidgets(
     if (targets.length === 0) continue;
     const nodeId = String(node.id);
     for (const name of targets) claimed.add(`${nodeId}|${name}`);
-    return claimed; // mirror legacy injectUserPrompt: only first eligible node
+    return claimed;
   }
   return claimed;
 }
 
-// Widgets on nodes bound via template.formInputs[*].nodeId — strictly the
-// file-upload widget(s) the form actually drives. Earlier versions claimed
-// EVERY widget on the loader node (via widgetNamesFor + classType), which
-// silently locked out config widgets like VHS_LoadVideo's custom_width or
-// frame_load_cap from the ExposeWidgets modal even though the form was
-// only writing `video`. Now scoped to the per-mediaType allowlist so
-// loader-config widgets stay user-exposable.
+// Media-upload widgets: claim the per-mediaType allowlist on every loader
+// node referenced by `template.io.inputs`. Scoped to the upload-relevant
+// widget names so loader-config widgets (custom_width, frame_load_cap, ...)
+// stay user-exposable.
 function collectFormInputClaimedWidgets(
   nodes: Array<Record<string, unknown>>,
   templateName: string,
@@ -79,9 +69,6 @@ function collectFormInputClaimedWidgets(
   const claimed = new Set<string>();
   const tpl = templates.getTemplate(templateName);
   for (const fi of (tpl?.formInputs || [])) {
-    // IO boundary: formInputs comes from user-authored template JSON, and the
-    // nodeId field is declared `number` in the contract but some workflows
-    // surface it as a string. Accept both.
     const nodeId = (fi as unknown as { nodeId?: number | string }).nodeId;
     if (nodeId == null) continue;
     const node = nodes.find(n => String(n.id) === String(nodeId));
@@ -90,60 +77,46 @@ function collectFormInputClaimedWidgets(
     if (!mediaType) continue;
     const widgetsToClaim = UPLOAD_WIDGETS_BY_MEDIA_TYPE[mediaType];
     if (!widgetsToClaim) continue;
-    for (const name of widgetsToClaim) {
-      claimed.add(`${nodeId}|${name}`);
-    }
+    for (const name of widgetsToClaim) claimed.add(`${nodeId}|${name}`);
   }
   return claimed;
 }
 
-/**
- * Primary path: walk `template.formInputs` and claim exactly the
- * widgets pointed to by `(bindNodeId, bindWidgetName)`. Returns the
- * claim set plus a flag so the caller knows whether the bound path
- * produced anything — the legacy path only kicks in if it didn't.
- */
-function collectBoundPromptClaimedWidgets(
-  templateName: string,
-): { claimed: Set<string>; hadAny: boolean } {
+function rawTemplate(templateName: string): RawTemplate {
   const tpl = templates.getTemplate(templateName);
-  const claimed = new Set<string>();
-  let hadAny = false;
-  for (const fi of (tpl?.formInputs || [])) {
-    const bindNodeId = (fi as { bindNodeId?: string }).bindNodeId;
-    const bindWidgetName = (fi as { bindWidgetName?: string }).bindWidgetName;
-    if (!bindNodeId || !bindWidgetName) continue;
-    hadAny = true;
-    claimed.add(`${bindNodeId}|${bindWidgetName}`);
-  }
-  return { claimed, hadAny };
+  return {
+    name: templateName,
+    title: tpl?.title ?? templateName,
+    description: tpl?.description ?? '',
+    mediaType: tpl?.mediaType ?? 'image',
+    tags: tpl?.tags ?? [],
+    models: tpl?.models ?? [],
+    io: tpl?.io,
+  };
 }
 
 /**
- * Union of prompt-claimed + formInput-claimed widget IDs
- * (`${nodeId}|${widgetName}`). The modal uses this to hide widgets that
- * would be silently overwritten at generate time.
+ * Union of: (a) main-form bound widgets via the canonical plan, (b) media-
+ * upload allowlists per mediaType, and (c) the legacy first-eligible-node
+ * fallback when the plan produced no bound prompt fields.
  *
- * INVARIANT: every claim key uses a TOP-LEVEL numeric node id. Inner
- * subgraph widgets are enumerated with compound ids (`267:216` /
- * `267:mid:leaf`) by `walkSubgraphWidgets`, so nothing here will ever
- * match them — they stay strictly opt-in. Keep it this way: claim
- * semantics are a top-level concept (prompt textarea / upload bindings
- * wire to top-level nodes), and re-introducing compound-id matching
- * would accidentally hide widgets users specifically asked to expose.
+ * Keys are `${nodeId}|${widgetName}` where `nodeId` follows the same compound
+ * convention the flattener emits (e.g. `17:9` for subgraph-buried inputs).
+ * The legacy path uses bare top-level numeric ids — they coexist in the same
+ * set because a workflow either flows through the bound path (compound ids)
+ * OR through the legacy path (bare ids), never both at once.
  */
 export function computeFormClaimedWidgets(
   workflow: Record<string, unknown>,
   objectInfo: Record<string, Record<string, unknown>>,
   templateName: string,
 ): Set<string> {
-  const nodes = (workflow.nodes || []) as Array<Record<string, unknown>>;
   const claimed = new Set<string>();
-  const bound = collectBoundPromptClaimedWidgets(templateName);
-  for (const k of bound.claimed) claimed.add(k);
-  // Legacy fallback only when no bound prompt fields exist — keeps the
-  // generic-prompt fan-out case hiding the same widgets it used to hide.
-  if (!bound.hadAny) {
+  const plan = buildFormFieldPlan(rawTemplate(templateName), workflow, objectInfo);
+  for (const k of plan.claimSet) claimed.add(k);
+
+  const nodes = (workflow.nodes || []) as Array<Record<string, unknown>>;
+  if (plan.claimSet.size === 0) {
     for (const k of collectLegacyPromptClaimedWidgets(nodes, objectInfo)) claimed.add(k);
   }
   for (const k of collectFormInputClaimedWidgets(nodes, templateName)) claimed.add(k);

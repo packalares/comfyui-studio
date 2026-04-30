@@ -17,6 +17,7 @@ import {
 import {
   extractAdvancedSettings,
   findSubgraphDef,
+  resolveProxyBoundKeys,
   resolveProxyLabels,
 } from '../../src/services/workflow/proxyLabels.js';
 import {
@@ -138,21 +139,28 @@ describe('filterProxySettingsByBoundKeys — LTX-2.3 i2v fixture', () => {
     expect(settings).toHaveLength(13);
 
     const bound = computeFormBoundKeys('video_ltx2_3_i2v', wf, objectInfo);
-    // The LTX-2.3 i2v prompt primitive at node 266 MUST be in the bound set —
-    // this is the exact field the bug reported as duplicated.
-    expect(bound.has('266|value')).toBe(true);
+    // Compound-id world: the LTX2 prompt Primitive lives inside wrapper 267,
+    // so its bind key is `267:266|value`. This is the exact field the bug
+    // reported as duplicated.
+    expect(bound.has('267:266|value')).toBe(true);
 
-    const filtered = filterProxySettingsByBoundKeys(settings, proxyWidgets, bound);
-    // Every surviving setting's proxy entry must NOT appear in bound keys.
+    // Plan-derived claim sets carry compound ids; the proxy filter relies on
+    // resolveProxyBoundKeys to translate the wrapper's bare proxy entries
+    // into the same compound-id space before matching.
+    const resolvedKeys = resolveProxyBoundKeys(wrapper, proxyWidgets, wf);
+    const filtered = filterProxySettingsByBoundKeys(
+      settings, proxyWidgets, bound, resolvedKeys,
+    );
+    // Every surviving entry's compound key must NOT appear in bound.
     for (const s of filtered) {
-      const [innerId, widgetName] = proxyWidgets[s.proxyIndex];
-      expect(bound.has(`${innerId}|${widgetName}`)).toBe(false);
+      const r = resolvedKeys[s.proxyIndex];
+      expect(bound.has(`${r.nodeId}|${r.widgetName}`)).toBe(false);
     }
-    // And the dropped set is exactly the intersection of proxyWidgets with bound.
+    // Dropped set = proxies whose compound key is in bound.
     const dropped = settings.filter(s => !filtered.includes(s));
     for (const s of dropped) {
-      const [innerId, widgetName] = proxyWidgets[s.proxyIndex];
-      expect(bound.has(`${innerId}|${widgetName}`)).toBe(true);
+      const r = resolvedKeys[s.proxyIndex];
+      expect(bound.has(`${r.nodeId}|${r.widgetName}`)).toBe(true);
     }
     // Crucial assertion: the main-prompt proxy IS in the dropped set.
     expect(

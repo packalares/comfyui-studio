@@ -17,6 +17,7 @@ export { collectAllWorkflowNodes } from './collect.js';
 export {
   extractAdvancedSettings,
   findSubgraphDef,
+  resolveProxyBoundKeys,
   resolveProxyLabels,
   resolveProxyLabelParts,
 } from './proxyLabels.js';
@@ -32,5 +33,3 @@ export {
 } from './rawWidgets/index.js';
 
 export { workflowToApiPrompt } from './prompt/index.js';
-
-export { extractPrimitiveFormFields } from './primitiveFields.js';

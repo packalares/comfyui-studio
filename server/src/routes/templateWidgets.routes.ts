@@ -12,10 +12,11 @@ import {
   findSubgraphDef,
   getObjectInfo,
   resolveProxyLabelParts,
+  resolveProxyBoundKeys,
   workflowToApiPrompt,
 } from '../services/workflow/index.js';
-import { generateFormInputs } from '../services/templates/templates.formInputs.js';
-import { filterProxySettingsAgainstForm } from '../services/workflow/filterFormBoundProxies.js';
+import { buildFormFieldPlan } from '../services/templates/formFieldPlan/index.js';
+import { filterProxySettingsByBoundKeys } from '../services/workflow/filterFormBoundProxies.js';
 import type { RawTemplate } from '../services/templates/types.js';
 import { env } from '../config/env.js';
 import { sendError } from '../middleware/errors.js';
@@ -62,6 +63,19 @@ function findWrapperNode(workflow: Record<string, unknown>): WrapperMatch {
   return { wrapperNode: null, proxyWidgets: null, widgetValues: [] };
 }
 
+function rawTemplateOf(templateName: string): RawTemplate {
+  const tpl = templates.getTemplate(templateName);
+  return {
+    name: templateName,
+    title: tpl?.title ?? templateName,
+    description: tpl?.description ?? '',
+    mediaType: tpl?.mediaType ?? 'image',
+    tags: tpl?.tags ?? [],
+    models: tpl?.models ?? [],
+    io: tpl?.io,
+  };
+}
+
 router.get('/workflow-settings/:templateName', async (req: Request, res: Response) => {
   try {
     const templateName = req.params.templateName as string;
@@ -71,11 +85,11 @@ router.get('/workflow-settings/:templateName', async (req: Request, res: Respons
       return;
     }
 
-    // Proxy-widget path: only runs when the template has a wrapper node authored with proxyWidgets.
-    // Raw-widget path (user-picked fields) runs regardless, so templates without a wrapper still
-    // surface whatever the user opted to expose via the "Edit advanced fields" modal.
     const { wrapperNode, proxyWidgets, widgetValues } = findWrapperNode(workflow);
     const objectInfo = await getObjectInfo();
+    // One canonical plan per request — reused for proxy-vs-form dedup so
+    // the form's claimSet is computed exactly once.
+    const plan = buildFormFieldPlan(rawTemplateOf(templateName), workflow, objectInfo);
     let settings: AdvancedSetting[] = [];
     if (wrapperNode && proxyWidgets && proxyWidgets.length > 0) {
       const parts = resolveProxyLabelParts(wrapperNode, proxyWidgets, workflow);
@@ -85,9 +99,6 @@ router.get('/workflow-settings/:templateName', async (req: Request, res: Respons
       const sgNodes = (sg?.nodes || []) as Array<Record<string, unknown>>;
       const sgInputs = (sg?.inputs || []) as Array<Record<string, unknown>>;
       const sgLinks = (sg?.links || []) as Array<Record<string, unknown>>;
-      // Wrapper attribution feeds the AdvancedSettings UI's group-by-node
-      // section heading. `sg?.name` is the authored subgraph display name
-      // ("Video Generation (LTX-2.3)"); fall back to the wrapper class type.
       const wrapperNodeId = String(wrapperNode.id ?? '') || undefined;
       const wrapperNodeTitle =
         ((wrapperNode.title as string | undefined) || (sg?.name as string | undefined)
@@ -96,19 +107,9 @@ router.get('/workflow-settings/:templateName', async (req: Request, res: Respons
         proxyWidgets, widgetValues, objectInfo, labels, sgNodes, scopeLabels,
         sgInputs, sgLinks, wrapperNodeId, wrapperNodeTitle,
       );
-      // Dedup: a proxy entry whose (innerNodeId, widgetName) matches a bound
-      // main-form field is redundant — the main form is the authoritative
-      // surface for bound widgets (Phase 1). Showing the same widget in
-      // Advanced Settings creates two edit surfaces for one value. Mirrors
-      // the generateFormInputs call shape used by /template-widgets so the
-      // binding keys stay in lock-step.
-      settings = filterProxySettingsAgainstForm(
-        settings,
-        proxyWidgets,
-        templateName,
-        workflow,
-        objectInfo,
-        wrapperNode,
+      const resolvedKeys = resolveProxyBoundKeys(wrapperNode, proxyWidgets, workflow);
+      settings = filterProxySettingsByBoundKeys(
+        settings, proxyWidgets, plan.claimSet, resolvedKeys,
       );
     }
 
@@ -125,7 +126,7 @@ router.get('/workflow-settings/:templateName', async (req: Request, res: Respons
 });
 
 // List every editable widget in a template's workflow, each tagged with whether it's currently exposed.
-// Also returns `primitiveFormFields` — the full `generateFormInputs` output computed against the
+// Also returns `primitiveFormFields` — the canonical form-field plan computed against the
 // live workflow + objectInfo. Superset of the legacy primitive-only list: subgraph-titled
 // Primitive* nodes still surface, plus widget-walk fields with `bindNodeId`+`bindWidgetName` for
 // modern multi-field encoders (TextEncodeAceStepAudio1.5's `tags`/`lyrics` etc.) so the Studio
@@ -140,21 +141,8 @@ router.get('/template-widgets/:templateName', async (req: Request, res: Response
     }
     const widgets = await enumerateTemplateWidgets(workflow, templateName);
     const objectInfo = await getObjectInfo();
-    // Synthesise a RawTemplate shell from the cached TemplateData so tags /
-    // description flow into the fallback (tag-only) prompt path. Missing
-    // entries (templateless lookups) degrade gracefully to empty tags.
-    const tpl = templates.getTemplate(templateName);
-    const raw: RawTemplate = {
-      name: templateName,
-      title: tpl?.title ?? templateName,
-      description: tpl?.description ?? '',
-      mediaType: tpl?.mediaType ?? 'image',
-      tags: tpl?.tags ?? [],
-      models: tpl?.models ?? [],
-      io: tpl?.io,
-    };
-    const primitiveFormFields = generateFormInputs(raw, workflow, objectInfo);
-    res.json({ widgets, primitiveFormFields });
+    const plan = buildFormFieldPlan(rawTemplateOf(templateName), workflow, objectInfo);
+    res.json({ widgets, primitiveFormFields: plan.fields });
   } catch (err) {
     sendError(res, err, 500, 'Failed to enumerate template widgets');
   }

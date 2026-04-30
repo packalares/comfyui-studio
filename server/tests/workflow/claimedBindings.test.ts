@@ -80,15 +80,11 @@ describe('computeFormClaimedWidgets — bound path', () => {
     expect(claimed.has('11|text')).toBe(false);
   });
 
-  it('does not apply the legacy fallback once any bound field is present', () => {
-    // Bound field on a DIFFERENT node than the first CLIPTextEncode. The
-    // legacy path would claim node 10's `text`; the bound path must not
-    // trigger it when a binding exists, even if the binding targets a
-    // different node.
-    mockTpl = buildTemplate([
-      { id: 'primitive:99', label: 'Something', type: 'text', required: false,
-        bindNodeId: '99', bindWidgetName: 'value' },
-    ]);
+  it('claims widget-walk bindings on every encoder, not just the first', () => {
+    // Two non-negative encoders: under the legacy first-node heuristic only
+    // node 10's text would be claimed. The plan-based claim emits a binding
+    // for every eligible widget on every non-negative node, so both surface.
+    mockTpl = buildTemplate([]);
     const objectInfo = {
       CLIPTextEncode: {
         input: { required: { text: ['STRING', { multiline: true }], clip: ['CLIP'] } },
@@ -97,11 +93,12 @@ describe('computeFormClaimedWidgets — bound path', () => {
     const workflow = {
       nodes: [
         { id: 10, type: 'CLIPTextEncode', title: 'Positive', widgets_values: [''] },
+        { id: 11, type: 'CLIPTextEncode', title: 'Refiner Positive', widgets_values: [''] },
       ],
     };
     const claimed = computeFormClaimedWidgets(workflow, objectInfo, 'tpl');
-    expect(claimed.has('99|value')).toBe(true);
-    expect(claimed.has('10|text')).toBe(false);
+    expect(claimed.has('10|text')).toBe(true);
+    expect(claimed.has('11|text')).toBe(true);
   });
 });
 

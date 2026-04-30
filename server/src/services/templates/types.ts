@@ -20,7 +20,7 @@ export interface FormInputData {
    * API-prompt pipeline writes the user's value into the named widget on the
    * specified node instead of fanning the single `prompt` value across every
    * prompt-like widget on the first eligible node. Emitted by the new
-   * workflow-reading path in `generateFormInputs` + `extractPrimitiveFormFields`.
+   * canonical pipeline in `services/templates/formFieldPlan/`.
    * Legacy media-upload fields and the tag-only `prompt` fallback leave these
    * unset — the injector falls back to the heuristic fan-out path for them.
    */

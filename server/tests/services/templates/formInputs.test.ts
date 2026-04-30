@@ -112,11 +112,15 @@ describe('generateFormInputs — subgraph-Primitive workflow', () => {
         input: { required: { text: STR_MULTI, clip: ['CLIP'] } },
       },
     } satisfies Record<string, Record<string, unknown>>;
-    // Primitive titled "Prompt" lives inside a subgraph; a CLIPTextEncode
-    // node also exists at the top level. The primitive path should win.
+    // Wrapper node 50 instantiates sg1 — without that the flattener
+    // doesn't walk subgraph definitions. Inside, a Primitive titled
+    // "Prompt" coexists with a CLIPTextEncode wired upstream from a
+    // sibling source (so the widget walk correctly skips it). At the
+    // top-level there's also an unrelated CLIPTextEncode node 10.
     const workflow = {
       nodes: [
         { id: 10, type: 'CLIPTextEncode', title: 'Positive', widgets_values: ['fallback'] },
+        { id: 50, type: 'sg1' },
       ],
       definitions: {
         subgraphs: [
@@ -139,13 +143,12 @@ describe('generateFormInputs — subgraph-Primitive workflow', () => {
       id: 'prompt',
       label: 'Prompt',
       type: 'textarea',
-      bindNodeId: '99',
+      bindNodeId: '50:99',
       bindWidgetName: 'value',
       default: 'authored default',
     });
-    // The widget walk still runs (dedupe is per bindNodeId+bindWidgetName),
-    // so the top-level CLIPTextEncode surfaces as a second field. The
-    // primitive is prepended and keeps its title.
+    // The widget walk still runs and surfaces the top-level CLIPTextEncode
+    // as a second field. The primitive is prepended and keeps its title.
     expect(out.some(f => f.bindNodeId === '10' && f.bindWidgetName === 'text')).toBe(true);
   });
 });
@@ -268,7 +271,7 @@ describe('generateFormInputs — wrapper-proxy prompt promotion', () => {
     // duplicate. Verify the prompt comes from the primitive.
     const prompt = out.find(f => f.id === 'prompt');
     expect(prompt).toBeDefined();
-    expect(prompt?.bindNodeId).toBe('99');
+    expect(prompt?.bindNodeId).toBe('70:99');
     expect(prompt?.bindWidgetName).toBe('value');
     expect(prompt?.default).toBe('authored default');
   });

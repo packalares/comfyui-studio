@@ -114,11 +114,13 @@ export default function Studio() {
   // "Expose fields" modal state
   const [showExposeModal, setShowExposeModal] = useState(false);
   const [hasEditableWidgets, setHasEditableWidgets] = useState(false);
-  // Primitive-derived form fields (from titled Primitive* nodes inside
-  // the workflow's subgraphs). Populated when the user selects a modern
-  // subgraph template so fields like Width/Height/Length/Frame Rate and
-  // the per-workflow Prompt default surface in the main form.
+  // Workflow-aware form fields from `/api/template-widgets`. Once
+  // `formFieldsLoaded` flips true these are the authoritative shape — every
+  // field carries its `(bindNodeId, bindWidgetName)` binding. Until the
+  // fetch completes we render `template.formInputs` from the catalog so the
+  // form isn't blank during the round-trip.
   const [primitiveFormFields, setPrimitiveFormFields] = useState<FormInput[]>([]);
+  const [formFieldsLoaded, setFormFieldsLoaded] = useState(false);
 
   // Auto-open the expose modal once, when a ?expose=1 URL param lands — used
   // by the "Import as template" flow to drop the user straight into widget
@@ -154,17 +156,15 @@ export default function Studio() {
     [templates, selectedTemplate]
   );
 
-  // /api/template-widgets returns the full workflow-aware form list
-  // (primitives + widget-walk bound fields + media uploads). When present,
-  // it's the authoritative shape — a legacy id-merge with template.formInputs
-  // would leave the catalog-time unbound generic `prompt` textarea sitting
-  // next to bound fields whose ids differ (e.g. `tags`/`lyrics`/`text`).
-  // Fall back to catalog-time formInputs only when no workflow-aware fields
-  // were produced (legacy templates without a workflow at enumeration time).
+  // Once `/api/template-widgets` returns we use ONLY its output — that's
+  // the canonical workflow-aware list with full bindings, defaults, and
+  // dedup applied. Catalog-time `template.formInputs` is a placeholder
+  // only until the fetch resolves. Mixing them post-load would re-introduce
+  // the duplicates the canonical pipeline removed.
   const mergedFormInputs = useMemo(() => {
-    if (primitiveFormFields.length > 0) return primitiveFormFields;
+    if (formFieldsLoaded) return primitiveFormFields;
     return template?.formInputs ?? [];
-  }, [template?.formInputs, primitiveFormFields]);
+  }, [template?.formInputs, primitiveFormFields, formFieldsLoaded]);
 
   // Fetch advanced settings when template changes. We also probe `/template-widgets`
   // to decide whether the "Edit advanced fields" button should be shown — only if there
@@ -183,16 +183,17 @@ export default function Studio() {
       setAdvancedValues({});
       setHasEditableWidgets(false);
       setPrimitiveFormFields([]);
+      setFormFieldsLoaded(false);
       return;
     }
     let cancelled = false;
     setAdvancedValues({});
     // Clear primitive fields at the START of a fetch so entries from the
-    // previous template never leak into the current one. The fetch below
-    // writes back the fresh set; the reset-on-template-change effect no
-    // longer touches this state (used to race with templates[] loading
-    // after selectedTemplate was already set).
+    // previous template never leak into the current one. `formFieldsLoaded`
+    // gates `mergedFormInputs` on the catalog placeholder until the fetch
+    // resolves, preventing stale primitives from bleeding across templates.
     setPrimitiveFormFields([]);
+    setFormFieldsLoaded(false);
     api.getWorkflowSettings(selectedTemplate)
       .then(result => {
         if (!cancelled) setAdvancedSettingsDefs(result.settings);
@@ -210,19 +211,15 @@ export default function Studio() {
         setHasEditableWidgets(exposable.length > 0);
         const primitiveFields = result.primitiveFormFields ?? [];
         setPrimitiveFormFields(primitiveFields);
+        setFormFieldsLoaded(true);
 
-        // Prompt pre-fill — iterate every bound form field (primitive walk
-        // + widget walk) and seed formValues[id] from the matching widget's
-        // default when the user hasn't typed anything there yet. Falls back
-        // to the classic CLIPTextEncode/text lookup for legacy flat
-        // workflows whose formInputs carry no bindings.
-        const staticInputs = template?.formInputs ?? [];
-        const allInputs: FormInput[] = [
-          ...staticInputs,
-          ...primitiveFields.filter(p => !staticInputs.some(s => s.id === p.id)),
-        ];
+        // Prompt pre-fill — iterate every bound canonical field and seed
+        // `formValues[id]` from the matching widget's default when the user
+        // hasn't typed anything there yet. Falls back to the classic
+        // CLIPTextEncode/text lookup for legacy flat workflows whose
+        // canonical fields carry no bindings.
         const seeds: Record<string, string> = {};
-        for (const input of allInputs) {
+        for (const input of primitiveFields) {
           if (!input.bindNodeId || !input.bindWidgetName) continue;
           // Prefer the field's own `default` (from the primitive/widget
           // walk). When blank, fall back to the widget enumerated for
@@ -269,6 +266,7 @@ export default function Studio() {
         if (!cancelled) {
           setHasEditableWidgets(false);
           setPrimitiveFormFields([]);
+          setFormFieldsLoaded(false);
         }
       });
     return () => { cancelled = true; };
