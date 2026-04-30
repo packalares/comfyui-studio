@@ -8,7 +8,7 @@
 #
 # Pick which to build with `--target prod` or `--target dev`.
 
-ARG BASE_IMAGE=docker.io/beclab/comfyui:v0.18.2-fe1.43.4-launcher0.2.36
+ARG BASE_IMAGE=docker.io/beclab/comfyui:v0.20.1
 
 # ======================================================================
 # Stage: frontend-build — throwaway; we only need its dist/.
@@ -61,8 +61,15 @@ COPY docker/start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 
 EXPOSE 3002 8188
+# PIP_USER=1 makes any future `pip install` default to --user, landing in
+# /root/.local/lib/python3.12/site-packages/ which is on the host LVM mount
+# (persistent across container restarts and OOM-kills). Without this, ad-hoc
+# pip installs from `kubectl exec` or plugin-install-script paths land in
+# /usr/local/.../site-packages (writable overlay, ephemeral) and vanish on
+# severe restarts. See feedback_pod_npm_install.md.
 ENV STUDIO_MODE=prod \
-    COMFYUI_URL=http://localhost:8188
+    COMFYUI_URL=http://localhost:8188 \
+    PIP_USER=1
 CMD ["/app/start.sh"]
 
 
@@ -99,6 +106,8 @@ COPY docker/start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 
 EXPOSE 3001 3002 8188
+# PIP_USER=1 — see comment in prod stage above.
 ENV STUDIO_MODE=dev \
-    COMFYUI_URL=http://localhost:8188
+    COMFYUI_URL=http://localhost:8188 \
+    PIP_USER=1
 CMD ["/app/start.sh"]
