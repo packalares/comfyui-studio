@@ -37,3 +37,6 @@ pnpm-debug.log*
 # Coverage / test artifacts.
 coverage/
 .nyc_output/
+
+# Workflow JSONs — kept locally only, not tracked in git
+workflows/
