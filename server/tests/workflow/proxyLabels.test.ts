@@ -175,6 +175,36 @@ describe('extractAdvancedSettings', () => {
     expect(settings[0].type).toBe('number');
   });
 
+  it('threads wrapperNodeId / wrapperNodeTitle onto every emitted setting', () => {
+    // The Advanced Settings UI groups by nodeId; for proxy templates every
+    // proxied widget originates from the same wrapper, so they share an
+    // attribution.
+    const sgNodes = [
+      { id: 257, type: 'PrimitiveInt', widgets_values: [1280] },
+    ] as Array<Record<string, unknown>>;
+    const objectInfo = {
+      PrimitiveInt: { input: { required: { value: ['INT', {}] } } },
+    } satisfies Record<string, Record<string, unknown>>;
+    const settings = extractAdvancedSettings(
+      [['257', 'value']], [], objectInfo, ['Width'], sgNodes,
+      undefined, undefined, undefined,
+      '267', 'Video Generation (LTX-2.3)',
+    );
+    expect(settings[0].nodeId).toBe('267');
+    expect(settings[0].nodeTitle).toBe('Video Generation (LTX-2.3)');
+  });
+
+  it('leaves nodeId / nodeTitle undefined when wrapper attribution is omitted', () => {
+    const sgNodes = [
+      { id: 10, type: 'CheckpointLoaderSimple', widgets_values: ['foo.safetensors'] },
+    ] as Array<Record<string, unknown>>;
+    const settings = extractAdvancedSettings(
+      [['10', 'ckpt_name']], [], comboObjectInfo, ['Checkpoint'], sgNodes,
+    );
+    expect(settings[0].nodeId).toBeUndefined();
+    expect(settings[0].nodeTitle).toBeUndefined();
+  });
+
   it('treats PrimitiveStringMultiline as textarea with the inner node value', () => {
     const sgNodes = [
       { id: 266, type: 'PrimitiveStringMultiline', widgets_values: ['test prompt'] },

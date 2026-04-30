@@ -198,6 +198,8 @@ export function buildRawWidgetSettings(
       step: shape.step,
       options: shape.options,
       proxyIndex: -1,
+      nodeId: e.nodeId,
+      nodeTitle: scopeLabel,
     });
   }
   return result;

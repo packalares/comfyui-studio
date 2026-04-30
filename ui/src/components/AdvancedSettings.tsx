@@ -52,12 +52,75 @@ export default function AdvancedSettings({ settings, values, onChange }: Props) 
       </button>
 
       {open && (
-        <GroupedSettings
+        <NodeGroupedSettings
           settings={settings}
           getValue={getValue}
           handleChange={handleChange}
         />
       )}
+    </div>
+  );
+}
+
+// Group settings by source node (preserving first-appearance order so the
+// per-node sections line up with the workflow's document order). Inside
+// each section the existing type-bucketed layout still runs — keeps the
+// "textareas full-width / numbers in a 2-col grid / toggles compact" UX.
+// Settings without a `nodeId` (legacy persisted entries) collect under an
+// untitled "Other" section at the bottom.
+function NodeGroupedSettings({
+  settings, getValue, handleChange,
+}: {
+  settings: AdvancedSetting[];
+  getValue: (s: AdvancedSetting) => unknown;
+  handleChange: (s: AdvancedSetting, v: unknown) => void;
+}) {
+  const groups: Array<{ key: string; title: string | null; items: AdvancedSetting[] }> = [];
+  const byKey = new Map<string, AdvancedSetting[]>();
+  for (const s of settings) {
+    const key = s.nodeId ?? '__other__';
+    let bucket = byKey.get(key);
+    if (!bucket) {
+      bucket = [];
+      byKey.set(key, bucket);
+      groups.push({
+        key,
+        title: s.nodeId ? (s.nodeTitle ?? s.nodeId) : null,
+        items: bucket,
+      });
+    }
+    bucket.push(s);
+  }
+
+  // Single-group fallback: when every setting lives under one node (or none
+  // are attributed), the per-node heading is noise. Render the legacy
+  // type-bucketed layout directly.
+  if (groups.length <= 1) {
+    return (
+      <GroupedSettings
+        settings={settings}
+        getValue={getValue}
+        handleChange={handleChange}
+      />
+    );
+  }
+
+  return (
+    <div className="mt-3 space-y-5">
+      {groups.map(g => (
+        <div key={g.key}>
+          {g.title && (
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-2">
+              {g.title}
+            </div>
+          )}
+          <GroupedSettings
+            settings={g.items}
+            getValue={getValue}
+            handleChange={handleChange}
+          />
+        </div>
+      ))}
     </div>
   );
 }

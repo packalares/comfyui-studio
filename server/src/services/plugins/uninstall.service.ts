@@ -9,8 +9,11 @@ import * as bus from '../../lib/events.js';
 import * as history from './history.service.js';
 import * as progress from './progress.service.js';
 import * as cache from './cache.service.js';
+import path from 'path';
 import {
   ensurePluginDirs,
+  findDisabledPluginDir,
+  findEnabledPluginDir,
   getDisabledPluginPath,
   getEnabledPluginPath,
   getPluginsRoot,
@@ -37,18 +40,12 @@ function succeed(taskId: string, message: string): void {
   progress.completeTask(taskId, true, message);
 }
 
-/** Returns both candidate paths so the caller can probe whichever exists. */
-function bothPaths(pluginId: string): { enabled: string; disabled: string } {
-  return { enabled: getEnabledPluginPath(pluginId), disabled: getDisabledPluginPath(pluginId) };
-}
-
 async function uninstallTask(taskId: string, pluginId: string): Promise<void> {
   try {
     log(taskId, 'Preparing uninstall');
-    const { enabled, disabled } = bothPaths(pluginId);
-    let target: string | null = null;
-    if (fs.existsSync(enabled)) target = enabled;
-    else if (fs.existsSync(disabled)) target = disabled;
+    // Case-insensitive lookup so PascalCase on-disk dirs (older Manager
+    // installs) match against Studio's lowercase pluginId.
+    const target = findEnabledPluginDir(pluginId) ?? findDisabledPluginDir(pluginId);
     if (!target) throw new Error('Plugin directory not found');
     log(taskId, `Removing ${target}`);
     await fs.promises.rm(target, { recursive: true, force: true });
@@ -75,8 +72,13 @@ async function disableTask(taskId: string, pluginId: string): Promise<void> {
   try {
     log(taskId, 'Preparing disable');
     ensurePluginDirs();
-    const { enabled, disabled } = bothPaths(pluginId);
-    if (!fs.existsSync(enabled)) throw new Error('Plugin is not in the enabled directory');
+    // Source: case-insensitive lookup so PascalCase on-disk dirs match
+    // against Studio's lowercase pluginId. Destination: same basename so
+    // re-enable later finds the same on-disk casing.
+    const enabled = findEnabledPluginDir(pluginId);
+    if (!enabled) throw new Error('Plugin is not in the enabled directory');
+    const disabledRoot = path.dirname(getDisabledPluginPath(pluginId));
+    const disabled = path.join(disabledRoot, path.basename(enabled));
     if (fs.existsSync(disabled)) {
       log(taskId, 'Deleting stale disabled copy');
       await fs.promises.rm(disabled, { recursive: true, force: true });
@@ -103,8 +105,13 @@ export async function disablePlugin(pluginId: string): Promise<string> {
 async function enableTask(taskId: string, pluginId: string): Promise<void> {
   try {
     log(taskId, 'Preparing enable');
-    const { enabled, disabled } = bothPaths(pluginId);
-    if (!fs.existsSync(disabled)) throw new Error('Plugin is not in the disabled directory');
+    // Source: case-insensitive lookup so PascalCase on-disk dirs in .disabled
+    // match against Studio's lowercase pluginId. Destination: preserve the
+    // source's basename so Python imports + Manager tracking stay stable.
+    const disabled = findDisabledPluginDir(pluginId);
+    if (!disabled) throw new Error('Plugin is not in the disabled directory');
+    const enabledRoot = path.dirname(getEnabledPluginPath(pluginId));
+    const enabled = path.join(enabledRoot, path.basename(disabled));
     if (fs.existsSync(enabled)) {
       log(taskId, 'Deleting stale enabled copy');
       await fs.promises.rm(enabled, { recursive: true, force: true });

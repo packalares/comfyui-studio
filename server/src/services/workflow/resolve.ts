@@ -117,20 +117,50 @@ export function resolveInput(linkId: number, ctx: ResolveCtx): InputResolution |
   }
 }
 
-/** Pre-compute SetNode variable bindings so GetNode lookups are O(1). */
+/** Pre-compute SetNode variable bindings so GetNode lookups are O(1).
+ *
+ * Iterates to a fixed point so that multi-hop named-variable chains
+ * (`SetA <- GetB <- SetB <- GetC <- SetC <- realNode`) resolve correctly.
+ * The earlier single-pass version passed an empty setterMap to avoid
+ * circular deps, which collapsed any chain whose first hop was another
+ * GetNode. That broke rgthree workflows where most data flow runs through
+ * named variables (e.g. LTX 2.3 action-transfer-dual-control: only the
+ * SigmasPreview branch ran because it was the lone single-hop chain).
+ *
+ * Termination: each pass either resolves at least one new var or stops.
+ * Hard cap of `setters.size + 5` iterations as belt-and-suspenders against
+ * any logic bug. Real cycles converge to null entries on the first pass and
+ * stay null — same outcome as before, just reached more cleanly.
+ */
 export function buildSetterMap(
   ctx: Omit<ResolveCtx, 'setterMap'>,
 ): Map<string, InputResolution> {
-  const setterMap = new Map<string, InputResolution>();
+  const setters: Array<{ varName: string; node: FlatNode }> = [];
   for (const node of ctx.nodes.values()) {
     if (node.type !== 'SetNode' && node.type !== 'easy setNode') continue;
     const varName = node.widgets_values?.[0] as string | undefined;
-    if (!varName) continue;
-    const firstInput = node.inputs?.find(i => i.link != null);
-    if (!firstInput?.link) continue;
-    // Pass an empty setterMap to avoid circular deps between SetNodes.
-    const resolved = resolveInput(firstInput.link, { ...ctx, setterMap: new Map() });
-    if (resolved) setterMap.set(varName, resolved);
+    if (varName) setters.push({ varName, node });
+  }
+  const setterMap = new Map<string, InputResolution>();
+  let changed = true;
+  let iterations = 0;
+  const maxIterations = setters.length + 5;
+  while (changed && iterations < maxIterations) {
+    changed = false;
+    iterations++;
+    for (const { varName, node } of setters) {
+      if (setterMap.has(varName)) continue;
+      const firstInput = node.inputs?.find(i => i.link != null);
+      if (!firstInput?.link) continue;
+      // Pass the *partial* setterMap so chains through already-resolved
+      // GetNodes succeed; chains through still-unresolved vars return null
+      // and get retried on the next pass.
+      const resolved = resolveInput(firstInput.link, { ...ctx, setterMap });
+      if (resolved) {
+        setterMap.set(varName, resolved);
+        changed = true;
+      }
+    }
   }
   return setterMap;
 }

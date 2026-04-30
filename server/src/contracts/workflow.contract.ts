@@ -19,6 +19,21 @@ export interface AdvancedSetting {
   step?: number;
   options?: { label: string; value: string }[];
   proxyIndex: number;
+  /**
+   * Source node id (top-level numeric or compound subgraph id `267:6`).
+   * Used by the Advanced Settings UI to group settings under a per-node
+   * heading so users can tell which node a control came from when many
+   * widgets are exposed across multiple nodes. Optional for back-compat:
+   * legacy persisted settings without an attributed node fall through to
+   * an "Other" group.
+   */
+  nodeId?: string;
+  /**
+   * Display name for the source node — `node.title` when present, otherwise
+   * the node's class type. Paired with `nodeId` and used as the section
+   * heading text in the grouped Advanced Settings render.
+   */
+  nodeTitle?: string;
 }
 
 export interface EnumeratedWidget {

@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  buildRawWidgetSettings,
   computeFormClaimedWidgets,
   filteredWidgetValues,
   inferWidgetShape,
@@ -224,5 +225,54 @@ describe('computeFormClaimedWidgets', () => {
     };
     const claimed = computeFormClaimedWidgets(workflow, objectInfo, 'nonexistent-template');
     expect(claimed.size).toBe(0);
+  });
+});
+
+describe('buildRawWidgetSettings — nodeId/nodeTitle attribution', () => {
+  // The Advanced Settings UI groups settings by nodeId so users can tell
+  // which node a widget belongs to. Both fields must propagate from the
+  // source node onto the AdvancedSetting record.
+  it('populates nodeId and nodeTitle from the source node', () => {
+    const objectInfo = {
+      VHS_LoadVideo: {
+        input: {
+          required: {
+            video: ['STRING', {}],
+            custom_width: ['INT', { min: 0 }],
+            frame_load_cap: ['INT', { min: 0 }],
+          },
+        },
+      },
+    } satisfies Record<string, Record<string, unknown>>;
+    const workflow = {
+      nodes: [
+        { id: 5, type: 'VHS_LoadVideo', title: 'Source Video',
+          widgets_values: ['clip.mp4', 1024, 81] },
+      ],
+    };
+    const exposed = [
+      { nodeId: '5', widgetName: 'custom_width' },
+      { nodeId: '5', widgetName: 'frame_load_cap' },
+    ];
+    const settings = buildRawWidgetSettings(workflow, exposed, objectInfo);
+    expect(settings).toHaveLength(2);
+    for (const s of settings) {
+      expect(s.nodeId).toBe('5');
+      expect(s.nodeTitle).toBe('Source Video');
+    }
+  });
+
+  it('falls back to class type for nodeTitle when title is absent', () => {
+    const objectInfo = {
+      KSampler: { input: { required: { steps: ['INT', { min: 1 }] } } },
+    } satisfies Record<string, Record<string, unknown>>;
+    const workflow = {
+      nodes: [{ id: 9, type: 'KSampler', widgets_values: [20] }],
+    };
+    const settings = buildRawWidgetSettings(
+      workflow, [{ nodeId: '9', widgetName: 'steps' }], objectInfo,
+    );
+    expect(settings[0].nodeId).toBe('9');
+    expect(settings[0].nodeTitle).toBe('KSampler');
   });
 });

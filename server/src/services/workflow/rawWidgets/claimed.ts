@@ -16,7 +16,22 @@
 //     the bound path, this block becomes dead code and can be removed.
 
 import * as templates from '../../templates/index.js';
-import { widgetNamesFor } from './shapes.js';
+
+// Per-mediaType allowlist of widget names that the main form's media-upload
+// binding actually fills. ANY OTHER widget on a media-loader node
+// (VHS_LoadVideo's custom_width / frame_load_cap / select_every_nth, …)
+// stays unclaimed so the user can opt to expose it via the "Edit advanced
+// fields" modal.
+//
+// Names cover the loader variants we ship support for: LoadImage uses
+// `image` (the file name) and `upload` (a UI-only media-flag value); the
+// VHS_LoadAudio variants use `audio` or the older `audio_file`; VHS_LoadVideo
+// uses `video`.
+const UPLOAD_WIDGETS_BY_MEDIA_TYPE: Record<string, readonly string[]> = {
+  image: ['image', 'upload'],
+  audio: ['audio', 'audio_file'],
+  video: ['video'],
+};
 
 // Fallback path: mirror the legacy node-walk used by the non-bound
 // `injectUserPrompt` fan-out. Only runs when no bound formInputs exist.
@@ -50,11 +65,15 @@ function collectLegacyPromptClaimedWidgets(
   return claimed;
 }
 
-// Widgets on nodes bound via template.formInputs[*].nodeId —
-// image/audio/video uploaders and their sibling widgets.
+// Widgets on nodes bound via template.formInputs[*].nodeId — strictly the
+// file-upload widget(s) the form actually drives. Earlier versions claimed
+// EVERY widget on the loader node (via widgetNamesFor + classType), which
+// silently locked out config widgets like VHS_LoadVideo's custom_width or
+// frame_load_cap from the ExposeWidgets modal even though the form was
+// only writing `video`. Now scoped to the per-mediaType allowlist so
+// loader-config widgets stay user-exposable.
 function collectFormInputClaimedWidgets(
   nodes: Array<Record<string, unknown>>,
-  objectInfo: Record<string, Record<string, unknown>>,
   templateName: string,
 ): Set<string> {
   const claimed = new Set<string>();
@@ -67,9 +86,11 @@ function collectFormInputClaimedWidgets(
     if (nodeId == null) continue;
     const node = nodes.find(n => String(n.id) === String(nodeId));
     if (!node) continue;
-    const classType = (node.type as string | undefined) || (node.class_type as string | undefined);
-    if (!classType) continue;
-    for (const name of widgetNamesFor(objectInfo, classType)) {
+    const mediaType = (fi as { mediaType?: string }).mediaType;
+    if (!mediaType) continue;
+    const widgetsToClaim = UPLOAD_WIDGETS_BY_MEDIA_TYPE[mediaType];
+    if (!widgetsToClaim) continue;
+    for (const name of widgetsToClaim) {
       claimed.add(`${nodeId}|${name}`);
     }
   }
@@ -125,6 +146,6 @@ export function computeFormClaimedWidgets(
   if (!bound.hadAny) {
     for (const k of collectLegacyPromptClaimedWidgets(nodes, objectInfo)) claimed.add(k);
   }
-  for (const k of collectFormInputClaimedWidgets(nodes, objectInfo, templateName)) claimed.add(k);
+  for (const k of collectFormInputClaimedWidgets(nodes, templateName)) claimed.add(k);
   return claimed;
 }

@@ -85,9 +85,16 @@ router.get('/workflow-settings/:templateName', async (req: Request, res: Respons
       const sgNodes = (sg?.nodes || []) as Array<Record<string, unknown>>;
       const sgInputs = (sg?.inputs || []) as Array<Record<string, unknown>>;
       const sgLinks = (sg?.links || []) as Array<Record<string, unknown>>;
+      // Wrapper attribution feeds the AdvancedSettings UI's group-by-node
+      // section heading. `sg?.name` is the authored subgraph display name
+      // ("Video Generation (LTX-2.3)"); fall back to the wrapper class type.
+      const wrapperNodeId = String(wrapperNode.id ?? '') || undefined;
+      const wrapperNodeTitle =
+        ((wrapperNode.title as string | undefined) || (sg?.name as string | undefined)
+          || (wrapperNode.type as string | undefined)) ?? undefined;
       settings = extractAdvancedSettings(
         proxyWidgets, widgetValues, objectInfo, labels, sgNodes, scopeLabels,
-        sgInputs, sgLinks,
+        sgInputs, sgLinks, wrapperNodeId, wrapperNodeTitle,
       );
       // Dedup: a proxy entry whose (innerNodeId, widgetName) matches a bound
       // main-form field is redundant — the main form is the authoritative

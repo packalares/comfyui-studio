@@ -48,7 +48,19 @@ export function getApiWidgetSpecs(
   } | undefined;
   if (!info?.input) return [];
   const out: WidgetSpec[] = [];
-  const rows: Array<[string, unknown[]]> = Object.entries(info.input.required || {});
+  // Walk required first, then optional. Required-first preserves widget order
+  // matching `widgets_values[]` positional encoding in workflow JSON. Many
+  // custom nodes (comfyui_controlnet_aux AIO_Preprocessor, several LTX/KJ
+  // nodes) declare COMBO/INT widgets under `optional` purely as a UI
+  // convention, while their Python `execute()` still requires them as
+  // positional kwargs. Skipping `optional` causes silent prompt-input drops
+  // and "missing required positional argument" errors at execution. The
+  // sibling walker `widgetNamesFor` in `rawWidgets/shapes.ts:37-42` already
+  // walks both buckets — this aligns the two.
+  const rows: Array<[string, unknown[]]> = [
+    ...Object.entries(info.input.required || {}),
+    ...Object.entries(info.input.optional || {}),
+  ];
   for (const [name, spec] of rows) {
     if (!Array.isArray(spec) || spec.length === 0) continue;
     const rawType = spec[0];

@@ -345,6 +345,15 @@ export interface AdvancedSetting {
   // `proxyIndex >= 0` = wrapper-node proxy widget (legacy path).
   // `proxyIndex === -1` = user-exposed raw-node widget, keyed by `id` of the form "node:<nodeId>:<widgetName>".
   proxyIndex: number;
+  /**
+   * Source node id (top-level numeric or compound subgraph id `267:6`).
+   * Used by AdvancedSettings.tsx to group settings under per-node section
+   * headings. Optional — legacy stored settings without attribution fall
+   * through to an "Other" group at the bottom.
+   */
+  nodeId?: string;
+  /** Source node display name (`node.title` || class type). Section heading text. */
+  nodeTitle?: string;
 }
 
 export interface EnumeratedWidget {

@@ -270,6 +270,9 @@ export function extractAdvancedSettings(
   scopeLabels?: Array<string | undefined>,
   sgInputs?: Array<Record<string, unknown>>,
   sgLinks?: Array<Record<string, unknown>>,
+  // Wrapper attribution for the AdvancedSettings group-by-node render.
+  wrapperNodeId?: string,
+  wrapperNodeTitle?: string,
 ): AdvancedSetting[] {
   const slotTargets = sgInputs && sgLinks
     ? buildSlotTargetMap(sgNodes, sgLinks)
@@ -310,6 +313,8 @@ export function extractAdvancedSettings(
       step: shape.step,
       options: type === 'select' ? shape.options : undefined,
       proxyIndex: i,
+      nodeId: wrapperNodeId,
+      nodeTitle: wrapperNodeTitle,
     });
   }
   return settings;

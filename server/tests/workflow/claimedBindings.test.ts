@@ -104,3 +104,161 @@ describe('computeFormClaimedWidgets — bound path', () => {
     expect(claimed.has('10|text')).toBe(false);
   });
 });
+
+// `collectFormInputClaimedWidgets` previously claimed every widget on a
+// form-bound media node, locking config widgets like VHS_LoadVideo's
+// `custom_width` / `frame_load_cap` out of the ExposeWidgets modal. The fix
+// scopes claims to the upload widget(s) for the formInput's mediaType.
+describe('computeFormClaimedWidgets — media-upload claim allowlist', () => {
+  beforeEach(() => { mockTpl = undefined; });
+
+  it('claims only image + upload on a LoadImage formInput, leaving other widgets free', () => {
+    mockTpl = buildTemplate([
+      { id: 'image_0', label: 'Image', type: 'image', required: true,
+        nodeId: 3, nodeType: 'LoadImage', mediaType: 'image' },
+    ]);
+    const objectInfo = {
+      LoadImage: {
+        input: {
+          required: {
+            image: ['STRING', {}],
+            upload: ['BOOLEAN', {}],
+            extra_setting: ['INT', {}],
+          },
+        },
+      },
+    } satisfies Record<string, Record<string, unknown>>;
+    const workflow = {
+      nodes: [
+        { id: 3, type: 'LoadImage', widgets_values: ['cat.png', true, 0] },
+      ],
+    };
+    const claimed = computeFormClaimedWidgets(workflow, objectInfo, 'tpl');
+    expect(claimed.has('3|image')).toBe(true);
+    expect(claimed.has('3|upload')).toBe(true);
+    expect(claimed.has('3|extra_setting')).toBe(false);
+  });
+
+  it('claims only video on a VHS_LoadVideo formInput, leaving config widgets free', () => {
+    mockTpl = buildTemplate([
+      { id: 'video_0', label: 'Video', type: 'video', required: true,
+        nodeId: 5, nodeType: 'VHS_LoadVideo', mediaType: 'video' },
+    ]);
+    // VHS_LoadVideo widget order verified: video, force_rate, custom_width,
+    // custom_height, frame_load_cap, skip_first_frames, select_every_nth.
+    const objectInfo = {
+      VHS_LoadVideo: {
+        input: {
+          required: {
+            video: ['STRING', {}],
+            force_rate: ['FLOAT', {}],
+            custom_width: ['INT', {}],
+            custom_height: ['INT', {}],
+            frame_load_cap: ['INT', {}],
+            skip_first_frames: ['INT', {}],
+            select_every_nth: ['INT', {}],
+          },
+        },
+      },
+    } satisfies Record<string, Record<string, unknown>>;
+    const workflow = {
+      nodes: [
+        { id: 5, type: 'VHS_LoadVideo',
+          widgets_values: ['clip.mp4', 0, 0, 0, 81, 0, 1] },
+      ],
+    };
+    const claimed = computeFormClaimedWidgets(workflow, objectInfo, 'tpl');
+    expect(claimed.has('5|video')).toBe(true);
+    // Config widgets must remain user-exposable.
+    expect(claimed.has('5|custom_width')).toBe(false);
+    expect(claimed.has('5|custom_height')).toBe(false);
+    expect(claimed.has('5|frame_load_cap')).toBe(false);
+    expect(claimed.has('5|skip_first_frames')).toBe(false);
+    expect(claimed.has('5|select_every_nth')).toBe(false);
+    expect(claimed.has('5|force_rate')).toBe(false);
+  });
+
+  it('claims audio + audio_file on an audio formInput', () => {
+    mockTpl = buildTemplate([
+      { id: 'audio_0', label: 'Audio', type: 'audio', required: true,
+        nodeId: 7, nodeType: 'VHS_LoadAudio', mediaType: 'audio' },
+    ]);
+    const objectInfo = {
+      VHS_LoadAudio: {
+        input: {
+          required: {
+            audio: ['STRING', {}],
+            audio_file: ['STRING', {}],
+            seek_seconds: ['FLOAT', {}],
+          },
+        },
+      },
+    } satisfies Record<string, Record<string, unknown>>;
+    const workflow = {
+      nodes: [
+        { id: 7, type: 'VHS_LoadAudio',
+          widgets_values: ['song.flac', 'song.flac', 0] },
+      ],
+    };
+    const claimed = computeFormClaimedWidgets(workflow, objectInfo, 'tpl');
+    expect(claimed.has('7|audio')).toBe(true);
+    expect(claimed.has('7|audio_file')).toBe(true);
+    expect(claimed.has('7|seek_seconds')).toBe(false);
+  });
+
+  it('skips media claims when a formInput has no mediaType (defensive)', () => {
+    // Bound-only formInput (no nodeId) should not trigger the media path.
+    mockTpl = buildTemplate([
+      { id: 'tags', label: 'Tags', type: 'textarea', required: true,
+        bindNodeId: '42', bindWidgetName: 'tags' },
+    ]);
+    const objectInfo = {
+      TextEncodeAceStepAudio1_5: {
+        input: { required: { tags: ['STRING', { multiline: true }] } },
+      },
+    } satisfies Record<string, Record<string, unknown>>;
+    const workflow = {
+      nodes: [
+        { id: 42, type: 'TextEncodeAceStepAudio1_5', widgets_values: [''] },
+      ],
+    };
+    const claimed = computeFormClaimedWidgets(workflow, objectInfo, 'tpl');
+    // Only the bound-prompt path's claim is present; no spurious media claim.
+    expect(claimed.has('42|tags')).toBe(true);
+    expect(claimed.size).toBe(1);
+  });
+
+  it('does not disrupt the bound-prompt path when both kinds coexist', () => {
+    // Image upload + bound textarea on different nodes — both should claim
+    // independently, and neither should over-claim the other's siblings.
+    mockTpl = buildTemplate([
+      { id: 'image_0', label: 'Image', type: 'image', required: true,
+        nodeId: 3, nodeType: 'LoadImage', mediaType: 'image' },
+      { id: 'prompt', label: 'Prompt', type: 'textarea', required: true,
+        bindNodeId: '20', bindWidgetName: 'text' },
+    ]);
+    const objectInfo = {
+      LoadImage: {
+        input: {
+          required: {
+            image: ['STRING', {}],
+            upload: ['BOOLEAN', {}],
+          },
+        },
+      },
+      CLIPTextEncode: {
+        input: { required: { text: ['STRING', { multiline: true }] } },
+      },
+    } satisfies Record<string, Record<string, unknown>>;
+    const workflow = {
+      nodes: [
+        { id: 3, type: 'LoadImage', widgets_values: ['cat.png', true] },
+        { id: 20, type: 'CLIPTextEncode', widgets_values: [''] },
+      ],
+    };
+    const claimed = computeFormClaimedWidgets(workflow, objectInfo, 'tpl');
+    expect(claimed.has('3|image')).toBe(true);
+    expect(claimed.has('3|upload')).toBe(true);
+    expect(claimed.has('20|text')).toBe(true);
+  });
+});
