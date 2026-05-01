@@ -588,9 +588,17 @@ export const api = {
       body: JSON.stringify({ pluginId }),
     }),
 
-  /** GET /plugins/refresh — rescan custom_nodes on disk. */
+  /** GET /plugins/refresh — pull fresh catalog from upstream registry and
+   *  re-scan custom_nodes on disk. Falls back to bundled mirror if upstream
+   *  is unreachable (signalled by `catalogUpdated: false`). */
   refreshPlugins: () =>
-    fetchJson<{ success: boolean; message: string; plugins: unknown[] }>('/plugins/refresh'),
+    fetchJson<{
+      success: boolean;
+      catalogUpdated: boolean;
+      upstreamError?: string;
+      pluginsCount: number;
+      installedCount: number;
+    }>('/plugins/refresh'),
 
   /** GET /plugins/progress/:taskId — poll install/uninstall progress. */
   getPluginProgress: (taskId: string) =>
@@ -599,12 +607,6 @@ export const api = {
   /** GET /plugins/logs/:taskId — fetch persisted logs for an operation. */
   getPluginLogs: (taskId: string) =>
     fetchJson<{ success: boolean; logs: string[] }>(`/plugins/logs/${encodeURIComponent(taskId)}`),
-
-  /** POST /plugins/update-cache — clear + refill the catalog cache. */
-  updatePluginCache: () =>
-    fetchJson<{ success: boolean; message: string; nodesCount: number }>('/plugins/update-cache', {
-      method: 'POST',
-    }),
 
   /** GET /plugins/history — recent install/uninstall operations. */
   getPluginHistory: (limit = 100) =>

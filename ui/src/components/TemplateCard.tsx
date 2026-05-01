@@ -6,7 +6,7 @@ import {
   MoreHorizontal, Trash2, Loader2, ExternalLink, FileJson, Check, ImageOff,
   Puzzle, Info, Wand2, Download, User as UserIcon, Braces,
 } from 'lucide-react';
-import type { Template, CivitaiModelSummary, StagedImportManifest, RequiredModel } from '../types';
+import type { Template, CivitaiModelSummary, StagedImportManifest, RequiredItem } from '../types';
 import { formatBytes } from '../lib/utils';
 import { imgProxy } from '../lib/imgProxy';
 import { api } from '../services/comfyui';
@@ -77,7 +77,7 @@ function TemplateCardInner({ template, onDeleted }: Props) {
   const [apiOpen, setApiOpen] = useState(false);
   const [depsOpen, setDepsOpen] = useState(false);
   const [depsLoading, setDepsLoading] = useState(false);
-  const [depsMissing, setDepsMissing] = useState<RequiredModel[] | null>(null);
+  const [depsMissing, setDepsMissing] = useState<RequiredItem[] | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   // Plugin chip surfaces only when the template declares any plugins AND at
@@ -424,6 +424,7 @@ function TemplateCardInner({ template, onDeleted }: Props) {
       {depsOpen && depsMissing !== null && (
         <DependencyModal
           missing={depsMissing}
+          templateName={template.name}
           onClose={() => { setDepsOpen(false); setDepsMissing(null); }}
           onDownloadComplete={() => { setDepsOpen(false); setDepsMissing(null); }}
         />

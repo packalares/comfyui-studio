@@ -6,7 +6,6 @@ import {
   Loader2,
   AlertTriangle,
   Package as PackageIcon,
-  RotateCw,
 } from 'lucide-react';
 import { api } from '../../services/comfyui';
 import { usePersistedState } from '../../hooks/usePersistedState';
@@ -30,10 +29,11 @@ import {
 type StatusFilter = 'all' | 'installed' | 'available';
 
 /**
- * /plugins/installed — plugin list + filters + "Install from URL" / "Update
- * catalog" / "Refresh" actions. The catalog is fetched server-paginated so we
- * don't ship ~2900 rows at once; filters (search / installed / available) are
- * passed to the backend so they apply across pages.
+ * /plugins/installed — plugin list + filters + "Install from URL" / "Refresh"
+ * actions. The catalog is fetched server-paginated so we don't ship ~2900
+ * rows at once; filters (search / installed / available) are passed to the
+ * backend so they apply across pages. Refresh now also pulls a fresh catalog
+ * from the upstream registry before re-scanning installed plugins.
  */
 export default function Installed() {
   const [search, setSearch] = usePersistedState('plugins.search', '');
@@ -43,7 +43,6 @@ export default function Installed() {
   const [switchTarget, setSwitchTarget] = useState<Plugin | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [updatingCache, setUpdatingCache] = useState(false);
   const [forceTick, setForceTick] = useState(0);
 
   /** `pluginId -> taskId` map for in-flight ops. Shown inline in each row. */
@@ -133,20 +132,6 @@ export default function Installed() {
     [refetch],
   );
 
-  const handleUpdateCache = useCallback(async () => {
-    setUpdatingCache(true);
-    try {
-      await api.updatePluginCache();
-      setForceTick((t) => t + 1);
-      await refetch();
-    } catch (err) {
-      console.error('Update cache failed:', err);
-      setError(err instanceof Error ? err.message : 'Update cache failed');
-    } finally {
-      setUpdatingCache(false);
-    }
-  }, [refetch]);
-
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -213,19 +198,10 @@ export default function Installed() {
               onClick={handleRefresh}
               disabled={refreshing}
               className="btn-secondary"
-              title="Rescan custom_nodes on disk"
+              title="Pull latest plugin catalog from registry + re-scan installed"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
               Refresh
-            </button>
-            <button
-              onClick={handleUpdateCache}
-              disabled={updatingCache}
-              className="btn-secondary"
-              title="Rebuild the bundled plugin catalog cache"
-            >
-              <RotateCw className={`w-3.5 h-3.5 ${updatingCache ? 'animate-spin' : ''}`} />
-              Update catalog
             </button>
             <button onClick={() => setUrlModalOpen(true)} className="btn-primary">
               <Plus className="w-3.5 h-3.5" />

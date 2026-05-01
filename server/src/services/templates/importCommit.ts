@@ -11,6 +11,7 @@ import { env } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
 import { extractDeps } from './depExtract.js';
 import { resolutionsToRepoKeys } from './extractDepsAsync.js';
+import { canonicalize, dedupKey } from '../plugins/canonicalId.js';
 import { extractWorkflowIo, deriveMediaType, mediaTypeToStudioCategory } from './metadata.js';
 import fsPath from 'path';
 import { paths } from '../../config/paths.js';
@@ -178,18 +179,40 @@ export async function commitStaging(id: string, selection: CommitSelection): Pro
     const mediaType = deriveMediaType(io);
     const studioCat = mediaTypeToStudioCategory(mediaType);
     const deps = extractDeps(rewrittenWorkflow);
-    // Preserve the Manager-resolved plugin list from staging — re-running
-    // resolution here is slower, may now find Manager offline, and the user
-    // already reviewed the list. `resolutionsToRepoKeys` collapses the
-    // matches into the string form persisted in `template_plugins`.
-    const pluginEntries: TemplatePluginEntry[] = [];
+    // Pre-warm the canonical-id cache for every match's repo so the dedup
+    // loop's `dedupKey` reads from cache rather than racing CNR fetches.
+    const refs = new Set<string>();
+    for (const r of wf.plugins) for (const m of r.matches) refs.add(m.repo);
+    await Promise.all(Array.from(refs).map((r) => canonicalize(r)));
+    // Canonical-keyed dedup: rows with `comfyui-reactor` (cnr_id) and
+    // `gourieff/comfyui-reactor` (aux_id) collapse to one entry. The
+    // slashed (owner/repo) form wins as the surviving entry — it's the
+    // valid GitHub URL the install button uses.
+    const pluginByCanonical = new Map<string, TemplatePluginEntry>();
     for (const r of wf.plugins) {
       for (const m of r.matches) {
-        if (!pluginEntries.some((e) => e.repo === m.repo)) {
-          pluginEntries.push({ repo: m.repo, title: m.title, cnr_id: m.cnr_id });
+        const dk = dedupKey(m.repo);
+        const existing = pluginByCanonical.get(dk);
+        const next: TemplatePluginEntry = {
+          repo: m.repo, title: m.title, cnr_id: m.cnr_id,
+        };
+        if (!existing) {
+          pluginByCanonical.set(dk, next);
+        } else if (m.repo.includes('/') && !existing.repo.includes('/')) {
+          // Promote slashed form over bare cnr_id, but preserve the
+          // existing cnr_id metadata (the cnr_id is useful for the
+          // catalog lookup even when the slashed form is canonical).
+          pluginByCanonical.set(dk, {
+            ...next,
+            cnr_id: next.cnr_id ?? existing.cnr_id,
+          });
+        } else if (!existing.cnr_id && next.cnr_id) {
+          // Existing kept the slashed form but had no cnr_id; backfill it.
+          pluginByCanonical.set(dk, { ...existing, cnr_id: next.cnr_id });
         }
       }
     }
+    const pluginEntries: TemplatePluginEntry[] = Array.from(pluginByCanonical.values());
     const pluginRepoKeys = resolutionsToRepoKeys(wf.plugins);
     const saved = saveUserWorkflow({
       name: effectiveTitle,
@@ -228,6 +251,15 @@ export async function commitStaging(id: string, selection: CommitSelection): Pro
         },
         { models: deps.models, plugins: pluginRepoKeys },
       );
+      // Compute readiness immediately so the freshly-imported template
+      // shows the correct ready/not-ready badge in Explore. Without this
+      // the row stays at `installed: false` until either a plugin/model
+      // install event fires OR the next /refresh-templates pass — which
+      // for templates whose deps are already satisfied means "never until
+      // boot" if the user just imported them and didn't trigger any
+      // installs.
+      const { recomputeReadinessFor } = await import('./readiness.js');
+      await recomputeReadinessFor([saved.name]);
     } catch (err) {
       logger.warn('import commit: template_plugins edge write skipped', {
         name: saved.name, error: err instanceof Error ? err.message : String(err),

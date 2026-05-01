@@ -8,6 +8,7 @@
 
 import { Router, type RequestHandler } from 'express';
 import * as plugins from '../services/plugins/plugins.service.js';
+import { fetchUpstreamCatalog } from '../services/plugins/upstreamFetch.js';
 import { sendError } from '../middleware/errors.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { parsePageQuery, paginate } from '../lib/pagination.js';
@@ -107,18 +108,40 @@ const handleProgress: RequestHandler = async (req, res) => {
   res.json(p);
 };
 
+// Combined refresh: pulls a fresh catalog from upstream, re-seeds sqlite, and
+// re-scans `custom_nodes/` so the installed flag is current. If upstream is
+// unreachable we degrade silently — the existing on-disk JSON keeps serving
+// the catalog and we still re-seed sqlite from it so any operator hand-edit
+// shows up.
 const handleRefresh: RequestHandler = async (_req, res) => {
+  let catalogUpdated = false;
+  let upstreamError: string | undefined;
   try {
-    const list = plugins.cache.refreshInstalledPlugins();
-    res.json({ success: true, message: 'Plugin list refreshed', plugins: list });
-  } catch (err) { sendError(res, err, 500, 'Refresh failed'); }
+    const nodes = await fetchUpstreamCatalog();
+    plugins.cache.writeMirror(nodes);
+    catalogUpdated = true;
+  } catch (err) {
+    upstreamError = err instanceof Error ? err.message : String(err);
+    try { plugins.cache.reseedFromMirror(); } catch { /* ignore */ }
+  }
+  const list = plugins.cache.refreshInstalledPlugins();
+  res.json({
+    success: true,
+    catalogUpdated,
+    upstreamError,
+    pluginsCount: plugins.cache.getAllPlugins(false).length,
+    installedCount: list.length,
+  });
 };
 
 const handleCustomInstall: RequestHandler = async (req, res) => {
   const { githubUrl, branch } = (req.body || {}) as { githubUrl?: string; branch?: string };
   if (!githubUrl) { res.status(400).json({ success: false, message: 'githubUrl is required' }); return; }
   try {
-    const { taskId, pluginId } = await plugins.install.installCustomPlugin(githubUrl, branch || 'main', undefined);
+    // Pass `branch` through unchanged — when undefined, gitClone omits
+    // `--branch` and lets git auto-detect the repo's default HEAD
+    // (`master` vs `main` vs anything else).
+    const { taskId, pluginId } = await plugins.install.installCustomPlugin(githubUrl, branch, undefined);
     res.json({ success: true, message: 'Custom install started', taskId, pluginId });
   } catch (err) {
     res.status(400).json({ success: false, message: err instanceof Error ? err.message : 'Install failed' });
@@ -146,17 +169,6 @@ const handleSwitchVersion: RequestHandler = async (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, message: err instanceof Error ? err.message : 'Switch failed' });
   }
-};
-
-const handleUpdateCache: RequestHandler = async (_req, res) => {
-  try {
-    // Refresh both the in-memory overlay cache and the sqlite catalog
-    // table from the current mirror JSON, so sqlite never drifts from the
-    // bundled source of truth after an operator bumps the mirror.
-    plugins.cache.reseedFromMirror();
-    const list = plugins.cache.getAllPlugins(true);
-    res.json({ success: true, message: 'Cache updated', nodesCount: list.length });
-  } catch (err) { sendError(res, err, 500, 'Update failed'); }
 };
 
 const handleHistory: RequestHandler = async (req, res) => {
@@ -206,7 +218,8 @@ router.post(['/plugins/enable', '/launcher/plugins/enable'], writeLimiter, handl
 router.get(['/plugins/refresh', '/launcher/plugins/refresh'], handleRefresh);
 router.post(['/plugins/install-custom', '/launcher/plugins/install-custom'], writeLimiter, handleCustomInstall);
 router.post(['/plugins/switch-version', '/launcher/plugins/switch-version'], writeLimiter, handleSwitchVersion);
-router.post(['/plugins/update-cache', '/launcher/plugins/update-cache'], handleUpdateCache);
+// /plugins/update-cache is now an alias for the combined refresh handler.
+router.post(['/plugins/update-cache', '/launcher/plugins/update-cache'], handleRefresh);
 router.get(['/plugins/history', '/launcher/plugins/history'], handleHistory);
 router.get(['/plugins/logs/:taskId', '/launcher/plugins/logs/:taskId'], handleLogs);
 router.post(['/plugins/history/clear', '/launcher/plugins/history/clear'], handleHistoryClear);

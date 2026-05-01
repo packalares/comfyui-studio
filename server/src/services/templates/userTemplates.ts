@@ -17,6 +17,7 @@ import { paths } from '../../config/paths.js';
 import { logger } from '../../lib/logger.js';
 import { generateFormInputs } from './templates.formInputs.js';
 import { readMeta, writeMeta, deleteMeta } from './userTemplatesMeta.js';
+import { dedupKey } from '../plugins/canonicalId.js';
 import { WorkflowNameCollisionError } from './errors.js';
 import type { TemplateData, RawTemplate, TemplatePluginEntry, TemplateCivitaiMeta } from './types.js';
 
@@ -165,7 +166,74 @@ export function saveUserWorkflow(input: SaveWorkflowInput): TemplateData {
   return data;
 }
 
+// One-shot in-process flag that guards the plugins-array migration. The
+// migration walks every user workflow JSON, canonicalizes + dedups its
+// `plugins[]` array, and saves the result back. Idempotent — second run
+// is a no-op because the data is already canonical. Boot-time-cheap; the
+// disk I/O is per-file and only fires when a user actually has imported
+// workflows.
+let pluginsMigrationRan = false;
+export function migrateUserWorkflowPluginsOnce(): void {
+  if (pluginsMigrationRan) return;
+  pluginsMigrationRan = true;
+  try {
+    if (!fs.existsSync(DIR())) return;
+    const files = fs.readdirSync(DIR()).filter(
+      (f) => f.endsWith('.json') && !f.endsWith('.meta.json'),
+    );
+    let touched = 0;
+    for (const f of files) {
+      try {
+        const abs = safeResolve(DIR(), f);
+        const raw = fs.readFileSync(abs, 'utf8');
+        const parsed = JSON.parse(raw) as TemplateData;
+        const before = parsed.plugins ?? [];
+        if (before.length === 0) continue;
+        // Canonicalize via cache only — boot path can't await the network
+        // for every entry, and uncached refs simply stay as-is which
+        // still works for the dedup that follows (basename match).
+        const byCanonical = new Map<string, TemplatePluginEntry>();
+        for (const p of before) {
+          const key = (p.repo || '').trim();
+          if (!key) continue;
+          const dk = dedupKey(key);
+          const existing = byCanonical.get(dk);
+          if (!existing) {
+            byCanonical.set(dk, p);
+          } else if (p.repo.includes('/') && !existing.repo.includes('/')) {
+            byCanonical.set(dk, { ...p, cnr_id: p.cnr_id ?? existing.cnr_id });
+          } else if (!existing.cnr_id && p.cnr_id) {
+            byCanonical.set(dk, { ...existing, cnr_id: p.cnr_id });
+          }
+        }
+        const after = Array.from(byCanonical.values());
+        if (after.length === before.length) continue;
+        parsed.plugins = after;
+        atomicWrite(abs, JSON.stringify(parsed, null, 2));
+        touched++;
+        logger.info('user workflow plugins migrated', {
+          name: parsed.name,
+          before: before.length,
+          after: after.length,
+        });
+      } catch (err) {
+        logger.warn('user workflow plugins migration failed', {
+          file: f, error: String(err),
+        });
+      }
+    }
+    if (touched > 0) {
+      logger.info('user workflow plugins migration complete', { rewritten: touched });
+    }
+  } catch (err) {
+    logger.error('user workflow plugins migration scan failed', { error: String(err) });
+  }
+}
+
 export function listUserWorkflows(): TemplateData[] {
+  // Fire the migration once per process, lazily on first list call. Cheap
+  // when there's nothing to do (every entry is already canonical).
+  migrateUserWorkflowPluginsOnce();
   try {
     if (!fs.existsSync(DIR())) return [];
     // Filter out the `.meta.json` sidecars so they aren't parsed as templates.

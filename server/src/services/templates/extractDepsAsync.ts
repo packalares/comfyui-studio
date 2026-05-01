@@ -23,6 +23,7 @@
 import { extractDeps } from './depExtract.js';
 import { extractNodeTypes } from './depExtract.js';
 import { resolveNodeTypes, type PluginResolution } from '../plugins/nodeMap.service.js';
+import { canonicalize, dedupKey } from '../plugins/canonicalId.js';
 
 export type { PluginResolution } from '../plugins/nodeMap.service.js';
 
@@ -60,34 +61,52 @@ function repoMatchKey(repo: string): string {
   return auxRepoKey(repo);
 }
 
-/** Merge aux_id hits + Manager-resolved class_type hits into a single list. */
+/**
+ * Merge aux_id hits + Manager-resolved class_type hits into a single list.
+ *
+ * Dedup is performed on `dedupKey` (canonical owner/repo basename, with
+ * CNR-id ↔ owner/repo bridging via the canonicalId cache). A row whose
+ * `aux_id` is `gourieff/comfyui-reactor` and another whose `cnr_id` is
+ * `comfyui-reactor` collapse to one entry — the bare-id form is dropped
+ * since the Manager mapping (or a sibling aux) already covers it.
+ */
 function mergeResolutions(
   auxIds: string[],
   managerResolutions: PluginResolution[],
 ): PluginResolution[] {
-  // Build a set of repo keys the Manager resolver already covers so we can
-  // drop redundant aux_id rows pointing at the same repo.
-  const managerRepos = new Set<string>();
+  // Build the canonical-keyed cover set from Manager rows so aux entries
+  // pointing at the same plugin under a different identifier shape get
+  // skipped.
+  const managerCovered = new Set<string>();
   for (const r of managerResolutions) {
-    for (const m of r.matches) managerRepos.add(repoMatchKey(m.repo));
+    for (const m of r.matches) managerCovered.add(dedupKey(m.repo));
   }
 
-  // aux_id rows that are NOT covered by Manager become synthetic
-  // "classType: <aux>" entries with one match pointing at the aux repo.
-  const auxOnly: PluginResolution[] = [];
-  const seenAux = new Set<string>();
+  // aux_id rows that aren't covered by Manager become synthetic
+  // "classType: <aux>" entries. Within the aux pass we ALSO dedup against
+  // each other so cnr_id + aux_id forms of the same plugin collapse to
+  // one synthetic row. The slashed (owner/repo) form wins as the surviving
+  // entry because it's a valid GitHub URL.
+  const auxByCanonical = new Map<string, string>();
   for (const aux of auxIds) {
     const key = auxRepoKey(aux);
-    if (seenAux.has(key)) continue;
-    seenAux.add(key);
-    if (managerRepos.has(key)) continue;
+    if (!key) continue;
+    if (managerCovered.has(dedupKey(key))) continue;
     if (isBuiltinRepoKey(key)) continue;
+    const dk = dedupKey(key);
+    const existing = auxByCanonical.get(dk);
+    if (!existing) {
+      auxByCanonical.set(dk, key);
+    } else if (key.includes('/') && !existing.includes('/')) {
+      auxByCanonical.set(dk, key);
+    }
+  }
+
+  const auxOnly: PluginResolution[] = [];
+  for (const surviving of auxByCanonical.values()) {
     auxOnly.push({
-      classType: key,
-      matches: [{
-        repo: key,
-        title: key,
-      }],
+      classType: surviving,
+      matches: [{ repo: surviving, title: surviving }],
     });
   }
 
@@ -114,6 +133,12 @@ export async function extractDepsWithPluginResolution(
   const managerResolutions = classTypes.length > 0
     ? await resolveNodeTypes(classTypes)
     : [];
+  // Pre-warm the canonical-id cache for every reference about to enter
+  // the dedup loop so `dedupKey` reads from cache.
+  const refs = new Set<string>();
+  for (const id of cheap.plugins) refs.add(id);
+  for (const r of managerResolutions) for (const m of r.matches) refs.add(m.repo);
+  await Promise.all(Array.from(refs).map((r) => canonicalize(r)));
   return {
     models: cheap.models,
     plugins: mergeResolutions(cheap.plugins, managerResolutions),

@@ -304,6 +304,9 @@ export interface CatalogModel {
 }
 
 export interface RequiredModel {
+  /** Discriminator for the union with `RequiredPlugin`. Optional for back-
+   *  compat with payloads pre-redesign — undefined means model. */
+  kind?: 'model';
   name: string;
   directory: string;
   url: string;
@@ -321,10 +324,32 @@ export interface RequiredModel {
   gated_message?: string;
 }
 
+/** Per-class-type plugin entry returned by `/api/check-dependencies` for
+ *  workflow nodes whose owning custom-node plugin isn't installed. The
+ *  `repos` list carries every candidate plugin URL Manager / aux-ids
+ *  identified — typically one, occasionally more. */
+export interface RequiredPlugin {
+  kind: 'plugin';
+  /** Workflow node class_type (e.g. `DrawViTPose`). */
+  classType: string;
+  /** Subgraph name the class lives in, or null when at top level. */
+  subgraphName: string | null;
+  repos: Array<{ repo: string; title: string; cnr_id?: string }>;
+  installed: boolean;
+}
+
+export type RequiredItem = RequiredModel | RequiredPlugin;
+
+/** Type-narrowing helper used by the dependency modal to split a mixed
+ *  list into its model + plugin subsets without losing typings. */
+export function isRequiredPlugin(x: RequiredItem): x is RequiredPlugin {
+  return x.kind === 'plugin';
+}
+
 export interface DependencyCheck {
   ready: boolean;
-  required: RequiredModel[];
-  missing: RequiredModel[];
+  required: RequiredItem[];
+  missing: RequiredItem[];
 }
 
 export interface AdvancedSetting {

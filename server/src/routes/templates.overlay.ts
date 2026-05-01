@@ -8,7 +8,10 @@
 //   older stored rows.
 
 import * as templateRepo from '../lib/db/templates.repo.js';
-import * as pluginCache from '../services/plugins/cache.service.js';
+import {
+  isPluginInstalled, getInstalledPluginKeys,
+} from '../services/plugins/installedKeys.js';
+import { normalizeRepoKey } from '../services/plugins/canonicalId.js';
 import type { TemplateData, TemplatePluginEntry } from '../services/templates/index.js';
 
 export interface TemplateWithReady extends TemplateData {
@@ -25,13 +28,6 @@ const BUILTIN_PLUGIN_KEYS = new Set<string>([
   'comfyui',
 ]);
 
-function normalizeRepoKey(raw: string): string {
-  return raw.trim().toLowerCase()
-    .replace(/^https?:\/\/github\.com\//, '')
-    .replace(/\.git$/, '')
-    .replace(/\/$/, '');
-}
-
 function loadReadinessMap(): Map<string, boolean> {
   const map = new Map<string, boolean>();
   try {
@@ -44,40 +40,33 @@ function loadReadinessMap(): Map<string, boolean> {
   return map;
 }
 
-function loadInstalledPluginKeys(): Set<string> {
-  const out = new Set<string>();
-  try {
-    for (const p of pluginCache.getAllPlugins(false)) {
-      if (!p.installed || p.disabled) continue;
-      const repo = normalizeRepoKey(p.repository || p.github || '');
-      if (repo) out.add(repo);
-      if (p.id) out.add(p.id.toLowerCase());
-    }
-  } catch { /* plugin cache unavailable => everything treated as not-installed */ }
-  return out;
-}
-
 function overlayPluginInstalled(
   plugins: TemplatePluginEntry[] | undefined,
-  installed: Set<string>,
+  keys: ReturnType<typeof getInstalledPluginKeys>,
 ): TemplatePluginEntry[] | undefined {
   if (!plugins || plugins.length === 0) return plugins;
   return plugins
     .map((p) => ({ entry: p, key: normalizeRepoKey(p.repo || '') }))
     .filter(({ key }) => key.length > 0 && !BUILTIN_PLUGIN_KEYS.has(key))
     .map(({ entry, key }) => {
-      const isInstalled = installed.has(key) ||
-        (entry.cnr_id ? installed.has(entry.cnr_id.toLowerCase()) : false);
+      // Try every form: the repo as-is, its canonical owner/repo, the
+      // cnr_id alias, AND fall back to a directory-existence probe via
+      // isPluginInstalled. Together they catch every form a workflow
+      // might persist (cnr_id, aux_id, full URL).
+      let isInstalled = isPluginInstalled(key, keys);
+      if (!isInstalled && entry.cnr_id) {
+        isInstalled = isPluginInstalled(entry.cnr_id, keys);
+      }
       return { ...entry, installed: isInstalled };
     });
 }
 
 export function attachReady(list: TemplateData[]): TemplateWithReady[] {
   const readyMap = loadReadinessMap();
-  const installedPlugins = loadInstalledPluginKeys();
+  const installedKeys = getInstalledPluginKeys();
   return list.map((t) => ({
     ...t,
     ready: readyMap.get(t.name) ?? false,
-    plugins: overlayPluginInstalled(t.plugins, installedPlugins),
+    plugins: overlayPluginInstalled(t.plugins, installedKeys),
   }));
 }

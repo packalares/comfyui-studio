@@ -158,19 +158,30 @@ export async function refreshTemplates(): Promise<RefreshResult> {
     }
   }
 
-  // Remove templates that dropped out of the upstream index.
+  // Remove templates that dropped out of the upstream index. Skip user-
+  // imported workflows entirely — they live in `~/.config/comfyui-studio/
+  // user-workflows/`, NOT in ComfyUI's `/templates/index.json`, so they
+  // would always look like "dropped out" if we didn't exempt them.
+  // Without this guard, every refresh deletes the user's imports along
+  // with their readiness flag — making them appear "not ready" forever
+  // until the next import recreates the row.
   let removed = 0;
   for (const name of templateRepo.listAllNames()) {
-    if (!freshNames.has(name)) {
-      templateRepo.deleteTemplate(name);
-      removed++;
-    }
+    if (freshNames.has(name)) continue;
+    if (isUserWorkflow(name)) continue;
+    templateRepo.deleteTemplate(name);
+    removed++;
   }
 
   // Recompute readiness for everything we touched so the `installed` flag
-  // tracks the post-refresh state.
+  // tracks the post-refresh state. Include user workflows too — their deps
+  // could have shifted since their last recompute (a plugin install they
+  // were waiting on might have just landed).
+  const userNames = all
+    .filter((t) => isUserWorkflow(t.name))
+    .map((t) => t.name);
   try {
-    await recomputeReadinessFor(computed.map((c) => c.name));
+    await recomputeReadinessFor([...computed.map((c) => c.name), ...userNames]);
   } catch (err) {
     logger.warn('refresh readiness recompute failed', { error: String(err) });
   }

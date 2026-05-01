@@ -80,20 +80,28 @@ describe('GET /plugins + POST /plugins/update-cache (sqlite-backed)', () => {
     } finally { await app.close(); }
   });
 
-  it('POST /plugins/update-cache returns count and refreshes sqlite', async () => {
+  it('POST /plugins/update-cache (alias for combined refresh) refreshes sqlite from mirror', async () => {
     const app = await startApp();
     try {
-      // update-cache reads the bundled mirror JSON and reseeds — the
+      // update-cache is now an alias for the combined refresh handler. It
+      // tries upstream first, but in the vitest sandbox there's no network,
+      // so it degrades to reseeding from the bundled mirror JSON. The
       // mirror file in `server/data/` has thousands of rows so the count
-      // should be well above our 3 test rows.
+      // should be well above our 3 test rows either way.
       const res = await fetch(`${app.url}/plugins/update-cache`, { method: 'POST' });
       expect(res.status).toBe(200);
-      const body = await res.json() as { success: boolean; nodesCount: number };
+      const body = await res.json() as {
+        success: boolean;
+        catalogUpdated: boolean;
+        upstreamError?: string;
+        pluginsCount: number;
+        installedCount: number;
+      };
       expect(body.success).toBe(true);
-      expect(typeof body.nodesCount).toBe('number');
-      // The bundled mirror has ~2800 nodes — sanity-check that our 3-row seed
-      // was wiped and a large catalog is now present.
-      expect(body.nodesCount).toBeGreaterThan(100);
+      expect(typeof body.pluginsCount).toBe('number');
+      // Whether or not upstream succeeded, sqlite should now reflect the
+      // bundled mirror (~2800 nodes), wiping our 3-row seed.
+      expect(body.pluginsCount).toBeGreaterThan(100);
       expect(repo.count()).toBeGreaterThan(100);
     } finally { await app.close(); }
   });

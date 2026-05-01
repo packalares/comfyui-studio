@@ -100,6 +100,10 @@ export interface LauncherModelEntry {
 
 /** Per-model row returned from `POST /api/check-dependencies`. */
 export interface RequiredModelInfo {
+  /** Discriminator for the union with `RequiredPluginInfo`. Always `'model'`
+   *  on instances of this type — kept optional for back-compat with stored
+   *  rows pre-redesign. New code on both ends should set + read it. */
+  kind?: 'model';
   name: string;
   directory: string;
   url: string;
@@ -118,3 +122,25 @@ export interface RequiredModelInfo {
   gated?: boolean;
   gated_message?: string;
 }
+
+/**
+ * Per-class-type plugin row returned from `POST /api/check-dependencies`.
+ *
+ * One entry per workflow class_type that no installed plugin provides. The
+ * `repos` list carries every candidate plugin that ships this class — usually
+ * one, but a class_type can appear in multiple plugins (forks, re-exports).
+ * `subgraphName` is the parent subgraph's display name when the missing
+ * class lives inside a wrapper, or `null` for top-level nodes.
+ */
+export interface RequiredPluginInfo {
+  kind: 'plugin';
+  /** Workflow node class_type (e.g. `DrawViTPose`). */
+  classType: string;
+  /** Subgraph name the class_type was found in, or null when at top level. */
+  subgraphName: string | null;
+  /** Candidate repos. `[]` means class_type wasn't resolved by any registry. */
+  repos: Array<{ repo: string; title: string; cnr_id?: string }>;
+  installed: boolean;
+}
+
+export type RequiredItem = RequiredModelInfo | RequiredPluginInfo;

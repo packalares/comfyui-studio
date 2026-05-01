@@ -3,10 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle, Download, Loader2, CheckCircle2, AlertCircle, Lock,
   X, Box,
-  FolderOpen, HardDrive,
+  FolderOpen, HardDrive, Puzzle,
 } from 'lucide-react';
-import type { RequiredModel } from '../types';
-import { findDownloadForModel } from '../types';
+import type { RequiredItem, RequiredModel, RequiredPlugin } from '../types';
+import { findDownloadForModel, isRequiredPlugin } from '../types';
 import { api } from '../services/comfyui';
 import { useApp } from '../context/AppContext';
 import AppModal from './AppModal';
@@ -28,7 +28,14 @@ import AppModal from './AppModal';
 // ---------------------------------------------------------------------------
 
 interface Props {
-  missing: RequiredModel[];
+  /** Mixed model + plugin missing items from `/api/check-dependencies`.
+   *  Models render in the existing download-aware section; plugin entries
+   *  render in a separate panel above with an Install button per row. */
+  missing: RequiredItem[];
+  /** Template name used to call `/templates/:name/install-missing-plugins`.
+   *  Required for the plugin-install button to work; if absent the button
+   *  is hidden so the modal still renders information-only. */
+  templateName?: string;
   onClose: () => void;
   onDownloadComplete: () => void;
 }
@@ -40,6 +47,18 @@ function formatBytes(bytes: number): string {
   return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
 }
 
+/** Normalised plugin key — mirrors `installMissingPluginsForTemplate`'s
+ *  bookkeeping so the UI's per-plugin in-flight state lines up with the
+ *  backend's per-repo task queue. */
+function canonicalRepoKey(p: RequiredPlugin): string {
+  const first = p.repos[0]?.repo;
+  if (first) return first.toLowerCase();
+  // Fall back to classType for plugins whose Manager mapping is empty —
+  // those rows can't actually be installed via the bulk endpoint, but
+  // the key still needs to be stable per-row.
+  return p.classType.toLowerCase();
+}
+
 interface ViewState {
   status: 'pending' | 'downloading' | 'completed' | 'error';
   taskId?: string;
@@ -48,7 +67,9 @@ interface ViewState {
   error?: string;
 }
 
-export default function DependencyModal({ missing, onClose, onDownloadComplete }: Props) {
+export default function DependencyModal({
+  missing, templateName, onClose, onDownloadComplete,
+}: Props) {
   const navigate = useNavigate();
   const { downloads, hfTokenConfigured } = useApp();
   // Per-model pending/error state that isn't captured by the global downloads map
@@ -57,12 +78,29 @@ export default function DependencyModal({ missing, onClose, onDownloadComplete }
   const [starting, setStarting] = useState(false);
   const completedFiredRef = useRef(false);
 
-  const totalSize = missing.reduce((sum, m) => sum + (m.size || 0), 0);
+  // Split incoming items by kind so the existing model UI keeps reading
+  // the same RequiredModel[] shape it did before.
+  const missingPlugins: RequiredPlugin[] = useMemo(
+    () => missing.filter(isRequiredPlugin),
+    [missing],
+  );
+  const missingModels: RequiredModel[] = useMemo(
+    () => missing.filter((m): m is RequiredModel => m.kind !== 'plugin'),
+    [missing],
+  );
+
+  // Plugin install state per repo key. The backend queues per repo, so
+  // tracking on that key keeps two class_types from the same plugin sharing
+  // one row's install state.
+  const [pluginInstallState, setPluginInstallState] = useState<Map<string, 'queued' | 'installed' | 'error'>>(new Map());
+  const [installingPlugins, setInstallingPlugins] = useState(false);
+
+  const totalSize = missingModels.reduce((sum, m) => sum + (m.size || 0), 0);
 
   // Merge local placeholders + live WS downloads (matched by name/filename) into one view.
   const view: Map<string, ViewState> = useMemo(() => {
     const m = new Map<string, ViewState>();
-    for (const model of missing) {
+    for (const model of missingModels) {
       const live = findDownloadForModel(downloads, { name: model.name });
       const local = localState.get(model.name);
       if (live) {
@@ -78,26 +116,30 @@ export default function DependencyModal({ missing, onClose, onDownloadComplete }
       }
     }
     return m;
-  }, [missing, localState, downloads]);
+  }, [missingModels, localState, downloads]);
 
   useEffect(() => {
     if (completedFiredRef.current) return;
-    if (view.size !== missing.length) return;
+    if (view.size !== missingModels.length) return;
+    if (missingModels.length === 0) return;
     const allDone = Array.from(view.values()).every(v => v.status === 'completed');
     if (!allDone) return;
+    // Plugins still pending? Don't auto-close — the user still needs to
+    // resolve them.
+    if (missingPlugins.some((p) => pluginInstallState.get(canonicalRepoKey(p)) !== 'installed' && !p.installed)) return;
     completedFiredRef.current = true;
     // Brief "all done" state before we fire the close-on-complete callback.
     // The cleanup clears the timer so a user-initiated close in this window
     // doesn't land onDownloadComplete on the unmounted modal.
     const id = setTimeout(onDownloadComplete, 500);
     return () => { clearTimeout(id); };
-  }, [view, missing.length, onDownloadComplete]);
+  }, [view, missingModels.length, missingPlugins, pluginInstallState, onDownloadComplete]);
 
   const handleDownloadAll = useCallback(async () => {
     setStarting(true);
     completedFiredRef.current = false;
 
-    for (const model of missing) {
+    for (const model of missingModels) {
       // Skip if a download for this model is already running.
       if (findDownloadForModel(downloads, { name: model.name })) continue;
       // Whole-HF-repo entries (custom-node registry: IndexTTS2 etc.) route
@@ -126,12 +168,39 @@ export default function DependencyModal({ missing, onClose, onDownloadComplete }
       }
     }
     setStarting(false);
-  }, [missing, downloads, hfTokenConfigured]);
+  }, [missingModels, downloads, hfTokenConfigured]);
 
   const isAnyActive = Array.from(view.values()).some(d => d.status === 'downloading');
   const anyError = !isAnyActive && Array.from(view.values()).some(d => d.status === 'error');
   const canStart = view.size === 0 || anyError;
-  const gatedBlocked = missing.some(m => m.gated) && !hfTokenConfigured;
+  const gatedBlocked = missingModels.some(m => m.gated) && !hfTokenConfigured;
+
+  // Fire the bulk install-missing-plugins endpoint. The backend dedups
+  // per repo key + queues each repo's git clone; we mark every plugin row
+  // pointing at a queued repo as 'queued' so the UI reflects in-flight
+  // status until the next dependency check refresh.
+  const handleInstallAllPlugins = useCallback(async () => {
+    if (!templateName) return;
+    setInstallingPlugins(true);
+    try {
+      const result = await api.installMissingPlugins(templateName);
+      const updated = new Map(pluginInstallState);
+      for (const q of result.queued) updated.set(q.pluginId.toLowerCase(), 'queued');
+      for (const k of result.alreadyInstalled) updated.set(k.toLowerCase(), 'installed');
+      for (const k of result.unknown) updated.set(k.toLowerCase(), 'error');
+      setPluginInstallState(updated);
+    } catch {
+      // Mark every still-pending plugin as error so the user sees a signal
+      // even if the API call itself failed.
+      const updated = new Map(pluginInstallState);
+      for (const p of missingPlugins) {
+        updated.set(canonicalRepoKey(p), 'error');
+      }
+      setPluginInstallState(updated);
+    } finally {
+      setInstallingPlugins(false);
+    }
+  }, [templateName, missingPlugins, pluginInstallState]);
 
   return (
     <AppModal
@@ -141,7 +210,11 @@ export default function DependencyModal({ missing, onClose, onDownloadComplete }
       subtitle={
         isAnyActive
           ? 'Downloading required models…'
-          : 'These models are referenced by the workflow but not installed.'
+          : missingPlugins.length > 0 && missingModels.length > 0
+            ? 'Workflow needs custom-node plugins AND model files before it can run.'
+            : missingPlugins.length > 0
+              ? 'Workflow uses nodes from custom-node plugins that aren’t installed.'
+              : 'These models are referenced by the workflow but not installed.'
       }
       icon={
         <div className="rounded-md bg-amber-50 p-1.5 ring-1 ring-inset ring-amber-200">
@@ -157,7 +230,16 @@ export default function DependencyModal({ missing, onClose, onDownloadComplete }
               ? 'Downloads running — keep this window open.'
               : totalSize > 0 && view.size === 0
                 ? <>Total: <span className="font-semibold text-slate-700">{formatBytes(totalSize)}</span></>
-                : `${missing.length} model${missing.length === 1 ? '' : 's'} required`}
+                : (() => {
+                    const parts: string[] = [];
+                    if (missingPlugins.length > 0) {
+                      parts.push(`${missingPlugins.length} plugin node${missingPlugins.length === 1 ? '' : 's'}`);
+                    }
+                    if (missingModels.length > 0) {
+                      parts.push(`${missingModels.length} model${missingModels.length === 1 ? '' : 's'}`);
+                    }
+                    return parts.length > 0 ? `${parts.join(' + ')} required` : 'Nothing missing';
+                  })()}
           </div>
           <div className="btn-group">
             <button
@@ -209,11 +291,116 @@ export default function DependencyModal({ missing, onClose, onDownloadComplete }
         </div>
       )}
 
-      {missing.length === 0 ? (
+      {missingPlugins.length > 0 && (
+        <section className="mb-4">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600 flex items-center gap-1.5">
+              <Puzzle className="w-3.5 h-3.5 text-violet-500" />
+              Missing plugins
+              <span className="text-[10px] font-normal text-slate-400">
+                ({missingPlugins.length} node{missingPlugins.length === 1 ? '' : 's'})
+              </span>
+            </h3>
+            {templateName && missingPlugins.some((p) => p.repos.length > 0) && (
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleInstallAllPlugins}
+                disabled={installingPlugins}
+              >
+                {installingPlugins
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <Download className="w-3.5 h-3.5" />}
+                {installingPlugins ? 'Queueing…' : 'Install all'}
+              </button>
+            )}
+          </div>
+          <ul className="space-y-2">
+            {missingPlugins.map((p) => {
+              const key = canonicalRepoKey(p);
+              const status = pluginInstallState.get(key);
+              return (
+                <li
+                  key={`plugin:${p.classType}:${key}`}
+                  className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3"
+                >
+                  <div className="shrink-0 mt-0.5">
+                    {status === 'installed' ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                    ) : status === 'queued' ? (
+                      <Loader2 className="w-4 h-4 text-violet-500 animate-spin" />
+                    ) : status === 'error' ? (
+                      <AlertCircle className="w-4 h-4 text-rose-500" />
+                    ) : (
+                      <Puzzle className="w-4 h-4 text-slate-400" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium text-slate-900 truncate" title={p.classType}>
+                        {p.classType}
+                      </span>
+                      {status === 'installed' && (
+                        <span className="badge-pill badge-emerald">
+                          <CheckCircle2 className="w-3 h-3" />
+                          installed
+                        </span>
+                      )}
+                      {status === 'queued' && (
+                        <span className="badge-pill badge-amber">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          installing
+                        </span>
+                      )}
+                      {status === 'error' && (
+                        <span className="badge-pill badge-rose">
+                          <AlertCircle className="w-3 h-3" />
+                          error
+                        </span>
+                      )}
+                    </div>
+                    {p.subgraphName && (
+                      <div className="mt-0.5 text-[11px] text-slate-500">
+                        in subgraph <span className="font-medium text-slate-700">'{p.subgraphName}'</span>
+                      </div>
+                    )}
+                    {p.repos.length > 0 ? (
+                      <div className="mt-1 text-[11px] text-slate-500">
+                        Provided by{' '}
+                        {p.repos.map((r, i) => (
+                          <span key={r.repo} className="text-slate-700">
+                            {i > 0 ? ', ' : ''}{r.title || r.repo}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="mt-1 text-[11px] text-amber-700">
+                        Plugin not in any registry — install manually from the source URL.
+                      </div>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
+      {missingModels.length === 0 && missingPlugins.length === 0 ? (
         <div className="empty-box">No missing dependencies.</div>
-      ) : (
+      ) : missingModels.length === 0 ? null : (
+        <section>
+          {missingPlugins.length > 0 && (
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600 flex items-center gap-1.5">
+              <HardDrive className="w-3.5 h-3.5 text-teal-500" />
+              Missing models
+              <span className="text-[10px] font-normal text-slate-400">
+                ({missingModels.length})
+              </span>
+            </h3>
+          )}
         <ul className="space-y-2">
-          {missing.map((model) => {
+          {missingModels.map((model) => {
             const dl = view.get(model.name);
             return (
               <li
@@ -305,6 +492,7 @@ export default function DependencyModal({ missing, onClose, onDownloadComplete }
             );
           })}
         </ul>
+        </section>
       )}
     </AppModal>
   );

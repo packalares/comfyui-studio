@@ -531,6 +531,7 @@ export default function Studio() {
       {showDepModal && depCheck && depCheck.missing.length > 0 && (
         <DependencyModal
           missing={depCheck.missing}
+          templateName={selectedTemplate ?? undefined}
           onClose={() => setShowDepModal(false)}
           onDownloadComplete={() => {
             setShowDepModal(false);

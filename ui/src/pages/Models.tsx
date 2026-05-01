@@ -144,7 +144,11 @@ export default function Models() {
     }
     api.checkDependencies(selectedWorkflow)
       .then(result => {
-        const names = new Set(result.required.map(r => r.name));
+        // Models page only cares about model rows, not plugin entries.
+        const names = new Set<string>();
+        for (const r of result.required) {
+          if (r.kind !== 'plugin') names.add(r.name);
+        }
         setWorkflowRequired(names);
       })
       .catch(() => setWorkflowRequired(new Set()));

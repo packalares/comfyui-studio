@@ -37,6 +37,18 @@ function templateSource(t: TemplateData): string {
 function persistTemplates(list: TemplateData[]): void {
   try {
     for (const t of list) {
+      // Preserve any prior `installed` flag so a boot doesn't reset
+      // readiness for templates whose deps are still satisfied.
+      const prior = templateRepo.getTemplate(t.name);
+      // Plugin list: catalog templates have `t.plugins` undefined at boot
+      // (it's populated by the refresh endpoint's per-workflow scan).
+      // User-imported workflows persist `t.plugins` in their JSON, so we
+      // can carry it through here directly — without this, every boot
+      // would wipe `template_plugins` for the user's imports and they'd
+      // appear "ready" even when a required plugin is missing.
+      const pluginRepoKeys = (t.plugins ?? [])
+        .map((p) => (p.repo ?? '').toLowerCase().trim())
+        .filter((s) => s.length > 0);
       templateRepo.upsertTemplate(
         {
           name: t.name,
@@ -45,11 +57,9 @@ function persistTemplates(list: TemplateData[]): void {
           description: t.description ?? null,
           source: templateSource(t),
           tags_json: JSON.stringify(t.tags ?? []),
-          installed: false,
+          installed: prior?.installed ?? false,
         },
-        // Boot pass only has the index's declared models; plugins come from
-        // the refresh endpoint's per-workflow dep scan.
-        { models: t.models ?? [], plugins: [] },
+        { models: t.models ?? [], plugins: pluginRepoKeys },
       );
     }
   } catch (err) {

@@ -21,6 +21,8 @@ import type { TemplateRow } from '../../lib/db/templates.repo.js';
 import { getTemplate } from './templates.service.js';
 import { extractDeps } from './depExtract.js';
 import { extractDepsWithPluginResolution, resolutionsToRepoKeys } from './extractDepsAsync.js';
+import { isPluginInstalled, getInstalledPluginKeys } from '../plugins/installedKeys.js';
+import { canonicalize, dedupKey } from '../plugins/canonicalId.js';
 
 export interface InstallMissingResult {
   queued: Array<{ pluginId: string; taskId: string }>;
@@ -88,48 +90,56 @@ function findCatalogEntry(repoKey: string, catalog: CatalogPlugin[]): MatchResul
  * Install every plugin referenced by `templateName` that isn't already
  * installed + enabled. Returns the queued tasks and classification of each
  * edge so the UI can render a per-plugin status block.
+ *
+ * Dedup is performed via `dedupKey` (canonical owner/repo or basename),
+ * so a row that lists both `comfyui-reactor` and `gourieff/comfyui-reactor`
+ * triggers a single install. Installed-state checks go through the shared
+ * `isPluginInstalled` helper, which catches plugins on disk that the
+ * bundled catalog snapshot doesn't know about.
  */
 export async function installMissingPluginsForTemplate(
   templateName: string,
 ): Promise<InstallMissingResult> {
   let row = templateRepo.getTemplate(templateName);
   if (!row) {
-    // Fallback for legacy user-imported templates saved before the commit
-    // path upserted a sqlite row. Look up the in-memory cache, extract
-    // plugins from the workflow, seed the row, re-fetch.
     row = await seedUserWorkflowRow(templateName);
     if (!row) throw new Error(`Template not found: ${templateName}`);
   }
+  // Pre-warm the canonical-id cache for every row's repo so the dedup
+  // loop's `dedupKey` reads from the cache rather than racing CNR
+  // lookups inside the loop.
+  await Promise.all(row.plugins.map((p) => canonicalize(p)));
+
   const catalog = pluginCache.getAllPlugins(false);
+  const installedKeys = getInstalledPluginKeys();
   const queued: Array<{ pluginId: string; taskId: string }> = [];
   const alreadyInstalled: string[] = [];
   const unknown: string[] = [];
-  // Dedup input — `template_plugins` already enforces uniqueness, but the
-  // outer normalization may collapse near-duplicates.
   const seen = new Set<string>();
+
   for (const raw of row.plugins) {
     const key = normalizeRepoKey(raw);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
+    if (!key) continue;
+    const dkey = dedupKey(key);
+    if (seen.has(dkey)) continue;
+    seen.add(dkey);
+
+    if (isPluginInstalled(key, installedKeys)) {
+      alreadyInstalled.push(key);
+      continue;
+    }
+
     const match = findCatalogEntry(key, catalog);
     if (!match.plugin) {
       unknown.push(key);
       continue;
     }
-    if (match.plugin.installed && !match.plugin.disabled) {
-      alreadyInstalled.push(key);
-      continue;
-    }
     try {
       const taskId = await pluginInstall.installPlugin(
-        match.plugin.id,
-        match.plugin,
-        undefined,
+        match.plugin.id, match.plugin, undefined,
       );
       queued.push({ pluginId: match.plugin.id, taskId });
     } catch (err) {
-      // Surface the failure in the unknown bucket so the UI can show it —
-      // individual install errors shouldn't kill the whole batch.
       logger.warn('installMissingPlugins: queue failed', {
         template: templateName,
         repoKey: key,

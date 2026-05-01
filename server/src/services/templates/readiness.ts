@@ -20,13 +20,18 @@ import { statModelOnDisk } from '../../lib/fs.js';
 import { logger } from '../../lib/logger.js';
 import * as templateRepo from '../../lib/db/templates.repo.js';
 import type { TemplateDeps } from '../../lib/db/templates.repo.js';
+import { isPluginInstalled, getInstalledPluginKeys } from '../plugins/installedKeys.js';
 
 interface ModelsView {
   installed: Set<string>;         // filenames + names, case-sensitive
 }
 
 interface PluginsView {
-  enabled: Set<string>;           // lowercased plugin ids
+  /** Snapshot of every form (id, owner/repo, basename) that counts as
+   *  "installed and enabled". Sourced via `getInstalledPluginKeys` so the
+   *  stale catalog-only check (which missed disk-cloned plugins) is gone.
+   */
+  keys: ReturnType<typeof getInstalledPluginKeys>;
 }
 
 async function loadModelsView(): Promise<ModelsView> {
@@ -49,26 +54,14 @@ async function loadModelsView(): Promise<ModelsView> {
 }
 
 async function loadPluginsView(): Promise<PluginsView> {
-  const enabled = new Set<string>();
   try {
-    // Dynamic import so boot-order + test harnesses that mock the plugins
-    // cache keep working.
-    const cache = await import('../plugins/cache.service.js');
-    for (const p of cache.getAllPlugins()) {
-      if (!p.installed || p.disabled) continue;
-      if (p.id) enabled.add(p.id.toLowerCase());
-      const repo = (p.repository || p.github || '').toLowerCase()
-        .replace(/^https?:\/\/github\.com\//, '')
-        .replace(/\.git$/, '')
-        .replace(/\/$/, '');
-      if (repo) enabled.add(repo);
-    }
+    return { keys: getInstalledPluginKeys() };
   } catch (err) {
     logger.warn('readiness: plugins view unavailable', {
       message: err instanceof Error ? err.message : String(err),
     });
+    return { keys: { set: new Set(), byCanonical: new Set() } };
   }
-  return { enabled };
 }
 
 function modelOnDisk(filename: string): boolean {
@@ -94,7 +87,7 @@ export function isReadySync(
     return false;
   }
   for (const pid of deps.plugins) {
-    if (!plugins.enabled.has(pid.toLowerCase())) return false;
+    if (!isPluginInstalled(pid, plugins.keys)) return false;
   }
   return true;
 }

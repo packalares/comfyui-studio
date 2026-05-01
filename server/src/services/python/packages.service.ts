@@ -18,10 +18,19 @@ const PIP_LIST_TIMEOUT_MS = 60_000;
 
 function python(): string { return env.PYTHON_PATH || 'python3'; }
 
-/** Run `python -m pip list --format=json` and parse. */
+/** Run `python -m pip list --format=json` and parse. Returns the union of
+ *  system-site AND user-site packages — every dependency the runtime can
+ *  see via `import`.
+ *
+ *  We must explicitly clear `PIP_USER` for this call. The Dockerfile sets
+ *  `PIP_USER=1` so that `pip install` defaults to `--user`, but pip applies
+ *  the same env var to the LIST command, silently filtering out every
+ *  system-site package. With `PIP_USER` cleared, `pip list` reports
+ *  everything pip can see — matches what `import` resolves at runtime. */
 export async function listInstalledPackages(): Promise<InstalledPackage[]> {
   const r = await run(python(), ['-m', 'pip', 'list', '--format=json'], {
     timeoutMs: PIP_LIST_TIMEOUT_MS,
+    env: { PIP_USER: '' },
   });
   if (r.code !== 0) {
     throw new Error(`pip list failed: ${r.stderr || r.stdout}`);
