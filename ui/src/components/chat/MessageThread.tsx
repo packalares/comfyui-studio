@@ -1,25 +1,70 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { User, Bot, ArrowDown, AlertCircle, MessageSquare, FileText, Upload, X } from 'lucide-react';
-import MarkdownMessage from './MarkdownMessage';
+// Conversation thread, ai-elements rebuild.
+//
+// Responsibilities (unchanged from the hand-rolled version):
+//   * render persisted messages + the in-flight assistant message;
+//   * surface the streaming "thinking" indicator + "loading model into VRAM"
+//     hint and a sticky stream-error banner;
+//   * own the drag-drop overlay that hands files up to the parent (composer
+//     keeps the canonical attachment list);
+//   * render the image lightbox triggered from user-attached image chips.
+//
+// The visual primitives now come from `components/ai-elements/*`:
+//   * <Conversation> (use-stick-to-bottom) replaces our manual scroll glue;
+//   * <Message> + <MessageContent> + <MessageResponse> (streamdown markdown)
+//     replace MarkdownMessage and the per-row layout;
+//   * <Tool> replaces ToolBlock (tool args/result + status);
+//   * <Reasoning> (Studio adapter, fed by chat:reasoning bus) renders the
+//     model's chain-of-thought above the regular text.
+//
+// We KEEP the <details>-like envelope for assistant rows so persisted reasoning
+// (`{ type: 'reasoning' }` parts saved by streamChat.ts) still re-renders
+// after a refetch.
+
+import { useEffect, useState } from 'react';
+import { AlertCircle, FileText, Upload, X, MessageSquare } from 'lucide-react';
+import {
+  Conversation, ConversationContent, ConversationScrollButton,
+} from '../ai-elements/conversation';
+import { Message, MessageContent, MessageResponse } from '../ai-elements/message';
+import {
+  Tool, ToolHeader, ToolContent, ToolInput, ToolOutput,
+} from '../ai-elements/tool';
+import { Loader } from '../ai-elements/loader';
+import Reasoning from './Reasoning';
+import Actions from './Actions';
 import TelemetryFooter from './TelemetryFooter';
-import ToolBlock, { isToolPart } from './ToolBlock';
 import type { ChatMessage, ChatUIMessagePart } from '../../services/comfyui';
 import type { ChatToolPart } from '../../services/chatEvents';
 import { formatBytes } from './attachments';
-
-// Pull tool-invocation parts out of a message. Unknown part shapes are ignored
-// so the renderer stays forward-compat when the server emits new types.
-function toolPartsOf(parts: ChatMessage['parts']): ChatToolPart[] {
-  const out: ChatToolPart[] = [];
-  for (const p of parts) if (isToolPart(p)) out.push(p);
-  return out;
-}
 
 interface ImageAttachment { kind: 'image'; url: string; mediaType?: string; name?: string; size?: number }
 interface FileAttachment { kind: 'file'; name: string; size?: number; mediaType?: string }
 type RenderedAttachment = ImageAttachment | FileAttachment;
 
-function attachmentsOf(parts: ChatMessage['parts']): RenderedAttachment[] {
+interface Props {
+  messages: ChatMessage[];
+  streamingMsgId: string | null;
+  streamingText: string;
+  // Inline "loading model into VRAM..." hint emitted by the server.
+  streamStatus: string;
+  // Last stream error (kept until next send).
+  streamError: string;
+  busy: boolean;
+  hasConversation: boolean;
+  streamingTools?: ChatToolPart[];
+  // Drag-drop callback up to the parent composer.
+  onFilesDropped?: (files: FileList) => void;
+}
+
+function partsToText(parts: ChatUIMessagePart[]): string {
+  return parts.filter(p => p.type === 'text').map(p => p.text ?? '').join('');
+}
+
+function partsToReasoning(parts: ChatUIMessagePart[]): string {
+  return parts.filter(p => p.type === 'reasoning').map(p => p.text ?? '').join('');
+}
+
+function attachmentsOf(parts: ChatUIMessagePart[]): RenderedAttachment[] {
   const out: RenderedAttachment[] = [];
   for (const p of parts) {
     if (p.type === 'file' && typeof p.url === 'string'
@@ -36,61 +81,24 @@ function attachmentsOf(parts: ChatMessage['parts']): RenderedAttachment[] {
   return out;
 }
 
-interface Props {
-  messages: ChatMessage[];
-  streamingMsgId: string | null;
-  streamingText: string;
-  // Inline "loading model into VRAM..." hint emitted by the server when the
-  // first token is taking long. Empty string when there's no hint to show.
-  streamStatus: string;
-  // Last stream error (kept until next send) so the failure stays visible
-  // even after sonner's toast has dismissed.
-  streamError: string;
-  busy: boolean;
-  // Whether a conversation has been selected / started — drives the empty
-  // state when neither is true.
-  hasConversation: boolean;
-  streamingTools?: ChatToolPart[];
-  // Drag-drop callbacks routed up to the parent Chat page so the composer's
-  // attachment list owns the dropped files (no duplicated state).
-  onFilesDropped?: (files: FileList) => void;
+function isToolPart(value: unknown): value is ChatToolPart {
+  if (!value || typeof value !== 'object') return false;
+  const p = value as { type?: unknown; toolName?: unknown };
+  return p.type === 'tool-invocation' && typeof p.toolName === 'string';
 }
 
-function partsToText(parts: ChatMessage['parts']): string {
-  return parts
-    .filter(p => p.type === 'text')
-    .map(p => p.text ?? '')
-    .join('');
+function toolPartsOf(parts: ChatUIMessagePart[]): ChatToolPart[] {
+  const out: ChatToolPart[] = [];
+  for (const p of parts) if (isToolPart(p)) out.push(p);
+  return out;
 }
-
-const AUTO_SCROLL_THRESHOLD = 80;
 
 export default function MessageThread({
   messages, streamingMsgId, streamingText, streamStatus, streamError, busy, hasConversation,
   streamingTools, onFilesDropped,
 }: Props) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [stuckToBottom, setStuckToBottom] = useState(true);
   const [dragActive, setDragActive] = useState(false);
-  // Lightboxed image (full-size view). Cleared on backdrop click or Esc.
   const [zoomed, setZoomed] = useState<string | null>(null);
-
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (!el || !stuckToBottom) return;
-    el.scrollTop = el.scrollHeight;
-  }, [messages, streamingText, streamStatus, stuckToBottom]);
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const onScroll = () => {
-      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-      setStuckToBottom(distance < AUTO_SCROLL_THRESHOLD);
-    };
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => { el.removeEventListener('scroll', onScroll); };
-  }, []);
 
   useEffect(() => {
     if (!zoomed) return;
@@ -99,24 +107,15 @@ export default function MessageThread({
     return () => { window.removeEventListener('keydown', onKey); };
   }, [zoomed]);
 
-  const jumpToBottom = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-    setStuckToBottom(true);
-  };
-
-  // Single consolidated thinking indicator: shown ONLY while the assistant
-  // row exists and no chunk has streamed yet, OR while we're waiting for the
-  // /chat/start round-trip (busy=true but msgId not yet set). Replaces the
-  // previous duplicated showThinking + in-message banner pair.
+  // Show the streaming indicator only while the assistant placeholder is up
+  // but no chunk has streamed yet, OR while we're waiting for /chat/start.
   const showStreamingHint =
     (streamingMsgId !== null && streamingText.length === 0)
     || (busy && streamingMsgId === null);
 
   return (
     <div
-      className="relative flex-1 min-h-0"
+      className="relative flex-1 min-h-0 flex"
       onDragEnter={(e) => {
         if (e.dataTransfer.types.includes('Files')) {
           e.preventDefault();
@@ -124,12 +123,9 @@ export default function MessageThread({
         }
       }}
       onDragOver={(e) => {
-        if (e.dataTransfer.types.includes('Files')) {
-          e.preventDefault();
-        }
+        if (e.dataTransfer.types.includes('Files')) e.preventDefault();
       }}
       onDragLeave={(e) => {
-        // Only deactivate when leaving the outer container, not a child node.
         if (e.currentTarget === e.target) setDragActive(false);
       }}
       onDrop={(e) => {
@@ -140,8 +136,8 @@ export default function MessageThread({
         }
       }}
     >
-      <div ref={scrollRef} className="h-full overflow-y-auto">
-        <div className="mx-auto max-w-3xl px-4 py-6 space-y-5">
+      <Conversation className="flex-1">
+        <ConversationContent className="mx-auto w-full max-w-3xl px-4 py-6">
           {!hasConversation && !busy && (
             <div className="empty-box flex flex-col items-center gap-1.5 py-12">
               <MessageSquare className="h-6 w-6 text-slate-300" />
@@ -154,81 +150,23 @@ export default function MessageThread({
               Start a conversation by typing a message below.
             </div>
           )}
-          {messages.map((m) => {
-            const text = m.id === streamingMsgId
-              ? streamingText
-              : partsToText(m.parts);
-            const isUser = m.role === 'user';
-            const isStreaming = m.id === streamingMsgId;
-            const tools = isStreaming
-              ? (streamingTools ?? [])
-              : toolPartsOf(m.parts);
-            const atts = isUser ? attachmentsOf(m.parts) : [];
-            return (
-              <div key={m.id} className="flex gap-3">
-                <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
-                  isUser ? 'bg-slate-100 text-slate-700' : 'bg-teal-50 text-teal-700 ring-1 ring-teal-100'
-                }`}>
-                  {isUser ? <User className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
-                </div>
-                <div className="min-w-0 flex-1">
-                  {isUser ? (
-                    <>
-                      {atts.length > 0 && (
-                        <div className="mb-1.5 flex flex-wrap gap-2">
-                          {atts.map((a, i) => (
-                            <RenderedAttachmentChip
-                              key={i}
-                              att={a}
-                              onZoom={() => a.kind === 'image' && setZoomed(a.url)}
-                            />
-                          ))}
-                        </div>
-                      )}
-                      {text.length > 0 && (
-                        <div className="whitespace-pre-wrap text-sm text-slate-800">{text}</div>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      {tools.map((t) => (
-                        <ToolBlock key={t.toolCallId} part={t} />
-                      ))}
-                      {isStreaming && text.length === 0 ? (
-                        <StreamingHint message={streamStatus} />
-                      ) : (
-                        <MarkdownMessage text={text || ' '} />
-                      )}
-                      {m.role === 'assistant' && !isStreaming && (
-                        <TelemetryFooter
-                          model={m.model}
-                          tokensPerSec={m.tokens_per_sec}
-                          msTotal={m.ms_total}
-                          msToFirstToken={m.ms_to_first_token}
-                          tokensIn={m.tokens_in}
-                          tokensOut={m.tokens_out}
-                        />
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-          {/* No standalone thinking row — the in-flight assistant message
-              renders the indicator on its own placeholder above. We only need
-              this fallback when the assistant placeholder somehow isn't in
-              messages yet (very early in submit, before /chat/start resolves
-              and inserts the row). */}
+          {messages.map((m) => (
+            <MessageRow
+              key={m.id}
+              msg={m}
+              isStreaming={m.id === streamingMsgId}
+              streamingText={m.id === streamingMsgId ? streamingText : null}
+              streamingTools={m.id === streamingMsgId ? (streamingTools ?? []) : null}
+              streamStatus={streamStatus}
+              onZoom={setZoomed}
+            />
+          ))}
           {showStreamingHint && !messages.some(m => m.id === streamingMsgId) && (
-            <div className="flex gap-3">
-              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal-50 text-teal-700 ring-1 ring-teal-100">
-                <Bot className="w-3.5 h-3.5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <StreamingHint message={streamStatus} />
-              </div>
-            </div>
+            <Message from="assistant">
+              <MessageContent>
+                <Loader status={streamStatus} />
+              </MessageContent>
+            </Message>
           )}
           {streamError && !busy && (
             <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
@@ -239,9 +177,9 @@ export default function MessageThread({
               </div>
             </div>
           )}
-        </div>
-      </div>
-      <JumpToBottom show={!stuckToBottom} onClick={jumpToBottom} />
+        </ConversationContent>
+        <ConversationScrollButton />
+      </Conversation>
       {dragActive && (
         <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-teal-400 bg-teal-50/80 backdrop-blur-sm">
           <div className="flex items-center gap-2 text-sm font-medium text-teal-700">
@@ -266,6 +204,105 @@ export default function MessageThread({
         </div>
       )}
     </div>
+  );
+}
+
+interface RowProps {
+  msg: ChatMessage;
+  isStreaming: boolean;
+  streamingText: string | null;
+  streamingTools: ChatToolPart[] | null;
+  streamStatus: string;
+  onZoom: (url: string) => void;
+}
+
+function MessageRow({ msg, isStreaming, streamingText, streamingTools, streamStatus, onZoom }: RowProps) {
+  const isUser = msg.role === 'user';
+  const text = isStreaming
+    ? (streamingText ?? '')
+    : partsToText(msg.parts);
+  const reasoningText = isStreaming ? '' : partsToReasoning(msg.parts);
+  const tools = isStreaming
+    ? (streamingTools ?? [])
+    : toolPartsOf(msg.parts);
+  const atts = isUser ? attachmentsOf(msg.parts) : [];
+
+  return (
+    <Message from={msg.role}>
+      <MessageContent>
+        {isUser ? (
+          <>
+            {atts.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {atts.map((a, i) => (
+                  <RenderedAttachmentChip
+                    key={i}
+                    att={a}
+                    onZoom={() => a.kind === 'image' && onZoom(a.url)}
+                  />
+                ))}
+              </div>
+            )}
+            {text.length > 0 && (
+              <div className="whitespace-pre-wrap text-sm">{text}</div>
+            )}
+          </>
+        ) : (
+          <>
+            {/* Persisted reasoning re-render. Live reasoning rides on the
+                streaming sibling below. */}
+            {!isStreaming && reasoningText.length > 0 && (
+              <Reasoning text={reasoningText} />
+            )}
+            {isStreaming && <Reasoning streamingMsgId={msg.id} />}
+            {tools.map((t) => (
+              <ToolBlockCard key={t.toolCallId} part={t} />
+            ))}
+            {isStreaming && text.length === 0
+              ? <Loader status={streamStatus} />
+              : <MessageResponse>{text || ' '}</MessageResponse>}
+            {!isStreaming && (
+              <>
+                <TelemetryFooter
+                  model={msg.model}
+                  tokensPerSec={msg.tokens_per_sec}
+                  msTotal={msg.ms_total}
+                  msToFirstToken={msg.ms_to_first_token}
+                  tokensIn={msg.tokens_in}
+                  tokensOut={msg.tokens_out}
+                />
+                {text.length > 0 && <Actions text={text} />}
+              </>
+            )}
+          </>
+        )}
+      </MessageContent>
+    </Message>
+  );
+}
+
+// Map our persisted ChatToolPart shape onto ai-elements' <Tool>. Studio's tool
+// records carry `state: 'result' | 'error'` (terminal only — we don't surface
+// the in-flight `running` state yet) and string `errorMessage`; ai-elements
+// expects `output-available` / `output-error` and `errorText`. The mapping is
+// trivial but kept here so we don't need to leak ai-elements types out to the
+// chatEvents bus.
+function ToolBlockCard({ part }: { part: ChatToolPart }) {
+  const state = part.state === 'error' ? 'output-error' : 'output-available';
+  return (
+    <Tool>
+      <ToolHeader
+        type={`tool-${part.toolName}` as `tool-${string}`}
+        state={state}
+      />
+      <ToolContent>
+        <ToolInput input={part.args} />
+        <ToolOutput
+          output={part.state === 'error' ? null : part.result}
+          errorText={part.state === 'error' ? (part.errorMessage ?? 'Unknown error') : undefined}
+        />
+      </ToolContent>
+    </Tool>
   );
 }
 
@@ -305,37 +342,3 @@ function RenderedAttachmentChip({ att, onZoom }: ChipProps) {
     </div>
   );
 }
-
-interface HintProps { message: string }
-function StreamingHint({ message }: HintProps) {
-  // One indicator unifies "Sending" / "Loading model into VRAM" / "warming
-  // up" — the message string toggles between defaults and the server-pushed
-  // `chat:status` text. Animation stays the same so the visual stays calm.
-  const label = message || 'Thinking...';
-  return (
-    <div className="inline-flex items-center gap-2 rounded-md bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600 ring-1 ring-inset ring-slate-200">
-      <span className="inline-flex items-center gap-1">
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.3s]" />
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.15s]" />
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" />
-      </span>
-      <span>{label}</span>
-    </div>
-  );
-}
-
-interface JumpProps { show: boolean; onClick: () => void }
-function JumpToBottom({ show, onClick }: JumpProps) {
-  if (!show) return null;
-  return (
-    <button
-      onClick={onClick}
-      className="absolute bottom-3 left-1/2 -translate-x-1/2 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white/95 px-3 py-1 text-xs text-slate-600 shadow-sm hover:bg-slate-50"
-      aria-label="Jump to latest"
-    >
-      <ArrowDown className="h-3 w-3" />
-      Jump to latest
-    </button>
-  );
-}
-

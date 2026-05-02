@@ -15,7 +15,7 @@ import { api } from '../services/comfyui';
 import { chatEvents } from '../services/chatEvents';
 import type {
   ChatStartPayload, ChatChunkPayload, ChatDonePayload, ChatErrorPayload,
-  ChatStatusPayload, ChatTitlePayload, ChatToolPayload,
+  ChatStatusPayload, ChatTitlePayload, ChatToolPayload, ChatReasoningPayload,
   ModelPullProgressPayload, ModelPullDonePayload, ModelPullErrorPayload,
 } from '../services/chatEvents';
 import { SystemProvider, useSystem } from './SystemContext';
@@ -362,6 +362,8 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
             chatEvents.dispatchStart(msg.data as ChatStartPayload);
           } else if (msg.type === 'chat:chunk') {
             chatEvents.dispatchChunk(msg.data as ChatChunkPayload);
+          } else if (msg.type === 'chat:reasoning') {
+            chatEvents.dispatchReasoning(msg.data as ChatReasoningPayload);
           } else if (msg.type === 'chat:done') {
             chatEvents.dispatchDone(msg.data as ChatDonePayload);
           } else if (msg.type === 'chat:error') {

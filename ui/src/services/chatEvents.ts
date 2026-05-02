@@ -8,6 +8,11 @@
 type Handler<T> = (payload: T) => void;
 
 export interface ChatChunkPayload { msgId: string; delta: string }
+// Streamed chain-of-thought delta. Emitted by the server when it intercepts
+// `<think>...</think>` tags on the upstream Ollama content stream (DeepSeek-R1
+// / Qwen QwQ pattern). Routed to the `<Reasoning>` panel under the assistant
+// message instead of the regular content stream.
+export interface ChatReasoningPayload { msgId: string; delta: string }
 export interface ChatStartPayload { conversationId: string; msgId: string; model: string }
 export interface ChatDoneStats {
   tokens_in: number | null;
@@ -56,6 +61,7 @@ export interface ModelPullErrorPayload { name: string; taskId: string; error: st
 interface Bus {
   start: Set<Handler<ChatStartPayload>>;
   chunk: Set<Handler<ChatChunkPayload>>;
+  reasoning: Set<Handler<ChatReasoningPayload>>;
   done: Set<Handler<ChatDonePayload>>;
   error: Set<Handler<ChatErrorPayload>>;
   status: Set<Handler<ChatStatusPayload>>;
@@ -67,7 +73,8 @@ interface Bus {
 }
 
 const bus: Bus = {
-  start: new Set(), chunk: new Set(), done: new Set(), error: new Set(),
+  start: new Set(), chunk: new Set(), reasoning: new Set(),
+  done: new Set(), error: new Set(),
   status: new Set(), title: new Set(), tool: new Set(),
   pullProgress: new Set(), pullDone: new Set(), pullError: new Set(),
 };
@@ -80,6 +87,7 @@ function subscribe<T>(set: Set<Handler<T>>, h: Handler<T>): () => void {
 export const chatEvents = {
   onStart: (h: Handler<ChatStartPayload>) => subscribe(bus.start, h),
   onChunk: (h: Handler<ChatChunkPayload>) => subscribe(bus.chunk, h),
+  onReasoning: (h: Handler<ChatReasoningPayload>) => subscribe(bus.reasoning, h),
   onDone: (h: Handler<ChatDonePayload>) => subscribe(bus.done, h),
   onError: (h: Handler<ChatErrorPayload>) => subscribe(bus.error, h),
   onStatus: (h: Handler<ChatStatusPayload>) => subscribe(bus.status, h),
@@ -91,6 +99,7 @@ export const chatEvents = {
 
   dispatchStart: (p: ChatStartPayload) => bus.start.forEach(h => { h(p); }),
   dispatchChunk: (p: ChatChunkPayload) => bus.chunk.forEach(h => { h(p); }),
+  dispatchReasoning: (p: ChatReasoningPayload) => bus.reasoning.forEach(h => { h(p); }),
   dispatchDone: (p: ChatDonePayload) => bus.done.forEach(h => { h(p); }),
   dispatchError: (p: ChatErrorPayload) => bus.error.forEach(h => { h(p); }),
   dispatchStatus: (p: ChatStatusPayload) => bus.status.forEach(h => { h(p); }),

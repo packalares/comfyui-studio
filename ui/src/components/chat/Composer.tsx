@@ -1,17 +1,34 @@
-import { useEffect, useRef, useState, type MutableRefObject } from 'react';
+// Composer rebuilt on top of ai-elements <PromptInput>. ai-elements ships its
+// own file-attachment context but Studio's Chat page owns the canonical
+// `attachments` array (so the drag-drop overlay on the thread can append into
+// the same list); we therefore bypass PromptInput's file state entirely and
+// drive submit/stop/textarea through it for the layout polish only.
+//
+// Ported from the hand-rolled composer:
+//   * vision-capability gate (toast on image-attached + non-vision model);
+//   * paperclip / Cmd-Ctrl-K focus / Enter / Shift+Enter / Esc keybindings;
+//   * controlled `attachments` list, including chip remove + paperclip add;
+//   * shortcut help bubble.
+
+import { useEffect, useRef, type MutableRefObject } from 'react';
 import { Send, StopCircle, HelpCircle, Paperclip, X, FileText, Image as ImageIcon } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  PromptInput,
+  PromptInputBody,
+  PromptInputFooter,
+  PromptInputHeader,
+  PromptInputTextarea,
+  PromptInputTools,
+  type PromptInputMessage,
+} from '../ai-elements/prompt-input';
 import type { OllamaInstalledModel } from '../../services/comfyui';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import {
-  ALLOWED_ACCEPT,
-  MAX_ATTACHMENTS,
-  formatBytes,
-  modelIsVisionCapable,
-  processFile,
-  type PendingAttachment,
+  ALLOWED_ACCEPT, MAX_ATTACHMENTS, formatBytes, modelIsVisionCapable,
+  processFile, type PendingAttachment,
 } from './attachments';
 
 interface Props {
@@ -21,15 +38,8 @@ interface Props {
   busy: boolean;
   onSend: (text: string, attachments: PendingAttachment[]) => void;
   onStop: () => void;
-  // Parent passes a mutable ref slot it can call to focus the textarea from
-  // the global Cmd/Ctrl+K shortcut.
   focusRef?: MutableRefObject<() => void>;
-  // Capabilities map keyed by base library name (`gemma3` -> ['vision']).
-  // Sourced from `/api/chat/models/library` so we can authoritatively flag
-  // vision support before falling back to the name-pattern heuristic.
   libraryCapabilities?: Record<string, string[]>;
-  // Controlled attachments — owned by the parent so the drag-drop overlay on
-  // the message thread can append into the same list.
   attachments: PendingAttachment[];
   onAttachmentsChange: (next: PendingAttachment[]) => void;
 }
@@ -38,16 +48,8 @@ export default function Composer({
   installed, model, onModelChange, busy, onSend, onStop, focusRef,
   libraryCapabilities, attachments, onAttachmentsChange,
 }: Props) {
-  const [text, setText] = useState('');
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const ta = taRef.current;
-    if (!ta) return;
-    ta.style.height = 'auto';
-    ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
-  }, [text]);
 
   useEffect(() => {
     if (!focusRef) return;
@@ -57,19 +59,14 @@ export default function Composer({
 
   const noModel = !model;
   const noInstalled = installed.length === 0;
-
-  // Vision check uses the library capability if we have it for this model's
-  // base name, else falls back to pattern matching. The library keys by base
-  // name (`llama3.2-vision`); installed models keep their tag (`...:8b`).
   const baseName = model.split(':')[0];
   const caps = libraryCapabilities?.[baseName] ?? null;
   const visionCapable = modelIsVisionCapable(model, caps);
-
   const hasImageAttachment = attachments.some(a => a.kind === 'image');
 
-  const submit = () => {
+  const submit = (m: PromptInputMessage) => {
     if (busy || !model) return;
-    const trimmed = text.trim();
+    const trimmed = m.text.trim();
     if (!trimmed && attachments.length === 0) return;
     if (hasImageAttachment && !visionCapable) {
       toast.error("Current model can't see images", {
@@ -78,7 +75,6 @@ export default function Composer({
       return;
     }
     onSend(trimmed, attachments);
-    setText('');
     onAttachmentsChange([]);
   };
 
@@ -107,7 +103,6 @@ export default function Composer({
   return (
     <div className="border-t border-slate-200 bg-white">
       <div className="mx-auto max-w-3xl px-4 py-3">
-        {/* Hidden picker — the visible Paperclip button below proxies its click. */}
         <input
           ref={fileInputRef}
           type="file"
@@ -118,18 +113,9 @@ export default function Composer({
             if (e.target.files && e.target.files.length > 0) {
               void addFiles(e.target.files);
             }
-            // Reset so re-picking the same file re-fires onChange.
             e.target.value = '';
           }}
         />
-
-        {attachments.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-2">
-            {attachments.map(a => (
-              <AttachmentChip key={a.id} att={a} onRemove={() => removeAttachment(a.id)} />
-            ))}
-          </div>
-        )}
 
         <div className="mb-2 flex items-center justify-between gap-2">
           <Tooltip>
@@ -164,57 +150,62 @@ export default function Composer({
           <ShortcutsHelp />
         </div>
 
-        <div className="flex items-end gap-2">
-          <Button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={busy || noModel || attachments.length >= MAX_ATTACHMENTS}
-            variant="ghost"
-            size="icon"
-            className="shrink-0 self-end mb-0.5"
-            aria-label="Attach files"
-            title="Attach files"
-          >
-            <Paperclip className="w-4 h-4" />
-          </Button>
-          <textarea
-            ref={taRef}
-            rows={1}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                submit();
-              } else if (e.key === 'Escape' && busy) {
-                e.preventDefault();
-                onStop();
+        <PromptInput onSubmit={submit}>
+          <PromptInputBody>
+            {attachments.length > 0 && (
+              <PromptInputHeader>
+                {attachments.map(a => (
+                  <AttachmentChip key={a.id} att={a} onRemove={() => removeAttachment(a.id)} />
+                ))}
+              </PromptInputHeader>
+            )}
+            <PromptInputTextarea
+              ref={taRef}
+              placeholder={
+                busy ? 'Generating... (Esc to stop)'
+                  : noModel ? 'Pick a model above to start chatting'
+                    : 'Type a message. Shift+Enter for newline. Drop files to attach.'
               }
-            }}
-            placeholder={
-              busy ? 'Generating... (Esc to stop)'
-                : noModel ? 'Pick a model above to start chatting'
-                  : 'Type a message. Shift+Enter for newline. Drop files to attach.'
-            }
-            className="field-textarea flex-1 max-h-[200px] resize-none"
-            disabled={busy || noModel}
-          />
-          {busy ? (
-            <Button onClick={onStop} variant="secondary" className="!text-red-600 hover:!bg-red-50">
-              <StopCircle className="w-4 h-4" />
-              Stop
-            </Button>
-          ) : (
-            <Button
-              onClick={submit}
-              disabled={(!text.trim() && attachments.length === 0) || !model}
-              aria-label="Send"
-            >
-              <Send className="w-4 h-4" />
-              Send
-            </Button>
-          )}
-        </div>
+              disabled={busy || noModel}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' && busy) {
+                  e.preventDefault();
+                  onStop();
+                }
+              }}
+            />
+            <PromptInputFooter>
+              <PromptInputTools>
+                <Button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={busy || noModel || attachments.length >= MAX_ATTACHMENTS}
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Attach files"
+                  title="Attach files"
+                >
+                  <Paperclip className="w-4 h-4" />
+                </Button>
+              </PromptInputTools>
+              {busy ? (
+                <Button type="button" onClick={onStop} variant="secondary" className="!text-red-600 hover:!bg-red-50">
+                  <StopCircle className="w-4 h-4" />
+                  Stop
+                </Button>
+              ) : (
+                <Button
+                  type="submit"
+                  disabled={noModel}
+                  aria-label="Send"
+                >
+                  <Send className="w-4 h-4" />
+                  Send
+                </Button>
+              )}
+            </PromptInputFooter>
+          </PromptInputBody>
+        </PromptInput>
       </div>
     </div>
   );
@@ -222,9 +213,6 @@ export default function Composer({
 
 interface ChipProps { att: PendingAttachment; onRemove: () => void }
 function AttachmentChip({ att, onRemove }: ChipProps) {
-  // Larger pill (small thumbnail or icon + filename + remove button), purely
-  // composed from neutral utilities so it sits comfortably alongside the rest
-  // of Studio.
   return (
     <div className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">
       {att.kind === 'image' && att.dataUrl ? (

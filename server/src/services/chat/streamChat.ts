@@ -33,6 +33,7 @@ import { runOllamaStep } from './ollamaStep.js';
 import { getEnabledTools } from './tools/index.js';
 import { toOllamaTools, executeOllamaToolCall } from './ollamaTools.js';
 import { runToolDispatch, type ToolPart } from './toolDispatch.js';
+import { ThinkParser } from './thinkParser.js';
 
 // If no chunk arrives within this many ms after submit, surface a "Loading
 // model into VRAM..." status. Picked above typical TTFT (~200-600ms warm)
@@ -129,8 +130,23 @@ async function runStream(args: RunStreamArgs): Promise<void> {
   const startedAt = Date.now();
   const tracker = { firstTokenAt: 0 };
   let accumulated = '';
+  let reasoning = '';
   let finalFrame: OllamaFinalFrame | null = null;
   const toolParts: ToolPart[] = [];
+
+  // Splits `<think>...</think>` segments out of the raw delta stream so we
+  // can route the chain-of-thought to a separate `chat:reasoning` channel.
+  // Models that don't emit think-tags pass through unchanged.
+  const thinkParser = new ThinkParser({
+    onContent: (delta) => {
+      accumulated += delta;
+      emitChatEvent({ type: 'chat:chunk', data: { msgId, delta } });
+    },
+    onReasoning: (delta) => {
+      reasoning += delta;
+      emitChatEvent({ type: 'chat:reasoning', data: { msgId, delta } });
+    },
+  });
 
   // If no chunk lands within LOADING_HINT_MS, surface a "loading model" hint
   // so the UI explains the long pause on a cold-start. Cleared as soon as
@@ -165,8 +181,7 @@ async function runStream(args: RunStreamArgs): Promise<void> {
             tracker.firstTokenAt = Date.now();
             clearTimeout(loadingTimer);
           }
-          accumulated += delta;
-          emitChatEvent({ type: 'chat:chunk', data: { msgId, delta } });
+          thinkParser.feed(delta);
         },
       }),
       executeToolCall: (call) => executeOllamaToolCall(enabledTools, call),
@@ -177,13 +192,15 @@ async function runStream(args: RunStreamArgs): Promise<void> {
       seedMessages: ollamaMessages,
     });
     finalFrame = dispatch.finalFrame;
+    thinkParser.flush();
 
     const totalMs = Date.now() - startedAt;
     const ttft = tracker.firstTokenAt > 0 ? tracker.firstTokenAt - startedAt : null;
     const stats = finalFrame ? summarizeFinalFrame(finalFrame) : null;
 
-    const persistedParts: unknown[] = [...toolParts, { type: 'text', text: accumulated }];
-    repo.updateMessageParts(msgId, JSON.stringify(persistedParts));
+    repo.updateMessageParts(msgId, JSON.stringify(
+      ThinkParser.composeAssistantParts(toolParts, reasoning, accumulated),
+    ));
     const telemetry = {
       tokens_in: stats?.tokens_in ?? null,
       tokens_out: stats?.tokens_out ?? null,
@@ -198,9 +215,11 @@ async function runStream(args: RunStreamArgs): Promise<void> {
     emitChatEvent({ type: 'chat:done', data: { msgId, stats: telemetry } });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (accumulated.length > 0 || toolParts.length > 0) {
-      const persistedParts: unknown[] = [...toolParts, { type: 'text', text: accumulated }];
-      repo.updateMessageParts(msgId, JSON.stringify(persistedParts));
+    thinkParser.flush();
+    if (accumulated.length > 0 || reasoning.length > 0 || toolParts.length > 0) {
+      repo.updateMessageParts(msgId, JSON.stringify(
+        ThinkParser.composeAssistantParts(toolParts, reasoning, accumulated),
+      ));
     }
     logger.warn('chat stream failed', { msgId, error: message });
     emitChatEvent({ type: 'chat:error', data: { msgId, error: message } });
