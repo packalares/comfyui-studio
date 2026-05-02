@@ -96,4 +96,77 @@ router.delete('/settings/pexels-api-key', (_req: Request, res: Response) => {
   res.json({ configured: false });
 });
 
+// ---- Chat / LLM (Ollama) settings ----
+//
+// Returned as plain values — these aren't secrets, they're addresses /
+// preferences for the local LLM backend. The url has a baked-in default
+// (`http://localhost:11434`) so /api/system + GET here always render
+// something sensible even on a brand-new install.
+
+router.get('/settings/chat', (_req: Request, res: Response) => {
+  res.json({
+    ollamaUrl: settings.getOllamaUrl(),
+    defaultModel: settings.getChatDefaultModel() ?? '',
+    keepAlive: settings.getChatKeepAlive(),
+  });
+});
+
+// Probe an Ollama URL without persisting it — used by the Settings Chat card
+// to validate the user's input before saving. We hit `/api/tags` because it's
+// the cheapest endpoint Ollama exposes (just lists installed models).
+router.post('/settings/chat/probe', async (req: Request, res: Response) => {
+  const body = req.body as { ollamaUrl?: unknown };
+  const raw = typeof body.ollamaUrl === 'string' ? body.ollamaUrl.trim() : '';
+  if (!raw) { res.status(400).json({ ok: false, error: 'ollamaUrl is required' }); return; }
+  // Strip a trailing slash so we don't end up with `//api/tags`.
+  const url = raw.replace(/\/+$/, '');
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 4000);
+  try {
+    const r = await fetch(`${url}/api/tags`, { signal: ctrl.signal });
+    if (!r.ok) {
+      res.json({ ok: false, error: `upstream ${r.status} ${r.statusText}` });
+      return;
+    }
+    const payload = await r.json() as { models?: unknown };
+    const count = Array.isArray(payload?.models) ? payload.models.length : 0;
+    res.json({ ok: true, modelCount: count });
+  } catch (err) {
+    res.json({
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
+router.put('/settings/chat', (req: Request, res: Response) => {
+  const body = req.body as {
+    ollamaUrl?: unknown;
+    defaultModel?: unknown;
+    keepAlive?: unknown;
+  };
+  if (typeof body.ollamaUrl === 'string') {
+    const trimmed = body.ollamaUrl.trim();
+    if (trimmed.length === 0) settings.clearOllamaUrl();
+    else settings.setOllamaUrl(trimmed);
+  }
+  if (typeof body.defaultModel === 'string') {
+    const trimmed = body.defaultModel.trim();
+    if (trimmed.length === 0) settings.clearChatDefaultModel();
+    else settings.setChatDefaultModel(trimmed);
+  }
+  if (typeof body.keepAlive === 'string') {
+    const trimmed = body.keepAlive.trim();
+    if (trimmed.length === 0) settings.clearChatKeepAlive();
+    else settings.setChatKeepAlive(trimmed);
+  }
+  res.json({
+    ollamaUrl: settings.getOllamaUrl(),
+    defaultModel: settings.getChatDefaultModel() ?? '',
+    keepAlive: settings.getChatKeepAlive(),
+  });
+});
+
 export default router;

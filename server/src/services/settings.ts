@@ -11,7 +11,24 @@ interface Settings {
   pexelsApiKey?: string;
   /** GitHub PAT used for github-release downloads + (already-existing) GitHub API auth. */
   githubToken?: string;
+  /** Base URL of the local Ollama (or other OpenAI-compatible) LLM backend. */
+  ollamaUrl?: string;
+  /** Default chat model id (e.g. `llama3.3:70b-instruct-q4_K_M`). */
+  chatDefaultModel?: string;
+  /** Default Ollama keep_alive value (e.g. `5m`, `0` to unload immediately). */
+  chatKeepAlive?: string;
+  /** Base URL of a SearXNG instance with JSON output enabled. */
+  searxngUrl?: string;
+  /** Base URL of a RAGFlow instance (e.g. `https://ragflow.example.com`). */
+  ragflowUrl?: string;
+  /** RAGFlow API key — sent as `Authorization: Bearer <key>` on every call. */
+  ragflowApiKey?: string;
+  /** Template name used when the chat `generate_image` tool runs without an explicit template. */
+  defaultImageTemplate?: string;
 }
+
+const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
+const DEFAULT_CHAT_KEEP_ALIVE = '5m';
 
 let cache: Settings | null = null;
 
@@ -135,3 +152,58 @@ export function clearGithubToken(): void {
   const { githubToken: _removed, ...rest } = settings;
   save(rest);
 }
+
+export function getOllamaUrl(): string {
+  const v = load().ollamaUrl;
+  if (typeof v === 'string' && v.trim().length > 0) return v.trim().replace(/\/+$/, '');
+  return DEFAULT_OLLAMA_URL;
+}
+
+export function setOllamaUrl(url: string): void {
+  const settings = load();
+  save({ ...settings, ollamaUrl: url });
+}
+
+export function clearOllamaUrl(): void {
+  const settings = load();
+  const { ollamaUrl: _removed, ...rest } = settings;
+  save(rest);
+}
+
+export function getChatDefaultModel(): string | undefined {
+  const v = load().chatDefaultModel;
+  return typeof v === 'string' && v.trim().length > 0 ? v.trim() : undefined;
+}
+
+export function setChatDefaultModel(model: string): void {
+  const settings = load();
+  save({ ...settings, chatDefaultModel: model });
+}
+
+export function clearChatDefaultModel(): void {
+  const settings = load();
+  const { chatDefaultModel: _removed, ...rest } = settings;
+  save(rest);
+}
+
+export function getChatKeepAlive(): string {
+  const v = load().chatKeepAlive;
+  return typeof v === 'string' && v.trim().length > 0 ? v.trim() : DEFAULT_CHAT_KEEP_ALIVE;
+}
+
+export function setChatKeepAlive(value: string): void {
+  const settings = load();
+  save({ ...settings, chatKeepAlive: value });
+}
+
+export function clearChatKeepAlive(): void {
+  const settings = load();
+  const { chatKeepAlive: _removed, ...rest } = settings;
+  save(rest);
+}
+
+// Internal accessors used by `settings.tools.ts` so the chat-tools fields share
+// the same in-memory cache + atomic-write machinery without re-implementing it.
+export function _loadInternal(): Settings { return load(); }
+export function _saveInternal(next: Settings): void { save(next); }
+export type SettingsInternal = Settings;

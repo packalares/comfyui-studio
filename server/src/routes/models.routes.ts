@@ -35,6 +35,7 @@ import {
 } from '../services/models/downloadAllowlist.js';
 import { parsePageQuery, paginate } from '../lib/pagination.js';
 import { prepopulateCatalog, type DownloadCustomMeta } from './models.prepopulate.js';
+import { markDownloadFailed } from '../services/catalog.js';
 
 // Re-export for tests and backward-compat callers.
 export { hostIsPrivate };
@@ -198,12 +199,24 @@ const handleDownloadCustom: RequestHandler = async (req: Request, res: Response)
       civitaiToken: civitaiToken || settings.getCivitaiToken(),
       githubToken: githubToken || settings.getGithubToken(),
     };
-    const out = await models.downloadCustom(hfUrl, modelDir, tokens, resolvedFilename);
-    // Populate AFTER the download service returns so `downloading: true` never
-    // lands on a row whose task didn't actually start.
+    // Prepopulate FIRST so the catalog row exists before the async download
+    // can fire `model:installed`. Tiny files (a few MB over fast networks)
+    // can finish in &lt;100ms and the legacy "populate after" order leaked rows
+    // stuck at `downloading: true` because the completion event hit a missing
+    // row and silently no-op'd. On sync validation failure below, we roll
+    // back via `markDownloadFailed`.
     if (resolvedFilename) prepopulateCatalog(resolvedFilename, modelDir, hfUrl, meta, modelName);
-    trackDownload(out.taskId, { modelName: out.fileName, filename: out.fileName });
-    res.json({ success: true, taskId: out.taskId, message: `Starting download: ${out.fileName} -> ${out.saveDir}` });
+    try {
+      const out = await models.downloadCustom(hfUrl, modelDir, tokens, resolvedFilename);
+      trackDownload(out.taskId, { modelName: out.fileName, filename: out.fileName });
+      res.json({ success: true, taskId: out.taskId, message: `Starting download: ${out.fileName} -> ${out.saveDir}` });
+    } catch (err) {
+      if (resolvedFilename) {
+        try { markDownloadFailed(resolvedFilename, err instanceof Error ? err.message : String(err)); }
+        catch { /* best effort cleanup */ }
+      }
+      throw err;
+    }
   } catch (err) { sendError(res, err, 500, 'Download failed'); }
 };
 

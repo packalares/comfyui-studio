@@ -14,6 +14,7 @@ import {
   wireModelIndexEventHandlers,
 } from './services/models/modelIndex.js';
 import { setDownloadBroadcaster, getAllDownloads } from './services/downloads.js';
+import { setChatBroadcaster } from './services/chat/broadcaster.js';
 import { sweepStaleUploads } from './routes/upload.routes.js';
 import { getStatus as getLocalComfyUIStatus } from './services/comfyui/status.service.js';
 import { startComfyUIProxy } from './services/comfyui/proxy.service.js';
@@ -130,6 +131,8 @@ setDownloadBroadcaster(broadcast);
 // Gallery mutations (delete, bulk-delete) broadcast a `gallery` message so
 // other tabs update their total + recents without polling.
 galleryService.setGalleryBroadcaster(broadcast);
+// Chat streaming + Ollama model-pull progress flow through this same broadcaster.
+setChatBroadcaster(broadcast);
 
 // ---- Queue & gallery broadcasts ----
 // Triggered by ComfyUI WS events. Debounced so bursts of messages (e.g. per-node

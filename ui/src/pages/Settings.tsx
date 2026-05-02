@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import PageSubbar from '../components/PageSubbar';
+import ToolsCard from '../components/settings/ToolsCard';
 import {
   Copy,
   Check,
@@ -19,6 +20,7 @@ import {
   Image as ImageIcon,
   Trash2,
   Shield,
+  MessageSquare,
   // Category icons for Launch Options sections
   Folder,
   Rocket,
@@ -728,6 +730,174 @@ function PexelsApiKeyCard() {
           <button onClick={handleSave} disabled={saveDisabled} className="btn-primary">
             {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
             {saved ? 'Saved' : configured ? 'Replace' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* =================================================================
+   1f. Chat / LLM (Ollama) Card
+   ================================================================= */
+
+function ChatLlmCard() {
+  const [ollamaUrl, setOllamaUrl] = useState('');
+  const [savedOllamaUrl, setSavedOllamaUrl] = useState('');
+  const [defaultModel, setDefaultModel] = useState('');
+  const [keepAlive, setKeepAlive] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  // Holds a failed-probe result so we can offer a "Save anyway" escape hatch
+  // without losing the typed URL between clicks.
+  const [probeFailedUrl, setProbeFailedUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.getChatSettings()
+      .then(s => {
+        setOllamaUrl(s.ollamaUrl);
+        setSavedOllamaUrl(s.ollamaUrl);
+        setDefaultModel(s.defaultModel);
+        setKeepAlive(s.keepAlive);
+      })
+      .catch(() => { /* fall back to placeholders */ })
+      .finally(() => setLoaded(true));
+  }, []);
+
+  const persist = async () => {
+    const next = await api.setChatSettings({
+      ollamaUrl: ollamaUrl.trim(),
+      defaultModel: defaultModel.trim(),
+      keepAlive: keepAlive.trim(),
+    });
+    setOllamaUrl(next.ollamaUrl);
+    setSavedOllamaUrl(next.ollamaUrl);
+    setDefaultModel(next.defaultModel);
+    setKeepAlive(next.keepAlive);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleSave = async () => {
+    setBusy(true);
+    setProbeFailedUrl(null);
+    try {
+      const trimmed = ollamaUrl.trim();
+      // Only probe when the URL changed — keep model / keepAlive saves cheap.
+      const urlChanged = trimmed !== savedOllamaUrl.trim();
+      if (urlChanged && trimmed) {
+        const probe = await api.probeChatOllama(trimmed);
+        if (!probe.ok) {
+          toast.error(`Could not reach Ollama at ${trimmed}`, {
+            description: probe.error,
+          });
+          setProbeFailedUrl(trimmed);
+          return;
+        }
+        toast.success(`Connected, found ${probe.modelCount} models`);
+      }
+      await persist();
+    } catch (err) {
+      toast.error('Failed to save chat settings', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSaveAnyway = async () => {
+    setBusy(true);
+    try {
+      await persist();
+      setProbeFailedUrl(null);
+    } catch (err) {
+      toast.error('Failed to save chat settings', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="panel">
+      <CardHeader
+        icon={MessageSquare}
+        title="Chat / LLM"
+        description="Local LLM backend used by the Chat page (Ollama or any OpenAI-compatible server)."
+      />
+      <div className="space-y-3 panel-body">
+        <div>
+          <label className="field-label">Ollama URL</label>
+          <div className="field-wrap">
+            <input
+              type="text"
+              value={ollamaUrl}
+              onChange={e => setOllamaUrl(e.target.value)}
+              className="field-input font-mono"
+              placeholder="http://localhost:11434"
+              spellCheck={false}
+              disabled={!loaded}
+            />
+          </div>
+          <p className="field-helper">
+            Base URL of your local Ollama server. Studio appends <code>/v1</code> for chat
+            completions and <code>/api</code> for tag/pull/delete calls.
+          </p>
+        </div>
+        <div>
+          <label className="field-label">Default model</label>
+          <div className="field-wrap">
+            <input
+              type="text"
+              value={defaultModel}
+              onChange={e => setDefaultModel(e.target.value)}
+              className="field-input font-mono"
+              placeholder="llama3.3:70b-instruct-q4_K_M"
+              spellCheck={false}
+              disabled={!loaded}
+            />
+          </div>
+          <p className="field-helper">
+            Pre-selected on a fresh chat. Pull this model first via the Chat → Models page.
+          </p>
+        </div>
+        <div>
+          <label className="field-label">keep_alive</label>
+          <div className="field-wrap">
+            <input
+              type="text"
+              value={keepAlive}
+              onChange={e => setKeepAlive(e.target.value)}
+              className="field-input font-mono"
+              placeholder="5m"
+              spellCheck={false}
+              disabled={!loaded}
+            />
+          </div>
+          <p className="field-helper">
+            How long Ollama keeps the model in VRAM after a request. <code>5m</code>,
+            <code>1h</code>, or <code>0</code> to unload immediately.
+          </p>
+        </div>
+      </div>
+      <div className="panel-footer">
+        <p className="panel-footer-note">
+          {probeFailedUrl
+            ? 'Probe failed - persist the URL anyway, or fix it and retry.'
+            : 'URL is probed before saving. Changes are applied immediately.'}
+        </p>
+        <div className="btn-group">
+          {probeFailedUrl && probeFailedUrl === ollamaUrl.trim() && (
+            <button onClick={handleSaveAnyway} disabled={busy} className="btn-secondary">
+              Save anyway
+            </button>
+          )}
+          <button onClick={handleSave} disabled={busy || !loaded} className="btn-primary">
+            {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
+            {saved ? 'Saved' : 'Save'}
           </button>
         </div>
       </div>
@@ -1590,6 +1760,10 @@ export default function Settings() {
           <GithubTokenCard />
           <PexelsApiKeyCard />
         </div>
+        {/* Chat / LLM full row */}
+        <ChatLlmCard />
+        {/* Chat tools / integrations — sits BELOW the Chat / LLM card per phase 2 spec */}
+        <ToolsCard />
         {/* Storage + Network row */}
         <div className="grid gap-3 md:grid-cols-2">
           <StorageCard />

@@ -967,4 +967,221 @@ export const api = {
   /** DELETE /thumbnail/cache — admin wipe of the on-disk thumbnail cache. */
   clearThumbnailCache: () =>
     fetchJson<{ deleted: number }>('/thumbnail/cache', { method: 'DELETE' }),
+
+  // ---- Chat / LLM (Ollama) ----
+
+  /** GET /settings/chat — current Ollama URL + default model + keep_alive. */
+  getChatSettings: () =>
+    fetchJson<{ ollamaUrl: string; defaultModel: string; keepAlive: string }>(
+      '/settings/chat',
+    ),
+
+  /** PUT /settings/chat — save any subset of the chat config fields. */
+  setChatSettings: (patch: Partial<{ ollamaUrl: string; defaultModel: string; keepAlive: string }>) =>
+    fetchJson<{ ollamaUrl: string; defaultModel: string; keepAlive: string }>(
+      '/settings/chat',
+      { method: 'PUT', body: JSON.stringify(patch) },
+    ),
+
+  /** POST /settings/chat/probe — validate an Ollama URL without saving it. */
+  probeChatOllama: (ollamaUrl: string) =>
+    fetchJson<{ ok: true; modelCount: number } | { ok: false; error: string }>(
+      '/settings/chat/probe',
+      { method: 'POST', body: JSON.stringify({ ollamaUrl }) },
+    ),
+
+  chat: {
+    /** Kick off a streaming chat completion. Returns conversationId + msgId. */
+    start: (payload: {
+      conversationId?: string;
+      model?: string;
+      messages: ChatUIMessage[];
+      systemPrompt?: string | null;
+    }) =>
+      fetchJson<{ conversationId: string; msgId: string }>('/chat/start', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+
+    stop: (msgId: string) =>
+      fetchJson<{ aborted: boolean }>(
+        `/chat/stop/${encodeURIComponent(msgId)}`,
+        { method: 'POST' },
+      ),
+
+    listConversations: () =>
+      fetchJson<{ items: ChatConversation[] }>('/chat/conversations'),
+
+    getConversation: (id: string) =>
+      fetchJson<ChatConversation>(`/chat/conversations/${encodeURIComponent(id)}`),
+
+    getMessages: (id: string) =>
+      fetchJson<{ items: ChatMessage[] }>(
+        `/chat/conversations/${encodeURIComponent(id)}/messages`,
+      ),
+
+    deleteConversation: (id: string) =>
+      fetchJson<{ deleted: boolean; id: string }>(
+        `/chat/conversations/${encodeURIComponent(id)}`,
+        { method: 'DELETE' },
+      ),
+
+    renameConversation: (
+      id: string,
+      patch: Partial<{ title: string; model: string; system_prompt: string | null }>,
+    ) =>
+      fetchJson<ChatConversation>(
+        `/chat/conversations/${encodeURIComponent(id)}`,
+        { method: 'PATCH', body: JSON.stringify(patch) },
+      ),
+
+    listInstalledModels: () =>
+      fetchJson<{ models?: OllamaInstalledModel[] }>('/chat/models'),
+
+    getModelInfo: (name: string) =>
+      fetchJson<Record<string, unknown>>(
+        `/chat/models/info/${encodeURIComponent(name)}`,
+      ),
+
+    pullModel: (name: string) =>
+      fetchJson<{ taskId: string; alreadyActive: boolean }>(
+        '/chat/models/pull',
+        { method: 'POST', body: JSON.stringify({ name }) },
+      ),
+
+    cancelPull: (name: string) =>
+      fetchJson<{ cancelled: boolean }>(
+        '/chat/models/pull/cancel',
+        { method: 'POST', body: JSON.stringify({ name }) },
+      ),
+
+    deleteModel: (name: string) =>
+      fetchJson<{ deleted: boolean }>(
+        `/chat/models/${encodeURIComponent(name)}`,
+        { method: 'DELETE' },
+      ),
+
+    listLibrary: () =>
+      fetchJson<{ items: OllamaLibraryModel[] }>('/chat/models/library'),
+
+    searchHf: (q: string) =>
+      fetchJson<{ items: HfModelSummary[] }>(
+        `/chat/models/search-hf?q=${encodeURIComponent(q)}`,
+      ),
+  },
 };
+
+// ---- Chat-related shared types ----
+
+export interface ChatUIMessagePart {
+  type: string;
+  text?: string;
+  // `file` parts: image attachments. `mediaType` matches Ollama's `images`
+  // contract once the data: prefix is stripped server-side.
+  mediaType?: string;
+  url?: string;
+  // `file` / `file-meta` parts carry attachment metadata so the persisted
+  // user message can re-render its chips after a refetch.
+  name?: string;
+  size?: number;
+}
+
+export interface ChatUIMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  parts: ChatUIMessagePart[];
+}
+
+export interface ChatConversation {
+  id: string;
+  title: string;
+  model: string;
+  system_prompt: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  role: 'user' | 'assistant' | 'system';
+  parts: ChatUIMessagePart[];
+  tokens_in: number | null;
+  tokens_out: number | null;
+  ms_to_first_token: number | null;
+  ms_total: number | null;
+  tokens_per_sec: number | null;
+  model: string | null;
+  created_at: number;
+}
+
+// ---- Chat / tools (integrations) ----
+// Phase 2 chat-tool framework: each integration is configured server-side and
+// only exposed to the LLM when its required URL/key are present. Empty means
+// disabled — the chat path simply hides the tool from the model's tool set.
+
+export interface ChatToolsSettings {
+  searxngUrl: string;
+  ragflowUrl: string;
+  ragflowApiKeyConfigured: boolean;
+  defaultImageTemplate: string;
+}
+
+export interface ChatToolsSettingsInput {
+  searxngUrl?: string;
+  ragflowUrl?: string;
+  ragflowApiKey?: string;
+  defaultImageTemplate?: string;
+}
+
+export type SearxngProbeResult =
+  | { ok: true; resultCount: number }
+  | { ok: false; error: string };
+
+// Exposed as a sibling of `api.chat.*` rather than mutating the existing
+// literal type, so the original `api.chat` shape stays intact (per the phase-2
+// constraint that says "don't touch existing api.chat.* functions"). The
+// runtime cast attaches the same handle on `api.chat.tools` for callers that
+// already use that path; consumers can pick either form.
+export const apiChatTools = {
+  getSettings: () => fetchJson<ChatToolsSettings>('/settings/tools'),
+  setSettings: (body: ChatToolsSettingsInput) =>
+    fetchJson<ChatToolsSettings>('/settings/tools', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  testSearxng: (url: string) =>
+    fetchJson<SearxngProbeResult>(
+      `/settings/tools/probe-searxng?url=${encodeURIComponent(url)}`,
+    ),
+};
+(api.chat as typeof api.chat & { tools: typeof apiChatTools }).tools = apiChatTools;
+
+
+export interface OllamaInstalledModel {
+  name: string;
+  modified_at?: string;
+  size?: number;
+  digest?: string;
+  details?: Record<string, unknown>;
+}
+
+export interface OllamaLibraryModel {
+  name: string;
+  title: string;
+  description: string;
+  pulls: string;
+  tagCount: string;
+  updated: string;
+  sizes: string[];
+  capabilities: string[];
+}
+
+export interface HfModelSummary {
+  id: string;
+  downloads: number | null;
+  likes: number | null;
+  lastModified: string | null;
+  pipeline_tag: string | null;
+  tags: string[];
+}

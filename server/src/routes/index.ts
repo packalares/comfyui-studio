@@ -7,6 +7,7 @@
 import { Router } from 'express';
 import health from './health.routes.js';
 import settings from './settings.routes.js';
+import settingsTools from './settings.tools.routes.js';
 import catalog from './catalog.routes.js';
 import system from './system.routes.js';
 import view from './view.routes.js';
@@ -30,11 +31,14 @@ import civitai from './civitai.routes.js';
 import systemLauncher from './systemLauncher.routes.js';
 import imgProxy from './imgProxy.routes.js';
 import thumbnail from './thumbnail.routes.js';
+import chat from './chat.routes.js';
+import chatModels from './chat.models.routes.js';
 
 const router = Router();
 
 router.use(health);
 router.use(settings);
+router.use(settingsTools);    // /settings/tools + /settings/tools/probe-searxng
 router.use(catalog);
 router.use(system);
 router.use(view);
@@ -60,5 +64,7 @@ router.use(civitai);          // local /civitai/* + /launcher/civitai/* aliases
 router.use(systemLauncher);   // local /system/* + /launcher/system/* aliases
 router.use(imgProxy);         // /img + /launcher/img — image proxy + md5 disk cache (deprecated, kept as adapter)
 router.use(thumbnail);        // /thumbnail + /launcher/thumbnail — unified thumbnail service
+router.use(chat);             // /chat/conversations/* + /chat/start + /chat/stop
+router.use(chatModels);       // /chat/models/* (installed, library, HF, pull, delete)
 
 export default router;

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Compass, Wand2, Image, Box, Package, Settings, Wifi, WifiOff, Menu, X, Play, Loader2, ExternalLink } from 'lucide-react';
+import { LayoutDashboard, Compass, Wand2, Image, Box, Package, Settings, Wifi, WifiOff, Menu, X, Play, Loader2, ExternalLink, MessageSquare } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { api } from '../services/comfyui';
 import ComfyUIActions from './ComfyUIActions';
@@ -17,6 +17,7 @@ const links = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/explore', label: 'Explore', icon: Compass },
   { to: '/studio', label: 'Studio', icon: Wand2 },
+  { to: '/chat', label: 'Chat', icon: MessageSquare },
   { to: '/gallery', label: 'Gallery', icon: Image },
   { to: '/models', label: 'Models', icon: Box },
   { to: '/plugins', label: 'Plugins', icon: Package },

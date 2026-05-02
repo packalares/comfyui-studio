@@ -12,6 +12,12 @@ import type {
 } from '../types';
 import { toast } from 'sonner';
 import { api } from '../services/comfyui';
+import { chatEvents } from '../services/chatEvents';
+import type {
+  ChatStartPayload, ChatChunkPayload, ChatDonePayload, ChatErrorPayload,
+  ChatStatusPayload, ChatTitlePayload, ChatToolPayload,
+  ModelPullProgressPayload, ModelPullDonePayload, ModelPullErrorPayload,
+} from '../services/chatEvents';
 import { SystemProvider, useSystem } from './SystemContext';
 import { CatalogProvider, useCatalog } from './CatalogContext';
 import { JobsProvider, useJobs, type LiveProgress } from './JobsContext';
@@ -352,6 +358,26 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
           } else if (msg.type === 'downloads-snapshot') {
             const list = msg.data as DownloadState[];
             _setDownloads(Object.fromEntries(list.map(d => [d.taskId, d])));
+          } else if (msg.type === 'chat:start') {
+            chatEvents.dispatchStart(msg.data as ChatStartPayload);
+          } else if (msg.type === 'chat:chunk') {
+            chatEvents.dispatchChunk(msg.data as ChatChunkPayload);
+          } else if (msg.type === 'chat:done') {
+            chatEvents.dispatchDone(msg.data as ChatDonePayload);
+          } else if (msg.type === 'chat:error') {
+            chatEvents.dispatchError(msg.data as ChatErrorPayload);
+          } else if (msg.type === 'chat:status') {
+            chatEvents.dispatchStatus(msg.data as ChatStatusPayload);
+          } else if (msg.type === 'chat:title') {
+            chatEvents.dispatchTitle(msg.data as ChatTitlePayload);
+          } else if (msg.type === 'chat:tool') {
+            chatEvents.dispatchTool(msg.data as ChatToolPayload);
+          } else if (msg.type === 'model:pull:progress') {
+            chatEvents.dispatchPullProgress(msg.data as ModelPullProgressPayload);
+          } else if (msg.type === 'model:pull:done') {
+            chatEvents.dispatchPullDone(msg.data as ModelPullDonePayload);
+          } else if (msg.type === 'model:pull:error') {
+            chatEvents.dispatchPullError(msg.data as ModelPullErrorPayload);
           } else if (msg.type === 'crystools.monitor') {
             const d = msg.data as {
               cpu_utilization?: number;

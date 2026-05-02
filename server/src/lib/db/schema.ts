@@ -15,7 +15,7 @@
 // `author`, `installed`, `category`, `model_filename`, `plugin_id`). Anything
 // else stays unindexed or lives inside `raw_json` / `workflow_json`.
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -119,4 +119,29 @@ CREATE TABLE IF NOT EXISTS model_files (
 );
 CREATE INDEX IF NOT EXISTS idx_model_files_filename ON model_files(filename);
 CREATE INDEX IF NOT EXISTS idx_model_files_topdir_filename ON model_files(top_dir, filename);
+
+CREATE TABLE IF NOT EXISTS conversations (
+  id            TEXT PRIMARY KEY,
+  title         TEXT NOT NULL,
+  model         TEXT NOT NULL,
+  system_prompt TEXT,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id                  TEXT PRIMARY KEY,
+  conversation_id     TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  role                TEXT NOT NULL,
+  parts               TEXT NOT NULL,
+  tokens_in           INTEGER,
+  tokens_out          INTEGER,
+  ms_to_first_token   INTEGER,
+  ms_total            INTEGER,
+  tokens_per_sec      REAL,
+  model               TEXT,
+  created_at          INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_conv ON chat_messages(conversation_id, created_at);
 `;

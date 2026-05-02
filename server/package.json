@@ -11,7 +11,9 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "^2.0.45",
     "@types/multer": "^2.1.0",
+    "ai": "^6.0.174",
     "better-sqlite3": "^11.10.0",
     "cors": "^2.8.5",
     "express": "^4.21.1",
@@ -19,7 +21,8 @@
     "jszip": "^3.10.1",
     "multer": "^2.1.1",
     "sharp": "^0.34.5",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "zod": "^4.4.2"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
