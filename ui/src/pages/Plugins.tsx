@@ -9,6 +9,7 @@ import {
   Boxes,
 } from 'lucide-react';
 import PageSubbar from '../components/PageSubbar';
+import { Card } from '../components/ui/card';
 
 interface NavItem {
   to: string;
@@ -109,7 +110,7 @@ export default function Plugins() {
 
           {/* Desktop sidebar */}
           <aside className="hidden md:block w-[220px] shrink-0">
-            <nav className="panel sticky top-28 p-2 space-y-3">
+            <Card asChild className="sticky top-28 p-2 space-y-3"><nav>
               {GROUPS.map((group) => {
                 const GroupIcon = group.icon;
                 return (
@@ -142,7 +143,7 @@ export default function Plugins() {
                   </div>
                 );
               })}
-            </nav>
+            </nav></Card>
           </aside>
 
           {/* Content */}

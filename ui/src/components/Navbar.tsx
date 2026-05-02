@@ -5,6 +5,7 @@ import { useApp } from '../context/AppContext';
 import { api } from '../services/comfyui';
 import ComfyUIActions from './ComfyUIActions';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
+import { Button } from './ui/button';
 
 function editorHref(): string {
   const { protocol, host } = window.location;
@@ -164,13 +165,15 @@ export default function Navbar() {
               <ComfyUIActions />
             </div>
             {/* Mobile: hamburger button */}
-            <button
+            <Button
               onClick={() => setMenuOpen(o => !o)}
-              className="md:hidden btn-icon"
+              variant="ghost"
+              size="icon"
+              className="md:hidden"
               aria-label="Menu"
             >
               {menuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </button>
+            </Button>
           </div>
         </div>
       </div>

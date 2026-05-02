@@ -3,6 +3,8 @@ import { Wrench, Eye, EyeOff, Save, Check, Trash2, Globe, Database, Image as Ima
 import { toast } from 'sonner';
 import { api, apiChatTools } from '../../services/comfyui';
 import type { Template } from '../../types';
+import { Button } from '../ui/button';
+import { Card, CardContent, CardFooter, CardHeader } from '../ui/card';
 
 // Settings card for chat-tool integrations: SearXNG, RAGFlow, default image
 // template. Sits BELOW the existing Chat / LLM card; never modifies it.
@@ -117,20 +119,20 @@ export default function ToolsCard() {
   };
 
   return (
-    <section className="panel">
-      <div className="panel-header-row">
+    <Card>
+      <CardHeader className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-2">
           <Wrench className="w-3.5 h-3.5 text-slate-400 mt-0.5" />
           <div>
-            <h2 className="panel-header-title leading-tight">Tools / Integrations</h2>
-            <p className="panel-header-desc">
+            <h2 className="text-sm font-semibold text-slate-900 leading-tight">Tools / Integrations</h2>
+            <p className="mt-0.5 text-[11px] text-slate-400">
               Optional tools the chat LLM can call. Each is disabled until its
               URL / key is set.
             </p>
           </div>
         </div>
-      </div>
-      <div className="space-y-3 panel-body">
+      </CardHeader>
+      <CardContent className="space-y-3">
         <div>
           <label className="field-label flex items-center gap-1">
             <Globe className="h-3.5 w-3.5 text-slate-400" /> SearXNG URL
@@ -145,14 +147,15 @@ export default function ToolsCard() {
               spellCheck={false}
               disabled={!loaded}
             />
-            <button
+            <Button
               type="button"
+              variant="secondary"
+              size="sm"
               onClick={handleTestSearxng}
               disabled={!loaded || state.searxngUrl.trim().length === 0}
-              className="btn-secondary btn-sm"
             >
               Test
-            </button>
+            </Button>
           </div>
           <p className="field-helper">
             Enables the <code>web_search</code> tool. Requires
@@ -233,26 +236,27 @@ export default function ToolsCard() {
             answer; the prompt arg lands on the template's primary text input.
           </p>
         </div>
-      </div>
-      <div className="panel-footer">
-        <p className="panel-footer-note">Changes apply immediately to new chats.</p>
-        <div className="btn-group">
+      </CardContent>
+      <CardFooter>
+        <p className="text-xs text-slate-500">Changes apply immediately to new chats.</p>
+        <div className="inline-flex gap-2">
           {state.ragflowApiKeyConfigured && (
-            <button
+            <Button
               onClick={handleClearKey}
               disabled={busy}
-              className="btn-secondary !text-red-600 hover:!bg-red-50"
+              variant="secondary"
+              className="!text-red-600 hover:!bg-red-50"
             >
               <Trash2 className="h-3.5 w-3.5" />
               Clear RAGFlow key
-            </button>
+            </Button>
           )}
-          <button onClick={handleSave} disabled={busy || !loaded} className="btn-primary">
+          <Button onClick={handleSave} disabled={busy || !loaded}>
             {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
             {saved ? 'Saved' : 'Save'}
-          </button>
+          </Button>
         </div>
-      </div>
-    </section>
+      </CardFooter>
+    </Card>
   );
 }

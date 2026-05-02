@@ -19,6 +19,8 @@ import {
 import { useApp } from '../context/AppContext';
 import PageSubbar from '../components/PageSubbar';
 import NetworkWidget from '../components/NetworkWidget';
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
 
 type ComfyUIProcessStatus = 'running' | 'stopped' | 'starting' | 'unknown';
 
@@ -96,28 +98,29 @@ export default function Dashboard() {
       <div className="page-container space-y-4">
         {/* Not Connected Banner */}
         {!connected && processStatus !== 'stopped' && processStatus !== 'unknown' && (
-          <div className="panel px-4 py-3 border-amber-200 bg-amber-50">
+          <Card className="px-4 py-3 border-amber-200 bg-amber-50">
             <div className="flex items-start gap-3">
               <WifiOff className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <h3 className="text-sm font-semibold text-amber-800">Not Connected</h3>
                 <p className="text-xs text-amber-700 mt-0.5">ComfyUI is not reachable.</p>
               </div>
-              <button
+              <Button
                 onClick={() => navigate('/settings')}
-                className="btn-secondary !border-amber-200 !text-amber-800 hover:!bg-amber-100"
+                variant="secondary"
+                className="!border-amber-200 !text-amber-800 hover:!bg-amber-100"
               >
                 <Settings className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Check Settings</span>
-              </button>
+              </Button>
             </div>
-          </div>
+          </Card>
         )}
 
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
           {/* GPU */}
-          <div className="panel p-4">
+          <Card className="p-4">
             <div className="flex items-center gap-2 mb-3">
               <div className="p-1.5 rounded-md bg-blue-50">
                 <Cpu className="w-3.5 h-3.5 text-blue-600" />
@@ -150,10 +153,10 @@ export default function Dashboard() {
                 <span>{connected ? 'No GPU detected' : 'Not connected'}</span>
               </div>
             )}
-          </div>
+          </Card>
 
           {/* Queue + Gallery combined */}
-          <div className="panel p-4">
+          <Card className="p-4">
             <div className="flex items-center gap-2 mb-3">
               <div className="p-1.5 rounded-md bg-teal-50">
                 <Layers className="w-3.5 h-3.5 text-teal-600" />
@@ -180,10 +183,10 @@ export default function Dashboard() {
                 <p className="text-[10px] uppercase tracking-wide text-slate-500 mt-1">Gallery</p>
               </div>
             </div>
-          </div>
+          </Card>
 
           {/* System */}
-          <div className="panel p-4">
+          <Card className="p-4">
             <div className="flex items-center gap-2 mb-3">
               <div className="p-1.5 rounded-md bg-slate-100">
                 <Cog className="w-3.5 h-3.5 text-slate-600" />
@@ -204,7 +207,7 @@ export default function Dashboard() {
             ) : (
               <p className="text-xs text-slate-500">Not connected</p>
             )}
-          </div>
+          </Card>
 
           {/* Network */}
           <NetworkWidget />
@@ -214,42 +217,51 @@ export default function Dashboard() {
         <div>
           <label className="field-label mb-2 block">Quick Actions</label>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <button
-              onClick={() => navigate('/studio/flux_text_to_image')}
-              className="panel p-4 flex items-center gap-3 hover:border-teal-300 transition-colors text-left"
-            >
-              <div className="p-2 bg-teal-50 rounded-lg">
-                <Image className="w-4 h-4 text-teal-600" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-slate-900">Generate Image</p>
-                <p className="text-xs text-slate-500">Text to image with Flux</p>
-              </div>
-            </button>
-            <button
-              onClick={() => navigate('/studio/wan_image_to_video')}
-              className="panel p-4 flex items-center gap-3 hover:border-purple-300 transition-colors text-left"
-            >
-              <div className="p-2 bg-purple-50 rounded-lg">
-                <Video className="w-4 h-4 text-purple-600" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-slate-900">Generate Video</p>
-                <p className="text-xs text-slate-500">Image to video with Wan2.2</p>
-              </div>
-            </button>
-            <button
-              onClick={() => navigate('/studio/ace_step_music')}
-              className="panel p-4 flex items-center gap-3 hover:border-orange-300 transition-colors text-left"
-            >
-              <div className="p-2 bg-orange-50 rounded-lg">
-                <Music className="w-4 h-4 text-orange-600" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-slate-900">Create Music</p>
-                <p className="text-xs text-slate-500">Generate with ACE-Step</p>
-              </div>
-            </button>
+            <Card asChild className="p-4 flex items-center gap-3 hover:border-teal-300 transition-colors cursor-pointer">
+              <button
+                type="button"
+                onClick={() => navigate('/studio/flux_text_to_image')}
+                className="text-left"
+              >
+                <div className="p-2 bg-teal-50 rounded-lg">
+                  <Image className="w-4 h-4 text-teal-600" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-900">Generate Image</p>
+                  <p className="text-xs text-slate-500">Text to image with Flux</p>
+                </div>
+              </button>
+            </Card>
+            <Card asChild className="p-4 flex items-center gap-3 hover:border-purple-300 transition-colors cursor-pointer">
+              <button
+                type="button"
+                onClick={() => navigate('/studio/wan_image_to_video')}
+                className="text-left"
+              >
+                <div className="p-2 bg-purple-50 rounded-lg">
+                  <Video className="w-4 h-4 text-purple-600" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-900">Generate Video</p>
+                  <p className="text-xs text-slate-500">Image to video with Wan2.2</p>
+                </div>
+              </button>
+            </Card>
+            <Card asChild className="p-4 flex items-center gap-3 hover:border-orange-300 transition-colors cursor-pointer">
+              <button
+                type="button"
+                onClick={() => navigate('/studio/ace_step_music')}
+                className="text-left"
+              >
+                <div className="p-2 bg-orange-50 rounded-lg">
+                  <Music className="w-4 h-4 text-orange-600" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-900">Create Music</p>
+                  <p className="text-xs text-slate-500">Generate with ACE-Step</p>
+                </div>
+              </button>
+            </Card>
           </div>
         </div>
 

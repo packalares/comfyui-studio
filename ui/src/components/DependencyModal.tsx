@@ -11,6 +11,7 @@ import { api } from '../services/comfyui';
 import { useApp } from '../context/AppContext';
 import AppModal from './AppModal';
 import { Badge } from './ui/badge';
+import { Button } from './ui/button';
 
 // ---------------------------------------------------------------------------
 // Visual mapping (old -> new), so future edits stay consistent with
@@ -242,34 +243,33 @@ export default function DependencyModal({
                     return parts.length > 0 ? `${parts.join(' + ')} required` : 'Nothing missing';
                   })()}
           </div>
-          <div className="btn-group">
-            <button
+          <div className="inline-flex gap-2">
+            <Button
               type="button"
-              className="btn-secondary"
+              variant="secondary"
               onClick={onClose}
               disabled={isAnyActive}
             >
               <X className="w-3.5 h-3.5" />
               Close
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="btn-secondary"
+              variant="secondary"
               onClick={() => { onClose(); navigate('/models'); }}
             >
               <Box className="w-3.5 h-3.5" />
               Go to Models
-            </button>
+            </Button>
             {canStart && (
-              <button
+              <Button
                 type="button"
-                className="btn-primary"
                 onClick={handleDownloadAll}
                 disabled={starting || isAnyActive}
               >
                 {starting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
                 {starting ? 'Starting…' : (anyError ? 'Retry download' : 'Download all')}
-              </button>
+              </Button>
             )}
           </div>
         </>
@@ -303,9 +303,9 @@ export default function DependencyModal({
               </span>
             </h3>
             {templateName && missingPlugins.some((p) => p.repos.length > 0) && (
-              <button
+              <Button
                 type="button"
-                className="btn-secondary"
+                variant="secondary"
                 onClick={handleInstallAllPlugins}
                 disabled={installingPlugins}
               >
@@ -313,7 +313,7 @@ export default function DependencyModal({
                   ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   : <Download className="w-3.5 h-3.5" />}
                 {installingPlugins ? 'Queueing…' : 'Install all'}
-              </button>
+              </Button>
             )}
           </div>
           <ul className="space-y-2">

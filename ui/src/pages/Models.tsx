@@ -22,6 +22,8 @@ import { imgProxy } from '../lib/imgProxy';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Combobox, COMBOBOX_SEARCH_THRESHOLD } from '../components/ui/combobox';
 import { Checkbox } from '../components/ui/checkbox';
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -600,19 +602,20 @@ export default function Models() {
         description={subbarDescription}
         right={
           tab === 'models' ? (
-            <button
+            <Button
               onClick={() => setFiltersOpen(o => !o)}
-              className="btn-secondary lg:hidden"
+              variant="secondary"
+              className="lg:hidden"
               aria-label="Toggle filters"
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
               Filters
-            </button>
+            </Button>
           ) : null
         }
       />
       <div className="page-container">
-        <div className="panel">
+        <Card>
           <div className="flex flex-col lg:flex-row min-h-[calc(100vh-180px)] relative">
             {/* ===== Left sidebar (Models tab only) ===== */}
             <aside className={`${tab === 'models' ? '' : 'hidden'} ${filtersOpen ? 'block' : 'hidden'} lg:block w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 p-4 space-y-5 bg-white ${tab !== 'models' ? 'lg:hidden' : ''}`}>
@@ -768,17 +771,17 @@ export default function Models() {
                         </button>
                       )}
                     </div>
-                    <button
+                    <Button
                       type="button"
                       onClick={handleRescan}
                       disabled={rescanning}
-                      className="btn-secondary"
+                      variant="secondary"
                       aria-label="Rescan models on disk"
                       title="Rescan model files on disk"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${rescanning ? 'animate-spin' : ''}`} />
                       {rescanning ? 'Rescanning…' : 'Rescan'}
-                    </button>
+                    </Button>
                   </>
                 )}
                 <div
@@ -822,10 +825,10 @@ export default function Models() {
                     <strong>{missingInFilter}</strong> models required by{' '}
                     {templates.find(t => t.name === selectedWorkflow)?.title || selectedWorkflow} are not installed
                   </span>
-                  <button onClick={handleDownloadAllMissing} className="btn-primary">
+                  <Button onClick={handleDownloadAllMissing}>
                     <Download className="w-3.5 h-3.5" />
                     Download All Missing ({missingInFilter})
-                  </button>
+                  </Button>
                 </div>
               )}
 
@@ -836,7 +839,7 @@ export default function Models() {
                 // Skeleton grid during the initial fetch or while switching
                 // source. 6 rows × animate-pulse mirror the real ModelRow
                 // silhouette (32px thumb + two text lines).
-                <section className="panel">
+                <Card>
                   <div className="divide-y divide-slate-100">
                     {[0, 1, 2, 3, 4, 5].map((i) => (
                       <div key={`sk-${i}`} className="flex items-center gap-3 py-2.5 px-4">
@@ -849,9 +852,9 @@ export default function Models() {
                       </div>
                     ))}
                   </div>
-                </section>
+                </Card>
               ) : source === 'local' && filteredModels.length > 0 ? (
-                <section className="panel">
+                <Card>
                   <div className="divide-y divide-slate-100">
                     {filteredModels.map((model, i) => {
                       const isRequired = workflowRequired.has(model.filename) || workflowRequired.has(model.name);
@@ -873,9 +876,9 @@ export default function Models() {
                       );
                     })}
                   </div>
-                </section>
+                </Card>
               ) : source === 'civitai' && pageRows.length > 0 ? (
-                <section className="panel">
+                <Card>
                   <div className="divide-y divide-slate-100">
                     {pageRows.map((row, i) => {
                       if (row.kind !== 'civitai') return null;
@@ -917,7 +920,7 @@ export default function Models() {
                       );
                     })}
                   </div>
-                </section>
+                </Card>
               ) : (
                 <div className="text-center py-16">
                   {source === 'civitai' ? (
@@ -933,13 +936,13 @@ export default function Models() {
                       <WifiOff className="w-10 h-10 text-slate-200 mx-auto mb-3" />
                       <p className="text-sm font-medium text-slate-500">Connect to ComfyUI to manage models</p>
                       <p className="text-xs text-slate-400 mt-1 mb-4">Models will appear once the connection is established</p>
-                      <button
+                      <Button
                         onClick={() => navigate('/settings')}
-                        className="btn-secondary"
+                        variant="secondary"
                       >
                         <Settings className="w-3.5 h-3.5" />
                         Check Settings
-                      </button>
+                      </Button>
                     </>
                   ) : allModels.length === 0 ? (
                     <>
@@ -987,7 +990,7 @@ export default function Models() {
               )}
             </main>
           </div>
-        </div>
+        </Card>
       </div>
 
       <ModelInfoModal

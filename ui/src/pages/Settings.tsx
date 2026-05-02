@@ -40,6 +40,8 @@ import { api } from '../services/comfyui';
 import { useApp } from '../context/AppContext';
 import { Switch } from '../components/ui/switch';
 import { Badge } from '../components/ui/badge';
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardFooter, CardHeader } from '../components/ui/card';
 
 /* ---------- types for launch options ---------- */
 
@@ -207,7 +209,7 @@ function StatusBadge({ ok, labelOk, labelBad }: { ok: boolean; labelOk: string; 
   );
 }
 
-function CardHeader({
+function SectionHeader({
   title,
   description,
   icon: Icon,
@@ -219,16 +221,16 @@ function CardHeader({
   right?: React.ReactNode;
 }) {
   return (
-    <div className="panel-header-row">
+    <CardHeader className="flex items-start justify-between gap-3">
       <div className="flex items-start gap-2">
         <Icon className="w-3.5 h-3.5 text-slate-400 mt-0.5" />
         <div>
-          <h2 className="panel-header-title leading-tight">{title}</h2>
-          <p className="panel-header-desc">{description}</p>
+          <h2 className="text-sm font-semibold text-slate-900 leading-tight">{title}</h2>
+          <p className="mt-0.5 text-[11px] text-slate-400">{description}</p>
         </div>
       </div>
       {right && <div className="shrink-0">{right}</div>}
-    </div>
+    </CardHeader>
   );
 }
 
@@ -298,14 +300,14 @@ function ApiKeyCard() {
   const saveDisabled = busy || apiKey.trim().length === 0;
 
   return (
-    <section className="panel">
-      <CardHeader
+    <Card>
+      <SectionHeader
         icon={Key}
         title="Comfy Org API Key"
         description="Required for Gemini, Kling, Grok, Runway, and other provider workflows."
         right={<StatusBadge ok={configured} labelOk="Configured" labelBad="Not set" />}
       />
-      <div className="space-y-3 panel-body">
+      <CardContent className="space-y-3">
         <label className="field-label">
           API key
         </label>
@@ -333,23 +335,23 @@ function ApiKeyCard() {
             Stored server-side in a config file on the GPU (readable only by the process owner) and attached to every prompt as <code>extra_data.api_key_comfy_org</code>. Never returned to the browser after save.
           </p>
         </div>
-      </div>
-      <div className="panel-footer">
-        <p className="panel-footer-note">Changes are applied immediately.</p>
-        <div className="btn-group">
+      </CardContent>
+      <CardFooter>
+        <p className="text-xs text-slate-500">Changes are applied immediately.</p>
+        <div className="inline-flex gap-2">
           {configured && (
-            <button onClick={handleClear} disabled={busy} className="btn-secondary !text-red-600 hover:!bg-red-50">
+            <Button onClick={handleClear} disabled={busy} variant="secondary" className="!text-red-600 hover:!bg-red-50">
               <Trash2 className="h-3.5 w-3.5" />
               Clear
-            </button>
+            </Button>
           )}
-          <button onClick={handleSave} disabled={saveDisabled} className="btn-primary">
+          <Button onClick={handleSave} disabled={saveDisabled}>
             {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
             {saved ? 'Saved' : configured ? 'Replace' : 'Save'}
-          </button>
+          </Button>
         </div>
-      </div>
-    </section>
+      </CardFooter>
+    </Card>
   );
 }
 
@@ -392,14 +394,14 @@ function HfTokenCard() {
   const saveDisabled = busy || token.trim().length === 0;
 
   return (
-    <section className="panel">
-      <CardHeader
+    <Card>
+      <SectionHeader
         icon={Key}
         title="HuggingFace Token"
         description="Required to download gated models (e.g. FLUX.2-klein) and private repos."
         right={<StatusBadge ok={configured} labelOk="Configured" labelBad="Not set" />}
       />
-      <div className="space-y-3 panel-body">
+      <CardContent className="space-y-3">
         <label className="field-label">
           Access token
         </label>
@@ -429,23 +431,23 @@ function HfTokenCard() {
             <code> Authorization: Bearer</code> on HEAD/GET calls for gated HuggingFace URLs.
           </p>
         </div>
-      </div>
-      <div className="panel-footer">
-        <p className="panel-footer-note">Changes are applied immediately.</p>
-        <div className="btn-group">
+      </CardContent>
+      <CardFooter>
+        <p className="text-xs text-slate-500">Changes are applied immediately.</p>
+        <div className="inline-flex gap-2">
           {configured && (
-            <button onClick={handleClear} disabled={busy} className="btn-secondary !text-red-600 hover:!bg-red-50">
+            <Button onClick={handleClear} disabled={busy} variant="secondary" className="!text-red-600 hover:!bg-red-50">
               <Trash2 className="h-3.5 w-3.5" />
               Clear
-            </button>
+            </Button>
           )}
-          <button onClick={handleSave} disabled={saveDisabled} className="btn-primary">
+          <Button onClick={handleSave} disabled={saveDisabled}>
             {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
             {saved ? 'Saved' : configured ? 'Replace' : 'Save'}
-          </button>
+          </Button>
         </div>
-      </div>
-    </section>
+      </CardFooter>
+    </Card>
   );
 }
 
@@ -488,14 +490,14 @@ function CivitaiTokenCard() {
   const saveDisabled = busy || token.trim().length === 0;
 
   return (
-    <section className="panel">
-      <CardHeader
+    <Card>
+      <SectionHeader
         icon={Key}
         title="CivitAI Token"
         description="Adds authentication for civitai.com downloads (LoRAs, workflows) and gated items."
         right={<StatusBadge ok={configured} labelOk="Configured" labelBad="Not set" />}
       />
-      <div className="space-y-3 panel-body">
+      <CardContent className="space-y-3">
         <label className="field-label">
           Access token
         </label>
@@ -525,23 +527,23 @@ function CivitaiTokenCard() {
             civitai.com HEAD/GET requests. Never echoed back to the browser.
           </p>
         </div>
-      </div>
-      <div className="panel-footer">
-        <p className="panel-footer-note">Changes are applied immediately.</p>
-        <div className="btn-group">
+      </CardContent>
+      <CardFooter>
+        <p className="text-xs text-slate-500">Changes are applied immediately.</p>
+        <div className="inline-flex gap-2">
           {configured && (
-            <button onClick={handleClear} disabled={busy} className="btn-secondary !text-red-600 hover:!bg-red-50">
+            <Button onClick={handleClear} disabled={busy} variant="secondary" className="!text-red-600 hover:!bg-red-50">
               <Trash2 className="h-3.5 w-3.5" />
               Clear
-            </button>
+            </Button>
           )}
-          <button onClick={handleSave} disabled={saveDisabled} className="btn-primary">
+          <Button onClick={handleSave} disabled={saveDisabled}>
             {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
             {saved ? 'Saved' : configured ? 'Replace' : 'Save'}
-          </button>
+          </Button>
         </div>
-      </div>
-    </section>
+      </CardFooter>
+    </Card>
   );
 }
 
@@ -584,14 +586,14 @@ function GithubTokenCard() {
   const saveDisabled = busy || token.trim().length === 0;
 
   return (
-    <section className="panel">
-      <CardHeader
+    <Card>
+      <SectionHeader
         icon={Key}
         title="GitHub Token"
         description="Adds authentication for github.com release downloads and lifts the unauthenticated 60/h API rate limit."
         right={<StatusBadge ok={configured} labelOk="Configured" labelBad="Not set" />}
       />
-      <div className="space-y-3 panel-body">
+      <CardContent className="space-y-3">
         <label className="field-label">
           Access token
         </label>
@@ -621,23 +623,23 @@ function GithubTokenCard() {
             to github.com release downloads + api.github.com calls. Never echoed back to the browser.
           </p>
         </div>
-      </div>
-      <div className="panel-footer">
-        <p className="panel-footer-note">Changes are applied immediately.</p>
-        <div className="btn-group">
+      </CardContent>
+      <CardFooter>
+        <p className="text-xs text-slate-500">Changes are applied immediately.</p>
+        <div className="inline-flex gap-2">
           {configured && (
-            <button onClick={handleClear} disabled={busy} className="btn-secondary !text-red-600 hover:!bg-red-50">
+            <Button onClick={handleClear} disabled={busy} variant="secondary" className="!text-red-600 hover:!bg-red-50">
               <Trash2 className="h-3.5 w-3.5" />
               Clear
-            </button>
+            </Button>
           )}
-          <button onClick={handleSave} disabled={saveDisabled} className="btn-primary">
+          <Button onClick={handleSave} disabled={saveDisabled}>
             {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
             {saved ? 'Saved' : configured ? 'Replace' : 'Save'}
-          </button>
+          </Button>
         </div>
-      </div>
-    </section>
+      </CardFooter>
+    </Card>
   );
 }
 
@@ -680,14 +682,14 @@ function PexelsApiKeyCard() {
   const saveDisabled = busy || token.trim().length === 0;
 
   return (
-    <section className="panel">
-      <CardHeader
+    <Card>
+      <SectionHeader
         icon={Key}
         title="Pexels API Key"
         description="Optional. Lets audio thumbnails fetch a prompt-matched stock photo instead of a generic placeholder."
         right={<StatusBadge ok={configured} labelOk="Configured" labelBad="Not set" />}
       />
-      <div className="space-y-3 panel-body">
+      <CardContent className="space-y-3">
         <label className="field-label">
           API key
         </label>
@@ -718,23 +720,23 @@ function PexelsApiKeyCard() {
             placeholder. Never echoed back to the browser.
           </p>
         </div>
-      </div>
-      <div className="panel-footer">
-        <p className="panel-footer-note">Changes are applied immediately.</p>
-        <div className="btn-group">
+      </CardContent>
+      <CardFooter>
+        <p className="text-xs text-slate-500">Changes are applied immediately.</p>
+        <div className="inline-flex gap-2">
           {configured && (
-            <button onClick={handleClear} disabled={busy} className="btn-secondary !text-red-600 hover:!bg-red-50">
+            <Button onClick={handleClear} disabled={busy} variant="secondary" className="!text-red-600 hover:!bg-red-50">
               <Trash2 className="h-3.5 w-3.5" />
               Clear
-            </button>
+            </Button>
           )}
-          <button onClick={handleSave} disabled={saveDisabled} className="btn-primary">
+          <Button onClick={handleSave} disabled={saveDisabled}>
             {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
             {saved ? 'Saved' : configured ? 'Replace' : 'Save'}
-          </button>
+          </Button>
         </div>
-      </div>
-    </section>
+      </CardFooter>
+    </Card>
   );
 }
 
@@ -823,13 +825,13 @@ function ChatLlmCard() {
   };
 
   return (
-    <section className="panel">
-      <CardHeader
+    <Card>
+      <SectionHeader
         icon={MessageSquare}
         title="Chat / LLM"
         description="Local LLM backend used by the Chat page (Ollama or any OpenAI-compatible server)."
       />
-      <div className="space-y-3 panel-body">
+      <CardContent className="space-y-3">
         <div>
           <label className="field-label">Ollama URL</label>
           <div className="field-wrap">
@@ -883,26 +885,26 @@ function ChatLlmCard() {
             <code>1h</code>, or <code>0</code> to unload immediately.
           </p>
         </div>
-      </div>
-      <div className="panel-footer">
-        <p className="panel-footer-note">
+      </CardContent>
+      <CardFooter>
+        <p className="text-xs text-slate-500">
           {probeFailedUrl
             ? 'Probe failed - persist the URL anyway, or fix it and retry.'
             : 'URL is probed before saving. Changes are applied immediately.'}
         </p>
-        <div className="btn-group">
+        <div className="inline-flex gap-2">
           {probeFailedUrl && probeFailedUrl === ollamaUrl.trim() && (
-            <button onClick={handleSaveAnyway} disabled={busy} className="btn-secondary">
+            <Button onClick={handleSaveAnyway} disabled={busy} variant="secondary">
               Save anyway
-            </button>
+            </Button>
           )}
-          <button onClick={handleSave} disabled={busy || !loaded} className="btn-primary">
+          <Button onClick={handleSave} disabled={busy || !loaded}>
             {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
             {saved ? 'Saved' : 'Save'}
-          </button>
+          </Button>
         </div>
-      </div>
-    </section>
+      </CardFooter>
+    </Card>
   );
 }
 
@@ -1048,9 +1050,10 @@ function CommandPreview({ text, loading }: { text: string; loading: boolean }) {
         <span className="field-label">
           Command preview
         </span>
-        <button
+        <Button
           onClick={copy}
-          className="btn-secondary btn-sm"
+          variant="secondary"
+          size="sm"
         >
           {copied ? (
             <Check className="h-3 w-3 text-emerald-500" />
@@ -1058,7 +1061,7 @@ function CommandPreview({ text, loading }: { text: string; loading: boolean }) {
             <Copy className="h-3 w-3" />
           )}
           {copied ? 'Copied' : 'Copy'}
-        </button>
+        </Button>
       </div>
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-slate-950 px-3 py-3">
         <code className="block whitespace-pre-wrap break-all font-mono text-sm text-emerald-400">
@@ -1217,8 +1220,8 @@ function LaunchOptionsCard() {
   };
 
   return (
-    <section className="panel">
-      <CardHeader
+    <Card>
+      <SectionHeader
         icon={Terminal}
         title="Launch Options"
         description="Startup arguments and runtime command preview."
@@ -1230,18 +1233,19 @@ function LaunchOptionsCard() {
                 {totalEnabled} of {items.length} enabled
               </Badge>
             )}
-            <button
+            <Button
               onClick={fetchOptions}
-              className="btn-icon"
+              variant="ghost"
+              size="icon"
               title="Refresh"
               aria-label="Refresh"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            </button>
+            </Button>
           </div>
         }
       />
-      <div className="space-y-3 panel-body">
+      <CardContent className="space-y-3">
         {error && (
           <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2">
             <p className="text-xs text-red-600">{error}</p>
@@ -1279,19 +1283,19 @@ function LaunchOptionsCard() {
             ))}
           </div>
         )}
-      </div>
-      <div className="panel-footer">
-        <p className="panel-footer-note">
+      </CardContent>
+      <CardFooter>
+        <p className="text-xs text-slate-500">
           {grouped.length === 0
             ? 'No configurable flags detected.'
             : 'Changes require a ComfyUI restart to take effect.'}
         </p>
-        <div className="btn-group">
-          <button onClick={handleReset} className="btn-secondary">
+        <div className="inline-flex gap-2">
+          <Button onClick={handleReset} variant="secondary">
             <RotateCcw className="w-3 h-3" />
             Reset
-          </button>
-          <button onClick={handleSave} disabled={saving} className="btn-primary">
+          </Button>
+          <Button onClick={handleSave} disabled={saving}>
             {saving ? (
               <RefreshCw className="w-3 h-3 animate-spin" />
             ) : saved ? (
@@ -1300,10 +1304,10 @@ function LaunchOptionsCard() {
               <Save className="w-3 h-3" />
             )}
             {saved ? 'Saved & Restarting' : saving ? 'Saving' : 'Save & Restart'}
-          </button>
+          </Button>
         </div>
-      </div>
-    </section>
+      </CardFooter>
+    </Card>
   );
 }
 
@@ -1511,23 +1515,24 @@ function NetworkCard() {
   };
 
   return (
-    <section className="panel">
-      <CardHeader
+    <Card>
+      <SectionHeader
         icon={Globe}
         title="Network"
         description="Download sources and proxies."
         right={
-          <button
+          <Button
             onClick={loadConfig}
-            className="btn-icon"
+            variant="ghost"
+            size="icon"
             title="Refresh"
             aria-label="Refresh"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          </button>
+          </Button>
         }
       />
-      <div className="space-y-3 panel-body">
+      <CardContent className="space-y-3">
         {error && (
           <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2">
             <p className="text-xs text-red-600">{error}</p>
@@ -1616,8 +1621,8 @@ function NetworkCard() {
             </div>
           </>
         )}
-      </div>
-    </section>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1649,13 +1654,13 @@ function StorageRowCopyButton({ text }: { text: string }) {
     setTimeout(() => setCopied(false), 1500);
   };
   return (
-    <button onClick={copy} className="btn-icon" title="Copy to clipboard">
+    <Button onClick={copy} variant="ghost" size="icon" title="Copy to clipboard">
       {copied ? (
         <Check className="h-3.5 w-3.5 text-emerald-500" />
       ) : (
         <Copy className="h-3.5 w-3.5" />
       )}
-    </button>
+    </Button>
   );
 }
 
@@ -1706,21 +1711,21 @@ function ThumbnailCacheRow() {
           </div>
         </div>
       </div>
-      <button
+      <Button
         onClick={clear}
         disabled={clearing || !stats || stats.count === 0}
-        className="btn-secondary"
+        variant="secondary"
       >
         {clearing ? 'Clearing…' : 'Clear'}
-      </button>
+      </Button>
     </div>
   );
 }
 
 function StorageCard() {
   return (
-    <section className="panel">
-      <CardHeader
+    <Card>
+      <SectionHeader
         icon={HardDrive}
         title="Storage"
         description="File locations used by the current workspace."
@@ -1740,7 +1745,7 @@ function StorageCard() {
         ))}
         <ThumbnailCacheRow />
       </div>
-    </section>
+    </Card>
   );
 }
 

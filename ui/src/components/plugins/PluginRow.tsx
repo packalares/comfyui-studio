@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Switch } from '../ui/switch';
 import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
 import type { Plugin } from '../../types';
 import TaskProgress from './TaskProgress';
 
@@ -99,15 +100,16 @@ function PluginRowInner({
                 />
               </label>
               <div className="relative">
-                <button
+                <Button
                   onClick={() => setMenuOpen((m) => !m)}
-                  className="btn-icon"
+                  variant="ghost"
+                  size="icon"
                   aria-label="More actions"
                   aria-haspopup="menu"
                   aria-expanded={menuOpen}
                 >
                   <MoreVertical className="w-4 h-4" />
-                </button>
+                </Button>
                 {menuOpen && (
                   <>
                     <div
@@ -148,14 +150,13 @@ function PluginRowInner({
               </div>
             </>
           ) : (
-            <button
-              className="btn-primary"
+            <Button
               onClick={() => onInstall(plugin)}
               aria-label={`Install ${plugin.name || plugin.id}`}
             >
               <Download className="w-3.5 h-3.5" />
               Install
-            </button>
+            </Button>
           )}
         </div>
       </div>

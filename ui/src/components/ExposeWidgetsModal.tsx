@@ -9,6 +9,7 @@ import type { EnumeratedWidget } from '../types';
 import { api } from '../services/comfyui';
 import AppModal from './AppModal';
 import { Checkbox } from './ui/checkbox';
+import { Button } from './ui/button';
 
 interface Props {
   templateName: string;
@@ -156,21 +157,21 @@ export default function ExposeWidgetsModal({ templateName, onClose, onSaved }: P
           <span className="text-xs text-slate-500">
             {selectedCount} {selectedCount === 1 ? 'field' : 'fields'} selected
           </span>
-          <div className="btn-group">
-            <button onClick={onClose} className="btn-secondary" disabled={saving}>
+          <div className="inline-flex">
+            <Button onClick={onClose} variant="secondary" disabled={saving} className="rounded-r-none">
               <X className="w-3.5 h-3.5" />
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={handleSave}
               disabled={loading || saving}
-              className="btn-primary"
+              className="rounded-l-none -ml-px"
             >
               {saving
                 ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 : <Check className="w-3.5 h-3.5" />}
               {saving ? 'Saving…' : 'Save'}
-            </button>
+            </Button>
           </div>
         </>
       }
@@ -190,8 +191,8 @@ export default function ExposeWidgetsModal({ templateName, onClose, onSaved }: P
         <div className="space-y-6">
           {sections.map(section => (
             <div key={section.scopeKey || '__top__'}>
-              <div className="panel-header !px-0 !py-2 !border-b-0 flex items-baseline gap-2">
-                <span className="panel-header-title">{section.heading}</span>
+              <div className="px-0 py-2 flex items-baseline gap-2">
+                <span className="text-sm font-semibold text-slate-900">{section.heading}</span>
                 {section.scopeKey && (
                   <span className="stat-label">#{section.scopeKey}</span>
                 )}

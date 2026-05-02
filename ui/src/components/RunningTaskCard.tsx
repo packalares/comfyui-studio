@@ -16,6 +16,8 @@ import { useApp } from '../context/AppContext';
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from './ui/tooltip';
+import { Button } from './ui/button';
+import { Card, CardFooter, CardHeader } from './ui/card';
 
 function shortId(id: string | null): string {
   if (!id) return '';
@@ -81,11 +83,11 @@ export default function RunningTaskCard() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div
+      <Card
         role="status"
         aria-live="polite"
         aria-hidden={!visible}
-        className={`fixed bottom-4 right-4 z-40 panel shadow-lg transition-all duration-500 ease-out ${
+        className={`fixed bottom-4 right-4 z-40 shadow-lg transition-all duration-500 ease-out ${
           collapsed ? 'w-[260px]' : 'w-[300px]'
         } ${
           visible
@@ -93,30 +95,31 @@ export default function RunningTaskCard() {
             : 'translate-y-[calc(100%+1rem)] opacity-0 pointer-events-none'
         }`}
       >
-        <div className="panel-header flex items-center gap-2">
+        <CardHeader className="flex items-center gap-2">
           <span className="relative flex h-2 w-2 flex-shrink-0">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-teal-400 opacity-75" />
             <span className="relative inline-flex h-2 w-2 rounded-full bg-teal-500" />
           </span>
-          <span className="panel-header-title flex-1 truncate">Running in ComfyUI</span>
+          <span className="text-sm font-semibold text-slate-900 flex-1 truncate">Running in ComfyUI</span>
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
                 onClick={() => setCollapsed(v => !v)}
-                className="btn-icon"
                 aria-label={collapsed ? 'Expand card' : 'Minimize card'}
               >
                 {collapsed
                   ? <Maximize2 className="h-3.5 w-3.5" />
                   : <Minimize2 className="h-3.5 w-3.5" />}
-              </button>
+              </Button>
             </TooltipTrigger>
             <TooltipContent side="top">
               {collapsed ? 'Expand' : 'Minimize'}
             </TooltipContent>
           </Tooltip>
-        </div>
+        </CardHeader>
 
         {collapsed ? (
           // Collapsed — progress bar + % only. No prompt/node rows, no
@@ -198,27 +201,28 @@ export default function RunningTaskCard() {
               )}
             </div>
 
-            <div className="panel-footer justify-end">
+            <CardFooter className="justify-end">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
+                  <Button
                     type="button"
+                    variant="secondary"
                     onClick={handleCancel}
                     disabled={cancelling}
-                    className="btn-secondary !border-red-200 !text-red-700 hover:!bg-red-50"
+                    className="!border-red-200 !text-red-700 hover:!bg-red-50"
                   >
                     {cancelling
                       ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       : <X className="h-3.5 w-3.5" />}
                     <span>Cancel</span>
-                  </button>
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent side="top">Stop the current prompt</TooltipContent>
               </Tooltip>
-            </div>
+            </CardFooter>
           </>
         )}
-      </div>
+      </Card>
     </TooltipProvider>
   );
 }

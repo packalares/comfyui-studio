@@ -14,6 +14,7 @@ import DescriptionModal from './DescriptionModal';
 import DependencyModal from './DependencyModal';
 import ApiExportModal from './ApiExportModal';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
+import { Button } from './ui/button';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -240,17 +241,19 @@ function TemplateCardInner({ template, onDeleted }: Props) {
               className="absolute top-2 left-2"
               onClick={(e) => e.stopPropagation()}
             >
-              <button
+              <Button
                 type="button"
                 aria-label="Template actions"
-                className="btn-icon !bg-white/90 hover:!bg-white ring-1 ring-slate-200"
+                variant="ghost"
+                size="icon"
+                className="!bg-white/90 hover:!bg-white ring-1 ring-slate-200"
                 onClick={(e) => {
                   e.stopPropagation();
                   setMenuOpen((v) => !v);
                 }}
               >
                 <MoreHorizontal className="w-4 h-4" />
-              </button>
+              </Button>
               {menuOpen && (
                 <div
                   role="menu"
@@ -322,39 +325,38 @@ function TemplateCardInner({ template, onDeleted }: Props) {
           className="border-t border-slate-200 p-3 flex justify-end"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="btn-group">
+          <div className="inline-flex">
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
+                <Button
                   type="button"
-                  className="btn-primary"
                   onClick={(e) => { e.stopPropagation(); handleCardClick(); }}
                   aria-label="Use in Studio"
                 >
                   <Wand2 className="w-3.5 h-3.5" />
                   Use
-                </button>
+                </Button>
               </TooltipTrigger>
               <TooltipContent>Open this workflow in the Studio</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
+                <Button
                   type="button"
-                  className="btn-secondary"
+                  variant="secondary"
                   onClick={(e) => { e.stopPropagation(); setDescOpen(true); }}
                   aria-label="Description"
                 >
                   <Info className="w-3.5 h-3.5" />
-                </button>
+                </Button>
               </TooltipTrigger>
               <TooltipContent>Description</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
+                <Button
                   type="button"
-                  className="btn-secondary"
+                  variant="secondary"
                   onClick={(e) => { e.stopPropagation(); void handleInstallDeps(); }}
                   disabled={depsLoading}
                   aria-label="Install dependencies"
@@ -364,29 +366,29 @@ function TemplateCardInner({ template, onDeleted }: Props) {
                   ) : (
                     <Download className="w-3.5 h-3.5" />
                   )}
-                </button>
+                </Button>
               </TooltipTrigger>
               <TooltipContent>Install dependencies</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
+                <Button
                   type="button"
-                  className="btn-secondary"
+                  variant="secondary"
                   onClick={(e) => { e.stopPropagation(); setApiOpen(true); }}
                   aria-label="Export API prompt"
                 >
                   <Braces className="w-3.5 h-3.5" />
-                </button>
+                </Button>
               </TooltipTrigger>
               <TooltipContent>Export API JSON (what we'd send to ComfyUI)</TooltipContent>
             </Tooltip>
             {missingPlugins.length > 0 && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
+                  <Button
                     type="button"
-                    className="btn-secondary"
+                    variant="secondary"
                     onClick={(e) => { e.stopPropagation(); void handleInstallMissing(); }}
                     disabled={installingPlugins}
                     aria-label={`Install ${missingPlugins.length} missing plugin${missingPlugins.length === 1 ? '' : 's'}`}
@@ -396,7 +398,7 @@ function TemplateCardInner({ template, onDeleted }: Props) {
                     ) : (
                       <Puzzle className="w-3.5 h-3.5" />
                     )}
-                  </button>
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>
                   {installingPlugins ? 'Queuing plugin installs…' : `Install ${missingPlugins.length} missing plugin${missingPlugins.length === 1 ? '' : 's'}`}
@@ -646,14 +648,13 @@ function CivitaiTemplateCardInner({ item, onStagedImport }: CivitaiTemplateCardP
       </div>
       {/* Footer — icon-only button group, right-aligned. */}
       <div className="border-t border-slate-200 p-3 flex justify-end">
-        <div className="btn-group">
+        <div className="inline-flex">
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
+              <Button
                 type="button"
                 onClick={handleImport}
                 disabled={importing}
-                className="btn-primary"
                 aria-label={importing ? 'Importing' : imported ? 'Imported' : 'Import workflow'}
               >
                 {importing ? (
@@ -664,34 +665,34 @@ function CivitaiTemplateCardInner({ item, onStagedImport }: CivitaiTemplateCardP
                   <FileJson className="w-3.5 h-3.5" />
                 )}
                 {importing ? 'Importing…' : imported ? 'Imported' : 'Import'}
-              </button>
+              </Button>
             </TooltipTrigger>
             <TooltipContent>{importing ? 'Staging this civitai workflow…' : imported ? 'Already imported' : 'Stage this civitai workflow for review'}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
+              <Button
                 type="button"
-                className="btn-secondary"
+                variant="secondary"
                 onClick={() => setDescOpen(true)}
                 aria-label="Description"
               >
                 <Info className="w-3.5 h-3.5" />
-              </button>
+              </Button>
             </TooltipTrigger>
             <TooltipContent>Description</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <a
-                href={pageUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-secondary"
-                aria-label="Open on civitai.com"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
+              <Button asChild variant="secondary" aria-label="Open on civitai.com">
+                <a
+                  href={pageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </Button>
             </TooltipTrigger>
             <TooltipContent>Open on civitai.com</TooltipContent>
           </Tooltip>

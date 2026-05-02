@@ -13,6 +13,8 @@ import PageSubbar from '../components/PageSubbar';
 import ImportWorkflowModal from '../components/ImportWorkflowModal';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Checkbox } from '../components/ui/checkbox';
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
 
 type ReadyFilter = 'all' | 'yes' | 'no';
 type SourceFilter = 'all' | 'open' | 'api' | 'user' | 'civitai';
@@ -303,40 +305,42 @@ export default function Explore() {
         description={`${templates.length} workflows available`}
         right={
           <div className="flex items-center gap-2">
-            <div className="btn-group">
-              <button
+            <div className="inline-flex">
+              <Button
                 onClick={() => handleImportOpen(null)}
-                className="btn-primary"
                 aria-label="Import workflow"
                 title="Import a workflow from a .json or .zip file"
+                className="rounded-r-none"
               >
                 <Upload className="w-3.5 h-3.5" />
                 Import workflow
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={handleRefresh}
                 disabled={refreshing}
-                className="btn-secondary"
+                variant="secondary"
                 aria-label="Refresh templates"
                 title="Re-pull template catalog from ComfyUI and recompute readiness"
+                className="rounded-l-none -ml-px"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
                 {refreshing ? 'Refreshing...' : 'Refresh'}
-              </button>
+              </Button>
             </div>
-            <button
+            <Button
               onClick={() => setFiltersOpen(o => !o)}
-              className="btn-secondary lg:hidden"
+              variant="secondary"
+              className="lg:hidden"
               aria-label="Toggle filters"
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
               Filters
-            </button>
+            </Button>
           </div>
         }
       />
       <div className="page-container">
-        <div className="panel">
+        <Card>
           <div className="flex flex-col lg:flex-row min-h-[calc(100vh-180px)]">
             {/* ===== Left sidebar ===== */}
             <aside className={`${filtersOpen ? 'block' : 'hidden'} lg:block w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 p-4 space-y-5 bg-white`}>
@@ -457,14 +461,15 @@ export default function Explore() {
 
               {/* Clear filters */}
               <div className="pt-4 border-t border-slate-200">
-                <button
+                <Button
                   onClick={() => { setActiveCategory('All'); setSearchQuery(''); setActiveTags([]); setSourceFilter('all'); setReadyFilter('all'); }}
-                  className="btn-secondary w-full justify-center"
+                  variant="secondary"
+                  className="w-full justify-center"
                   disabled={!hasActiveFilters}
                 >
                   <X className="w-3.5 h-3.5" />
                   Clear Filters
-                </button>
+                </Button>
               </div>
             </aside>
 
@@ -529,13 +534,13 @@ export default function Explore() {
                       <WifiOff className="w-10 h-10 text-slate-200 mx-auto mb-3" />
                       <p className="text-sm font-medium text-slate-500">Connect to ComfyUI to load workflows</p>
                       <p className="text-xs text-slate-400 mt-1 mb-4">Workflows will appear once ComfyUI is running</p>
-                      <button
+                      <Button
                         onClick={() => navigate('/settings')}
-                        className="btn-secondary"
+                        variant="secondary"
                       >
                         <Settings className="w-3.5 h-3.5" />
                         Check Settings
-                      </button>
+                      </Button>
                     </>
                   ) : (
                     <>
@@ -607,7 +612,7 @@ export default function Explore() {
               </div>
             </main>
           </div>
-        </div>
+        </Card>
       </div>
       <ImportWorkflowModal
         open={importOpen}
@@ -647,13 +652,13 @@ function CivitaiLoadMore({ hasMore, loading, error, hasRows, onLoadMore }: Civit
         // Async feed errors are surfaced as toasts (see fetchCivitaiPage).
         // Keep a compact retry affordance here when the first page failed so
         // the user isn't stuck staring at an empty grid.
-        <button type="button" onClick={onLoadMore} className="btn-secondary">
+        <Button type="button" onClick={onLoadMore} variant="secondary">
           Retry
-        </button>
+        </Button>
       ) : hasMore ? (
-        <button type="button" onClick={onLoadMore} className="btn-secondary">
+        <Button type="button" onClick={onLoadMore} variant="secondary">
           Load more
-        </button>
+        </Button>
       ) : hasRows ? (
         <span className="text-xs text-slate-500">No more results</span>
       ) : null}

@@ -8,6 +8,8 @@ import {
 } from '../services/comfyui';
 import { chatEvents } from '../services/chatEvents';
 import { Badge } from '../components/ui/badge';
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardFooter, CardHeader } from '../components/ui/card';
 
 type Tab = 'installed' | 'library' | 'huggingface';
 
@@ -149,10 +151,12 @@ export default function ChatModels() {
         title="Chat Models"
         description="Browse, pull, and manage local Ollama models"
         right={
-          <Link to="/chat" className="btn-secondary btn-sm" aria-label="Back to chat">
-            <ArrowLeft className="w-3.5 h-3.5" />
-            Back to chat
-          </Link>
+          <Button asChild variant="secondary" size="sm" aria-label="Back to chat">
+            <Link to="/chat">
+              <ArrowLeft className="w-3.5 h-3.5" />
+              Back to chat
+            </Link>
+          </Button>
         }
       />
       <div className="page-container space-y-3">
@@ -173,15 +177,16 @@ export default function ChatModels() {
             </button>
           ))}
           <div className="ml-auto flex items-center pb-1">
-            <button
+            <Button
               onClick={tab === 'installed' ? refreshInstalled : tab === 'library' ? refreshLibrary : handleHfSearch}
               disabled={loadingTab}
-              className="btn-secondary btn-sm"
+              variant="secondary"
+              size="sm"
               aria-label="Refresh"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loadingTab ? 'animate-spin' : ''}`} />
               Refresh
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -194,23 +199,24 @@ export default function ChatModels() {
               </div>
             )}
             {installed.map(m => (
-              <section key={m.name} className="panel">
-                <div className="panel-header-row">
+              <Card key={m.name}>
+                <CardHeader className="flex items-start justify-between gap-3">
                   <div>
-                    <h3 className="panel-header-title font-mono">{m.name}</h3>
-                    <p className="panel-header-desc">
+                    <h3 className="text-sm font-semibold text-slate-900 font-mono">{m.name}</h3>
+                    <p className="mt-0.5 text-[11px] text-slate-400">
                       {formatBytes(m.size)}{m.modified_at ? ` . modified ${new Date(m.modified_at).toLocaleDateString()}` : ''}
                     </p>
                   </div>
-                  <button
+                  <Button
                     onClick={() => handleDelete(m.name)}
-                    className="btn-secondary !text-red-600 hover:!bg-red-50"
+                    variant="secondary"
+                    className="!text-red-600 hover:!bg-red-50"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     Delete
-                  </button>
-                </div>
-              </section>
+                  </Button>
+                </CardHeader>
+              </Card>
             ))}
           </div>
         )}
@@ -232,16 +238,16 @@ export default function ChatModels() {
                 i.name === m.name || i.name.startsWith(`${m.name}:`),
               );
               return (
-                <section key={m.name} className="panel">
-                  <div className="panel-header-row">
+                <Card key={m.name}>
+                  <CardHeader className="flex items-start justify-between gap-3">
                     <div>
-                      <h3 className="panel-header-title font-mono">{m.name}</h3>
-                      <p className="panel-header-desc">
+                      <h3 className="text-sm font-semibold text-slate-900 font-mono">{m.name}</h3>
+                      <p className="mt-0.5 text-[11px] text-slate-400">
                         {m.pulls} pulls . {m.tagCount} tags . {m.updated}
                       </p>
                     </div>
-                  </div>
-                  <div className="panel-body space-y-2">
+                  </CardHeader>
+                  <CardContent className="space-y-2">
                     {m.description && <p className="text-xs text-slate-600">{m.description}</p>}
                     {m.sizes.length > 0 && (
                       <div className="flex flex-wrap gap-1">
@@ -276,9 +282,9 @@ export default function ChatModels() {
                         ) : null}
                       </div>
                     )}
-                  </div>
-                  <div className="panel-footer">
-                    <p className="panel-footer-note">
+                  </CardContent>
+                  <CardFooter>
+                    <p className="text-xs text-slate-500">
                       {isInstalled
                         ? 'Already installed'
                         : m.sizes.length > 0
@@ -291,17 +297,17 @@ export default function ChatModels() {
                         Installed
                       </Badge>
                     ) : (
-                      <button
+                      <Button
                         onClick={() => handlePull(m.name)}
                         disabled={!!pull}
-                        className="btn-primary btn-sm"
+                        size="sm"
                       >
                         <Download className="w-3.5 h-3.5" />
                         {pull ? 'Pulling...' : 'Pull'}
-                      </button>
+                      </Button>
                     )}
-                  </div>
-                </section>
+                  </CardFooter>
+                </Card>
               );
             })}
           </div>
@@ -318,10 +324,10 @@ export default function ChatModels() {
                 placeholder="Search HuggingFace GGUF models..."
                 className="field-input flex-1"
               />
-              <button onClick={handleHfSearch} disabled={hfBusy || !hfQuery.trim()} className="btn-primary">
+              <Button onClick={handleHfSearch} disabled={hfBusy || !hfQuery.trim()}>
                 <Search className="w-4 h-4" />
                 Search
-              </button>
+              </Button>
             </div>
             <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
               {hf.length === 0 && !hfBusy && (
@@ -330,17 +336,17 @@ export default function ChatModels() {
                 </div>
               )}
               {hf.map(m => (
-                <section key={m.id} className="panel">
-                  <div className="panel-header-row">
+                <Card key={m.id}>
+                  <CardHeader className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <h3 className="panel-header-title font-mono truncate">{m.id}</h3>
-                      <p className="panel-header-desc">
+                      <h3 className="text-sm font-semibold text-slate-900 font-mono truncate">{m.id}</h3>
+                      <p className="mt-0.5 text-[11px] text-slate-400">
                         {m.downloads != null && `${m.downloads.toLocaleString()} downloads`}
                         {m.likes != null && ` . ${m.likes} likes`}
                       </p>
                     </div>
-                  </div>
-                  <div className="panel-body">
+                  </CardHeader>
+                  <CardContent>
                     {m.tags.length > 0 && (
                       <div className="flex flex-wrap gap-1">
                         {m.tags.slice(0, 6).map(t => (
@@ -354,18 +360,18 @@ export default function ChatModels() {
                         ollama pull hf.co/{m.id}
                       </code>
                     </p>
-                  </div>
-                  <div className="panel-footer">
-                    <p className="panel-footer-note">Tag is auto-selected by Ollama</p>
-                    <button
+                  </CardContent>
+                  <CardFooter>
+                    <p className="text-xs text-slate-500">Tag is auto-selected by Ollama</p>
+                    <Button
                       onClick={() => handlePull(`hf.co/${m.id}`)}
-                      className="btn-primary btn-sm"
+                      size="sm"
                     >
                       <Download className="w-3.5 h-3.5" />
                       Pull
-                    </button>
-                  </div>
-                </section>
+                    </Button>
+                  </CardFooter>
+                </Card>
               ))}
             </div>
           </div>

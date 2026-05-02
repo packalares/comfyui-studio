@@ -6,6 +6,7 @@ import type { CatalogModel, DownloadState, CivitaiModelSummary } from '../types'
 import { formatBytes } from '../lib/utils';
 import { Tooltip, TooltipTrigger, TooltipContent } from './ui/tooltip';
 import { Badge } from './ui/badge';
+import { Button } from './ui/button';
 
 export interface ModelRowDownload {
   modelName: string;
@@ -158,57 +159,57 @@ function CatalogRow({
                 />
               </div>
             </div>
-            <button
+            <Button
               onClick={() => onCancelDownload(model.name, download.downloadId)}
-              className="btn-icon"
+              variant="ghost"
+              size="icon"
               title="Cancel download"
             >
               <X className="w-4 h-4" />
-            </button>
+            </Button>
           </div>
         ) : (
           // Normal state: primary action + optional Info in a connected
-          // btn-group that mirrors Explore's CivitaiTemplateCard footer.
-          <div className="btn-group">
+          // group that mirrors Explore's CivitaiTemplateCard footer.
+          <div className="inline-flex">
             {model.installed && onDelete ? (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
+                  <Button
                     onClick={() => onDelete(model)}
-                    className="btn-secondary hover:!bg-red-50 hover:!border-red-200 hover:!text-red-600"
+                    variant="secondary"
+                    className="hover:!bg-red-50 hover:!border-red-200 hover:!text-red-600"
                     aria-label="Delete model"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     Delete
-                  </button>
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>Delete this model</TooltipContent>
               </Tooltip>
             ) : model.gated && !hfTokenConfigured ? (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
+                  <Button
                     onClick={onNavigateSettings}
-                    className="btn-primary"
                     aria-label="Configure HuggingFace token"
                   >
                     <Lock className="w-3.5 h-3.5" />
                     HF token
-                  </button>
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>{model.gated_message || 'Requires HuggingFace token — click to configure'}</TooltipContent>
               </Tooltip>
             ) : (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
+                  <Button
                     onClick={() => onInstall(item)}
-                    className="btn-primary"
                     aria-label="Download model"
                   >
                     <Download className="w-3.5 h-3.5" />
                     Download
-                  </button>
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>Download this model</TooltipContent>
               </Tooltip>
@@ -216,14 +217,14 @@ function CatalogRow({
             {onShowInfo && hasInfo && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
+                  <Button
                     type="button"
                     onClick={() => onShowInfo(item)}
                     aria-label="Description"
-                    className="btn-secondary"
+                    variant="secondary"
                   >
                     <Info className="w-3.5 h-3.5" />
-                  </button>
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>Description</TooltipContent>
               </Tooltip>
@@ -288,20 +289,19 @@ function CivitaiRow({
           </p>
         )}
       </div>
-      <div className="shrink-0 btn-group">
+      <div className="shrink-0 inline-flex">
         <Tooltip>
           <TooltipTrigger asChild>
-            <button
+            <Button
               onClick={() => onInstall(item)}
               disabled={civ.busy}
-              className="btn-primary"
               aria-label={civ.busy ? 'Starting download' : civ.copied ? 'Download started' : 'Download model'}
             >
               {civ.busy
                 ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 : <Download className="w-3.5 h-3.5" />}
               {civ.copied ? 'Started' : 'Download'}
-            </button>
+            </Button>
           </TooltipTrigger>
           <TooltipContent>
             {civ.busy ? 'Starting download…' : civ.copied ? 'Download started' : 'Download this model'}
@@ -310,29 +310,29 @@ function CivitaiRow({
         {onShowInfo && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
+              <Button
                 type="button"
                 onClick={() => onShowInfo(item)}
                 aria-label="Description"
-                className="btn-secondary"
+                variant="secondary"
               >
                 <Info className="w-3.5 h-3.5" />
-              </button>
+              </Button>
             </TooltipTrigger>
             <TooltipContent>Description</TooltipContent>
           </Tooltip>
         )}
         <Tooltip>
           <TooltipTrigger asChild>
-            <a
-              href={pageUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Open on civitai.com"
-              className="btn-secondary"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
+            <Button asChild variant="secondary" aria-label="Open on civitai.com">
+              <a
+                href={pageUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </Button>
           </TooltipTrigger>
           <TooltipContent>Open on civitai.com</TooltipContent>
         </Tooltip>

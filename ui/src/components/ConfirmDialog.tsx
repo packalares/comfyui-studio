@@ -10,6 +10,7 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 import AppModal from './AppModal';
+import { Button } from './ui/button';
 
 export interface ConfirmDialogProps {
   open: boolean;
@@ -53,9 +54,8 @@ export default function ConfirmDialog(props: ConfirmDialogProps): JSX.Element {
     }
   }, [busy, busyProp, onConfirm]);
 
-  const confirmClass = confirmTone === 'danger'
-    ? 'btn-primary bg-red-600 hover:bg-red-700 focus:ring-red-500'
-    : 'btn-primary';
+  // Danger uses the destructive button variant; primary stays default.
+  const confirmVariant = confirmTone === 'danger' ? 'destructive' : 'default';
 
   return (
     <AppModal
@@ -67,23 +67,23 @@ export default function ConfirmDialog(props: ConfirmDialogProps): JSX.Element {
       disableClose={busy}
       footer={
         <div className="ml-auto flex items-center gap-2">
-          <button
+          <Button
             type="button"
-            className="btn-secondary"
+            variant="secondary"
             onClick={onClose}
             disabled={busy}
           >
             {cancelLabel}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className={confirmClass}
+            variant={confirmVariant}
             onClick={() => void handleConfirm()}
             disabled={busy}
           >
             {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
             {confirmLabel}
-          </button>
+          </Button>
         </div>
       }
     >

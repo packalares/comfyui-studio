@@ -21,6 +21,8 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from '../ui/alert-dialog';
+import { Button } from '../ui/button';
+import { Card, CardContent, CardHeader } from '../ui/card';
 
 interface OpState {
   busy: boolean;
@@ -111,27 +113,28 @@ export default function PackagesPanel() {
   }, [packages, search]);
 
   return (
-    <section className="panel">
-      <div className="panel-header-row">
+    <Card>
+      <CardHeader className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-2">
           <PackageIcon className="w-3.5 h-3.5 text-slate-400 mt-0.5" />
           <div>
-            <h2 className="panel-header-title leading-tight">Installed packages</h2>
-            <p className="panel-header-desc">{packages.length} installed via pip.</p>
+            <h2 className="text-sm font-semibold text-slate-900 leading-tight">Installed packages</h2>
+            <p className="mt-0.5 text-[11px] text-slate-400">{packages.length} installed via pip.</p>
           </div>
         </div>
-        <button
+        <Button
           onClick={load}
-          className="btn-icon"
+          variant="ghost"
+          size="icon"
           title="Refresh"
           disabled={loading}
           aria-label="Refresh package list"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-        </button>
-      </div>
+        </Button>
+      </CardHeader>
 
-      <div className="panel-body space-y-3">
+      <CardContent className="space-y-3">
         {/* Install input */}
         <div className="flex flex-col md:flex-row gap-2">
           <div className="flex-1 field-wrap">
@@ -148,14 +151,13 @@ export default function PackagesPanel() {
               disabled={installOp.busy}
             />
           </div>
-          <button
+          <Button
             onClick={handleInstall}
             disabled={installOp.busy || !installSpec.trim()}
-            className="btn-primary"
           >
             {installOp.busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
             Install
-          </button>
+          </Button>
         </div>
 
         {installOp.error && (
@@ -215,10 +217,12 @@ export default function PackagesPanel() {
                         {op.error}
                       </span>
                     )}
-                    <button
+                    <Button
                       onClick={() => setDeleteTarget(p)}
                       disabled={op?.busy}
-                      className="btn-icon hover:!text-red-500"
+                      variant="ghost"
+                      size="icon"
+                      className="hover:!text-red-500"
                       aria-label={`Uninstall ${p.name}`}
                       title="Uninstall"
                     >
@@ -227,14 +231,14 @@ export default function PackagesPanel() {
                       ) : (
                         <Trash2 className="w-4 h-4" />
                       )}
-                    </button>
+                    </Button>
                   </li>
                 );
               })}
             </ul>
           </div>
         )}
-      </div>
+      </CardContent>
 
       <AlertDialog
         open={!!deleteTarget}
@@ -257,6 +261,6 @@ export default function PackagesPanel() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </section>
+    </Card>
   );
 }

@@ -24,6 +24,8 @@ import {
   AlertDialogCancel,
 } from './ui/alert-dialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
+import { Button } from './ui/button';
+import { Card, CardContent, CardFooter, CardHeader } from './ui/card';
 
 type ProcessStatus = 'running' | 'stopped' | 'starting' | 'unknown';
 type WipePhase = 'confirm' | 'running' | 'done' | 'error';
@@ -90,32 +92,32 @@ function WipeModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-black/50" onClick={phase !== 'running' ? onClose : undefined} />
-      <div className="panel relative w-full max-w-3xl max-h-[80vh] flex flex-col">
-        <div className="panel-header flex items-center justify-between">
-          <h3 className="panel-header-title flex items-center gap-2">
+      <Card className="relative w-full max-w-3xl max-h-[80vh] flex flex-col">
+        <CardHeader className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
             {phase === 'running' && <Loader2 className="w-4 h-4 animate-spin text-amber-500" />}
             {phase === 'done' && <CheckCircle2 className="w-4 h-4 text-teal-600" />}
             {phase === 'error' && <AlertTriangle className="w-4 h-4 text-red-600" />}
             {phase === 'running' ? `Wiping (${mode})…` : phase === 'done' ? 'Wipe complete' : 'Wipe failed'}
           </h3>
           {phase !== 'running' && (
-            <button onClick={onClose} className="btn-icon" aria-label="Close">
+            <Button onClick={onClose} variant="ghost" size="icon" aria-label="Close">
               <X className="w-4 h-4" />
-            </button>
+            </Button>
           )}
-        </div>
-        <div className="flex-1 overflow-auto p-4">
+        </CardHeader>
+        <CardContent className="flex-1 overflow-auto">
           <pre className="text-xs font-mono text-slate-700 whitespace-pre-wrap break-words bg-slate-50 rounded-lg p-4 min-h-[200px] ring-1 ring-inset ring-slate-200">
             {logs.length === 0 ? 'Starting…' : logs.join('\n')}
             {errorMsg && `\n\nError: ${errorMsg}`}
           </pre>
-        </div>
-        <div className="panel-footer justify-end">
-          <button onClick={onClose} disabled={phase === 'running'} className="btn-secondary">
+        </CardContent>
+        <CardFooter className="justify-end">
+          <Button onClick={onClose} disabled={phase === 'running'} variant="secondary">
             {phase === 'running' ? 'Running…' : 'Close'}
-          </button>
-        </div>
-      </div>
+          </Button>
+        </CardFooter>
+      </Card>
     </div>
   );
 }

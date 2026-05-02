@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { api } from '../services/comfyui';
+import { Button } from './ui/button';
+import { Card, CardFooter, CardHeader } from './ui/card';
 
 interface Props {
   open: boolean;
@@ -48,11 +50,11 @@ export default function ModelFolderPickerModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={(e) => {
       if (e.target === e.currentTarget) onCancel();
     }}>
-      <div className="w-full max-w-md panel flex flex-col">
-        <div className="panel-header">
-          <h2 className="panel-header-title">Choose download folder</h2>
-          <p className="panel-header-desc">No folder hint for this model — pick a destination.</p>
-        </div>
+      <Card className="w-full max-w-md flex flex-col">
+        <CardHeader>
+          <h2 className="text-sm font-semibold text-slate-900">Choose download folder</h2>
+          <p className="mt-0.5 text-[11px] text-slate-400">No folder hint for this model — pick a destination.</p>
+        </CardHeader>
         <div className="p-4 space-y-3">
           <div>
             <label className="field-label mb-1.5 block">Model</label>
@@ -88,18 +90,17 @@ export default function ModelFolderPickerModal({
             )}
           </div>
         </div>
-        <div className="panel-footer flex justify-end gap-2">
-          <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>
-          <button
+        <CardFooter className="justify-end">
+          <Button type="button" variant="secondary" onClick={onCancel}>Cancel</Button>
+          <Button
             type="button"
-            className="btn-primary"
             disabled={!ready}
             onClick={() => ready && onConfirm(selected)}
           >
             Download
-          </button>
-        </div>
-      </div>
+          </Button>
+        </CardFooter>
+      </Card>
     </div>
   );
 }

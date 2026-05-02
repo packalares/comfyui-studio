@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import AppModal from '../AppModal';
+import { Button } from '../ui/button';
 
 interface Props {
   open: boolean;
@@ -77,13 +78,13 @@ export default function InstallUrlModal({
       disableClose={busy}
       footer={
         <div className="ml-auto flex items-center gap-2">
-          <button onClick={onClose} className="btn-secondary" disabled={busy}>
+          <Button onClick={onClose} variant="secondary" disabled={busy}>
             Cancel
-          </button>
-          <button onClick={submit} className="btn-primary" disabled={busy}>
+          </Button>
+          <Button onClick={submit} disabled={busy}>
             {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
             Install
-          </button>
+          </Button>
         </div>
       }
     >

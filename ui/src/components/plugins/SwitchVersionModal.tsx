@@ -3,6 +3,7 @@ import { Loader2 } from 'lucide-react';
 import type { Plugin } from '../../types';
 import AppModal from '../AppModal';
 import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
 
 interface Props {
   plugin: Plugin | null;
@@ -57,13 +58,13 @@ export default function SwitchVersionModal({ plugin, onClose, onConfirm }: Props
       disableClose={busy}
       footer={
         <div className="ml-auto flex items-center gap-2">
-          <button onClick={onClose} className="btn-secondary" disabled={busy}>
+          <Button onClick={onClose} variant="secondary" disabled={busy}>
             Cancel
-          </button>
-          <button onClick={submit} className="btn-primary" disabled={busy || !selected}>
+          </Button>
+          <Button onClick={submit} disabled={busy || !selected}>
             {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
             Switch
-          </button>
+          </Button>
         </div>
       }
     >

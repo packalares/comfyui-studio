@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select';
+import { Button } from './ui/button';
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 
@@ -74,26 +75,26 @@ export default function Pagination({
           )}
         </span>
         <div className="flex items-center gap-1">
-          <button
+          <Button
             type="button"
+            variant="secondary"
             onClick={() => onPageChange(safePage - 1)}
             disabled={!canPrev}
-            className="btn-secondary"
             aria-label="Previous page"
           >
             <ChevronLeft className="w-3.5 h-3.5" />
             Prev
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="secondary"
             onClick={() => onPageChange(safePage + 1)}
             disabled={!canNext}
-            className="btn-secondary"
             aria-label="Next page"
           >
             Next
             <ChevronRight className="w-3.5 h-3.5" />
-          </button>
+          </Button>
         </div>
       </div>
     </div>

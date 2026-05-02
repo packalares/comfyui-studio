@@ -6,6 +6,8 @@ import PageSubbar from '../components/PageSubbar';
 import ConversationList from '../components/chat/ConversationList';
 import MessageThread from '../components/chat/MessageThread';
 import Composer from '../components/chat/Composer';
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
 import {
   api, ApiError, type ChatMessage, type OllamaInstalledModel,
 } from '../services/comfyui';
@@ -269,10 +271,12 @@ export default function Chat() {
         title="Chat"
         description="Talk to a local LLM via Ollama"
         right={
-          <Link to="/chat/models" className="btn-secondary btn-sm" aria-label="Browse models">
-            <Boxes className="w-3.5 h-3.5" />
-            Browse models
-          </Link>
+          <Button asChild variant="secondary" size="sm" aria-label="Browse models">
+            <Link to="/chat/models">
+              <Boxes className="w-3.5 h-3.5" />
+              Browse models
+            </Link>
+          </Button>
         }
       />
       <div className="page-container">
@@ -285,13 +289,13 @@ export default function Chat() {
                 Check the URL in <Link to="/settings" className="underline">Settings</Link> and make sure Ollama is running.
               </div>
             </div>
-            <button onClick={refreshInstalled} className="btn-secondary btn-sm">Retry</button>
+            <Button onClick={refreshInstalled} variant="secondary" size="sm">Retry</Button>
           </div>
         )}
         {/* Single panel with an internal flex split — same idiom as Studio
             (left aside + right main share one rounded surface, instead of
             two side-by-side panels). */}
-        <div className="panel">
+        <Card>
           <div className="flex flex-col md:flex-row h-[calc(100vh-9rem)] min-h-0">
             <aside className="w-full md:w-[280px] shrink-0 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col min-h-0">
               <ConversationList
@@ -327,7 +331,7 @@ export default function Chat() {
               />
             </section>
           </div>
-        </div>
+        </Card>
       </div>
     </>
   );

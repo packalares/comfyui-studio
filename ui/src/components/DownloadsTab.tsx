@@ -27,6 +27,8 @@ import {
   AlertDialogCancel,
 } from './ui/alert-dialog';
 import { Badge } from './ui/badge';
+import { Button } from './ui/button';
+import { Card, CardContent, CardHeader } from './ui/card';
 
 type DownloadStatus = 'downloading' | 'success' | 'failed' | 'canceled' | 'queued' | string;
 
@@ -248,13 +250,13 @@ export default function DownloadsTab() {
   const total = paged.total;
 
   return (
-    <section className="panel">
-      <div className="panel-header-row">
+    <Card>
+      <CardHeader className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-2">
           <History className="w-3.5 h-3.5 text-slate-400 mt-0.5" />
           <div>
-            <h2 className="panel-header-title leading-tight">Download History</h2>
-            <p className="panel-header-desc">
+            <h2 className="text-sm font-semibold text-slate-900 leading-tight">Download History</h2>
+            <p className="mt-0.5 text-[11px] text-slate-400">
               {loading
                 ? 'Loading…'
                 : total === 0
@@ -265,29 +267,31 @@ export default function DownloadsTab() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {total > 0 && (
-            <button
+            <Button
               onClick={() => setClearOpen(true)}
-              className="btn-secondary !text-red-600 hover:!bg-red-50"
+              variant="secondary"
+              className="!text-red-600 hover:!bg-red-50"
               disabled={busy}
               title="Clear all entries"
             >
               <Trash2 className="w-3.5 h-3.5" />
               Clear All
-            </button>
+            </Button>
           )}
-          <button
+          <Button
             onClick={() => refetch()}
-            className="btn-icon"
+            variant="ghost"
+            size="icon"
             title="Refresh"
             aria-label="Refresh"
             disabled={loading}
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          </button>
+          </Button>
         </div>
-      </div>
+      </CardHeader>
 
-      <div className="panel-body space-y-3">
+      <CardContent className="space-y-3">
         {error && (
           <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2">
             <p className="text-xs text-red-600 flex items-center gap-1.5">
@@ -391,15 +395,17 @@ export default function DownloadsTab() {
 
                     {/* Action */}
                     <div className="flex md:justify-end">
-                      <button
+                      <Button
                         onClick={() => setDeleteTarget(entry)}
-                        className="btn-icon hover:!text-red-500"
+                        variant="ghost"
+                        size="icon"
+                        className="hover:!text-red-500"
                         title="Remove from history"
                         aria-label="Remove from history"
                         disabled={busy}
                       >
                         <X className="w-4 h-4" />
-                      </button>
+                      </Button>
                     </div>
                   </li>
                 );
@@ -407,7 +413,7 @@ export default function DownloadsTab() {
             </ul>
           </>
         )}
-      </div>
+      </CardContent>
 
       <Pagination
         page={paged.page}
@@ -455,6 +461,6 @@ export default function DownloadsTab() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </section>
+    </Card>
   );
 }

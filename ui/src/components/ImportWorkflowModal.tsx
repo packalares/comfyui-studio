@@ -10,6 +10,7 @@ import { api, ApiError } from '../services/comfyui';
 import { Checkbox } from './ui/checkbox';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
 import AppModal from './AppModal';
+import { Button } from './ui/button';
 
 interface Props {
   open: boolean;
@@ -376,17 +377,16 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
           </div>
           <div className="flex items-center gap-2">
             {step === 'review' && !initialManifest && (
-              <button type="button" className="btn-secondary" onClick={() => { setStep('upload'); setManifest(null); }}>
+              <Button type="button" variant="secondary" onClick={() => { setStep('upload'); setManifest(null); }}>
                 Back
-              </button>
+              </Button>
             )}
-            <button type="button" className="btn-secondary" onClick={handleClose}>
+            <Button type="button" variant="secondary" onClick={handleClose}>
               Cancel
-            </button>
+            </Button>
             {step === 'review' && (
-              <button
+              <Button
                 type="button"
-                className="btn-primary"
                 disabled={committing || selectedIndices.size === 0 || !commitBlockers.canCommit}
                 onClick={() => { void handleCommit(); }}
                 title={
@@ -397,7 +397,7 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
               >
                 {committing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
                 {committing ? 'Importing…' : `Import ${selectedIndices.size} workflow${selectedIndices.size === 1 ? '' : 's'}`}
-              </button>
+              </Button>
             )}
           </div>
         </>
@@ -497,18 +497,18 @@ function CollisionPrompt(props: CollisionPromptProps): JSX.Element {
             Use suggested name <span className="font-mono">{suggestedSlug}</span> or cancel?
           </div>
           <div className="mt-2 flex items-center gap-2">
-            <button
-              type="button" className="btn-primary"
+            <Button
+              type="button"
               disabled={busy} onClick={onUseSuggested}
             >
               Use suggested
-            </button>
-            <button
-              type="button" className="btn-secondary"
+            </Button>
+            <Button
+              type="button" variant="secondary"
               disabled={busy} onClick={onCancel}
             >
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -597,15 +597,15 @@ function UploadStep(p: UploadStepProps): JSX.Element {
               className="hidden"
               onChange={onFileSelect}
             />
-            <button
+            <Button
               type="button"
-              className="btn-primary mt-4"
+              className="mt-4"
               disabled={uploading}
               onClick={() => fileInputRef.current?.click()}
             >
               {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileJson className="w-3.5 h-3.5" />}
               {uploading ? 'Uploading…' : 'Choose file'}
-            </button>
+            </Button>
           </div>
         </TabsContent>
 
@@ -630,15 +630,14 @@ function UploadStep(p: UploadStepProps): JSX.Element {
               </ul>
             </div>
             <div className="flex justify-end">
-              <button
+              <Button
                 type="button"
-                className="btn-primary"
                 disabled={uploading || !githubUrl.trim()}
                 onClick={() => void onFetchGithub()}
               >
                 {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Github className="w-3.5 h-3.5" />}
                 {uploading ? 'Fetching…' : 'Fetch'}
-              </button>
+              </Button>
             </div>
           </div>
         </TabsContent>
@@ -666,15 +665,14 @@ function UploadStep(p: UploadStepProps): JSX.Element {
               </p>
             </div>
             <div className="flex justify-end">
-              <button
+              <Button
                 type="button"
-                className="btn-primary"
                 disabled={uploading || !civitaiUrl.trim()}
                 onClick={() => void onFetchCivitai()}
               >
                 {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileJson className="w-3.5 h-3.5" />}
                 {uploading ? 'Fetching…' : 'Fetch'}
-              </button>
+              </Button>
             </div>
           </div>
         </TabsContent>
@@ -705,15 +703,14 @@ function UploadStep(p: UploadStepProps): JSX.Element {
               <span className={pasteOver ? 'text-rose-600 font-medium' : 'text-slate-500'}>
                 {humanBytes(pasteBytes)} / Max {humanBytes(MAX_UPLOAD_BYTES)}
               </span>
-              <button
+              <Button
                 type="button"
-                className="btn-primary"
                 disabled={uploading || !pasteText.trim() || pasteOver}
                 onClick={() => void onParsePaste()}
               >
                 {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clipboard className="w-3.5 h-3.5" />}
                 {uploading ? 'Parsing…' : 'Parse'}
-              </button>
+              </Button>
             </div>
           </div>
         </TabsContent>
@@ -1236,14 +1233,14 @@ function MissingModelRowView(p: MissingModelRowViewProps): JSX.Element {
             className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs focus:outline-none focus:border-teal-500"
             onKeyDown={(e) => { if (e.key === 'Enter' && !busy) void submit(); }}
           />
-          <button
+          <Button
             type="button"
-            className="btn-secondary"
+            variant="secondary"
             disabled={busy || !value.trim()}
             onClick={() => void submit()}
           >
             {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Resolve'}
-          </button>
+          </Button>
         </div>
       )}
       {rowError && (

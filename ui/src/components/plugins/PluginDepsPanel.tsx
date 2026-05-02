@@ -11,6 +11,8 @@ import {
 import { api } from '../../services/comfyui';
 import type { PluginDependencyReport } from '../../types';
 import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Card, CardContent, CardHeader } from '../ui/card';
 
 interface OpState {
   busy: boolean;
@@ -72,29 +74,30 @@ export default function PluginDepsPanel() {
   );
 
   return (
-    <section className="panel">
-      <div className="panel-header-row">
+    <Card>
+      <CardHeader className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-2">
           <Wrench className="w-3.5 h-3.5 text-slate-400 mt-0.5" />
           <div>
-            <h2 className="panel-header-title leading-tight">Plugin dependencies</h2>
-            <p className="panel-header-desc">
+            <h2 className="text-sm font-semibold text-slate-900 leading-tight">Plugin dependencies</h2>
+            <p className="mt-0.5 text-[11px] text-slate-400">
               Per-plugin <code className="font-mono">requirements.txt</code> status.
             </p>
           </div>
         </div>
-        <button
+        <Button
           onClick={load}
-          className="btn-icon"
+          variant="ghost"
+          size="icon"
           title="Refresh"
           disabled={loading}
           aria-label="Refresh dependency report"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-        </button>
-      </div>
+        </Button>
+      </CardHeader>
 
-      <div className="panel-body space-y-2">
+      <CardContent className="space-y-2">
         {error && (
           <div className="rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 flex items-center gap-2 text-xs text-rose-700">
             <AlertTriangle className="h-3.5 w-3.5" />
@@ -151,10 +154,10 @@ export default function PluginDepsPanel() {
                       </div>
                     </div>
                     {depCount > 0 && missing > 0 && (
-                      <button
+                      <Button
                         onClick={() => fixDeps(r.plugin)}
                         disabled={op?.busy}
-                        className="btn-primary shrink-0"
+                        className="shrink-0"
                       >
                         {op?.busy ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -162,7 +165,7 @@ export default function PluginDepsPanel() {
                           <Wrench className="w-3.5 h-3.5" />
                         )}
                         Fix deps
-                      </button>
+                      </Button>
                     )}
                   </div>
                   {op?.error && (
@@ -200,7 +203,7 @@ export default function PluginDepsPanel() {
             })}
           </ul>
         )}
-      </div>
-    </section>
+      </CardContent>
+    </Card>
   );
 }

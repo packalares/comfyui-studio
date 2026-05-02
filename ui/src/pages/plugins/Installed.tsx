@@ -15,6 +15,8 @@ import type { Plugin } from '../../types';
 import PluginRow from '../../components/plugins/PluginRow';
 import InstallUrlModal from '../../components/plugins/InstallUrlModal';
 import SwitchVersionModal from '../../components/plugins/SwitchVersionModal';
+import { Button } from '../../components/ui/button';
+import { Card, CardContent, CardHeader } from '../../components/ui/card';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -156,7 +158,7 @@ export default function Installed() {
   return (
     <div className="space-y-4">
       {/* Toolbar */}
-      <div className="panel">
+      <Card>
         <div className="flex flex-col md:flex-row md:items-center gap-2 p-3">
           <div className="flex-1 field-wrap">
             <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -194,22 +196,22 @@ export default function Installed() {
             ))}
           </div>
           <div className="flex items-center gap-2">
-            <button
+            <Button
               onClick={handleRefresh}
               disabled={refreshing}
-              className="btn-secondary"
+              variant="secondary"
               title="Pull latest plugin catalog from registry + re-scan installed"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
               Refresh
-            </button>
-            <button onClick={() => setUrlModalOpen(true)} className="btn-primary">
+            </Button>
+            <Button onClick={() => setUrlModalOpen(true)}>
               <Plus className="w-3.5 h-3.5" />
               Install from URL
-            </button>
+            </Button>
           </div>
         </div>
-      </div>
+      </Card>
 
       {error && (
         <div className="rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 flex items-center gap-2 text-xs text-rose-700">
@@ -219,30 +221,30 @@ export default function Installed() {
       )}
 
       {/* List */}
-      <section className="panel">
-        <div className="panel-header flex items-center justify-between">
+      <Card>
+        <CardHeader className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <PackageIcon className="w-3.5 h-3.5 text-slate-400" />
-            <h2 className="panel-header-title">
+            <h2 className="text-sm font-semibold text-slate-900">
               Plugins ({plugins.length} of {total})
               {filter === 'all' && installedOnPage > 0 && (
                 <span className="text-slate-400 font-normal"> · {installedOnPage} installed on this page</span>
               )}
             </h2>
           </div>
-        </div>
+        </CardHeader>
         {loading && plugins.length === 0 ? (
-          <div className="panel-body flex items-center justify-center py-10">
+          <CardContent className="flex items-center justify-center py-10">
             <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />
-          </div>
+          </CardContent>
         ) : plugins.length === 0 ? (
-          <div className="panel-body">
+          <CardContent>
             <div className="empty-box">
               {total === 0 && !search && filter === 'all'
                 ? 'Plugin catalog is empty.'
                 : 'No plugins match your search.'}
             </div>
-          </div>
+          </CardContent>
         ) : (
           <div className="max-h-[640px] overflow-y-auto scrollbar-subtle">
             {plugins.map((p) => (
@@ -267,7 +269,7 @@ export default function Installed() {
           onPageChange={paged.setPage}
           onPageSizeChange={paged.setPageSize}
         />
-      </section>
+      </Card>
 
       <InstallUrlModal
         open={urlModalOpen}

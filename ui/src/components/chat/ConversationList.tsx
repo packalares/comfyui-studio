@@ -3,6 +3,8 @@ import { Plus, Trash2, MessageSquare } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, type ChatConversation } from '../../services/comfyui';
 import { chatEvents } from '../../services/chatEvents';
+import { Button } from '../ui/button';
+import { CardHeader } from '../ui/card';
 
 interface Props {
   activeId: string | null;
@@ -58,21 +60,21 @@ export default function ConversationList({ activeId, refreshKey, onSelect, onNew
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="panel-header-row">
+      <CardHeader className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-2">
           <MessageSquare className="w-3.5 h-3.5 text-slate-400 mt-0.5" />
           <div>
-            <h2 className="panel-header-title leading-tight">Conversations</h2>
-            <p className="panel-header-desc">
+            <h2 className="text-sm font-semibold text-slate-900 leading-tight">Conversations</h2>
+            <p className="mt-0.5 text-[11px] text-slate-400">
               {loading ? 'Loading...' : `${items.length} saved`}
             </p>
           </div>
         </div>
-        <button onClick={onNew} className="btn-primary btn-sm" aria-label="New chat">
+        <Button onClick={onNew} size="sm" aria-label="New chat">
           <Plus className="w-3.5 h-3.5" />
           New
-        </button>
-      </div>
+        </Button>
+      </CardHeader>
       <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-100">
         {items.length === 0 && !loading && (
           <div className="px-4 py-10 text-center text-xs text-slate-400 space-y-1">

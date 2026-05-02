@@ -23,6 +23,7 @@ import { useApp } from '../context/AppContext';
 import { isThreeDFilename } from '../lib/media';
 import { Checkbox } from './ui/checkbox';
 import AppModal from './AppModal';
+import { Button } from './ui/button';
 import ThreeDViewer from './ThreeDViewer';
 
 interface Props {
@@ -118,18 +119,15 @@ export default function GalleryDetailModal({
             />
             Randomize seed
           </label>
-          <div className="btn-group">
-            <a
-              href={detail.url || '#'}
-              download={detail.filename}
-              className="btn-secondary"
-            >
-              <Download className="w-3.5 h-3.5" />
-              Download
-            </a>
-            <button
+          <div className="inline-flex gap-2">
+            <Button asChild variant="secondary">
+              <a href={detail.url || '#'} download={detail.filename}>
+                <Download className="w-3.5 h-3.5" />
+                Download
+              </a>
+            </Button>
+            <Button
               type="button"
-              className="btn-primary"
               onClick={handleRegenerate}
               disabled={!canRegenerate || regenerating}
               title={regenerateTooltip}
@@ -138,16 +136,17 @@ export default function GalleryDetailModal({
                 ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 : <Sparkles className="w-3.5 h-3.5" />}
               {regenerating ? 'Queuing…' : 'Regenerate'}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="btn-secondary text-red-600 border-red-200 hover:bg-red-50"
+              variant="secondary"
+              className="text-red-600 border-red-200 hover:bg-red-50"
               onClick={onDelete}
               disabled={regenerating}
             >
               <Trash2 className="w-3.5 h-3.5" />
               Delete
-            </button>
+            </Button>
           </div>
         </>
       }

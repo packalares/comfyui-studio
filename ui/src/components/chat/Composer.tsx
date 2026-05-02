@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import type { OllamaInstalledModel } from '../../services/comfyui';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
 import {
   ALLOWED_ACCEPT,
   MAX_ATTACHMENTS,
@@ -164,16 +165,18 @@ export default function Composer({
         </div>
 
         <div className="flex items-end gap-2">
-          <button
+          <Button
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={busy || noModel || attachments.length >= MAX_ATTACHMENTS}
-            className="btn-icon shrink-0 self-end mb-0.5"
+            variant="ghost"
+            size="icon"
+            className="shrink-0 self-end mb-0.5"
             aria-label="Attach files"
             title="Attach files"
           >
             <Paperclip className="w-4 h-4" />
-          </button>
+          </Button>
           <textarea
             ref={taRef}
             rows={1}
@@ -197,20 +200,19 @@ export default function Composer({
             disabled={busy || noModel}
           />
           {busy ? (
-            <button onClick={onStop} className="btn-secondary !text-red-600 hover:!bg-red-50">
+            <Button onClick={onStop} variant="secondary" className="!text-red-600 hover:!bg-red-50">
               <StopCircle className="w-4 h-4" />
               Stop
-            </button>
+            </Button>
           ) : (
-            <button
+            <Button
               onClick={submit}
               disabled={(!text.trim() && attachments.length === 0) || !model}
-              className="btn-primary"
               aria-label="Send"
             >
               <Send className="w-4 h-4" />
               Send
-            </button>
+            </Button>
           )}
         </div>
       </div>

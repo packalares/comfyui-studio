@@ -3,6 +3,7 @@ import { X, RefreshCw, Loader2, Eraser } from 'lucide-react';
 import { api } from '../services/comfyui';
 import { Switch } from './ui/switch';
 import { Tooltip, TooltipTrigger, TooltipContent } from './ui/tooltip';
+import { Button } from './ui/button';
 
 interface Props {
   open: boolean;
@@ -105,10 +106,11 @@ export default function LogsDrawer({ open, onClose }: Props) {
       />
       {/* Right-side panel */}
       <div className="absolute right-0 top-0 bottom-0 w-full max-w-[640px] bg-white shadow-xl border-l border-slate-200 flex flex-col animate-in slide-in-from-right duration-200">
-        {/* Header */}
-        <div className="panel-header flex items-center justify-between">
+        {/* Header — uses panel-header rules inlined here because the drawer
+             shell is not a Card. */}
+        <div className="border-b border-slate-200 px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <h3 className="panel-header-title">ComfyUI logs</h3>
+            <h3 className="text-sm font-semibold text-slate-900">ComfyUI logs</h3>
             {loading && <Loader2 className="w-3.5 h-3.5 text-slate-400 animate-spin" />}
           </div>
           <div className="flex items-center gap-2">
@@ -122,29 +124,30 @@ export default function LogsDrawer({ open, onClose }: Props) {
             </label>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button onClick={fetchLogs} disabled={loading} className="btn-icon" aria-label="Refresh logs">
+                <Button onClick={fetchLogs} disabled={loading} variant="ghost" size="icon" aria-label="Refresh logs">
                   <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                </button>
+                </Button>
               </TooltipTrigger>
               <TooltipContent>Refresh</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
+                <Button
                   onClick={() => setLines([])}
-                  className="btn-icon"
+                  variant="ghost"
+                  size="icon"
                   aria-label="Clear view"
                 >
                   <Eraser className="w-4 h-4" />
-                </button>
+                </Button>
               </TooltipTrigger>
               <TooltipContent>Clear view (local only — does not wipe server logs)</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button onClick={onClose} className="btn-icon" aria-label="Close">
+                <Button onClick={onClose} variant="ghost" size="icon" aria-label="Close">
                   <X className="w-4 h-4" />
-                </button>
+                </Button>
               </TooltipTrigger>
               <TooltipContent>Close</TooltipContent>
             </Tooltip>

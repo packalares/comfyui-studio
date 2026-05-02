@@ -12,6 +12,7 @@ import { Copy, Download, Loader2, Braces, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../services/comfyui';
 import AppModal from './AppModal';
+import { Button } from './ui/button';
 
 interface Props {
   open: boolean;
@@ -96,26 +97,25 @@ export default function ApiExportModal({ open, templateName, onClose }: Props) {
       title="API Prompt"
       subtitle={templateName}
       footer={
-        <div className="btn-group">
-          <button type="button" className="btn-secondary" onClick={onClose}>Close</button>
-          <button
+        <div className="inline-flex gap-2">
+          <Button type="button" variant="secondary" onClick={onClose}>Close</Button>
+          <Button
             type="button"
-            className="btn-secondary"
+            variant="secondary"
             onClick={handleDownload}
             disabled={!payload}
           >
             <Download className="w-3.5 h-3.5" />
             Download
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="btn-primary"
             onClick={handleCopy}
             disabled={!payload}
           >
             {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
             {copied ? 'Copied' : 'Copy'}
-          </button>
+          </Button>
         </div>
       }
     >

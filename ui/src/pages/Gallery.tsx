@@ -18,6 +18,8 @@ import GalleryDetailModal from '../components/GalleryDetailModal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Checkbox } from '../components/ui/checkbox';
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
 
 type FilterType = 'all' | 'image' | 'video' | 'audio';
 type SortBy = 'newest' | 'oldest';
@@ -195,30 +197,32 @@ export default function Gallery() {
           bulkSelecting ? (
             <div className="flex items-center gap-2">
               <span className="text-xs text-slate-500">{selectedIds.size} selected</span>
-              <button className="btn-secondary">
+              <Button variant="secondary">
                 <Download className="w-3.5 h-3.5" />
                 Download
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={openDeleteForSelection}
-                className="btn-secondary text-red-600 border-red-200 hover:bg-red-50"
+                variant="secondary"
+                className="text-red-600 border-red-200 hover:bg-red-50"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 Delete
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={() => setSelectedIds(new Set())}
-                className="btn-icon"
+                variant="ghost"
+                size="icon"
                 aria-label="Clear selection"
               >
                 <X className="w-3.5 h-3.5" />
-              </button>
+              </Button>
             </div>
           ) : (
             <>
-              <button
+              <Button
                 onClick={() => { setImportResult(null); setImportConfirmOpen(true); }}
-                className="btn-secondary"
+                variant="secondary"
                 disabled={importing}
                 title="Import items from ComfyUI's history"
               >
@@ -226,42 +230,44 @@ export default function Gallery() {
                   ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   : <DownloadCloud className="w-3.5 h-3.5" />}
                 Import
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={() => setFiltersOpen(o => !o)}
-                className="btn-secondary lg:hidden"
+                variant="secondary"
+                className="lg:hidden"
                 aria-label="Toggle filters"
               >
                 <SlidersHorizontal className="w-3.5 h-3.5" />
                 Filters
-              </button>
+              </Button>
             </>
           )
         }
       />
       <div className="page-container">
-        <div className="panel">
+        <Card>
           <div className="flex flex-col lg:flex-row min-h-[calc(100vh-180px)]">
             {/* ===== Left sidebar ===== */}
             <aside className={`${filtersOpen ? 'block' : 'hidden'} lg:block w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 p-4 space-y-5 bg-white`}>
               {/* Media Type filter */}
               <div>
                 <label className="field-label mb-1.5 block">Media Type</label>
-                <div className="btn-group w-full">
+                <div className="inline-flex w-full">
                   {([
                     { key: 'all', label: 'All', icon: LayoutGrid },
                     { key: 'image', label: 'Image', icon: ImageIcon },
                     { key: 'video', label: 'Video', icon: Video },
                     { key: 'audio', label: 'Audio', icon: Music },
-                  ] as { key: FilterType; label: string; icon: React.ComponentType<{ className?: string }> }[]).map(({ key, label, icon: Icon }) => (
-                    <button
+                  ] as { key: FilterType; label: string; icon: React.ComponentType<{ className?: string }> }[]).map(({ key, label, icon: Icon }, i, arr) => (
+                    <Button
                       key={key}
                       onClick={() => setFilter(key)}
-                      className={`flex-1 justify-center ${filter === key ? 'btn-primary' : 'btn-secondary'}`}
+                      variant={filter === key ? 'default' : 'secondary'}
+                      className={`flex-1 justify-center ${i === 0 ? 'rounded-r-none' : i === arr.length - 1 ? 'rounded-l-none -ml-px' : 'rounded-none -ml-px'}`}
                       title={label}
                     >
                       <Icon className="w-3.5 h-3.5" />
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </div>
@@ -292,13 +298,13 @@ export default function Gallery() {
               {/* Selection actions */}
               <div className="pt-4 border-t border-slate-200">
                 <label className="field-label mb-1.5 block">Selection</label>
-                <button onClick={selectAll} className="btn-secondary w-full justify-center">
+                <Button onClick={selectAll} variant="secondary" className="w-full justify-center">
                   {selectedIds.size === filteredGallery.length && filteredGallery.length > 0 ? (
                     <><X className="w-3.5 h-3.5" />Deselect All</>
                   ) : (
                     <><CheckSquare className="w-3.5 h-3.5" />Select All</>
                   )}
-                </button>
+                </Button>
               </div>
 
               {/* Stats — vertical row list, matches Models page's Storage
@@ -411,7 +417,7 @@ export default function Gallery() {
               </div>
             </main>
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* Full-size viewer modal — Wave F redesign with metadata + regenerate. */}

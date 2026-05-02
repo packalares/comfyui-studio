@@ -17,6 +17,8 @@ import ExposeWidgetsModal from '../components/ExposeWidgetsModal';
 import PageSubbar from '../components/PageSubbar';
 import { Tooltip, TooltipTrigger, TooltipContent } from '../components/ui/tooltip';
 import { Switch } from '../components/ui/switch';
+import { Card } from '../components/ui/card';
+import { Button } from '../components/ui/button';
 import { api, ApiError } from '../services/comfyui';
 import { isThreeDFilename } from '../lib/media';
 import { toast } from 'sonner';
@@ -575,15 +577,15 @@ export default function Studio() {
       />
 
       <div className="page-container">
-        <div className="panel">
+        <Card>
           <div className="flex flex-col lg:flex-row lg:h-[calc(100vh-180px)]">
             {/* Left aside: form */}
             <aside className="w-full lg:w-[420px] shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 bg-white flex flex-col">
-            <div className="panel-header flex items-center justify-between">
+            <div className="border-b border-slate-200 px-4 py-3 flex items-center justify-between">
               <div className="min-w-0">
-                <h2 className="panel-header-title">{categoryTitles[activeCategory]}</h2>
+                <h2 className="text-sm font-semibold text-slate-900">{categoryTitles[activeCategory]}</h2>
                 {template?.title && (
-                  <p className="panel-header-desc truncate">{template.title}</p>
+                  <p className="mt-0.5 text-[11px] text-slate-400 truncate">{template.title}</p>
                 )}
               </div>
               <div
@@ -616,7 +618,7 @@ export default function Studio() {
               </div>
             </div>
 
-            <div className="panel-body flex-1 overflow-y-auto scrollbar-subtle space-y-5">
+            <div className="px-4 py-4 flex-1 overflow-y-auto scrollbar-subtle space-y-5">
               {/* Not connected banner */}
               {!connected && (
                 <div className="flex items-start gap-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
@@ -768,7 +770,7 @@ export default function Studio() {
             {/* Right main: result */}
             <main className="flex-1 flex flex-col min-w-0">
             <div className="border-b border-slate-200 bg-white px-4 py-3 flex items-center justify-between gap-3">
-              <h3 className="panel-header-title">Result</h3>
+              <h3 className="text-sm font-semibold text-slate-900">Result</h3>
               <div className="flex items-center gap-3">
                 {canCompare && (
                   <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-semibold uppercase tracking-wide text-slate-600">
@@ -782,16 +784,22 @@ export default function Studio() {
                 )}
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <a
-                      href={outputImage || undefined}
-                      download={outputFilename}
-                      aria-disabled={!outputImage}
-                      onClick={(e) => { if (!outputImage) e.preventDefault(); }}
-                      className={`btn-icon ${!outputImage ? 'pointer-events-none opacity-40' : ''}`}
-                      aria-label="Download output"
+                    <Button
+                      asChild
+                      variant="ghost"
+                      size="icon"
+                      className={!outputImage ? 'pointer-events-none opacity-40' : ''}
                     >
-                      <Download className="w-4 h-4" />
-                    </a>
+                      <a
+                        href={outputImage || undefined}
+                        download={outputFilename}
+                        aria-disabled={!outputImage}
+                        onClick={(e) => { if (!outputImage) e.preventDefault(); }}
+                        aria-label="Download output"
+                      >
+                        <Download className="w-4 h-4" />
+                      </a>
+                    </Button>
                   </TooltipTrigger>
                   <TooltipContent>
                     {outputImage ? 'Download output' : 'No output to download yet'}
@@ -904,7 +912,7 @@ export default function Studio() {
             </div>
             </main>
           </div>
-        </div>
+        </Card>
       </div>
     </>
   );

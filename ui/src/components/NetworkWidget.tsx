@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Globe, Loader2 } from 'lucide-react';
 import { api } from '../services/comfyui';
+import { Card } from './ui/card';
 
 /**
  * Mirror of the backend `NetworkConfigView` in
@@ -67,7 +68,7 @@ export default function NetworkWidget() {
           : `${fails} unreachable`;
 
   return (
-    <div className="panel p-4">
+    <Card className="p-4">
       <div className="flex items-center gap-2 mb-3">
         <div className="p-1.5 rounded-md bg-emerald-50">
           <Globe className="w-3.5 h-3.5 text-emerald-600" />
@@ -96,6 +97,6 @@ export default function NetworkWidget() {
           );
         })}
       </ul>
-    </div>
+    </Card>
   );
 }

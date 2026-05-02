@@ -9,6 +9,8 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { X } from 'lucide-react';
+import { Button } from './ui/button';
+import { Card, CardContent, CardFooter, CardHeader } from './ui/card';
 
 // Matches the `duration-150` class on the panel's exit animation below.
 // Keep in sync if the class changes.
@@ -35,7 +37,7 @@ export interface AppModalProps {
   disableClose?: boolean;
   /** Override header entirely (icon/title/subtitle ignored). Includes the X. */
   header?: ReactNode;
-  /** Footer slot — typically a `.btn-group` or `.flex` of buttons. */
+  /** Footer slot — typically a row of buttons. */
   footer?: ReactNode;
   /** Body. */
   children: ReactNode;
@@ -105,9 +107,11 @@ export default function AppModal(props: AppModalProps): JSX.Element | null {
   if (!mounted) return null;
 
   const sizeClass = SIZE_CLASS[size];
+  // CardContent already supplies px-4 py-4, so we only add the layout
+  // affordances (overflow + flex sizing) here.
   const bodyClass = scrollBody
-    ? 'overflow-y-auto p-4 flex-1'
-    : 'p-4 flex-1';
+    ? 'overflow-y-auto flex-1'
+    : 'flex-1';
   const maxHeight = scrollBody ? 'max-h-[90vh]' : '';
 
   return (
@@ -125,42 +129,43 @@ export default function AppModal(props: AppModalProps): JSX.Element | null {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div
-        className={`w-full ${sizeClass} panel ${maxHeight} flex flex-col ${
+      <Card
+        className={`w-full ${sizeClass} ${maxHeight} flex flex-col ${
           exiting
             ? 'animate-out fade-out-0 zoom-out-95 duration-150'
             : 'animate-in fade-in-0 zoom-in-95 duration-200'
         } ${className ?? ''}`.trim()}
       >
         {header ?? (
-          <div className="panel-header flex items-start justify-between gap-3">
+          <CardHeader className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-2.5 min-w-0">
               {icon && <div className="shrink-0">{icon}</div>}
               <div className="min-w-0">
                 {title && (
-                  <h2 className="panel-header-title truncate" title={title}>
+                  <h2 className="text-sm font-semibold text-slate-900 truncate" title={title}>
                     {title}
                   </h2>
                 )}
-                {subtitle && <p className="panel-header-desc">{subtitle}</p>}
+                {subtitle && <p className="mt-0.5 text-[11px] text-slate-400">{subtitle}</p>}
               </div>
             </div>
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon"
               aria-label="Close"
-              className="btn-icon"
               onClick={onClose}
               disabled={disableClose}
             >
               <X className="w-4 h-4" />
-            </button>
-          </div>
+            </Button>
+          </CardHeader>
         )}
 
-        <div className={bodyClass}>{children}</div>
+        <CardContent className={bodyClass}>{children}</CardContent>
 
-        {footer && <div className="panel-footer">{footer}</div>}
-      </div>
+        {footer && <CardFooter>{footer}</CardFooter>}
+      </Card>
     </div>
   );
 }
