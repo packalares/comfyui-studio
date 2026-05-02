@@ -9,6 +9,16 @@ import { getDb } from './connection.js';
 
 export type ChatRole = 'user' | 'assistant' | 'system';
 
+/** Valid context-window management strategies (Phase F). */
+export type ContextStrategy = 'sliding' | 'summarize' | 'manual';
+export const CONTEXT_STRATEGIES: readonly ContextStrategy[] = [
+  'sliding', 'summarize', 'manual',
+] as const;
+export function isContextStrategy(v: unknown): v is ContextStrategy {
+  return typeof v === 'string'
+    && (CONTEXT_STRATEGIES as readonly string[]).includes(v);
+}
+
 export interface ConversationRow {
   id: string;
   title: string;
@@ -16,6 +26,7 @@ export interface ConversationRow {
   system_prompt: string | null;
   created_at: number;
   updated_at: number;
+  context_strategy: ContextStrategy;
 }
 
 export interface ChatMessageRow {
@@ -52,6 +63,8 @@ function nullableString(v: unknown): string | null {
 }
 
 function rowToConversation(r: Record<string, unknown>): ConversationRow {
+  const rawStrategy = r.context_strategy;
+  const strategy: ContextStrategy = isContextStrategy(rawStrategy) ? rawStrategy : 'sliding';
   return {
     id: String(r.id),
     title: String(r.title ?? ''),
@@ -59,6 +72,7 @@ function rowToConversation(r: Record<string, unknown>): ConversationRow {
     system_prompt: nullableString(r.system_prompt),
     created_at: Number(r.created_at ?? 0),
     updated_at: Number(r.updated_at ?? 0),
+    context_strategy: strategy,
   };
 }
 
@@ -86,6 +100,7 @@ export interface CreateConversationInput {
   system_prompt?: string | null;
   created_at: number;
   updated_at: number;
+  context_strategy?: ContextStrategy;
 }
 
 export function createConversation(
@@ -93,11 +108,13 @@ export function createConversation(
   db: Database.Database = getDb(),
 ): void {
   db.prepare(
-    `INSERT INTO conversations (id, title, model, system_prompt, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO conversations
+       (id, title, model, system_prompt, created_at, updated_at, context_strategy)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     input.id, input.title, input.model,
     input.system_prompt ?? null, input.created_at, input.updated_at,
+    input.context_strategy ?? 'sliding',
   );
 }
 
@@ -217,4 +234,9 @@ export function updateMessageParts(
 ): boolean {
   const r = db.prepare('UPDATE chat_messages SET parts = ? WHERE id = ?').run(parts, id);
   return r.changes > 0;
+}
+
+/** Internal — exposed so the sibling `chat.context.repo.ts` can rebuild rows. */
+export function _rowToMessage(r: Record<string, unknown>): ChatMessageRow {
+  return rowToMessage(r);
 }

@@ -25,6 +25,8 @@ interface Settings {
   ragflowApiKey?: string;
   /** Template name used when the chat `generate_image` tool runs without an explicit template. */
   defaultImageTemplate?: string;
+  /** Default context-window management strategy applied to brand-new conversations. */
+  defaultContextStrategy?: 'sliding' | 'summarize' | 'manual';
 }
 
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
@@ -200,6 +202,20 @@ export function clearChatKeepAlive(): void {
   const settings = load();
   const { chatKeepAlive: _removed, ...rest } = settings;
   save(rest);
+}
+
+const VALID_CONTEXT_STRATEGIES: Array<'sliding' | 'summarize' | 'manual'> =
+  ['sliding', 'summarize', 'manual'];
+
+export function getDefaultContextStrategy(): 'sliding' | 'summarize' | 'manual' {
+  const v = load().defaultContextStrategy;
+  return VALID_CONTEXT_STRATEGIES.includes(v as never) ? v! : 'sliding';
+}
+
+export function setDefaultContextStrategy(value: 'sliding' | 'summarize' | 'manual'): void {
+  if (!VALID_CONTEXT_STRATEGIES.includes(value)) return;
+  const settings = load();
+  save({ ...settings, defaultContextStrategy: value });
 }
 
 // Internal accessors used by `settings.tools.ts` so the chat-tools fields share

@@ -15,7 +15,7 @@
 // `author`, `installed`, `category`, `model_filename`, `plugin_id`). Anything
 // else stays unindexed or lives inside `raw_json` / `workflow_json`.
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -121,12 +121,13 @@ CREATE INDEX IF NOT EXISTS idx_model_files_filename ON model_files(filename);
 CREATE INDEX IF NOT EXISTS idx_model_files_topdir_filename ON model_files(top_dir, filename);
 
 CREATE TABLE IF NOT EXISTS conversations (
-  id            TEXT PRIMARY KEY,
-  title         TEXT NOT NULL,
-  model         TEXT NOT NULL,
-  system_prompt TEXT,
-  created_at    INTEGER NOT NULL,
-  updated_at    INTEGER NOT NULL
+  id               TEXT PRIMARY KEY,
+  title            TEXT NOT NULL,
+  model            TEXT NOT NULL,
+  system_prompt    TEXT,
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL,
+  context_strategy TEXT NOT NULL DEFAULT 'sliding'
 );
 CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at DESC);
 

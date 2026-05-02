@@ -1,21 +1,9 @@
-// Streaming chat service. Talks directly to Ollama's native `/api/chat`
-// NDJSON endpoint (rather than the OpenAI-compatible adapter) so we get
-// full per-response telemetry — `eval_count`, `eval_duration`, etc. — and
-// can pass `keep_alive` / `tools` / `images` through cleanly. Per-stream
-// lifecycle:
-//
-//   1. Persist the user message synchronously (caller has built it from the
-//      incoming UIMessages).
-//   2. Insert a placeholder assistant row so /api/chat/conversations/:id/
-//      messages can include a partial transcript while streaming.
-//   3. Pipe each NDJSON delta to the WS as `chat:chunk` envelopes. When tools
-//      are configured, emit `chat:tool` envelopes for each tool invocation.
-//   4. On finish: capture telemetry from the final frame, update the row,
-//      touch the conversation's `updated_at`, broadcast `chat:done`.
-//
-// Aborts: each in-flight stream is registered in `inFlight` keyed by
-// assistant message id; `abortStream(msgId)` calls the underlying
-// AbortController so the upstream HTTP request is cut.
+// Streaming chat service. Talks Ollama's native `/api/chat` NDJSON endpoint
+// (richer telemetry than the OpenAI shim) and bridges its frames onto the
+// Studio WS bus. Lifecycle: persist user msg + placeholder assistant row,
+// run strategy enforcement (Phase F), stream chunks via the broadcaster,
+// then stamp telemetry on the row on `done`. Aborts cut the upstream
+// request by hitting the registered AbortController in `inFlight`.
 
 import type { UIMessage } from 'ai';
 import { logger } from '../../lib/logger.js';
@@ -34,6 +22,7 @@ import { getEnabledTools } from './tools/index.js';
 import { toOllamaTools, executeOllamaToolCall } from './ollamaTools.js';
 import { runToolDispatch, type ToolPart } from './toolDispatch.js';
 import { ThinkParser } from './thinkParser.js';
+import { enforceContextStrategy } from './contextEnforce.js';
 
 // If no chunk arrives within this many ms after submit, surface a "Loading
 // model into VRAM..." status. Picked above typical TTFT (~200-600ms warm)
@@ -161,7 +150,13 @@ async function runStream(args: RunStreamArgs): Promise<void> {
   }, LOADING_HINT_MS);
 
   try {
-    const ollamaMessages: OllamaChatMessage[] = convertToOllamaMessages(messages, systemPrompt);
+    let ollamaMessages: OllamaChatMessage[] = convertToOllamaMessages(messages, systemPrompt);
+    ollamaMessages = await enforceContextStrategy({
+      conversationId, model, baseUrl,
+      pendingUserText: lastUserText(messages),
+      messages: ollamaMessages,
+      msgId,
+    });
     const enabledTools = getEnabledTools();
     const ollamaTools = Object.keys(enabledTools).length > 0
       ? await toOllamaTools(enabledTools)

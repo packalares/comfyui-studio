@@ -8,8 +8,11 @@
 import { Router, type Request, type Response } from 'express';
 import type { UIMessage } from 'ai';
 import * as chatRepo from '../lib/db/chat.repo.js';
+import * as chatContextRepo from '../lib/db/chat.context.repo.js';
 import * as settings from '../services/settings.js';
 import { startStream, abortStream } from '../services/chat/streamChat.js';
+import { computeUsage } from '../services/chat/contextWindow.js';
+import { compactConversation } from '../services/chat/contextCompact.js';
 
 const router = Router();
 
@@ -72,6 +75,7 @@ router.post('/chat/start', (req: Request, res: Response) => {
       system_prompt: systemPrompt,
       created_at: now,
       updated_at: now,
+      context_strategy: settings.getDefaultContextStrategy(),
     });
   }
 
@@ -147,6 +151,7 @@ router.patch('/chat/conversations/:id', (req: Request, res: Response) => {
     title?: unknown;
     model?: unknown;
     system_prompt?: unknown;
+    context_strategy?: unknown;
   };
   const patch: chatRepo.UpdateConversationPatch = {};
   if (typeof body.title === 'string') patch.title = body.title;
@@ -154,10 +159,58 @@ router.patch('/chat/conversations/:id', (req: Request, res: Response) => {
   if (typeof body.system_prompt === 'string' || body.system_prompt === null) {
     patch.system_prompt = body.system_prompt as string | null;
   }
-  const ok = chatRepo.renameConversation(id, patch, Date.now());
+  // Apply context_strategy as a side update — it lives on the same row but
+  // outside the `renameConversation` patch helper so existing callers stay
+  // unchanged. Validated against the discriminated set so a typo can't store
+  // garbage in the column.
+  let strategyTouched = false;
+  if (chatRepo.isContextStrategy(body.context_strategy)) {
+    chatContextRepo.setStrategy(id, body.context_strategy);
+    strategyTouched = true;
+  }
+
+  let ok = false;
+  if (Object.keys(patch).length > 0) {
+    ok = chatRepo.renameConversation(id, patch, Date.now());
+  } else {
+    ok = strategyTouched && chatRepo.getConversation(id) !== null;
+  }
   if (!ok) { res.status(404).json({ error: 'not found' }); return; }
   const row = chatRepo.getConversation(id);
   res.json(row);
+});
+
+router.get('/chat/conversations/:id/usage', async (req: Request, res: Response) => {
+  const id = paramStr(req.params.id);
+  const conv = chatRepo.getConversation(id);
+  if (!conv) { res.status(404).json({ error: 'not found' }); return; }
+  const queryModel = typeof req.query.model === 'string' ? req.query.model.trim() : '';
+  const queryPending = typeof req.query.pending === 'string' ? req.query.pending : '';
+  const model = queryModel || conv.model;
+  try {
+    const usage = await computeUsage({
+      conversationId: id,
+      model,
+      pendingUserText: queryPending,
+    });
+    res.json(usage);
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+router.post('/chat/conversations/:id/compact', async (req: Request, res: Response) => {
+  const id = paramStr(req.params.id);
+  const result = await compactConversation(id);
+  if (!result.ok) {
+    res.status(result.error === 'conversation not found' ? 404 : 422).json({
+      error: result.error ?? 'compact failed',
+    });
+    return;
+  }
+  res.json({ ok: true, summary: result.summary });
 });
 
 export default router;

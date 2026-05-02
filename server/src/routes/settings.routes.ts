@@ -108,6 +108,7 @@ router.get('/settings/chat', (_req: Request, res: Response) => {
     ollamaUrl: settings.getOllamaUrl(),
     defaultModel: settings.getChatDefaultModel() ?? '',
     keepAlive: settings.getChatKeepAlive(),
+    defaultContextStrategy: settings.getDefaultContextStrategy(),
   });
 });
 
@@ -146,6 +147,7 @@ router.put('/settings/chat', (req: Request, res: Response) => {
     ollamaUrl?: unknown;
     defaultModel?: unknown;
     keepAlive?: unknown;
+    defaultContextStrategy?: unknown;
   };
   if (typeof body.ollamaUrl === 'string') {
     const trimmed = body.ollamaUrl.trim();
@@ -162,10 +164,18 @@ router.put('/settings/chat', (req: Request, res: Response) => {
     if (trimmed.length === 0) settings.clearChatKeepAlive();
     else settings.setChatKeepAlive(trimmed);
   }
+  if (
+    body.defaultContextStrategy === 'sliding'
+    || body.defaultContextStrategy === 'summarize'
+    || body.defaultContextStrategy === 'manual'
+  ) {
+    settings.setDefaultContextStrategy(body.defaultContextStrategy);
+  }
   res.json({
     ollamaUrl: settings.getOllamaUrl(),
     defaultModel: settings.getChatDefaultModel() ?? '',
     keepAlive: settings.getChatKeepAlive(),
+    defaultContextStrategy: settings.getDefaultContextStrategy(),
   });
 });
 

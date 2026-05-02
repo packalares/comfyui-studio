@@ -972,13 +972,28 @@ export const api = {
 
   /** GET /settings/chat — current Ollama URL + default model + keep_alive. */
   getChatSettings: () =>
-    fetchJson<{ ollamaUrl: string; defaultModel: string; keepAlive: string }>(
+    fetchJson<{
+      ollamaUrl: string;
+      defaultModel: string;
+      keepAlive: string;
+      defaultContextStrategy: ChatContextStrategy;
+    }>(
       '/settings/chat',
     ),
 
   /** PUT /settings/chat — save any subset of the chat config fields. */
-  setChatSettings: (patch: Partial<{ ollamaUrl: string; defaultModel: string; keepAlive: string }>) =>
-    fetchJson<{ ollamaUrl: string; defaultModel: string; keepAlive: string }>(
+  setChatSettings: (patch: Partial<{
+    ollamaUrl: string;
+    defaultModel: string;
+    keepAlive: string;
+    defaultContextStrategy: ChatContextStrategy;
+  }>) =>
+    fetchJson<{
+      ollamaUrl: string;
+      defaultModel: string;
+      keepAlive: string;
+      defaultContextStrategy: ChatContextStrategy;
+    }>(
       '/settings/chat',
       { method: 'PUT', body: JSON.stringify(patch) },
     ),
@@ -1068,6 +1083,33 @@ export const api = {
       fetchJson<{ items: HfModelSummary[] }>(
         `/chat/models/search-hf?q=${encodeURIComponent(q)}`,
       ),
+
+    /** GET /chat/conversations/:id/usage — current context-window usage state. */
+    getUsage: (conversationId: string, model: string, pending = '') => {
+      const qs = new URLSearchParams();
+      if (model) qs.set('model', model);
+      if (pending) qs.set('pending', pending);
+      return fetchJson<ChatUsageState>(
+        `/chat/conversations/${encodeURIComponent(conversationId)}/usage?${qs.toString()}`,
+      );
+    },
+
+    /** POST /chat/conversations/:id/compact — manual summarization. */
+    compactConversation: (conversationId: string) =>
+      fetchJson<{ ok: true; summary: string }>(
+        `/chat/conversations/${encodeURIComponent(conversationId)}/compact`,
+        { method: 'POST' },
+      ),
+
+    /** PATCH /chat/conversations/:id with `{ context_strategy }` only. */
+    setStrategy: (conversationId: string, strategy: ChatContextStrategy) =>
+      fetchJson<ChatConversation>(
+        `/chat/conversations/${encodeURIComponent(conversationId)}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ context_strategy: strategy }),
+        },
+      ),
   },
 };
 
@@ -1092,6 +1134,8 @@ export interface ChatUIMessage {
   parts: ChatUIMessagePart[];
 }
 
+export type ChatContextStrategy = 'sliding' | 'summarize' | 'manual';
+
 export interface ChatConversation {
   id: string;
   title: string;
@@ -1099,6 +1143,18 @@ export interface ChatConversation {
   system_prompt: string | null;
   created_at: number;
   updated_at: number;
+  context_strategy?: ChatContextStrategy;
+}
+
+/** Mirrors `UsageState` returned by GET /chat/conversations/:id/usage. */
+export interface ChatUsageState {
+  used: number;
+  budget: number;
+  percent: number;
+  estimatedNext: number;
+  warning: 'green' | 'yellow' | 'red';
+  strategy: ChatContextStrategy;
+  model: string;
 }
 
 export interface ChatMessage {

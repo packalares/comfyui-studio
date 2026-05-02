@@ -749,6 +749,7 @@ function ChatLlmCard() {
   const [savedOllamaUrl, setSavedOllamaUrl] = useState('');
   const [defaultModel, setDefaultModel] = useState('');
   const [keepAlive, setKeepAlive] = useState('');
+  const [defaultStrategy, setDefaultStrategy] = useState<'sliding' | 'summarize' | 'manual'>('sliding');
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -763,6 +764,7 @@ function ChatLlmCard() {
         setSavedOllamaUrl(s.ollamaUrl);
         setDefaultModel(s.defaultModel);
         setKeepAlive(s.keepAlive);
+        if (s.defaultContextStrategy) setDefaultStrategy(s.defaultContextStrategy);
       })
       .catch(() => { /* fall back to placeholders */ })
       .finally(() => setLoaded(true));
@@ -773,11 +775,13 @@ function ChatLlmCard() {
       ollamaUrl: ollamaUrl.trim(),
       defaultModel: defaultModel.trim(),
       keepAlive: keepAlive.trim(),
+      defaultContextStrategy: defaultStrategy,
     });
     setOllamaUrl(next.ollamaUrl);
     setSavedOllamaUrl(next.ollamaUrl);
     setDefaultModel(next.defaultModel);
     setKeepAlive(next.keepAlive);
+    if (next.defaultContextStrategy) setDefaultStrategy(next.defaultContextStrategy);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -883,6 +887,24 @@ function ChatLlmCard() {
           <p className="field-helper">
             How long Ollama keeps the model in VRAM after a request. <code>5m</code>,
             <code>1h</code>, or <code>0</code> to unload immediately.
+          </p>
+        </div>
+        <div>
+          <label className="field-label">Default context strategy</label>
+          <div className="field-wrap">
+            <select
+              value={defaultStrategy}
+              onChange={e => setDefaultStrategy(e.target.value as 'sliding' | 'summarize' | 'manual')}
+              className="field-input"
+              disabled={!loaded}
+            >
+              <option value="sliding">Sliding window — drop oldest turns when the budget hits 80%</option>
+              <option value="summarize">Summarize — replace older turns with a model-generated summary</option>
+              <option value="manual">Manual — warn only; user runs Compact when ready</option>
+            </select>
+          </div>
+          <p className="field-helper">
+            Applied to every brand-new conversation. You can override per-conversation from the chat header meter.
           </p>
         </div>
       </CardContent>

@@ -48,6 +48,11 @@ export interface OllamaTelemetry {
  * Text parts concatenate into `content`; file parts whose mediaType starts
  * with `image/` become base64 entries on `images` (ignoring non-data URLs
  * since Ollama only accepts inline base64).
+ *
+ * Phase F: only the LATEST user message keeps its images. Prior-turn images
+ * are stripped because each base64 attachment burns 1-2K tokens of context;
+ * for follow-up turns the model already extracted what it needs in its own
+ * reply, and the image bytes rarely add value relative to their cost.
  */
 export function convertToOllamaMessages(
   messages: UIMessage[],
@@ -57,10 +62,17 @@ export function convertToOllamaMessages(
   if (systemPrompt && systemPrompt.length > 0) {
     out.push({ role: 'system', content: systemPrompt });
   }
-  for (const m of messages) {
+  // Locate the LAST user message — only that one gets to keep images.
+  let latestUserIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].role === 'user') { latestUserIdx = i; break; }
+  }
+  for (let i = 0; i < messages.length; i += 1) {
+    const m = messages[i];
     if (m.role !== 'user' && m.role !== 'assistant' && m.role !== 'system') continue;
     const textChunks: string[] = [];
     const images: string[] = [];
+    const allowImages = i === latestUserIdx;
     for (const part of m.parts ?? []) {
       const p = part as { type?: string; text?: string; mediaType?: string; url?: string };
       if (p.type === 'text' && typeof p.text === 'string') {
@@ -72,6 +84,7 @@ export function convertToOllamaMessages(
       } else if (p.type === 'file' && typeof p.url === 'string'
                  && typeof p.mediaType === 'string'
                  && p.mediaType.startsWith('image/')) {
+        if (!allowImages) continue;
         const b64 = extractBase64FromDataUrl(p.url);
         if (b64) images.push(b64);
       }

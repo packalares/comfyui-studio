@@ -7,6 +7,7 @@ import PageSubbar from '../components/PageSubbar';
 import ConversationList from '../components/chat/ConversationList';
 import MessageThread from '../components/chat/MessageThread';
 import Composer from '../components/chat/Composer';
+import ContextMeter from '../components/chat/ContextMeter';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import {
@@ -254,6 +255,11 @@ export default function Chat() {
               />
             </aside>
             <section className="flex flex-1 min-h-0 flex-col">
+              {hasConversation && conversationId && (
+                <div className="flex items-center justify-end gap-2 border-b border-slate-100 px-3 py-1.5">
+                  <ContextMeter conversationId={conversationId} model={model} />
+                </div>
+              )}
               <MessageThread
                 messages={messages}
                 status={status}

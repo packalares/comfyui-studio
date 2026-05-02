@@ -159,6 +159,23 @@ function applyGalleryWaveFMigration(db: DB): void {
   }
 }
 
+/**
+ * Schema v7 widens `conversations` with `context_strategy` so each chat row
+ * carries its own context-window management policy (sliding / summarize /
+ * manual). Existing DBs were created before the column existed; we add it
+ * idempotently here so v6 → v7 boots without a destructive rewrite.
+ */
+function applyConversationsContextStrategyMigration(db: DB): void {
+  const cols = db.prepare('PRAGMA table_info(conversations)').all() as
+    Array<{ name: string }>;
+  const present = new Set(cols.map(c => c.name));
+  if (!present.has('context_strategy')) {
+    db.exec(
+      "ALTER TABLE conversations ADD COLUMN context_strategy TEXT NOT NULL DEFAULT 'sliding'",
+    );
+  }
+}
+
 function openAndInit(dbPath: string): DB {
   const db = new Database(dbPath);
   // WAL: many readers + single writer, durable across crashes, and the
@@ -168,6 +185,7 @@ function openAndInit(dbPath: string): DB {
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA_SQL);
   applyGalleryWaveFMigration(db);
+  applyConversationsContextStrategyMigration(db);
   const row = db.prepare('SELECT version FROM schema_version LIMIT 1').get() as
     | { version: number } | undefined;
   if (!row) {
