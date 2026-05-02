@@ -100,7 +100,7 @@ export default function LogsDrawer({ open, onClose }: Props) {
     <div className="fixed inset-0 z-50">
       {/* Backdrop — matches AlertDialog's overlay style */}
       <div
-        className="modal-backdrop animate-in fade-in-0"
+        className="absolute inset-0 bg-black/50 animate-in fade-in-0"
         onClick={onClose}
       />
       {/* Right-side panel */}

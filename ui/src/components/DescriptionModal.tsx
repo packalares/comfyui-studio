@@ -1,6 +1,7 @@
 import { type ReactNode } from 'react';
 import { ExternalLink } from 'lucide-react';
 import AppModal from './AppModal';
+import { Badge } from './ui/badge';
 
 interface CivitaiMetaShape {
   originalUrl?: string;
@@ -109,9 +110,9 @@ export default function DescriptionModal(props: Props): JSX.Element | null {
             <h3 className="field-label mb-1.5">Tags</h3>
             <div className="flex flex-wrap gap-1.5">
               {tags.map((tag) => (
-                <span key={tag} className="badge-pill badge-slate">
+                <Badge key={tag} variant="slate">
                   {tag}
-                </span>
+                </Badge>
               ))}
             </div>
           </section>
@@ -144,9 +145,9 @@ export default function DescriptionModal(props: Props): JSX.Element | null {
             {civitaiMeta.tags && civitaiMeta.tags.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {civitaiMeta.tags.map((tag) => (
-                  <span key={`civ-${tag}`} className="badge-pill badge-teal">
+                  <Badge key={`civ-${tag}`} variant="teal">
                     {tag}
-                  </span>
+                  </Badge>
                 ))}
               </div>
             )}

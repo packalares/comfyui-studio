@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import type { Plugin } from '../../types';
 import AppModal from '../AppModal';
+import { Badge } from '../ui/badge';
 
 interface Props {
   plugin: Plugin | null;
@@ -95,11 +96,11 @@ export default function SwitchVersionModal({ plugin, onClose, onConfirm }: Props
                   disabled={busy || isCurrent}
                 />
                 <span className="text-xs font-mono text-slate-700">{v.version || v.id}</span>
-                {isCurrent && <span className="badge-pill badge-slate !text-[10px]">Current</span>}
+                {isCurrent && <Badge variant="slate" className="!text-[10px]">Current</Badge>}
                 {v.deprecated && (
-                  <span className="badge-pill bg-amber-50 text-amber-700 ring-amber-200 !text-[10px]">
+                  <Badge variant="amber" className="!text-[10px]">
                     Deprecated
-                  </span>
+                  </Badge>
                 )}
               </label>
             );

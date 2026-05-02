@@ -19,6 +19,19 @@ const badgeVariants = cva(
         ghost:
           "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
         link: "text-primary underline-offset-4 hover:underline",
+        // Studio status pills migrated from `.badge-pill .badge-{tone}` in
+        // index.css. Visual semantics preserved: tinted background +
+        // matching ring (border) + tinted foreground.
+        emerald:
+          "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200",
+        amber:
+          "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200",
+        rose:
+          "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200",
+        slate:
+          "bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-200",
+        teal:
+          "bg-teal-50 text-teal-700 ring-1 ring-inset ring-teal-200",
       },
     },
     defaultVariants: {

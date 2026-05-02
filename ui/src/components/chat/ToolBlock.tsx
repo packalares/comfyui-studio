@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Wrench, ChevronRight, AlertCircle, Check } from 'lucide-react';
 import type { ChatToolPart } from '../../services/chatEvents';
+import { Badge } from '../ui/badge';
 
 interface Props {
   part: ChatToolPart;
@@ -33,11 +34,9 @@ function pretty(value: unknown): string {
 export default function ToolBlock({ part }: Props) {
   const [expanded, setExpanded] = useState(false);
   const isError = part.state === 'error';
-  // `.badge-pill` is the existing rounded chip used elsewhere; reuse it so
-  // tool chips match the rest of the visual language without new primitives.
-  const badgeClass = isError
-    ? 'badge-pill badge-rose'
-    : 'badge-pill badge-emerald';
+  // Reuse shadcn `<Badge>` with Studio's emerald/rose variants so tool chips
+  // match the rest of the visual language without new primitives.
+  const badgeVariant: 'rose' | 'emerald' = isError ? 'rose' : 'emerald';
   const headerLabel = isError ? 'Tool error' : 'Tool';
   const summary = shortArgs(part.args);
 
@@ -52,10 +51,10 @@ export default function ToolBlock({ part }: Props) {
         <ChevronRight
           className={`h-3 w-3 text-slate-400 transition-transform ${expanded ? 'rotate-90' : ''}`}
         />
-        <span className={badgeClass}>
+        <Badge variant={badgeVariant}>
           {isError ? <AlertCircle className="h-3 w-3" /> : <Wrench className="h-3 w-3" />}
           {headerLabel}
-        </span>
+        </Badge>
         <code className="font-mono text-slate-700">{part.toolName}</code>
         {summary && (
           <span className="truncate text-slate-500">{summary}</span>

@@ -115,7 +115,7 @@ export default function AppModal(props: AppModalProps): JSX.Element | null {
       role="dialog"
       aria-modal="true"
       aria-label={title ?? ariaLabel}
-      className={`modal-overlay bg-slate-900/40 backdrop-blur-sm ${
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm ${
         exiting
           ? 'animate-out fade-out-0 duration-150'
           : 'animate-in fade-in-0 duration-150'

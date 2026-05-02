@@ -45,7 +45,7 @@ export default function ModelFolderPickerModal({
   const ready = folders !== null && folders.length > 0 && selected !== '';
 
   return (
-    <div className="modal-overlay bg-slate-900/40 backdrop-blur-sm" onClick={(e) => {
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={(e) => {
       if (e.target === e.currentTarget) onCancel();
     }}>
       <div className="w-full max-w-md panel flex flex-col">

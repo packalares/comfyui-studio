@@ -24,33 +24,34 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from '../ui/alert-dialog';
+import { Badge } from '../ui/badge';
 
 function StatusBadge({ status }: { status: PluginHistoryEntry['status'] }) {
   if (status === 'success') {
     return (
-      <span className="badge-pill badge-emerald">
+      <Badge variant="emerald">
         <CheckCircle2 className="h-3 w-3" />
         Success
-      </span>
+      </Badge>
     );
   }
   if (status === 'running') {
     return (
-      <span className="badge-pill badge-teal">
+      <Badge variant="teal">
         <Loader2 className="h-3 w-3 animate-spin" />
         Running
-      </span>
+      </Badge>
     );
   }
   if (status === 'failed') {
     return (
-      <span className="badge-pill badge-rose">
+      <Badge variant="rose">
         <XCircle className="h-3 w-3" />
         Failed
-      </span>
+      </Badge>
     );
   }
-  return <span className="badge-pill badge-slate">{status}</span>;
+  return <Badge variant="slate">{status}</Badge>;
 }
 
 export default function PluginHistoryPanel() {

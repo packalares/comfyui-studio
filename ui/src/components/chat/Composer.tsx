@@ -3,6 +3,7 @@ import { Send, StopCircle, HelpCircle, Paperclip, X, FileText, Image as ImageIco
 import { toast } from 'sonner';
 import type { OllamaInstalledModel } from '../../services/comfyui';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+import { Badge } from '../ui/badge';
 import {
   ALLOWED_ACCEPT,
   MAX_ATTACHMENTS,
@@ -153,7 +154,7 @@ export default function Composer({
                   ))}
                 </select>
                 {visionCapable && (
-                  <span className="badge-pill badge-teal" title="Can see images">vision</span>
+                  <Badge variant="teal" title="Can see images">vision</Badge>
                 )}
               </label>
             </TooltipTrigger>
@@ -219,9 +220,9 @@ export default function Composer({
 
 interface ChipProps { att: PendingAttachment; onRemove: () => void }
 function AttachmentChip({ att, onRemove }: ChipProps) {
-  // Reuses the existing `.badge-pill` border-radius idiom but renders larger
-  // (small thumbnail or icon + filename + remove button) — purely composed
-  // from neutral utilities so it sits comfortably with the rest of Studio.
+  // Larger pill (small thumbnail or icon + filename + remove button), purely
+  // composed from neutral utilities so it sits comfortably alongside the rest
+  // of Studio.
   return (
     <div className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">
       {att.kind === 'image' && att.dataUrl ? (

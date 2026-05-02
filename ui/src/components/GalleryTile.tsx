@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import type { GalleryItem } from '../types';
 import { isThreeDFilename } from '../lib/media';
+import { Badge } from './ui/badge';
 
 const TILE_WIDTH = 320;
 
@@ -41,12 +42,17 @@ function formatDuration(ms: number | null | undefined): string | null {
 
 // Type badge — one visual language for every media type. Rendered bottom-
 // left on the tile; duration pill (when available) sits to its right.
+// Translucent black overlay pill used over media. We bypass the default
+// shadcn Badge background by passing an explicit `bg-*` className (cn()
+// merges later classes last).
+const OVERLAY_PILL = "bg-black/60 text-white border-transparent text-[10px] px-1.5 py-0.5";
+
 function TypeBadge({ icon: Icon, label }: { icon: typeof Video; label: string }) {
   return (
-    <div className="badge-pill bg-black/60 text-white border-transparent text-[10px] px-1.5 py-0.5">
+    <Badge variant="outline" className={OVERLAY_PILL}>
       <Icon className="w-3 h-3" />
       {label}
-    </div>
+    </Badge>
   );
 }
 
@@ -54,10 +60,10 @@ function DurationBadge({ ms }: { ms: number | null | undefined }) {
   const text = formatDuration(ms);
   if (!text) return null;
   return (
-    <div className="badge-pill bg-black/60 text-white border-transparent text-[10px] px-1.5 py-0.5">
+    <Badge variant="outline" className={OVERLAY_PILL}>
       <Clock className="w-3 h-3" />
       {text}
-    </div>
+    </Badge>
   );
 }
 

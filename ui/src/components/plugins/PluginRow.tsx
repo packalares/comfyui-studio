@@ -9,6 +9,7 @@ import {
   GitBranch,
 } from 'lucide-react';
 import { Switch } from '../ui/switch';
+import { Badge } from '../ui/badge';
 import type { Plugin } from '../../types';
 import TaskProgress from './TaskProgress';
 
@@ -25,19 +26,19 @@ interface Props {
 
 function statusBadge(p: Plugin) {
   if (!p.installed) {
-    return <span className="badge-pill badge-slate">Not installed</span>;
+    return <Badge variant="slate">Not installed</Badge>;
   }
   if (p.disabled) {
-    return <span className="badge-pill badge-amber">Disabled</span>;
+    return <Badge variant="amber">Disabled</Badge>;
   }
   if (p.status === 'NodeStatusBanned' || p.status === 'NodeStatusDeprecated') {
     return (
-      <span className="badge-pill badge-rose">
+      <Badge variant="rose">
         {p.status.replace('NodeStatus', '').toLowerCase()}
-      </span>
+      </Badge>
     );
   }
-  return <span className="badge-pill badge-emerald">Installed</span>;
+  return <Badge variant="emerald">Installed</Badge>;
 }
 
 function PluginRowInner({
@@ -186,9 +187,9 @@ function PluginRowInner({
           {plugin.tags && plugin.tags.length > 0 && (
             <div className="flex items-center gap-1 flex-wrap">
               {plugin.tags.map((t) => (
-                <span key={t} className="badge-pill badge-slate !text-[10px]">
+                <Badge key={t} variant="slate" className="!text-[10px]">
                   {t}
-                </span>
+                </Badge>
               ))}
             </div>
           )}

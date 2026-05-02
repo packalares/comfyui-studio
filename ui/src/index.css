@@ -121,9 +121,6 @@
   .btn-secondary {
     @apply inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs transition disabled:opacity-50 disabled:cursor-not-allowed border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
   }
-  .btn-ghost {
-    @apply inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs transition disabled:opacity-50 disabled:cursor-not-allowed text-slate-600 hover:bg-slate-100;
-  }
   .btn-icon {
     @apply rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50;
   }
@@ -169,37 +166,15 @@
   .badge-gray {
     @apply bg-gray-100 text-gray-600 border border-gray-200;
   }
-  .badge-pill {
-    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset;
-  }
-  .badge-emerald {
-    @apply bg-emerald-50 text-emerald-700 ring-emerald-200;
-  }
-  .badge-amber {
-    @apply bg-amber-50 text-amber-700 ring-amber-200;
-  }
-  .badge-slate {
-    @apply bg-slate-100 text-slate-700 ring-slate-200;
-  }
-  .badge-rose {
-    @apply bg-rose-50 text-rose-700 ring-rose-200;
-  }
-  .badge-teal {
-    @apply bg-teal-50 text-teal-700 ring-teal-200;
-  }
+  /* `.badge-pill` and the `.badge-{tone}` family (emerald/amber/rose/slate/teal)
+     were Phase C–migrated to shadcn `<Badge>` with matching custom variants
+     (`emerald`, `amber`, `rose`, `slate`, `teal`) defined in
+     `components/ui/badge.tsx`. Old classes removed; consumers use
+     `<Badge variant="emerald">` etc. */
 
-  /* ===== Stat boxes (sidebar summary tiles — base + typography) =====
-     The container color comes from a trailing inline `bg-X-50 ring-X-100` so
-     each tile can still paint its own accent. */
-  .stat-box {
-    @apply rounded-md px-3 py-2 ring-1 ring-inset;
-  }
-  .stat-box-label {
-    @apply text-[10px] font-medium uppercase tracking-wide;
-  }
-  .stat-box-value {
-    @apply text-lg font-bold leading-tight mt-0.5;
-  }
+  /* `.stat-box` / `.stat-box-label` / `.stat-box-value` removed in Phase C —
+     no consumers remained after the refactor. `.stat-label` (the small
+     uppercase widget/section header) is still used. */
 
   /* Small uppercase label used for widget/stat section titles
      (Dashboard cards, NetworkWidget, Plugins sidebar group). */
@@ -218,21 +193,15 @@
     @apply h-full bg-teal-500 rounded-full transition-all duration-300;
   }
 
-  /* ===== Modals =====
-     Common outer wrapper that centers a dialog in the viewport. */
-  .modal-overlay {
-    @apply fixed inset-0 z-50 flex items-center justify-center p-4;
-  }
-  /* Dimmed backdrop rendered inside a modal wrapper (positioned absolutely).
-     Add `animate-in fade-in-0` inline where the call-site wants the animation. */
-  .modal-backdrop {
-    @apply absolute inset-0 bg-black/50;
-  }
+  /* `.modal-overlay` and `.modal-backdrop` removed in Phase C —
+     consumers (AppModal / ModelFolderPickerModal / ComfyUIActions / LogsDrawer)
+     inlined the rules. shadcn `<Dialog>` provides overlay + portal natively;
+     new modals should use that primitive instead. */
 
   /* ===== Form fields ===== */
-  .input-field {
-    @apply w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors;
-  }
+  /* `.input-field` removed in Phase C — no consumers. Use `<Input>` from
+     `components/ui/input.tsx` for new fields, or `field-wrap` + `field-input`
+     for the compact inline-control composition with steppers. */
   .field-label {
     @apply block text-xs font-medium uppercase tracking-wide text-slate-500;
   }

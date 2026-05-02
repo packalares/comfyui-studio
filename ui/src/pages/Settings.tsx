@@ -39,6 +39,7 @@ import { toast } from 'sonner';
 import { api } from '../services/comfyui';
 import { useApp } from '../context/AppContext';
 import { Switch } from '../components/ui/switch';
+import { Badge } from '../components/ui/badge';
 
 /* ---------- types for launch options ---------- */
 
@@ -195,14 +196,14 @@ const KEY_DESCRIPTIONS: Record<string, string> = {
 
 function StatusBadge({ ok, labelOk, labelBad }: { ok: boolean; labelOk: string; labelBad: string }) {
   return (
-    <span className={`badge-pill ${ok ? 'badge-emerald' : 'badge-amber'}`}>
+    <Badge variant={ok ? 'emerald' : 'amber'}>
       <span
         className={`inline-block h-1.5 w-1.5 rounded-full ${
           ok ? 'bg-emerald-500' : 'bg-amber-500'
         }`}
       />
       {ok ? labelOk : labelBad}
-    </span>
+    </Badge>
   );
 }
 
@@ -1224,10 +1225,10 @@ function LaunchOptionsCard() {
         right={
           <div className="flex items-center gap-2">
             {!loading && items.length > 0 && (
-              <span className="badge-pill badge-slate">
+              <Badge variant="slate">
                 <SlidersHorizontal className="h-3 w-3" />
                 {totalEnabled} of {items.length} enabled
-              </span>
+              </Badge>
             )}
             <button
               onClick={fetchOptions}

@@ -88,7 +88,7 @@ function WipeModal({
   }
 
   return (
-    <div className="modal-overlay">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-black/50" onClick={phase !== 'running' ? onClose : undefined} />
       <div className="panel relative w-full max-w-3xl max-h-[80vh] flex flex-col">
         <div className="panel-header flex items-center justify-between">

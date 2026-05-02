@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import type { CatalogModel, UrlHost, UrlSource } from '../types';
 import { formatBytes } from '../lib/utils';
+import { Badge } from './ui/badge';
 
 // Allow-list of HTML tags we'll render for descriptions. Mirrors the list in
 // the civitai branch since both ingest the same payload shape.
@@ -128,10 +129,10 @@ function StatusSection(p: { gated?: boolean; gatedMessage?: string; error?: stri
       <div className="space-y-1.5">
         {p.gated && (
           <div className="flex items-start gap-1.5">
-            <span className="badge-pill badge-amber inline-flex items-center gap-1">
+            <Badge variant="amber">
               <AlertCircle className="w-3 h-3" />
               Gated
-            </span>
+            </Badge>
             {p.gatedMessage && (
               <span className="text-[11px] text-slate-600">{p.gatedMessage}</span>
             )}
@@ -139,10 +140,10 @@ function StatusSection(p: { gated?: boolean; gatedMessage?: string; error?: stri
         )}
         {p.error && (
           <div className="flex items-start gap-1.5">
-            <span className="badge-pill badge-rose inline-flex items-center gap-1">
+            <Badge variant="rose">
               <XCircle className="w-3 h-3" />
               Error
-            </span>
+            </Badge>
             <span className="text-[11px] text-slate-600 break-words">{p.error}</span>
           </div>
         )}
@@ -177,11 +178,11 @@ export function CatalogModelBody(p: { model: CatalogModel }): JSX.Element {
     <div className="space-y-4">
       <section>
         <div className="flex flex-wrap gap-1.5">
-          {model.base && <span className="badge-pill badge-slate">{model.base}</span>}
-          {fileFormat && <span className="badge-pill badge-slate">.{fileFormat}</span>}
+          {model.base && <Badge variant="slate">{model.base}</Badge>}
+          {fileFormat && <Badge variant="slate">.{fileFormat}</Badge>}
           {model.installed
-            ? <span className="badge-pill badge-emerald">Installed</span>
-            : <span className="badge-pill badge-slate">Not installed</span>}
+            ? <Badge variant="emerald">Installed</Badge>
+            : <Badge variant="slate">Not installed</Badge>}
         </div>
       </section>
 

@@ -7,6 +7,7 @@ import {
   api, type OllamaInstalledModel, type OllamaLibraryModel, type HfModelSummary,
 } from '../services/comfyui';
 import { chatEvents } from '../services/chatEvents';
+import { Badge } from '../components/ui/badge';
 
 type Tab = 'installed' | 'library' | 'huggingface';
 
@@ -245,14 +246,14 @@ export default function ChatModels() {
                     {m.sizes.length > 0 && (
                       <div className="flex flex-wrap gap-1">
                         {m.sizes.map(s => (
-                          <span key={s} className="badge-pill badge-slate">{s}</span>
+                          <Badge key={s} variant="slate">{s}</Badge>
                         ))}
                       </div>
                     )}
                     {m.capabilities.length > 0 && (
                       <div className="flex flex-wrap gap-1">
                         {m.capabilities.map(c => (
-                          <span key={c} className="badge-pill badge-teal">{c}</span>
+                          <Badge key={c} variant="teal">{c}</Badge>
                         ))}
                       </div>
                     )}
@@ -285,10 +286,10 @@ export default function ChatModels() {
                           : 'Pulls the default tag'}
                     </p>
                     {isInstalled && !pull ? (
-                      <span className="badge-pill badge-emerald">
+                      <Badge variant="emerald">
                         <Check className="w-3 h-3" />
                         Installed
-                      </span>
+                      </Badge>
                     ) : (
                       <button
                         onClick={() => handlePull(m.name)}
@@ -343,7 +344,7 @@ export default function ChatModels() {
                     {m.tags.length > 0 && (
                       <div className="flex flex-wrap gap-1">
                         {m.tags.slice(0, 6).map(t => (
-                          <span key={t} className="badge-pill badge-slate">{t}</span>
+                          <Badge key={t} variant="slate">{t}</Badge>
                         ))}
                       </div>
                     )}

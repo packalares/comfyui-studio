@@ -26,6 +26,7 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from './ui/alert-dialog';
+import { Badge } from './ui/badge';
 
 type DownloadStatus = 'downloading' | 'success' | 'failed' | 'canceled' | 'queued' | string;
 
@@ -77,48 +78,48 @@ function extractHistory(raw: unknown): DownloadHistoryEntry[] {
 function StatusBadge({ status }: { status: DownloadStatus }) {
   if (status === 'success') {
     return (
-      <span className="badge-pill badge-emerald">
+      <Badge variant="emerald">
         <CheckCircle2 className="h-3 w-3" />
         Success
-      </span>
+      </Badge>
     );
   }
   if (status === 'downloading') {
     return (
-      <span className="badge-pill badge-teal">
+      <Badge variant="teal">
         <Loader2 className="h-3 w-3 animate-spin" />
         Downloading
-      </span>
+      </Badge>
     );
   }
   if (status === 'queued') {
     return (
-      <span className="badge-pill badge-slate">
+      <Badge variant="slate">
         <Loader2 className="h-3 w-3 animate-spin" />
         Queued
-      </span>
+      </Badge>
     );
   }
   if (status === 'failed') {
     return (
-      <span className="badge-pill badge-rose">
+      <Badge variant="rose">
         <XCircle className="h-3 w-3" />
         Failed
-      </span>
+      </Badge>
     );
   }
   if (status === 'canceled') {
     return (
-      <span className="badge-pill badge-slate">
+      <Badge variant="slate">
         <Ban className="h-3 w-3" />
         Canceled
-      </span>
+      </Badge>
     );
   }
   return (
-    <span className="badge-pill badge-slate">
+    <Badge variant="slate">
       {status || 'Unknown'}
-    </span>
+    </Badge>
   );
 }
 

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../services/comfyui';
 import type { PluginDependencyReport } from '../../types';
+import { Badge } from '../ui/badge';
 
 interface OpState {
   busy: boolean;
@@ -113,11 +114,15 @@ export default function PluginDepsPanel() {
               const depCount = r.dependencies.length;
               const op = ops[r.plugin];
               const open = expanded[r.plugin];
-              const status = missing === 0
-                ? { label: 'OK', className: 'badge-emerald', icon: <CheckCircle2 className="w-3 h-3" /> }
+              const status: {
+                label: string;
+                variant: 'emerald' | 'amber';
+                icon: JSX.Element;
+              } = missing === 0
+                ? { label: 'OK', variant: 'emerald', icon: <CheckCircle2 className="w-3 h-3" /> }
                 : {
                     label: `${missing} missing`,
-                    className: 'bg-amber-50 text-amber-700 ring-amber-200',
+                    variant: 'amber',
                     icon: <AlertTriangle className="w-3 h-3" />,
                   };
               return (
@@ -139,10 +144,10 @@ export default function PluginDepsPanel() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="text-sm font-medium text-slate-900 truncate">{r.plugin}</p>
                         <span className="text-[11px] text-slate-500">{depCount} deps</span>
-                        <span className={`badge-pill ${status.className}`}>
+                        <Badge variant={status.variant}>
                           {status.icon}
                           {status.label}
-                        </span>
+                        </Badge>
                       </div>
                     </div>
                     {depCount > 0 && missing > 0 && (

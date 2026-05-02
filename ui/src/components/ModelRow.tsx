@@ -5,6 +5,7 @@ import {
 import type { CatalogModel, DownloadState, CivitaiModelSummary } from '../types';
 import { formatBytes } from '../lib/utils';
 import { Tooltip, TooltipTrigger, TooltipContent } from './ui/tooltip';
+import { Badge } from './ui/badge';
 
 export interface ModelRowDownload {
   modelName: string;
@@ -91,7 +92,7 @@ function CatalogRow({
         </p>
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
           {showTypeBadge && model.type && (
-            <span className="badge-pill badge-slate">{model.type}</span>
+            <Badge variant="slate">{model.type}</Badge>
           )}
           {model.fileSize ? (
             <span className="text-[11px] text-slate-500">{formatBytes(model.fileSize)}</span>
@@ -99,38 +100,38 @@ function CatalogRow({
             <span className="text-[11px] text-slate-500">{model.size_pretty || formatBytes(model.size_bytes)}</span>
           ) : null}
           {isDownloading ? (
-            <span className="badge-pill badge-teal">
+            <Badge variant="teal">
               <Loader2 className="w-3 h-3 animate-spin" /> Downloading
-            </span>
+            </Badge>
           ) : model.installed && model.fileStatus !== 'corrupt' && model.fileStatus !== 'incomplete' ? (
-            <span className="badge-pill badge-emerald">Installed</span>
+            <Badge variant="emerald">Installed</Badge>
           ) : model.fileStatus === 'corrupt' ? (
-            <span
-              className="badge-pill bg-red-50 text-red-700 ring-red-200 inline-flex items-center gap-1"
+            <Badge
+              variant="rose"
               title={`On disk: ${formatBytes(model.fileSize || 0)} — expected ${model.size_pretty || formatBytes(model.size_bytes)}`}
             >
               <AlertTriangle className="w-3 h-3" /> Corrupt
-            </span>
+            </Badge>
           ) : model.fileStatus === 'incomplete' ? (
-            <span
-              className="badge-pill badge-amber"
+            <Badge
+              variant="amber"
               title={`On disk: ${formatBytes(model.fileSize || 0)} — expected ${model.size_pretty || formatBytes(model.size_bytes)}`}
             >
               <AlertTriangle className="w-3 h-3" /> Incomplete
-            </span>
+            </Badge>
           ) : (
             <span className="text-[11px] text-slate-400">Not installed</span>
           )}
           {model.gated && (
-            <span
-              className="badge-pill bg-slate-100 text-slate-700 ring-slate-300 inline-flex items-center gap-1"
+            <Badge
+              variant="slate"
               title={model.gated_message || 'Requires HuggingFace token'}
             >
               <Lock className="w-3 h-3" /> Gated
-            </span>
+            </Badge>
           )}
           {isRequired && selectedWorkflow && (
-            <span className="badge-pill badge-amber">Required</span>
+            <Badge variant="amber">Required</Badge>
           )}
         </div>
         {model.error && !isDownloading && !model.installed && (
@@ -141,9 +142,9 @@ function CatalogRow({
       </div>
       <div className="shrink-0 flex items-center gap-2">
         {download && download.status === 'queued' ? (
-          <span className="badge-pill bg-slate-100 text-slate-600 ring-slate-200 inline-flex items-center gap-1">
+          <Badge variant="slate">
             <Loader2 className="w-3 h-3 animate-spin" /> Queued
-          </span>
+          </Badge>
         ) : download ? (
           <div className="flex items-center gap-2">
             <div className="w-24">
@@ -267,7 +268,7 @@ function CivitaiRow({
         </p>
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
           {showTypeBadge && civ.item.type && (
-            <span className="badge-pill badge-slate">{civ.item.type}</span>
+            <Badge variant="slate">{civ.item.type}</Badge>
           )}
           {civ.sizeBytes && (
             <span className="text-[11px] text-slate-500">{formatBytes(civ.sizeBytes)}</span>
@@ -277,9 +278,9 @@ function CivitaiRow({
             <span className="text-[11px] text-slate-500">{downloads.toLocaleString()} dl</span>
           )}
           {primaryVersion?.baseModel && (
-            <span className="badge-pill badge-slate !text-[10px]">{primaryVersion.baseModel}</span>
+            <Badge variant="slate" className="!text-[10px]">{primaryVersion.baseModel}</Badge>
           )}
-          <span className="badge-pill badge-teal">CivitAI</span>
+          <Badge variant="teal">CivitAI</Badge>
         </div>
         {civ.error && (
           <p className="text-[11px] text-rose-600 mt-1" title={civ.error}>

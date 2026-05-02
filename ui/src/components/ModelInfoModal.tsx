@@ -8,6 +8,7 @@ import AppModal from './AppModal';
 import {
   CatalogModelBody, sanitizeHtml, hasHtmlTags,
 } from './ModelInfoModal.catalog';
+import { Badge } from './ui/badge';
 
 export type ModelInfoSource =
   | { kind: 'civitai'; item: CivitaiModelSummary }
@@ -122,10 +123,10 @@ export default function ModelInfoModal({ open, onClose, source }: Props): JSX.El
             <h3 className="field-label mb-1.5">Version</h3>
             <div className="flex flex-wrap gap-1.5">
               {primaryVersion?.baseModel && (
-                <span className="badge-pill badge-slate">{primaryVersion.baseModel}</span>
+                <Badge variant="slate">{primaryVersion.baseModel}</Badge>
               )}
               {fileFormat && (
-                <span className="badge-pill badge-slate">.{fileFormat}</span>
+                <Badge variant="slate">.{fileFormat}</Badge>
               )}
               {sizeBytes !== null && (
                 <StatPill icon={HardDrive} label="size" value={formatBytes(sizeBytes)} />
@@ -155,9 +156,9 @@ export default function ModelInfoModal({ open, onClose, source }: Props): JSX.El
             <h3 className="field-label mb-1.5">Tags</h3>
             <div className="flex flex-wrap gap-1.5">
               {tags.map((tag) => (
-                <span key={tag} className="badge-pill badge-slate">
+                <Badge key={tag} variant="slate">
                   {tag}
-                </span>
+                </Badge>
               ))}
             </div>
           </section>

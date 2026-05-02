@@ -10,6 +10,7 @@ import { findDownloadForModel, isRequiredPlugin } from '../types';
 import { api } from '../services/comfyui';
 import { useApp } from '../context/AppContext';
 import AppModal from './AppModal';
+import { Badge } from './ui/badge';
 
 // ---------------------------------------------------------------------------
 // Visual mapping (old -> new), so future edits stay consistent with
@@ -341,22 +342,22 @@ export default function DependencyModal({
                         {p.classType}
                       </span>
                       {status === 'installed' && (
-                        <span className="badge-pill badge-emerald">
+                        <Badge variant="emerald">
                           <CheckCircle2 className="w-3 h-3" />
                           installed
-                        </span>
+                        </Badge>
                       )}
                       {status === 'queued' && (
-                        <span className="badge-pill badge-amber">
+                        <Badge variant="amber">
                           <Loader2 className="w-3 h-3 animate-spin" />
                           installing
-                        </span>
+                        </Badge>
                       )}
                       {status === 'error' && (
-                        <span className="badge-pill badge-rose">
+                        <Badge variant="rose">
                           <AlertCircle className="w-3 h-3" />
                           error
-                        </span>
+                        </Badge>
                       )}
                     </div>
                     {p.subgraphName && (
@@ -424,22 +425,22 @@ export default function DependencyModal({
                       {model.name}
                     </span>
                     {model.gated && (
-                      <span className="badge-pill badge-amber" title={model.gated_message || ''}>
+                      <Badge variant="amber" title={model.gated_message || ''}>
                         <Lock className="w-3 h-3" />
                         gated
-                      </span>
+                      </Badge>
                     )}
                     {dl?.status === 'completed' && (
-                      <span className="badge-pill badge-emerald">
+                      <Badge variant="emerald">
                         <CheckCircle2 className="w-3 h-3" />
                         installed
-                      </span>
+                      </Badge>
                     )}
                     {dl?.status === 'error' && (
-                      <span className="badge-pill badge-rose">
+                      <Badge variant="rose">
                         <AlertCircle className="w-3 h-3" />
                         error
-                      </span>
+                      </Badge>
                     )}
                   </div>
                   <div className="mt-1 text-[11px] text-slate-500 flex items-center gap-3 flex-wrap">
