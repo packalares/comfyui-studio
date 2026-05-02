@@ -5,8 +5,12 @@
 // mediaType starts with `image/` — see `convertToOllamaMessages` in the
 // server's `ollamaChat.ts`). For text / code uploads we inline the extracted
 // content directly into the user's text so any model can reason over it.
-
-import type { ChatUIMessagePart } from '../../services/comfyui';
+//
+// `buildUserUIMessageParts` (in `studioMessages.ts`) is the Phase E
+// successor to the old `buildUserMessageParts` helper that lived here — the
+// chat page now goes straight to a `UIMessage` shape rather than the
+// persisted-wire shape and lets `useChat` round-trip it through the
+// transport.
 
 // Heuristic vision-capable model match. The chat library response may carry
 // authoritative `capabilities: ['vision']` for known catalog entries — we
@@ -166,51 +170,3 @@ export async function processFile(file: File): Promise<ProcessResult> {
   }
 }
 
-/**
- * Build the wire-shape `parts` for a user message, given the typed prompt
- * + pending attachments. Text-file content is concatenated into a single
- * text part; images become `file` parts (mediaType + data URL), matching
- * what `convertToOllamaMessages` consumes server-side.
- */
-export function buildUserMessageParts(
-  prompt: string,
-  attachments: PendingAttachment[],
-): ChatUIMessagePart[] {
-  const textBlocks: string[] = [];
-  for (const a of attachments) {
-    if (a.kind === 'text' && a.textContent !== undefined) {
-      textBlocks.push(
-        `[Attached file: ${a.filename} (${formatBytes(a.size)})]\n---\n${a.textContent}\n---`,
-      );
-    }
-  }
-  if (prompt.trim().length > 0) textBlocks.push(prompt);
-  const parts: ChatUIMessagePart[] = [];
-  const combined = textBlocks.join('\n\n');
-  if (combined.length > 0) parts.push({ type: 'text', text: combined });
-  for (const a of attachments) {
-    if (a.kind === 'image' && a.dataUrl) {
-      parts.push({
-        type: 'file',
-        mediaType: a.mimeType,
-        url: a.dataUrl,
-        // Filename + size travel alongside so the rendered chip can show
-        // the original metadata after persist+refetch.
-        name: a.filename,
-        size: a.size,
-      } as ChatUIMessagePart);
-    }
-    if (a.kind === 'text') {
-      // Persist a non-streamed marker so the rendered message can show the
-      // text-file chip even after a reload (the content was already inlined
-      // above; this is purely UI metadata).
-      parts.push({
-        type: 'file-meta',
-        mediaType: a.mimeType,
-        name: a.filename,
-        size: a.size,
-      } as ChatUIMessagePart);
-    }
-  }
-  return parts;
-}

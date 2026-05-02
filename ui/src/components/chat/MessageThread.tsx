@@ -1,24 +1,23 @@
-// Conversation thread, ai-elements rebuild.
+// Conversation thread, useChat-driven (Phase E).
 //
-// Responsibilities (unchanged from the hand-rolled version):
-//   * render persisted messages + the in-flight assistant message;
-//   * surface the streaming "thinking" indicator + "loading model into VRAM"
-//     hint and a sticky stream-error banner;
-//   * own the drag-drop overlay that hands files up to the parent (composer
-//     keeps the canonical attachment list);
-//   * render the image lightbox triggered from user-attached image chips.
+// Source of truth = the `StudioUIMessage[]` array owned by `useChat`. Every
+// message — historical, in-flight, or freshly persisted — is rendered from
+// the same `parts` array, so we no longer track a `streamingMsgId` /
+// `streamingText` / `streamingTools` sidecar (the previous hand-rolled
+// state machine kept those parallel to the persisted-messages list).
 //
-// The visual primitives now come from `components/ai-elements/*`:
-//   * <Conversation> (use-stick-to-bottom) replaces our manual scroll glue;
-//   * <Message> + <MessageContent> + <MessageResponse> (streamdown markdown)
-//     replace MarkdownMessage and the per-row layout;
-//   * <Tool> replaces ToolBlock (tool args/result + status);
-//   * <Reasoning> (Studio adapter, fed by chat:reasoning bus) renders the
-//     model's chain-of-thought above the regular text.
+// Responsibilities (unchanged):
+//   * render the conversation;
+//   * surface the cold-load "loading model into VRAM..." hint (still on the
+//     Studio chat:status bus — no UIMessageChunk type for it);
+//   * sticky stream-error banner;
+//   * drag-drop overlay (composer keeps the canonical attachment list);
+//   * image lightbox triggered from user-attached image chips.
 //
-// We KEEP the <details>-like envelope for assistant rows so persisted reasoning
-// (`{ type: 'reasoning' }` parts saved by streamChat.ts) still re-renders
-// after a refetch.
+// Visual primitives still come from `components/ai-elements/*`. `<Reasoning>`
+// is now used directly per-part (no Studio adapter); the Phase D
+// `Reasoning.tsx` file was deleted because the bus subscription it owned is
+// now done by `StudioTransport` -> `reasoning-delta` chunks -> useChat parts.
 
 import { useEffect, useState } from 'react';
 import { AlertCircle, FileText, Upload, X, MessageSquare } from 'lucide-react';
@@ -29,73 +28,53 @@ import { Message, MessageContent, MessageResponse } from '../ai-elements/message
 import {
   Tool, ToolHeader, ToolContent, ToolInput, ToolOutput,
 } from '../ai-elements/tool';
+import {
+  Reasoning, ReasoningContent, ReasoningTrigger,
+} from '../ai-elements/reasoning';
 import { Loader } from '../ai-elements/loader';
-import Reasoning from './Reasoning';
 import Actions from './Actions';
 import TelemetryFooter from './TelemetryFooter';
-import type { ChatMessage, ChatUIMessagePart } from '../../services/comfyui';
-import type { ChatToolPart } from '../../services/chatEvents';
+import { chatEvents } from '../../services/chatEvents';
 import { formatBytes } from './attachments';
+import type { StudioUIMessage, StudioUIMessagePart } from './studioMessages';
 
 interface ImageAttachment { kind: 'image'; url: string; mediaType?: string; name?: string; size?: number }
 interface FileAttachment { kind: 'file'; name: string; size?: number; mediaType?: string }
 type RenderedAttachment = ImageAttachment | FileAttachment;
 
 interface Props {
-  messages: ChatMessage[];
-  streamingMsgId: string | null;
-  streamingText: string;
-  // Inline "loading model into VRAM..." hint emitted by the server.
-  streamStatus: string;
+  messages: StudioUIMessage[];
+  // useChat status — drives the empty-state / "thinking" branches without
+  // requiring a separate `streamingMsgId`.
+  status: 'submitted' | 'streaming' | 'ready' | 'error';
   // Last stream error (kept until next send).
   streamError: string;
-  busy: boolean;
   hasConversation: boolean;
-  streamingTools?: ChatToolPart[];
-  // Drag-drop callback up to the parent composer.
   onFilesDropped?: (files: FileList) => void;
 }
 
-function partsToText(parts: ChatUIMessagePart[]): string {
-  return parts.filter(p => p.type === 'text').map(p => p.text ?? '').join('');
+function partsToText(parts: StudioUIMessagePart[]): string {
+  return parts.filter(p => p.type === 'text').map(p => p.text).join('');
 }
 
-function partsToReasoning(parts: ChatUIMessagePart[]): string {
-  return parts.filter(p => p.type === 'reasoning').map(p => p.text ?? '').join('');
-}
-
-function attachmentsOf(parts: ChatUIMessagePart[]): RenderedAttachment[] {
+function attachmentsOf(parts: StudioUIMessagePart[]): RenderedAttachment[] {
   const out: RenderedAttachment[] = [];
   for (const p of parts) {
-    if (p.type === 'file' && typeof p.url === 'string'
-        && (p.mediaType?.startsWith('image/') ?? false)) {
+    if (p.type === 'file' && p.mediaType.startsWith('image/')) {
       out.push({
-        kind: 'image', url: p.url, mediaType: p.mediaType, name: p.name, size: p.size,
+        kind: 'image', url: p.url, mediaType: p.mediaType, name: p.filename,
       });
-    } else if (p.type === 'file-meta') {
+    } else if (p.type === 'data-fileMeta') {
       out.push({
-        kind: 'file', name: p.name ?? 'file', size: p.size, mediaType: p.mediaType,
+        kind: 'file', name: p.data.filename, size: p.data.size, mediaType: p.data.mediaType,
       });
     }
   }
   return out;
 }
 
-function isToolPart(value: unknown): value is ChatToolPart {
-  if (!value || typeof value !== 'object') return false;
-  const p = value as { type?: unknown; toolName?: unknown };
-  return p.type === 'tool-invocation' && typeof p.toolName === 'string';
-}
-
-function toolPartsOf(parts: ChatUIMessagePart[]): ChatToolPart[] {
-  const out: ChatToolPart[] = [];
-  for (const p of parts) if (isToolPart(p)) out.push(p);
-  return out;
-}
-
 export default function MessageThread({
-  messages, streamingMsgId, streamingText, streamStatus, streamError, busy, hasConversation,
-  streamingTools, onFilesDropped,
+  messages, status, streamError, hasConversation, onFilesDropped,
 }: Props) {
   const [dragActive, setDragActive] = useState(false);
   const [zoomed, setZoomed] = useState<string | null>(null);
@@ -107,11 +86,25 @@ export default function MessageThread({
     return () => { window.removeEventListener('keydown', onKey); };
   }, [zoomed]);
 
-  // Show the streaming indicator only while the assistant placeholder is up
-  // but no chunk has streamed yet, OR while we're waiting for /chat/start.
-  const showStreamingHint =
-    (streamingMsgId !== null && streamingText.length === 0)
-    || (busy && streamingMsgId === null);
+  // Identify the in-flight assistant message: while streaming, useChat's
+  // last entry is the assistant turn currently receiving chunks. Used to
+  // gate the cold-load "thinking..." indicator + the streaming flag we
+  // pass into <Reasoning isStreaming>.
+  const lastMessage = messages[messages.length - 1];
+  const inFlightAssistantId =
+    (status === 'streaming' || status === 'submitted')
+    && lastMessage?.role === 'assistant'
+      ? lastMessage.id
+      : null;
+
+  // Show the "loading model into VRAM..." chip while the request is in-flight
+  // but no chunks have arrived yet (lastMessage hasn't been pushed yet, or it
+  // exists but parts are still empty).
+  const lastIsAssistantEmpty =
+    lastMessage?.role === 'assistant' && partsToText(lastMessage.parts).length === 0;
+  const showColdLoadHint =
+    status === 'submitted'
+    || (status === 'streaming' && lastIsAssistantEmpty);
 
   return (
     <div
@@ -138,14 +131,14 @@ export default function MessageThread({
     >
       <Conversation className="flex-1">
         <ConversationContent className="mx-auto w-full max-w-3xl px-4 py-6">
-          {!hasConversation && !busy && (
+          {!hasConversation && status === 'ready' && (
             <div className="empty-box flex flex-col items-center gap-1.5 py-12">
               <MessageSquare className="h-6 w-6 text-slate-300" />
               <div className="text-sm font-medium text-slate-600">Start a new conversation</div>
               <div className="text-xs text-slate-500">Type below or pick one from the sidebar.</div>
             </div>
           )}
-          {hasConversation && messages.length === 0 && !busy && (
+          {hasConversation && messages.length === 0 && status === 'ready' && (
             <div className="empty-box py-12">
               Start a conversation by typing a message below.
             </div>
@@ -154,21 +147,18 @@ export default function MessageThread({
             <MessageRow
               key={m.id}
               msg={m}
-              isStreaming={m.id === streamingMsgId}
-              streamingText={m.id === streamingMsgId ? streamingText : null}
-              streamingTools={m.id === streamingMsgId ? (streamingTools ?? []) : null}
-              streamStatus={streamStatus}
+              isStreaming={m.id === inFlightAssistantId}
               onZoom={setZoomed}
             />
           ))}
-          {showStreamingHint && !messages.some(m => m.id === streamingMsgId) && (
+          {showColdLoadHint && lastMessage?.role !== 'assistant' && (
             <Message from="assistant">
               <MessageContent>
-                <Loader status={streamStatus} />
+                <ColdLoadLoader />
               </MessageContent>
             </Message>
           )}
-          {streamError && !busy && (
+          {streamError && status === 'ready' && (
             <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
               <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <div>
@@ -208,24 +198,16 @@ export default function MessageThread({
 }
 
 interface RowProps {
-  msg: ChatMessage;
+  msg: StudioUIMessage;
   isStreaming: boolean;
-  streamingText: string | null;
-  streamingTools: ChatToolPart[] | null;
-  streamStatus: string;
   onZoom: (url: string) => void;
 }
 
-function MessageRow({ msg, isStreaming, streamingText, streamingTools, streamStatus, onZoom }: RowProps) {
+function MessageRow({ msg, isStreaming, onZoom }: RowProps) {
   const isUser = msg.role === 'user';
-  const text = isStreaming
-    ? (streamingText ?? '')
-    : partsToText(msg.parts);
-  const reasoningText = isStreaming ? '' : partsToReasoning(msg.parts);
-  const tools = isStreaming
-    ? (streamingTools ?? [])
-    : toolPartsOf(msg.parts);
+  const text = partsToText(msg.parts);
   const atts = isUser ? attachmentsOf(msg.parts) : [];
+  const meta = msg.metadata;
 
   return (
     <Message from={msg.role}>
@@ -249,27 +231,22 @@ function MessageRow({ msg, isStreaming, streamingText, streamingTools, streamSta
           </>
         ) : (
           <>
-            {/* Persisted reasoning re-render. Live reasoning rides on the
-                streaming sibling below. */}
-            {!isStreaming && reasoningText.length > 0 && (
-              <Reasoning text={reasoningText} />
+            {/* Render every assistant part in source order so the model's
+                interleaved reasoning / tools / text show up where they
+                were emitted, not bucketed at the top of the row. */}
+            {msg.parts.map((p, i) => renderAssistantPart(p, i, isStreaming))}
+            {isStreaming && text.length === 0 && msg.parts.every(p => p.type !== 'reasoning' && p.type !== 'dynamic-tool') && (
+              <ColdLoadLoader />
             )}
-            {isStreaming && <Reasoning streamingMsgId={msg.id} />}
-            {tools.map((t) => (
-              <ToolBlockCard key={t.toolCallId} part={t} />
-            ))}
-            {isStreaming && text.length === 0
-              ? <Loader status={streamStatus} />
-              : <MessageResponse>{text || ' '}</MessageResponse>}
             {!isStreaming && (
               <>
                 <TelemetryFooter
-                  model={msg.model}
-                  tokensPerSec={msg.tokens_per_sec}
-                  msTotal={msg.ms_total}
-                  msToFirstToken={msg.ms_to_first_token}
-                  tokensIn={msg.tokens_in}
-                  tokensOut={msg.tokens_out}
+                  model={meta?.model ?? null}
+                  tokensPerSec={meta?.tokens_per_sec ?? null}
+                  msTotal={meta?.ms_total ?? null}
+                  msToFirstToken={meta?.ms_to_first_token ?? null}
+                  tokensIn={meta?.tokens_in ?? null}
+                  tokensOut={meta?.tokens_out ?? null}
                 />
                 {text.length > 0 && <Actions text={text} />}
               </>
@@ -281,29 +258,64 @@ function MessageRow({ msg, isStreaming, streamingText, streamingTools, streamSta
   );
 }
 
-// Map our persisted ChatToolPart shape onto ai-elements' <Tool>. Studio's tool
-// records carry `state: 'result' | 'error'` (terminal only — we don't surface
-// the in-flight `running` state yet) and string `errorMessage`; ai-elements
-// expects `output-available` / `output-error` and `errorText`. The mapping is
-// trivial but kept here so we don't need to leak ai-elements types out to the
-// chatEvents bus.
-function ToolBlockCard({ part }: { part: ChatToolPart }) {
-  const state = part.state === 'error' ? 'output-error' : 'output-available';
+function renderAssistantPart(part: StudioUIMessagePart, key: number, isStreaming: boolean) {
+  if (part.type === 'reasoning') {
+    // No reasoning produced for this turn -> stay invisible so non-thinking
+    // models don't render a stray "Thinking..." chip.
+    if (!isStreaming && part.text.length === 0) return null;
+    return (
+      <Reasoning key={`r-${key}`} className="mb-2" isStreaming={isStreaming && part.state !== 'done'}>
+        <ReasoningTrigger />
+        <ReasoningContent>{part.text}</ReasoningContent>
+      </Reasoning>
+    );
+  }
+  if (part.type === 'dynamic-tool') {
+    return <ToolBlockCard key={`t-${part.toolCallId}-${key}`} part={part} />;
+  }
+  if (part.type === 'text') {
+    if (part.text.length === 0 && !isStreaming) return null;
+    return <MessageResponse key={`m-${key}`}>{part.text || ' '}</MessageResponse>;
+  }
+  // Source / file / data parts on assistant messages aren't rendered yet —
+  // Phase E intentionally leaves Sources & generated-image rendering to a
+  // follow-up (the wire-up bullet in the brief).
+  return null;
+}
+
+// Map a `dynamic-tool` part onto ai-elements `<Tool>`. The chunk lifecycle in
+// `StudioTransport` lands `state` at `output-available` or `output-error`
+// (Studio's bus is terminal — no streaming-args / running state today).
+type DynamicToolPart = Extract<StudioUIMessagePart, { type: 'dynamic-tool' }>;
+function ToolBlockCard({ part }: { part: DynamicToolPart }) {
   return (
     <Tool>
       <ToolHeader
-        type={`tool-${part.toolName}` as `tool-${string}`}
-        state={state}
+        type="dynamic-tool"
+        toolName={part.toolName}
+        state={part.state}
       />
       <ToolContent>
-        <ToolInput input={part.args} />
+        <ToolInput input={part.input} />
         <ToolOutput
-          output={part.state === 'error' ? null : part.result}
-          errorText={part.state === 'error' ? (part.errorMessage ?? 'Unknown error') : undefined}
+          output={part.state === 'output-available' ? part.output : null}
+          errorText={part.state === 'output-error' ? part.errorText : undefined}
         />
       </ToolContent>
     </Tool>
   );
+}
+
+// "loading model into VRAM..." indicator. The cold-load hint comes from
+// Studio's `chat:status` bus (no direct UIMessageChunk type for it) so we
+// subscribe locally — same code path as the previous hand-rolled stream.
+function ColdLoadLoader() {
+  const [status, setStatus] = useState('');
+  useEffect(() => {
+    const off = chatEvents.onStatus(({ message }) => { setStatus(message); });
+    return off;
+  }, []);
+  return <Loader status={status} />;
 }
 
 interface ChipProps { att: RenderedAttachment; onZoom: () => void }

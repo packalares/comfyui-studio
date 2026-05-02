@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Boxes, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { useChat } from '@ai-sdk/react';
 import PageSubbar from '../components/PageSubbar';
 import ConversationList from '../components/chat/ConversationList';
 import MessageThread from '../components/chat/MessageThread';
@@ -9,31 +10,28 @@ import Composer from '../components/chat/Composer';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import {
-  api, ApiError, type ChatMessage, type OllamaInstalledModel,
+  api, ApiError, type OllamaInstalledModel,
 } from '../services/comfyui';
-import { chatEvents, type ChatToolPart } from '../services/chatEvents';
+import { chatEvents } from '../services/chatEvents';
 import {
-  buildUserMessageParts, MAX_ATTACHMENTS, processFile,
+  formatBytes, MAX_ATTACHMENTS, processFile,
   type PendingAttachment,
 } from '../components/chat/attachments';
-
-function makeLocalId(): string {
-  return 'local_' + Math.random().toString(36).slice(2, 12);
-}
+import {
+  StudioTransport,
+} from '../components/chat/StudioTransport';
+import {
+  buildUserUIMessageParts, chatMessageToUIMessage,
+  type StudioUIMessage,
+} from '../components/chat/studioMessages';
 
 export default function Chat() {
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [installed, setInstalled] = useState<OllamaInstalledModel[]>([]);
   const [model, setModel] = useState<string>('');
-  const [busy, setBusy] = useState(false);
-  const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
-  const [streamingText, setStreamingText] = useState('');
-  const [streamStatus, setStreamStatus] = useState<string>('');
   const [streamError, setStreamError] = useState<string>('');
-  const [streamingTools, setStreamingTools] = useState<ChatToolPart[]>([]);
   const [listKey, setListKey] = useState(0);
-  // 502 from /api/chat/models means Ollama itself is unreachable — surface a
+  // 502 from /api/chat/models means Ollama itself is unreachable - surface a
   // banner so the user can fix Settings without opening the browser console.
   const [ollamaUnreachable, setOllamaUnreachable] = useState(false);
   // Pending attachments staged in the composer + appended via drag-drop on
@@ -43,8 +41,46 @@ export default function Chat() {
   // library endpoint. Used by the composer for an authoritative vision
   // check before falling back to the name-pattern heuristic.
   const [libraryCaps, setLibraryCaps] = useState<Record<string, string[]>>({});
-  const streamingTextRef = useRef('');
   const composerFocusRef = useRef<() => void>(() => {});
+
+  // Refs used by `StudioTransport` so the transport always reads the latest
+  // conversationId / model without forcing a recreate on every change. The
+  // page-state setters update the refs synchronously below.
+  const conversationIdRef = useRef<string | null>(null);
+  const modelRef = useRef<string>('');
+  useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId]);
+  useEffect(() => { modelRef.current = model; }, [model]);
+
+  // useChat owns: messages, status, stop, regenerate, setMessages.
+  // Transport bridges to Studio's POST /chat/start + chatEvents bus.
+  const transport = useMemo(() => new StudioTransport({
+    conversationIdRef,
+    modelRef,
+    onConversationStarted: (cid) => {
+      // First send in a new conversation - server minted the id; surface it
+      // up to the page state + sidebar refresh.
+      if (conversationIdRef.current !== cid) {
+        conversationIdRef.current = cid;
+        setConversationId(cid);
+        setListKey(k => k + 1);
+      }
+    },
+  }), []);
+
+  const {
+    messages, sendMessage, status, stop, setMessages,
+  } = useChat<StudioUIMessage>({
+    transport,
+    onError: (err) => {
+      const text = err instanceof Error ? err.message : String(err);
+      toast.error('Chat stream failed', { description: text });
+      setStreamError(text);
+    },
+    onFinish: () => {
+      // Bump the conversation list so titles / updated_at refresh.
+      setListKey(k => k + 1);
+    },
+  });
 
   useEffect(() => {
     api.getChatSettings()
@@ -86,128 +122,42 @@ export default function Chat() {
 
   useEffect(() => { refreshInstalled(); }, [refreshInstalled]);
 
+  // Hydrate useChat's messages whenever the user picks a different
+  // conversation. `setMessages` is the canonical reset path; we don't switch
+  // useChat's internal `id` because that would also reset transport
+  // refs / callback wiring.
   useEffect(() => {
-    if (!conversationId) { setMessages([]); return; }
+    if (!conversationId) {
+      setMessages([]);
+      return;
+    }
     let cancelled = false;
     api.chat.getMessages(conversationId)
-      .then(({ items }) => { if (!cancelled) setMessages(items); })
+      .then(({ items }) => {
+        if (cancelled) return;
+        setMessages(items.map(chatMessageToUIMessage));
+      })
       .catch(() => { if (!cancelled) setMessages([]); });
     return () => { cancelled = true; };
-  }, [conversationId]);
-
-  useEffect(() => {
-    const offChunk = chatEvents.onChunk(({ msgId, delta }) => {
-      if (msgId !== streamingMsgId) return;
-      // First chunk lands - drop the "loading" hint.
-      if (streamingTextRef.current.length === 0) setStreamStatus('');
-      streamingTextRef.current += delta;
-      setStreamingText(streamingTextRef.current);
-    });
-    const offStatus = chatEvents.onStatus(({ msgId, message }) => {
-      if (msgId !== streamingMsgId) return;
-      setStreamStatus(message);
-    });
-    const offTool = chatEvents.onTool(({ msgId, part }) => {
-      if (msgId !== streamingMsgId) return;
-      setStreamingTools(prev => [...prev, part]);
-    });
-    const offDone = chatEvents.onDone(({ msgId }) => {
-      if (msgId !== streamingMsgId) return;
-      setBusy(false);
-      const finalText = streamingTextRef.current;
-      streamingTextRef.current = '';
-      setStreamingText('');
-      setStreamingMsgId(null);
-      setStreamStatus('');
-      setStreamingTools([]);
-      if (conversationId) {
-        api.chat.getMessages(conversationId)
-          .then(({ items }) => setMessages(items))
-          .catch(() => {
-            setMessages(prev => prev.map(m => m.id === msgId
-              ? { ...m, parts: [{ type: 'text', text: finalText }] }
-              : m));
-          });
-        setListKey(k => k + 1);
-      }
-    });
-    const offError = chatEvents.onError(({ msgId, error }) => {
-      if (msgId !== streamingMsgId) return;
-      toast.error('Chat stream failed', { description: error });
-      setStreamError(error);
-      setBusy(false);
-      streamingTextRef.current = '';
-      setStreamingText('');
-      setStreamingMsgId(null);
-      setStreamStatus('');
-      setStreamingTools([]);
-    });
-    return () => { offChunk(); offStatus(); offTool(); offDone(); offError(); };
-  }, [streamingMsgId, conversationId]);
+  }, [conversationId, setMessages]);
 
   // Auto-title broadcast updates the sidebar without a refetch.
   useEffect(() => {
     return chatEvents.onTitle(() => { setListKey(k => k + 1); });
   }, []);
 
-  const handleSend = async (text: string, atts: PendingAttachment[]) => {
+  const busy = status === 'submitted' || status === 'streaming';
+
+  const handleSend = (text: string, atts: PendingAttachment[]) => {
     if (busy) return;
     if (!model) {
       toast.error('No model selected');
       return;
     }
     setStreamError('');
-    setStreamingTools([]);
-    const parts = buildUserMessageParts(text, atts);
+    const parts = buildUserUIMessageParts(text, atts, formatBytes);
     if (parts.length === 0) return;
-    const localUserMsg: ChatMessage = {
-      id: makeLocalId(),
-      conversationId: conversationId ?? 'pending',
-      role: 'user',
-      parts,
-      tokens_in: null, tokens_out: null,
-      ms_to_first_token: null, ms_total: null,
-      tokens_per_sec: null,
-      model: null,
-      created_at: Date.now(),
-    };
-    const wireMessages = [...messages, localUserMsg].map(m => ({
-      id: m.id,
-      role: m.role,
-      parts: m.parts,
-    }));
-    setMessages(prev => [...prev, localUserMsg]);
-    setBusy(true);
-    streamingTextRef.current = '';
-    setStreamingText('');
-    setStreamStatus('');
-    try {
-      const { conversationId: cid, msgId } = await api.chat.start({
-        conversationId: conversationId ?? undefined,
-        model,
-        messages: wireMessages,
-      });
-      setConversationId(cid);
-      setStreamingMsgId(msgId);
-      setMessages(prev => [...prev, {
-        id: msgId,
-        conversationId: cid,
-        role: 'assistant',
-        parts: [{ type: 'text', text: '' }],
-        tokens_in: null, tokens_out: null,
-        ms_to_first_token: null, ms_total: null,
-        tokens_per_sec: null,
-        model,
-        created_at: Date.now(),
-      }]);
-      setListKey(k => k + 1);
-    } catch (err) {
-      toast.error('Failed to start chat', {
-        description: err instanceof Error ? err.message : String(err),
-      });
-      setBusy(false);
-      setMessages(prev => prev.filter(m => m.id !== localUserMsg.id));
-    }
+    void sendMessage({ parts });
   };
 
   const handleFilesDropped = useCallback(async (files: FileList) => {
@@ -229,20 +179,16 @@ export default function Chat() {
   }, [attachments]);
 
   const handleStop = useCallback(async () => {
-    if (!streamingMsgId) return;
-    try { await api.chat.stop(streamingMsgId); } catch { /* ignore */ }
-  }, [streamingMsgId]);
+    if (!busy) return;
+    // useChat.stop() aborts the AbortController on the active sendMessages
+    // request; our transport observes that and POSTs /chat/stop/:msgId.
+    await stop();
+  }, [busy, stop]);
 
   const handleNew = () => {
     setConversationId(null);
     setMessages([]);
-    streamingTextRef.current = '';
-    setStreamingText('');
-    setStreamingMsgId(null);
-    setBusy(false);
-    setStreamStatus('');
     setStreamError('');
-    setStreamingTools([]);
     setAttachments([]);
   };
 
@@ -256,14 +202,16 @@ export default function Chat() {
         composerFocusRef.current();
         return;
       }
-      if (e.key === 'Escape' && streamingMsgId) {
+      if (e.key === 'Escape' && busy) {
         e.preventDefault();
         void handleStop();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => { window.removeEventListener('keydown', onKey); };
-  }, [streamingMsgId, handleStop]);
+  }, [busy, handleStop]);
+
+  const hasConversation = conversationId !== null || messages.length > 0;
 
   return (
     <>
@@ -308,13 +256,9 @@ export default function Chat() {
             <section className="flex flex-1 min-h-0 flex-col">
               <MessageThread
                 messages={messages}
-                streamingMsgId={streamingMsgId}
-                streamingText={streamingText}
-                streamStatus={streamStatus}
+                status={status}
                 streamError={streamError}
-                busy={busy}
-                hasConversation={conversationId !== null || messages.length > 0}
-                streamingTools={streamingTools}
+                hasConversation={hasConversation}
                 onFilesDropped={handleFilesDropped}
               />
               <Composer
