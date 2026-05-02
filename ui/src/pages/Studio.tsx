@@ -194,16 +194,13 @@ export default function Studio() {
     // resolves, preventing stale primitives from bleeding across templates.
     setPrimitiveFormFields([]);
     setFormFieldsLoaded(false);
-    api.getWorkflowSettings(selectedTemplate)
-      .then(result => {
-        if (!cancelled) setAdvancedSettingsDefs(result.settings);
-      })
-      .catch(() => {
-        if (!cancelled) setAdvancedSettingsDefs([]);
-      });
-    api.getTemplateWidgets(selectedTemplate)
+    // Single round-trip replaces the prior two parallel fetches
+    // (`/workflow-settings` + `/template-widgets`); the backend computes the
+    // workflow plan once and returns all three payloads.
+    api.getTemplateBundle(selectedTemplate)
       .then(result => {
         if (cancelled) return;
+        setAdvancedSettingsDefs(result.settings);
         // "Edit advanced fields" only opens for widgets the user could ACTUALLY expose —
         // form-claimed widgets (main Prompt + uploads) are read for defaults, not to
         // expose, so they don't count towards the button's visibility.
@@ -264,6 +261,7 @@ export default function Studio() {
       })
       .catch(() => {
         if (!cancelled) {
+          setAdvancedSettingsDefs([]);
           setHasEditableWidgets(false);
           setPrimitiveFormFields([]);
           setFormFieldsLoaded(false);

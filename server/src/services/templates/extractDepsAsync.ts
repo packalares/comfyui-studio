@@ -20,8 +20,9 @@
 // Output shape — `PluginResolution[]` — is the wire format the frontend's
 // review step renders directly.
 
-import { extractDeps } from './depExtract.js';
+import { extractDeps, folderFromObjectInfoTooltip } from './depExtract.js';
 import { extractNodeTypes } from './depExtract.js';
+import { getObjectInfo } from '../workflow/objectInfo.js';
 import { resolveNodeTypes, type PluginResolution } from '../plugins/nodeMap.service.js';
 import { canonicalize, dedupKey } from '../plugins/canonicalId.js';
 
@@ -32,6 +33,8 @@ export interface ExtractedDepsAsync {
   plugins: PluginResolution[];
   /** See `ExtractedDeps.modelLoaderClasses`. */
   modelLoaderClasses: Record<string, string>;
+  /** See `ExtractedDeps.modelFolders`. Tooltip-derived folder per filename. */
+  modelFolders: Record<string, string>;
 }
 
 // Manager returns these as placeholders for ComfyUI's own built-in node
@@ -139,10 +142,28 @@ export async function extractDepsWithPluginResolution(
   for (const id of cheap.plugins) refs.add(id);
   for (const r of managerResolutions) for (const m of r.matches) refs.add(m.repo);
   await Promise.all(Array.from(refs).map((r) => canonicalize(r)));
+  // Folder-from-tooltip pass. We already need objectInfo for downstream
+  // form-field generation; reuse the cached fetch to derive each filename's
+  // ComfyUI folder from its loader class. Files referenced by loaders not
+  // currently in objectInfo (plugin not installed) get no entry here and
+  // fall through to the loader-folder static map / filename heuristics.
+  const modelFolders: Record<string, string> = {};
+  if (Object.keys(cheap.modelLoaderClasses).length > 0) {
+    try {
+      const objectInfo = await getObjectInfo();
+      for (const [filename, loaderClass] of Object.entries(cheap.modelLoaderClasses)) {
+        const f = folderFromObjectInfoTooltip(loaderClass, objectInfo);
+        if (f) modelFolders[filename] = f;
+      }
+    } catch {
+      /* objectInfo unreachable — leave modelFolders empty */
+    }
+  }
   return {
     models: cheap.models,
     plugins: mergeResolutions(cheap.plugins, managerResolutions),
     modelLoaderClasses: cheap.modelLoaderClasses,
+    modelFolders,
   };
 }
 

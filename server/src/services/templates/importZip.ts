@@ -65,6 +65,7 @@ async function entryToWorkflow(
     nodeCount: countNodes(workflow),
     models: deps.models,
     modelLoaderClasses: deps.modelLoaderClasses,
+    modelFolders: deps.modelFolders,
     modelUrls: extractModelUrlsFromWorkflow(workflow),
     plugins: deps.plugins,
     mediaType: deriveMediaType(io),

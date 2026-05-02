@@ -68,10 +68,12 @@ export function stepHfRepo(
 
 export interface UrlResolutionDeps {
   upsertCatalogFromAuto: (
-    filename: string, resolved: ResolvedModel, loaderClass?: string,
+    filename: string, resolved: ResolvedModel,
+    loaderClass?: string, tooltipFolder?: string,
   ) => void;
   toAutoResolved: (
-    source: 'markdown', resolved: ResolvedModel, loaderClass?: string,
+    source: 'markdown', resolved: ResolvedModel,
+    loaderClass?: string, tooltipFolder?: string,
   ) => AutoResolvedModel;
 }
 
@@ -80,11 +82,16 @@ export async function stepWorkflowDeclaredUrl(
   workflow: Record<string, unknown>,
   loaderClass: string | undefined,
   deps: UrlResolutionDeps,
+  tooltipFolder?: string,
 ): Promise<AutoResolvedModel | null> {
   for (const raw of iterModelEntries(workflow)) {
     const name = raw.name as string | undefined;
     const url = raw.url as string | undefined;
     if (name !== filename || !url) continue;
+    // Author's `properties.models[].directory` declaration is the highest
+    // authority — wins over tooltip, static map, and URL parsing.
+    const declaredDir = typeof raw.directory === 'string' ? raw.directory : undefined;
+    const folderHint = declaredDir || tooltipFolder;
     let resolved: ResolvedModel | null = null;
     try {
       const host = new URL(url).hostname;
@@ -92,8 +99,8 @@ export async function stepWorkflowDeclaredUrl(
       else if (/civitai\.com$/i.test(host)) resolved = await resolveCivitaiUrl(url);
     } catch { resolved = null; }
     if (!resolved || !sameFile(resolved.fileName, filename)) continue;
-    deps.upsertCatalogFromAuto(filename, resolved, loaderClass);
-    return deps.toAutoResolved('markdown', resolved, loaderClass);
+    deps.upsertCatalogFromAuto(filename, resolved, loaderClass, folderHint);
+    return deps.toAutoResolved('markdown', resolved, loaderClass, folderHint);
   }
   return null;
 }

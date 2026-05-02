@@ -29,6 +29,19 @@ function emit(taskId: string): void {
   if (p) broadcast(taskId, p);
 }
 
+// Schedule eviction after a grace window so clients reading /progress right
+// after a task settles still see the final state, but the record (and the
+// AbortController + log strings it pins) doesn't accumulate forever.
+// deleteTask already walks byModel and drops any matching modelName entry,
+// so a separate removeModelMappingByTaskId call here would be redundant.
+// `unref` keeps the pending timer from blocking process exit.
+const EVICTION_GRACE_MS = 30_000;
+function scheduleEvict(taskId: string): void {
+  setTimeout(() => {
+    tracker.deleteTask(taskId);
+  }, EVICTION_GRACE_MS).unref();
+}
+
 /** Public: create a task and return its ID. */
 export function createDownloadTask(): string {
   return tracker.createTask();
@@ -220,6 +233,7 @@ function markCompleted(progress: DownloadProgress, taskId: string): void {
   progress.overallProgress = 100;
   progress.currentModelProgress = 100;
   emit(taskId);
+  scheduleEvict(taskId);
 }
 
 function completedHistoryUpdates(progress: DownloadProgress) {
@@ -249,6 +263,7 @@ function handleDownloadError(
       speed: progress.speed,
     });
     emit(taskId);
+    scheduleEvict(taskId);
     return;
   }
   progress.status = 'error';
@@ -269,4 +284,5 @@ function handleDownloadError(
     speed: progress.speed,
   });
   logger.error('download failed', { model: modelName, message: progress.error });
+  scheduleEvict(taskId);
 }

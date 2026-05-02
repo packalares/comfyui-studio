@@ -17,6 +17,8 @@ import {
   setModelMapping, getModelTaskId,
 } from '../downloadController/progressTracker.js';
 import fs from 'fs';
+import { syncOne as syncIndexFile } from './modelIndex.js';
+import { MODEL_EXTS } from './install.scan.js';
 
 export interface HfRepoStartResult {
   taskId: string;
@@ -68,11 +70,16 @@ export async function downloadHfRepo(
   const envVars: Record<string, string | undefined> = { ...currentProcessEnv() };
   if (opts.hfToken) envVars.HF_TOKEN = opts.hfToken;
 
-  void runHfRepoCli(taskId, args, envVars).then(() => {
+  void runHfRepoCli(taskId, args, envVars).then(async () => {
     updateTaskProgress(taskId, {
       status: 'completed', completed: true, currentModelProgress: 100,
     });
+    // Catalog listener marks the repo's catalog row installed off the
+    // logical model name. The index needs per-file rows, so we walk the
+    // target dir directly and sync each file — emitting per-file bus events
+    // would duplicate-mark the catalog under filenames it doesn't carry.
     bus.emit('model:installed', { filename: modelName });
+    await indexHfRepoFiles(absDir);
     scanAndRefresh().catch(() => { /* best effort */ });
   }).catch((err: unknown) => {
     const msg = err instanceof Error ? err.message : String(err);
@@ -82,6 +89,24 @@ export async function downloadHfRepo(
   });
 
   return { taskId, modelName, saveDir: directory };
+}
+
+async function indexHfRepoFiles(absDir: string): Promise<void> {
+  try {
+    const entries = await fs.promises.readdir(absDir, { withFileTypes: true });
+    for (const e of entries) {
+      const full = path.join(absDir, e.name);
+      if (e.isDirectory()) {
+        await indexHfRepoFiles(full);
+      } else if (e.isFile() && MODEL_EXTS.has(path.extname(e.name).toLowerCase())) {
+        await syncIndexFile(full);
+      }
+    }
+  } catch (err) {
+    logger.warn('hf repo index walk failed', {
+      absDir, error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 function runHfRepoCli(

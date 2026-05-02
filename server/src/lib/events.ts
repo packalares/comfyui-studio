@@ -10,8 +10,15 @@
 import { EventEmitter } from 'events';
 
 export interface StudioEventPayloads {
-  'model:installed':        { filename: string };
-  'model:removed':          { filename: string };
+  /**
+   * `absPath` is the on-disk location the writer (download / hub-clone)
+   * just produced. The model-index listener uses it to upsert a single row
+   * without re-walking the whole tree. Optional for back-compat with emit
+   * sites that legitimately don't know the path (rare; both downloaders DO
+   * know it).
+   */
+  'model:installed':        { filename: string; absPath?: string };
+  'model:removed':          { filename: string; absPath?: string };
   /** Emitted by the download path when a download terminates with an error. */
   'model:download-failed':  { filename: string; error: string };
   'plugin:installed':       { pluginId: string };

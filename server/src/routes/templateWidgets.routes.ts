@@ -76,50 +76,55 @@ function rawTemplateOf(templateName: string): RawTemplate {
   };
 }
 
+/** Compute every payload the Studio page needs from one workflow load.
+ *  Returns null when the workflow is missing so the route can surface a 404.
+ *  All three derivations (settings, widgets, primitiveFormFields) share the
+ *  same workflow JSON, the same memoised `getObjectInfo`, and the same
+ *  `buildFormFieldPlan` invocation — they used to re-run them per endpoint. */
+async function buildTemplateBundle(templateName: string) {
+  const workflow = await loadWorkflowJson(templateName);
+  if (!workflow) return null;
+  const objectInfo = await getObjectInfo();
+  const plan = buildFormFieldPlan(rawTemplateOf(templateName), workflow, objectInfo);
+
+  let settings: AdvancedSetting[] = [];
+  const { wrapperNode, proxyWidgets, widgetValues } = findWrapperNode(workflow);
+  if (wrapperNode && proxyWidgets && proxyWidgets.length > 0) {
+    const parts = resolveProxyLabelParts(wrapperNode, proxyWidgets, workflow);
+    const labels = parts.map((p) => p.label);
+    const scopeLabels = parts.map((p) => p.scopeLabel);
+    const sg = findSubgraphDef(wrapperNode, workflow);
+    const sgNodes = (sg?.nodes || []) as Array<Record<string, unknown>>;
+    const sgInputs = (sg?.inputs || []) as Array<Record<string, unknown>>;
+    const sgLinks = (sg?.links || []) as Array<Record<string, unknown>>;
+    const wrapperNodeId = String(wrapperNode.id ?? '') || undefined;
+    const wrapperNodeTitle =
+      ((wrapperNode.title as string | undefined) || (sg?.name as string | undefined)
+        || (wrapperNode.type as string | undefined)) ?? undefined;
+    settings = extractAdvancedSettings(
+      proxyWidgets, widgetValues, objectInfo, labels, sgNodes, scopeLabels,
+      sgInputs, sgLinks, wrapperNodeId, wrapperNodeTitle,
+    );
+    const resolvedKeys = resolveProxyBoundKeys(wrapperNode, proxyWidgets, workflow);
+    settings = filterProxySettingsByBoundKeys(
+      settings, proxyWidgets, plan.claimSet, resolvedKeys,
+    );
+  }
+  const userExposed = exposedWidgets.getForTemplate(templateName);
+  if (userExposed.length > 0) {
+    const rawSettings = buildRawWidgetSettings(workflow, userExposed, objectInfo, templateName);
+    settings.push(...rawSettings);
+  }
+
+  const widgets = await enumerateTemplateWidgets(workflow, templateName);
+  return { settings, widgets, primitiveFormFields: plan.fields };
+}
+
 router.get('/workflow-settings/:templateName', async (req: Request, res: Response) => {
   try {
-    const templateName = req.params.templateName as string;
-    const workflow = await loadWorkflowJson(templateName);
-    if (!workflow) {
-      res.status(404).json({ error: 'Workflow not found' });
-      return;
-    }
-
-    const { wrapperNode, proxyWidgets, widgetValues } = findWrapperNode(workflow);
-    const objectInfo = await getObjectInfo();
-    // One canonical plan per request — reused for proxy-vs-form dedup so
-    // the form's claimSet is computed exactly once.
-    const plan = buildFormFieldPlan(rawTemplateOf(templateName), workflow, objectInfo);
-    let settings: AdvancedSetting[] = [];
-    if (wrapperNode && proxyWidgets && proxyWidgets.length > 0) {
-      const parts = resolveProxyLabelParts(wrapperNode, proxyWidgets, workflow);
-      const labels = parts.map(p => p.label);
-      const scopeLabels = parts.map(p => p.scopeLabel);
-      const sg = findSubgraphDef(wrapperNode, workflow);
-      const sgNodes = (sg?.nodes || []) as Array<Record<string, unknown>>;
-      const sgInputs = (sg?.inputs || []) as Array<Record<string, unknown>>;
-      const sgLinks = (sg?.links || []) as Array<Record<string, unknown>>;
-      const wrapperNodeId = String(wrapperNode.id ?? '') || undefined;
-      const wrapperNodeTitle =
-        ((wrapperNode.title as string | undefined) || (sg?.name as string | undefined)
-          || (wrapperNode.type as string | undefined)) ?? undefined;
-      settings = extractAdvancedSettings(
-        proxyWidgets, widgetValues, objectInfo, labels, sgNodes, scopeLabels,
-        sgInputs, sgLinks, wrapperNodeId, wrapperNodeTitle,
-      );
-      const resolvedKeys = resolveProxyBoundKeys(wrapperNode, proxyWidgets, workflow);
-      settings = filterProxySettingsByBoundKeys(
-        settings, proxyWidgets, plan.claimSet, resolvedKeys,
-      );
-    }
-
-    const userExposed = exposedWidgets.getForTemplate(templateName);
-    if (userExposed.length > 0) {
-      const rawSettings = buildRawWidgetSettings(workflow, userExposed, objectInfo, templateName);
-      settings.push(...rawSettings);
-    }
-
-    res.json({ settings });
+    const bundle = await buildTemplateBundle(req.params.templateName as string);
+    if (!bundle) { res.status(404).json({ error: 'Workflow not found' }); return; }
+    res.json({ settings: bundle.settings });
   } catch (err) {
     sendError(res, err, 500, 'Failed to extract workflow settings');
   }
@@ -133,18 +138,25 @@ router.get('/workflow-settings/:templateName', async (req: Request, res: Respons
 // form can route each field to its own widget instead of fanning one prompt across all of them.
 router.get('/template-widgets/:templateName', async (req: Request, res: Response) => {
   try {
-    const templateName = req.params.templateName as string;
-    const workflow = await loadWorkflowJson(templateName);
-    if (!workflow) {
-      res.status(404).json({ error: 'Workflow not found' });
-      return;
-    }
-    const widgets = await enumerateTemplateWidgets(workflow, templateName);
-    const objectInfo = await getObjectInfo();
-    const plan = buildFormFieldPlan(rawTemplateOf(templateName), workflow, objectInfo);
-    res.json({ widgets, primitiveFormFields: plan.fields });
+    const bundle = await buildTemplateBundle(req.params.templateName as string);
+    if (!bundle) { res.status(404).json({ error: 'Workflow not found' }); return; }
+    res.json({ widgets: bundle.widgets, primitiveFormFields: bundle.primitiveFormFields });
   } catch (err) {
     sendError(res, err, 500, 'Failed to enumerate template widgets');
+  }
+});
+
+// Single round-trip equivalent of `/workflow-settings` + `/template-widgets`.
+// Studio page open used to fire both back-to-back; serving them together
+// halves network trips and runs `loadWorkflowJson` + `buildFormFieldPlan`
+// once instead of twice.
+router.get('/template-bundle/:templateName', async (req: Request, res: Response) => {
+  try {
+    const bundle = await buildTemplateBundle(req.params.templateName as string);
+    if (!bundle) { res.status(404).json({ error: 'Workflow not found' }); return; }
+    res.json(bundle);
+  } catch (err) {
+    sendError(res, err, 500, 'Failed to build template bundle');
   }
 });
 

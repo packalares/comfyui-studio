@@ -6,10 +6,9 @@
 // working without changes.
 
 import { getHfToken, getCivitaiToken, getGithubToken } from './settings.js';
-import { paths } from '../config/paths.js';
 import { formatBytes } from '../lib/format.js';
 import { getHostAuthHeaders } from '../lib/http.js';
-import { statModelOnDisk } from '../lib/fs.js';
+import * as modelFiles from '../lib/db/modelFiles.repo.js';
 import {
   load, persist, persistCurrent, seedFromComfyUI,
   markInstalled, markDownloadFailed,
@@ -152,7 +151,6 @@ export async function getMergedModels(): Promise<MergedModel[]> {
 
   const merged: MergedModel[] = [];
   const seenFilenames = new Set<string>();
-  const modelsDir = paths.modelsDir;
 
   for (const model of load().models) {
     seenFilenames.add(model.filename);
@@ -160,8 +158,9 @@ export async function getMergedModels(): Promise<MergedModel[]> {
     let installed = !!disk?.installed;
     let fileSize = disk?.fileSize;
     if (!installed) {
-      const diskSize = statModelOnDisk(modelsDir, model.save_path, model.filename);
-      if (diskSize !== null) { installed = true; fileSize = diskSize; }
+      const hit = modelFiles.listByFilename(model.filename)
+        .find((r) => r.status === 'complete');
+      if (hit) { installed = true; fileSize = hit.size; }
     }
     merged.push({
       ...model,

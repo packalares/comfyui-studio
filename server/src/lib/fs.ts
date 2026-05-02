@@ -1,9 +1,7 @@
 // Filesystem helpers shared across services + routes.
 //
 // `safeResolve` is the path-traversal guard every write/read inside a
-// declared root MUST use. `statModelOnDisk` is the stat-fallback for
-// install detection that was duplicated in `catalog.getMergedModels` and
-// `check-dependencies`.
+// declared root MUST use.
 
 import fs from 'fs';
 import path from 'path';
@@ -21,40 +19,6 @@ export function safeResolve(root: string, ...segments: string[]): string {
     throw new Error(`Path escapes root: ${joined}`);
   }
   return joined;
-}
-
-/**
- * Check the filesystem for an installed model and return its size on disk,
- * or `null` if not present.
- *
- * The launcher's on-disk scan sometimes lags behind files placed by the
- * studio (e.g. via `download-custom`). Callers use this to avoid reporting
- * false "not installed" for such files.
- *
- * `saveDir` can be either category-only (`"checkpoints"`) or a full sub-path
- * (`"checkpoints/foo.safetensors"`); both forms are stat-checked.
- */
-export function statModelOnDisk(
-  root: string,
-  saveDir: string | undefined,
-  filename: string,
-): number | null {
-  if (!root || !saveDir) return null;
-  // safeResolve throws on escape — a malicious saveDir like "../../etc" can't
-  // leak stat info about files outside `root`. Treat a rejected candidate as
-  // "not found" so callers fall through to the launcher scan.
-  const candidates: string[] = [];
-  try { candidates.push(safeResolve(root, saveDir, filename)); } catch { /* escape */ }
-  try { candidates.push(safeResolve(root, saveDir)); } catch { /* escape */ }
-  for (const p of candidates) {
-    try {
-      const st = fs.statSync(p);
-      if (st.isFile()) return st.size;
-    } catch {
-      // missing: try the next candidate
-    }
-  }
-  return null;
 }
 
 /**

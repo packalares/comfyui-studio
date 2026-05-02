@@ -72,9 +72,16 @@ async function treeFiles(repoId: string, revision: string): Promise<HfTreeItem[]
 }
 
 /**
- * Resolve a filename via HuggingFace search. Returns the resolver's
- * `ResolvedModel` when exactly one match exists across the top MAX_REPOS_PER_SEARCH
- * candidates; null otherwise (including ambiguous and rate-limited states).
+ * Resolve a filename via HuggingFace search.
+ *
+ * Disambiguation rule:
+ *   - 1 match across candidate repos → return it.
+ *   - 2+ matches with identical sizes → mirrored copies of the same file,
+ *     return the first one (deterministic — the ordering reflects HF's
+ *     own search-rank).
+ *   - 2+ matches with differing sizes → genuinely different files, return
+ *     null (caller will surface "ambiguous, paste URL").
+ *   - 0 matches OR rate-limited/network failure → null.
  */
 export async function hfFindExactMatch(
   filename: string, basename: string, cache: HfSearchCache,
@@ -87,10 +94,9 @@ export async function hfFindExactMatch(
   }
   if (repos === null || !repos || repos.length === 0) return null;
 
-  let winner: { repoId: string; revision: string; path: string } | null = null;
-  let matches = 0;
+  interface Candidate { repoId: string; revision: string; path: string; size: number }
+  const candidates: Candidate[] = [];
   for (const repo of repos.slice(0, MAX_REPOS_PER_SEARCH)) {
-    if (matches > 1) break;
     const tree = await treeFiles(repo.repoId, 'main');
     if (tree === null) return null;
     for (const item of tree) {
@@ -98,13 +104,19 @@ export async function hfFindExactMatch(
       const p = typeof item.path === 'string' ? item.path : '';
       const pBase = p.split('/').pop() ?? '';
       if (!sameFile(pBase, filename)) continue;
-      matches += 1;
-      if (matches > 1) break;
-      winner = { repoId: repo.repoId, revision: 'main', path: p };
+      const size = typeof item.size === 'number' ? item.size : 0;
+      candidates.push({ repoId: repo.repoId, revision: 'main', path: p, size });
     }
   }
-  if (matches !== 1 || !winner) return null;
-
+  if (candidates.length === 0) return null;
+  if (candidates.length > 1) {
+    // Mirrored copies: every candidate has a positive, equal size. If sizes
+    // are missing (0) or differ, treat as ambiguous and bail.
+    const first = candidates[0].size;
+    if (first <= 0) return null;
+    if (!candidates.every((c) => c.size === first)) return null;
+  }
+  const winner = candidates[0];
   const constructedUrl = `https://huggingface.co/${winner.repoId}/resolve/${encodeURIComponent(winner.revision)}/${winner.path.split('/').map(encodeURIComponent).join('/')}`;
   return resolveHuggingfaceUrl(constructedUrl);
 }

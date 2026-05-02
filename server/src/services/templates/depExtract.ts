@@ -16,7 +16,7 @@
 // leave resolution to the catalog layer.
 
 import { collectAllWorkflowNodes } from '../workflow/collect.js';
-import { LOADER_TYPES, UI_ONLY_TYPES } from '../workflow/constants.js';
+import { UI_ONLY_TYPES } from '../workflow/constants.js';
 import { getObjectInfo } from '../workflow/objectInfo.js';
 import type { WorkflowNode } from '../../contracts/workflow.contract.js';
 
@@ -44,6 +44,19 @@ export interface ExtractedDeps {
    * references (e.g. two LoraLoader nodes both pointing at the same lora).
    */
   modelLoaderClasses: Record<string, string>;
+  /**
+   * Filename → ComfyUI folder name parsed from `/object_info` tooltips
+   * (e.g. `"detection"` for `OnnxDetectionModelLoader`'s files). Plugin
+   * authors increasingly stamp the target folder into the input tooltip
+   * via the `'ComfyUI/models/<folder>' -folder` convention; reading it
+   * here lets us persist the exact folder the loader will look in,
+   * without a hardcoded class→folder map.
+   *
+   * Populated only by the async wrapper `extractDepsWithPluginResolution`,
+   * which already fetches `/object_info`. Sync `extractDeps` leaves this
+   * empty so callers without ComfyUI access stay cheap.
+   */
+  modelFolders: Record<string, string>;
 }
 
 /**
@@ -67,7 +80,13 @@ async function loadBuiltinClassTypes(): Promise<Set<string>> {
   return builtins;
 }
 
-const MODEL_FILE_EXT = /\.(safetensors|pth|ckpt|pt|bin)$/i;
+const MODEL_FILE_EXT = /\.(safetensors|pth|ckpt|pt|bin|onnx|gguf)$/i;
+
+// kjnodes-style "I'll fetch the model from HuggingFace myself" loaders. The
+// widget value on these nodes is a model selector, not a literal filename the
+// user must install — the plugin downloads on first run. Skip during dep
+// extraction so they don't pollute the install list.
+const SELF_DOWNLOAD_PREFIX = /^DownloadAndLoad/;
 
 function readStringProp(node: WorkflowNode, key: string): string | undefined {
   const props = (node as { properties?: unknown }).properties;
@@ -96,7 +115,12 @@ function collectLoaderFilenames(
   const nodeType = (node.type as string | undefined)
     || (node.class_type as string | undefined)
     || '';
-  if (!LOADER_TYPES.has(nodeType)) return;
+  if (!nodeType) return;
+  // Self-downloading loaders (kjnodes' DownloadAndLoadSAM2Model etc.) take a
+  // model selector hint, not a literal filename. The plugin grabs whatever
+  // matches from HuggingFace on first run; flagging this as a user-managed
+  // dep would be a false positive.
+  if (SELF_DOWNLOAD_PREFIX.test(nodeType)) return;
   if (!Array.isArray(node.widgets_values)) return;
   for (const val of node.widgets_values) {
     if (typeof val !== 'string') continue;
@@ -137,8 +161,9 @@ export function extractDeps(workflow: unknown): ExtractedDeps {
   const models = new Set<string>();
   const plugins = new Set<string>();
   const modelLoaderClasses: Record<string, string> = {};
+  const modelFolders: Record<string, string> = {};
   if (!workflow || typeof workflow !== 'object') {
-    return { models: [], plugins: [], modelLoaderClasses };
+    return { models: [], plugins: [], modelLoaderClasses, modelFolders };
   }
   const nodes = collectAllWorkflowNodes(workflow as Record<string, unknown>);
   for (const node of nodes) {
@@ -150,22 +175,82 @@ export function extractDeps(workflow: unknown): ExtractedDeps {
     models: Array.from(models).sort(),
     plugins: Array.from(plugins).sort(),
     modelLoaderClasses,
+    modelFolders,
   };
+}
+
+/**
+ * `'ComfyUI/models/<folder>' -folder` convention used by plugin authors in
+ * `/object_info` input tooltips. We accept the kjnodes wording as the
+ * primary form and a couple of common variants so authors who phrase it
+ * differently still get picked up. The captured group is the bare folder
+ * name (e.g. `detection`, `loras`).
+ */
+const TOOLTIP_FOLDER_RE = /(?:ComfyUI\/models|models)\/([\w.\-]+)/i;
+
+/**
+ * Read the ComfyUI folder name a loader expects from its `/object_info`
+ * input tooltip. Returns `undefined` when no input on the loader carries
+ * a recognisable tooltip — caller falls back to the static loader-class
+ * map or filename heuristics.
+ */
+export function folderFromObjectInfoTooltip(
+  loaderClass: string,
+  objectInfo: Record<string, Record<string, unknown>>,
+): string | undefined {
+  const node = objectInfo[loaderClass];
+  if (!node) return undefined;
+  const input = node.input as Record<string, unknown> | undefined;
+  if (!input || typeof input !== 'object') return undefined;
+  for (const sectionKey of ['required', 'optional']) {
+    const fields = (input as Record<string, unknown>)[sectionKey];
+    if (!fields || typeof fields !== 'object') continue;
+    for (const descriptor of Object.values(fields as Record<string, unknown>)) {
+      if (!Array.isArray(descriptor) || descriptor.length < 2) continue;
+      // First element of a file-picker is the filename array; the second is
+      // the input options object containing `tooltip`.
+      if (!Array.isArray(descriptor[0])) continue;
+      const opts = descriptor[1];
+      if (!opts || typeof opts !== 'object') continue;
+      const tooltip = (opts as { tooltip?: unknown }).tooltip;
+      if (typeof tooltip !== 'string') continue;
+      const m = tooltip.match(TOOLTIP_FOLDER_RE);
+      if (m && m[1]) return m[1];
+    }
+  }
+  return undefined;
+}
+
+/** Subgraph wrapper nodes carry the subgraph definition's UUID as their
+ *  `type` (LiteGraph convention). They are not plugin classes — exclude
+ *  them so the Manager resolver doesn't get phantom unresolved rows. */
+function collectSubgraphIds(workflow: Record<string, unknown>): Set<string> {
+  const ids = new Set<string>();
+  const sgs = (workflow.definitions as Record<string, unknown> | undefined)?.subgraphs;
+  if (Array.isArray(sgs)) {
+    for (const sg of sgs as Array<Record<string, unknown>>) {
+      const id = sg.id;
+      if (typeof id === 'string') ids.add(id);
+    }
+  }
+  return ids;
 }
 
 /**
  * Walk every node (including nested subgraphs) and return the unique
  * `type` / `class_type` strings the workflow references, minus ComfyUI
- * built-ins. Consumed by the Manager resolver — `resolveNodeTypes()` only
- * needs to look up non-built-in class types.
+ * built-ins and subgraph wrapper UUIDs. Consumed by the Manager resolver —
+ * `resolveNodeTypes()` only needs to look up non-built-in class types.
  *
  * Async because the exclusion list is sourced from `/api/object_info`
  * which is cached but requires an initial fetch.
  */
 export async function extractNodeTypes(workflow: unknown): Promise<string[]> {
   if (!workflow || typeof workflow !== 'object') return [];
-  const nodes = collectAllWorkflowNodes(workflow as Record<string, unknown>);
+  const w = workflow as Record<string, unknown>;
+  const nodes = collectAllWorkflowNodes(w);
   const builtins = await loadBuiltinClassTypes();
+  const subgraphIds = collectSubgraphIds(w);
   const seen = new Set<string>();
   for (const node of nodes) {
     const t = (node.type as string | undefined)
@@ -176,6 +261,7 @@ export async function extractNodeTypes(workflow: unknown): Promise<string[]> {
     // Second gate: static fallback catches core + UI-only types even when
     // ComfyUI's /api/object_info was unreachable (so `builtins` was empty).
     if (STATIC_BUILTIN_CLASSES.has(t)) continue;
+    if (subgraphIds.has(t)) continue;
     seen.add(t);
   }
   return Array.from(seen).sort();

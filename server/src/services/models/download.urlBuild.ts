@@ -46,6 +46,15 @@ export function buildDownloadUrl(
   return buildFallbackUrl(modelInfo, source);
 }
 
+export class NoDownloadSourceError extends Error {
+  modelName: string;
+  constructor(modelName: string) {
+    super(`No download URL available for ${modelName}. Add a URL in catalog or paste one manually.`);
+    this.name = 'NoDownloadSourceError';
+    this.modelName = modelName;
+  }
+}
+
 function rewriteStringUrl(url: string, source: string): string {
   if (source !== 'hf' && url.includes('huggingface.co')) {
     return url.replace('huggingface.co', 'hf-mirror.com');
@@ -63,11 +72,12 @@ function pickFromUrlObject(
   return url.mirror || url.cdn || '';
 }
 
-function buildFallbackUrl(modelInfo: CatalogModelEntry, source: string): string {
-  const baseUrl = source === 'hf' ? 'https://huggingface.co/' : 'https://hf-mirror.com/';
-  const repo = `models/${modelInfo.name}`;
-  const filename = modelInfo.filename || modelInfo.name;
-  return `${baseUrl}${repo}/resolve/main/${filename}`;
+function buildFallbackUrl(_modelInfo: CatalogModelEntry, _source: string): string {
+  // Previously this fabricated a `huggingface.co/models/<name>/resolve/main/<file>`
+  // URL when the catalog row had no `url`. That route always 401s; surfacing it
+  // as a download caused silent install failures. Empty string forces the
+  // caller to refuse the install with a typed error instead.
+  return '';
 }
 
 /**
@@ -81,7 +91,10 @@ export function getAllDownloadUrls(
   const out: Array<{ url: string; source: string }> = [];
   const raw = modelInfo.url;
   if (typeof raw === 'string') return [{ url: raw, source: 'default' }];
-  if (!raw) return [{ url: buildDownloadUrl(modelInfo, source), source }];
+  if (!raw) {
+    const built = buildDownloadUrl(modelInfo, source);
+    return built ? [{ url: built, source }] : [];
+  }
   const primarySrc = source === 'mirror' ? 'mirror' : 'hf';
   const primaryUrl = source === 'mirror' ? raw.mirror : raw.hf;
   if (primaryUrl) out.push({ url: primaryUrl, source: primarySrc });

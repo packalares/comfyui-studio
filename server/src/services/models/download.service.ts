@@ -13,6 +13,7 @@ import { safeResolve } from '../../lib/fs.js';
 
 export {
   buildDownloadUrl, getAllDownloadUrls, processHfEndpoint, buildResolveUrl,
+  NoDownloadSourceError,
 } from './download.urlBuild.js';
 export type { CatalogModelEntry } from './download.urlBuild.js';
 
@@ -67,11 +68,15 @@ export function validateHfUrl(
 }
 
 /**
- * Validate a GitHub release URL of the form
- * `github.com/<owner>/<repo>/releases/download/<tag>/<file>`. The release
- * URL DOES encode the filename in its last segment, so we can derive it
- * here for the unified download endpoint without forcing the caller to
- * supply a `filename` body field.
+ * Validate a public GitHub content URL. Three accepted shapes:
+ *   1. `github.com/<owner>/<repo>/releases/download/<tag>/<file>` — release asset
+ *   2. `github.com/<owner>/<repo>/raw/<branch>/<path...>` — repo blob (302 to raw)
+ *   3. `raw.githubusercontent.com/<owner>/<repo>/<branch>/<path...>` — direct raw
+ * All three encode the filename in the last path segment, so callers can
+ * skip the explicit `filename` body field. Shapes (2) and (3) are
+ * normalised to the canonical raw.githubusercontent.com form by
+ * `normaliseGithubUrl` so the downloader hits the file directly without
+ * relying on the redirect chain.
  */
 export function validateGithubUrl(
   url: string,
@@ -79,20 +84,51 @@ export function validateGithubUrl(
   try {
     const u = new URL(url);
     const host = u.hostname.toLowerCase();
-    if (host !== 'github.com' && host !== 'www.github.com') {
-      return { isValid: false, fileName: '', error: 'Only github.com URLs are supported' };
-    }
     const parts = u.pathname.split('/').filter(Boolean);
-    if (parts.length < 6 || parts[2] !== 'releases' || parts[3] !== 'download') {
+    if (host === 'github.com' || host === 'www.github.com') {
+      // Shape 1: /releases/download/:tag/:file
+      if (parts.length >= 6 && parts[2] === 'releases' && parts[3] === 'download') {
+        return { isValid: true, fileName: decodeURIComponent(parts[parts.length - 1]) };
+      }
+      // Shape 2: /:owner/:repo/raw/:branch/...path
+      if (parts.length >= 5 && parts[2] === 'raw') {
+        return { isValid: true, fileName: decodeURIComponent(parts[parts.length - 1]) };
+      }
       return {
         isValid: false, fileName: '',
-        error: 'GitHub URL must target /releases/download/:tag/:file',
+        error: 'GitHub URL must target /releases/download/:tag/:file or /:owner/:repo/raw/:branch/...',
       };
     }
-    const fileName = decodeURIComponent(parts[parts.length - 1]);
-    return { isValid: true, fileName };
+    if (host === 'raw.githubusercontent.com') {
+      // Shape 3: /:owner/:repo/:branch/...path
+      if (parts.length >= 4) {
+        return { isValid: true, fileName: decodeURIComponent(parts[parts.length - 1]) };
+      }
+      return { isValid: false, fileName: '', error: 'raw.githubusercontent.com URL is malformed' };
+    }
+    return { isValid: false, fileName: '', error: 'Only github.com / raw.githubusercontent.com URLs are supported' };
   } catch {
     return { isValid: false, fileName: '', error: 'Invalid URL format' };
+  }
+}
+
+/** Rewrite `github.com/.../raw/<branch>/<path>` → `raw.githubusercontent.com/.../`<branch>/<path>`.
+ *  Already-raw URLs and release URLs pass through unchanged. */
+export function normaliseGithubUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    if (host !== 'github.com' && host !== 'www.github.com') return url;
+    const parts = u.pathname.split('/').filter(Boolean);
+    if (parts.length >= 5 && parts[2] === 'raw') {
+      const owner = parts[0];
+      const repo = parts[1];
+      const rest = parts.slice(3).map(encodeURIComponent).join('/');
+      return `https://raw.githubusercontent.com/${owner}/${repo}/${rest}`;
+    }
+    return url;
+  } catch {
+    return url;
   }
 }
 
@@ -159,7 +195,8 @@ export function detectDownloadHost(url: string): DownloadHost | null {
   if (host === 'civitai.com' || host === 'www.civitai.com') {
     return 'civitai';
   }
-  if (host === 'github.com' || host === 'www.github.com') {
+  if (host === 'github.com' || host === 'www.github.com'
+      || host === 'raw.githubusercontent.com') {
     return 'github';
   }
   // Any other valid http(s) URL becomes the generic streamer's responsibility.

@@ -94,3 +94,13 @@ export function getTaskStats(): {
 export function taskExists(taskId: string): boolean {
   return taskId in tasks;
 }
+
+// Belt-and-braces periodic sweep: install.service schedules per-task removeTask
+// in its finally block, but exceptions thrown before reaching that finally
+// (or future code paths added without the same hook) would otherwise leak
+// here. Run a low-frequency, unref'd interval that drops any task already
+// flagged completed. unref keeps the timer from blocking process exit.
+const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+setInterval(() => {
+  cleanupCompletedTasks();
+}, SWEEP_INTERVAL_MS).unref();

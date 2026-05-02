@@ -215,6 +215,16 @@ export const api = {
       `/template-widgets/${encodeURIComponent(templateName)}`,
     ),
 
+  /** Single-trip equivalent of `getWorkflowSettings` + `getTemplateWidgets`.
+   *  Backend computes the workflow plan once and returns all three payloads
+   *  together. */
+  getTemplateBundle: (templateName: string) =>
+    fetchJson<{
+      settings: AdvancedSetting[];
+      widgets: EnumeratedWidget[];
+      primitiveFormFields?: FormInput[];
+    }>(`/template-bundle/${encodeURIComponent(templateName)}`),
+
   /** Debug/compare: return the /api/prompt payload our converter would produce. */
   getTemplateApiPrompt: (templateName: string, signal?: AbortSignal) =>
     fetchJson<{ templateName: string; apiPrompt: Record<string, unknown> }>(
@@ -345,6 +355,12 @@ export const api = {
 
   scanModels: () =>
     fetchJson<{ success: boolean; count: number }>('/launcher/models/scan', { method: 'POST' }),
+
+  rescanModelIndex: () =>
+    fetchJson<{ added: number; removed: number; total: number }>('/models/rescan', { method: 'POST' }),
+
+  getRegisteredFolders: () =>
+    fetchJson<string[]>('/models/folders'),
 
   installModel: (modelName: string) =>
     fetchJson<{ success: boolean; taskId: string; message?: string }>(`/launcher/models/install/${encodeURIComponent(modelName)}`, {

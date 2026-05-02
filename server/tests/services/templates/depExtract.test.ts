@@ -6,7 +6,7 @@ import { extractDeps } from '../../../src/services/templates/depExtract.js';
 
 describe('extractDeps', () => {
   it('returns empty arrays for non-workflow inputs', () => {
-    const empty = { models: [], plugins: [], modelLoaderClasses: {} };
+    const empty = { models: [], plugins: [], modelLoaderClasses: {}, modelFolders: {} };
     expect(extractDeps(null)).toEqual(empty);
     expect(extractDeps(undefined)).toEqual(empty);
     expect(extractDeps('not a workflow')).toEqual(empty);
@@ -31,7 +31,7 @@ describe('extractDeps', () => {
     expect(models).toEqual(['model-a.safetensors', 'model-b.safetensors']);
   });
 
-  it('collects loader widget filenames with known loader types', () => {
+  it('collects loader widget filenames from any node type, skipping self-downloaders', () => {
     const wf = {
       nodes: [
         {
@@ -39,13 +39,22 @@ describe('extractDeps', () => {
           widgets_values: ['ckpt.safetensors', 123, 'non-model-string'],
         },
         {
-          type: 'UnknownLoader',
-          widgets_values: ['ignored.safetensors'],
+          // Plugin-specific loader (not in any hardcoded list) — still picked up
+          // because the LOADER_TYPES gate was dropped in favour of universal
+          // widget walks. ONNX is a valid model extension now.
+          type: 'OnnxDetectionModelLoader',
+          widgets_values: ['yolov10m.onnx'],
+        },
+        {
+          // kjnodes-style self-downloading loader — widget value is a model
+          // selector, not a literal filename the user must install. Skip.
+          type: 'DownloadAndLoadSAM2Model',
+          widgets_values: ['sam2.1_hiera.safetensors'],
         },
       ],
     };
     const { models } = extractDeps(wf);
-    expect(models).toEqual(['ckpt.safetensors']);
+    expect(models).toEqual(['ckpt.safetensors', 'yolov10m.onnx']);
   });
 
   it('walks nested subgraph nodes recursively', () => {

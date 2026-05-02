@@ -3,7 +3,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Box, Trash2, Loader2, Search, WifiOff, Settings,
   Download, SlidersHorizontal, History, X, HardDrive, CheckCircle2, Package,
+  RefreshCw,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import type { CatalogModel, CivitaiModelSummary } from '../types';
 import { findDownloadForModel } from '../types';
 import { api } from '../services/comfyui';
@@ -14,6 +16,7 @@ import PageSubbar from '../components/PageSubbar';
 import DownloadsTab from '../components/DownloadsTab';
 import ModelRow, { type ModelRowDownload, type ModelRowItem } from '../components/ModelRow';
 import ModelInfoModal, { type ModelInfoSource } from '../components/ModelInfoModal';
+import ModelFolderPickerModal from '../components/ModelFolderPickerModal';
 import { formatBytes } from '../lib/utils';
 import { imgProxy } from '../lib/imgProxy';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
@@ -31,6 +34,31 @@ import {
 } from '../components/ui/alert-dialog';
 
 type ModelsTab = 'models' | 'downloads';
+
+// Catalog `type` -> ComfyUI models/<dir> mapping. Lives at module scope so
+// the install handler + folder-picker pre-selection both read the same table.
+const TYPE_TO_DIR: Record<string, string> = {
+  upscale: 'upscale_models',
+  upscaler: 'upscale_models',
+  checkpoint: 'checkpoints',
+  checkpoints: 'checkpoints',
+  lora: 'loras',
+  loras: 'loras',
+  vae: 'vae',
+  VAE: 'vae',
+  TAESD: 'vae_approx',
+  vae_approx: 'vae_approx',
+  controlnet: 'controlnet',
+  embedding: 'embeddings',
+  'IP-Adapter': 'ipadapter',
+  clip: 'clip',
+  clip_vision: 'clip_vision',
+  text_encoder: 'text_encoders',
+  text_encoders: 'text_encoders',
+  diffusion_model: 'diffusion_models',
+  diffusion_models: 'diffusion_models',
+  unet: 'unet',
+};
 
 const TYPE_LABELS: Record<string, string> = {
   checkpoints: 'Checkpoints',
@@ -255,33 +283,22 @@ export default function Models() {
     Record<number, { busy: boolean; copied: boolean; error: string | null }>
   >({});
 
+  // Pending model awaiting a manual folder choice (Fix 3). Set when the user
+  // clicks Install on a row whose save_path is unresolvable AND whose type
+  // doesn't map to a known dir; cleared when the user picks one + downloads
+  // or cancels.
+  const [folderPickModel, setFolderPickModel] = useState<CatalogModel | null>(null);
+
+  const installCatalogWithDir = useCallback(async (model: CatalogModel, dir: string) => {
+    if (model.url) {
+      await api.downloadCustomModel(model.url, dir, { modelName: model.name, filename: model.filename });
+    } else {
+      await api.installModel(model.name);
+    }
+  }, []);
+
   const handleInstall = useCallback(async (item: ModelRowItem) => {
     try {
-      // Resolve the correct model directory
-      // save_path may be "default" (flag) or a nested dir — use type to infer when unclear
-      const TYPE_TO_DIR: Record<string, string> = {
-        upscale: 'upscale_models',
-        upscaler: 'upscale_models',
-        checkpoint: 'checkpoints',
-        checkpoints: 'checkpoints',
-        lora: 'loras',
-        loras: 'loras',
-        vae: 'vae',
-        VAE: 'vae',
-        TAESD: 'vae_approx',
-        vae_approx: 'vae_approx',
-        controlnet: 'controlnet',
-        embedding: 'embeddings',
-        'IP-Adapter': 'ipadapter',
-        clip: 'clip',
-        clip_vision: 'clip_vision',
-        text_encoder: 'text_encoders',
-        text_encoders: 'text_encoders',
-        diffusion_model: 'diffusion_models',
-        diffusion_models: 'diffusion_models',
-        unet: 'unet',
-      };
-
       if (item.kind === 'civitai') {
         // Mirror CivitaiCard.handleDownload: resolve the primary file, map
         // civitai type -> comfyui dir, pre-populate catalog meta so the row
@@ -372,24 +389,27 @@ export default function Models() {
       }
 
       const model = item.model;
-      const resolveDir = (m: CatalogModel): string => {
-        // If save_path is an explicit dir (not "default"), use it as-is
-        if (m.save_path && m.save_path !== 'default') return m.save_path;
-        // Otherwise map from type
-        return TYPE_TO_DIR[m.type] || m.type || 'checkpoints';
-      };
-
-      if (model.url) {
-        const dir = resolveDir(model);
-        await api.downloadCustomModel(model.url, dir, { modelName: model.name, filename: model.filename });
-      } else {
-        await api.installModel(model.name);
+      const explicitSavePath = model.save_path && model.save_path !== 'default' ? model.save_path : '';
+      const typeDerived = TYPE_TO_DIR[model.type];
+      // Block the install when no save_path AND no type-derived fallback —
+      // silently writing such files to checkpoints/ has caused user confusion
+      // for ONNX detectors, GGUF quants, etc. Only catalog rows with a URL
+      // can resume from the picker; URL-less rows hit installFromCatalog
+      // server-side which throws NoDownloadSourceError.
+      if (!explicitSavePath && !typeDerived && model.url) {
+        setFolderPickModel(model);
+        return;
       }
+      const dir = explicitSavePath || typeDerived || model.type || 'checkpoints';
+      await installCatalogWithDir(model, dir);
       // Backend tracks + broadcasts; state will arrive via the `download` WS message.
     } catch (err) {
       console.error('Failed to start download:', err);
+      toast.error('Download failed', {
+        description: err instanceof Error ? err.message : String(err),
+      });
     }
-  }, []);
+  }, [installCatalogWithDir]);
 
   const [deleteTarget, setDeleteTarget] = useState<CatalogModel | null>(null);
   const [infoSource, setInfoSource] = useState<ModelInfoSource | null>(null);
@@ -407,18 +427,68 @@ export default function Models() {
     paged.setPage(paged.page + 1);
   }, [loading, paged]);
 
+  // Infinite scroll: a sentinel div is rendered where the old "Load more"
+  // button lived; when it intersects the viewport, advance the page. Refs
+  // mirror live state so the observer callback (created once per sentinel
+  // element) reads the latest values without re-binding.
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const handleLoadMoreRef = useRef(handleLoadMore);
+  handleLoadMoreRef.current = handleLoadMore;
+  const hasMoreRef = useRef(paged.hasMore);
+  hasMoreRef.current = paged.hasMore;
+  const loadingRef = useRef(loading);
+  loadingRef.current = loading;
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting && hasMoreRef.current && !loadingRef.current) {
+          handleLoadMoreRef.current();
+        }
+      }
+    }, { rootMargin: '200px' });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [pageRows.length]);
+
   const confirmDelete = useCallback(async () => {
     if (!deleteTarget) return;
     try {
       await api.deleteModel({ modelName: deleteTarget.name });
       try { await api.scanModels(); } catch { /* ignore */ }
-      loadAllModels();
+      // Mirror the post-install path: refresh the full catalog AND the
+      // visible page so the deleted row drops out immediately instead of
+      // sticking around with a stale "Installed" badge.
+      await loadAllModels();
+      await refetchPageRef.current?.();
     } catch (err) {
       console.error('Failed to delete model:', err);
     } finally {
       setDeleteTarget(null);
     }
   }, [deleteTarget, loadAllModels]);
+
+  const [rescanning, setRescanning] = useState(false);
+  const handleRescan = useCallback(async () => {
+    if (rescanning) return;
+    setRescanning(true);
+    try {
+      const res = await api.rescanModelIndex();
+      toast.success('Index updated', {
+        description: `Indexed ${res.total} files (added ${res.added}, removed ${res.removed}).`,
+      });
+      await loadAllModels();
+      await refetchPageRef.current?.();
+    } catch (err) {
+      console.error('Rescan failed:', err);
+      toast.error('Rescan failed', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setRescanning(false);
+    }
+  }, [rescanning, loadAllModels]);
 
   const handleCancelDownload = useCallback(async (_modelName: string, downloadId: string) => {
     try {
@@ -677,26 +747,39 @@ export default function Models() {
               {/* Toolbar — search (Models tab only) + tab strip */}
               <div className="flex flex-col md:flex-row md:items-center gap-2 mb-4">
                 {tab === 'models' && (
-                  <div className="flex-1 field-wrap">
-                    <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    <input
-                      type="text"
-                      className="field-input"
-                      placeholder="Search models..."
-                      value={search}
-                      onChange={e => setSearch(e.target.value)}
-                    />
-                    {search !== '' && (
-                      <button
-                        type="button"
-                        onClick={() => setSearch('')}
-                        aria-label="Clear search"
-                        className="shrink-0 text-slate-400 hover:text-slate-700 transition-colors"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
+                  <>
+                    <div className="flex-1 field-wrap">
+                      <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <input
+                        type="text"
+                        className="field-input"
+                        placeholder="Search models..."
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                      />
+                      {search !== '' && (
+                        <button
+                          type="button"
+                          onClick={() => setSearch('')}
+                          aria-label="Clear search"
+                          className="shrink-0 text-slate-400 hover:text-slate-700 transition-colors"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleRescan}
+                      disabled={rescanning}
+                      className="btn-secondary"
+                      aria-label="Rescan models on disk"
+                      title="Rescan model files on disk"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${rescanning ? 'animate-spin' : ''}`} />
+                      {rescanning ? 'Rescanning…' : 'Rescan'}
+                    </button>
+                  </>
                 )}
                 <div
                   role="tablist"
@@ -879,25 +962,22 @@ export default function Models() {
                 </div>
               )}
 
-              {/* Load more — replaces the page-based Pagination widget.
-                  CivitAI search is cursor-based and the local catalog feels
-                  better as an accumulator too. Hidden when browsing the local
-                  catalog with a template filter active (required-model list
-                  is a fixed set — load-more would be misleading). */}
+              {/* Infinite scroll sentinel — replaces the manual "Load more"
+                  button. An IntersectionObserver above watches this div and
+                  advances the page when it scrolls into view. Hidden when
+                  browsing the local catalog with a template filter active
+                  (required-model list is a fixed set — auto-load is
+                  misleading). */}
               {!(source === 'local' && selectedWorkflow) && pageRows.length > 0 && (
-                <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-center">
+                <div
+                  ref={sentinelRef}
+                  className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-center"
+                >
                   {paged.hasMore ? (
-                    <button
-                      type="button"
-                      onClick={handleLoadMore}
-                      disabled={loading}
-                      className="btn-secondary"
-                    >
-                      {loading ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : null}
-                      {loading ? 'Loading…' : 'Load more'}
-                    </button>
+                    <span className="inline-flex items-center gap-2 text-xs text-slate-500">
+                      {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      {loading ? 'Loading more…' : 'Scroll to load more'}
+                    </span>
                   ) : (
                     <span className="text-xs text-slate-500">No more results</span>
                   )}
@@ -914,6 +994,26 @@ export default function Models() {
         open={!!infoSource}
         onClose={() => setInfoSource(null)}
         source={infoSource}
+      />
+
+      <ModelFolderPickerModal
+        open={!!folderPickModel}
+        modelName={folderPickModel?.filename || folderPickModel?.name || ''}
+        preferred={folderPickModel ? TYPE_TO_DIR[folderPickModel.type] : undefined}
+        onCancel={() => setFolderPickModel(null)}
+        onConfirm={async (folder) => {
+          const target = folderPickModel;
+          setFolderPickModel(null);
+          if (!target) return;
+          try {
+            await installCatalogWithDir(target, folder);
+          } catch (err) {
+            console.error('Failed to start download:', err);
+            toast.error('Download failed', {
+              description: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }}
       />
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>

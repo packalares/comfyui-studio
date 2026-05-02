@@ -13,7 +13,7 @@ export interface ScanInfo {
   type: string;
 }
 
-const MODEL_EXTS = new Set(['.safetensors', '.ckpt', '.pth', '.pt', '.bin']);
+export const MODEL_EXTS = new Set(['.safetensors', '.ckpt', '.pth', '.pt', '.bin', '.onnx']);
 
 /**
  * Recursively walk `dir` and accumulate model files into `result`.
@@ -87,7 +87,7 @@ async function checkFileIntegrity(
 }
 
 // Keep the type-inference heuristic visible to match launcher 1:1.
-function inferType(relativePath: string): string {
+export function inferType(relativePath: string): string {
   const p = relativePath.toLowerCase();
   if (p.includes('checkpoints') || p.includes('/main/')) return 'checkpoint';
   if (p.includes('loras') || p.includes('/lora/')) return 'lora';

@@ -12,6 +12,7 @@ import path from 'path';
 import * as catalog from '../services/catalog.js';
 import * as templatesSvc from '../services/templates/index.js';
 import { extractDepsWithPluginResolution } from '../services/templates/extractDepsAsync.js';
+import { extractDeps } from '../services/templates/depExtract.js';
 import {
   isPluginInstalled, getInstalledPluginKeys,
 } from '../services/plugins/installedKeys.js';
@@ -19,9 +20,8 @@ import {
   canonicalize, dedupKey, normalizeRepoKey, repoBasename,
 } from '../services/plugins/canonicalId.js';
 import { findSubgraphDef } from '../services/workflow/proxyLabels.js';
-import { collectAllWorkflowNodes, LOADER_TYPES } from '../services/workflow/index.js';
-import { statModelOnDisk } from '../lib/fs.js';
-import { paths } from '../config/paths.js';
+import { collectAllWorkflowNodes } from '../services/workflow/index.js';
+import * as modelFiles from '../lib/db/modelFiles.repo.js';
 import { env } from '../config/env.js';
 import { sendError } from '../middleware/errors.js';
 import type {
@@ -56,72 +56,81 @@ interface CollectedRequirements {
   repoEntries: Map<string, RepoEntryData>;
 }
 
-// Walk every node; upsert each declared `properties.models[]` entry into our
-// catalog (template URL wins), then record as required. Fallback: for loader
-// nodes with a `widgets_values` filename but no `properties.models`, look the
-// filename up in the existing catalog (seeded from ComfyUI) to still discover
-// a URL.
+// Walk every node for `properties.models[]` side effects: upsert catalog rows
+// with the author's URL, build the per-filename `directory` map, and collect
+// whole-HF-repo entries. The required-filenames union itself is sourced from
+// the canonical `extractDeps()` so this route shares the import path's walker
+// (LOADER_TYPES gate dropped, .onnx + .gguf supported, ^DownloadAndLoad
+// self-managers skipped). One source of truth.
 function collectRequirements(
+  workflow: Record<string, unknown>,
   allNodes: WorkflowNode[],
   templateName: string,
 ): CollectedRequirements {
-  const required = new Set<string>();
-  // Per-filename directory as declared by the template itself. Wins over
-  // cat.save_path when we build the RequiredModelInfo response so the launcher
-  // saves to exactly where the template's widget_values expects to find it.
   const templateDir = new Map<string, string>();
   const repoEntries = new Map<string, RepoEntryData>();
 
   for (const node of allNodes) {
     const nodeTemplateModels = (node.properties as Record<string, unknown> | undefined)?.models;
-    if (Array.isArray(nodeTemplateModels)) {
-      for (const raw of nodeTemplateModels as Array<Record<string, unknown>>) {
-        const name = raw.name as string | undefined;
-        const url = raw.url as string | undefined;
-        const hfRepo = raw.hfRepo as string | undefined;
-        const dir = raw.directory as string | undefined;
-        if (!name) continue;
-        if (dir) templateDir.set(name, dir);
-        // Whole-HF-repo entry: no single `url`, just a repo id + target
-        // directory. Used for custom nodes whose weights are multi-file
-        // packages (IndexTTS2, etc.). Download path runs
-        // `huggingface-cli download <hfRepo> --local-dir <directory>`.
-        if (hfRepo && dir) {
-          if (!repoEntries.has(name)) {
-            repoEntries.set(name, {
-              name, hfRepo, directory: dir,
-              description: raw.description as string | undefined,
-            });
-          }
-          continue;
-        }
-        if (url) {
-          catalog.upsertModel({
-            filename: name,
-            name,
-            type: dir || 'other',
-            save_path: dir || 'checkpoints',
-            url,
+    if (!Array.isArray(nodeTemplateModels)) continue;
+    for (const raw of nodeTemplateModels as Array<Record<string, unknown>>) {
+      const name = raw.name as string | undefined;
+      const url = raw.url as string | undefined;
+      const hfRepo = raw.hfRepo as string | undefined;
+      const dir = raw.directory as string | undefined;
+      if (!name) continue;
+      if (dir) templateDir.set(name, dir);
+      // Whole-HF-repo entry: no single `url`, just a repo id + target
+      // directory. Used for custom nodes whose weights are multi-file
+      // packages (IndexTTS2, etc.). Download path runs
+      // `huggingface-cli download <hfRepo> --local-dir <directory>`.
+      if (hfRepo && dir) {
+        if (!repoEntries.has(name)) {
+          repoEntries.set(name, {
+            name, hfRepo, directory: dir,
             description: raw.description as string | undefined,
-            source: `template:${templateName}`,
           });
         }
-        required.add(name);
+        continue;
       }
-    }
-
-    const nodeType = (node.type as string | undefined)
-      || (node.class_type as string | undefined)
-      || '';
-    if (LOADER_TYPES.has(nodeType) && Array.isArray(node.widgets_values)) {
-      for (const val of node.widgets_values) {
-        if (typeof val !== 'string') continue;
-        if (!/\.(safetensors|pth|ckpt|pt|bin)$/i.test(val)) continue;
-        required.add(val);
+      if (url) {
+        catalog.upsertModel({
+          filename: name,
+          name,
+          type: dir || 'other',
+          save_path: dir || 'checkpoints',
+          url,
+          description: raw.description as string | undefined,
+          source: `template:${templateName}`,
+        });
       }
     }
   }
+  // Canonical filename list: union of properties.models[] names + widget
+  // values from non-self-managing loaders. `extractDeps` is the same
+  // function the import path runs, so behaviour is consistent across
+  // import staging and runtime dep checks.
+  const required = new Set(extractDeps(workflow).models);
   return { required, templateDir, repoEntries };
+}
+
+/**
+ * Resolve `/object_info` tooltips for every loader class referenced by the
+ * workflow's required filenames. The async wrapper of `extractDeps` already
+ * does this and caches the underlying ComfyUI fetch — we just call it and
+ * reuse the result. Returns an empty map when objectInfo is unreachable
+ * (ComfyUI offline) or no loader matches; caller falls back to existing
+ * heuristics.
+ */
+async function collectModelFolders(
+  workflow: Record<string, unknown>,
+): Promise<Record<string, string>> {
+  try {
+    const deps = await extractDepsWithPluginResolution(workflow);
+    return deps.modelFolders;
+  } catch {
+    return {};
+  }
 }
 
 async function fetchInstalledModels(): Promise<LauncherModelEntry[]> {
@@ -152,33 +161,70 @@ async function fetchInstalledModels(): Promise<LauncherModelEntry[]> {
 function buildRequiredList(
   requiredFilenames: Set<string>,
   templateDir: Map<string, string>,
+  modelFolders: Record<string, string>,
   installedModels: LauncherModelEntry[],
   installedSet: Set<string>,
   repoEntries: Map<string, RepoEntryData>,
 ): { required: RequiredModelInfo[]; missing: RequiredModelInfo[] } {
-  const modelsDir = paths.modelsDir;
   const required: RequiredModelInfo[] = [];
   const missing: RequiredModelInfo[] = [];
+  // Dedup by basename: the same file can be declared in `properties.models[]`
+  // by basename AND referenced by a widget value as `subfolder/filename`
+  // (ReActor pattern). Collapse to one entry; the path-form hits later in
+  // the loop just refine the directory hint and skip re-emitting.
+  const seenBasenames = new Set<string>();
 
   for (const filename of requiredFilenames) {
-    const cat = catalog.getModel(filename);
+    // Some loaders use a path-with-subfolder convention in their widget
+    // value (e.g. ReActor's `ReActorMaskHelper` ships `bbox/face_yolov8m.pt`)
+    // — the literal string includes the subfolder relative to the loader's
+    // root. Strip the subfolder for index lookups (the index is keyed by
+    // basename) but preserve it for the directory hint downstream.
+    const basename = filename.includes('/')
+      ? (filename.split('/').pop() ?? filename)
+      : filename;
+    if (seenBasenames.has(basename)) continue;
+    seenBasenames.add(basename);
+    const subPath = filename.includes('/')
+      ? filename.slice(0, filename.lastIndexOf('/'))
+      : '';
+    const cat = catalog.getModel(basename) ?? catalog.getModel(filename);
     const scanEntry = installedModels.find(
-      m => m.filename === filename || m.name === filename,
+      m => m.filename === basename || m.name === basename
+        || m.filename === filename || m.name === filename,
     );
+    // Directory priority: author's properties.models[].directory >
+    // /object_info tooltip > catalog.save_path > disk-scan inferred type.
+    // When the widget carried a subfolder, append it onto the tooltip
+    // folder (`ultralytics` + `bbox` -> `ultralytics/bbox`) so the install
+    // path matches the loader's actual lookup root.
+    const tooltipFolder = modelFolders[filename] ?? modelFolders[basename];
     const directory = templateDir.get(filename)
+      || (tooltipFolder && subPath ? `${tooltipFolder}/${subPath}` : tooltipFolder)
       || cat?.save_path
       || scanEntry?.type
       || '';
 
-    let isInstalled = installedSet.has(filename);
+    let isInstalled = installedSet.has(basename) || installedSet.has(filename);
     let diskSize: number | null = null;
     if (!isInstalled) {
-      diskSize = statModelOnDisk(modelsDir, directory, filename);
-      if (diskSize !== null) isInstalled = true;
+      // SQLite-backed index lookup: try the basename first (the index keys
+      // on bare filenames). Fall back to the directory-narrowed lookup
+      // when both forms are known.
+      const hit = modelFiles.listByFilename(basename)[0]
+        ?? (directory ? modelFiles.findByDirAndName(directory, basename) : null)
+        ?? modelFiles.listByFilename(filename)[0]
+        ?? null;
+      if (hit && hit.status === 'complete') {
+        isInstalled = true;
+        diskSize = hit.size;
+      }
     }
 
     const entry: RequiredModelInfo = {
-      name: filename,
+      // Display the bare basename so the modal matches what the Models
+      // page shows; the subfolder lives in `directory`.
+      name: basename,
       url: cat?.url || '',
       directory,
       size: cat?.size_bytes || scanEntry?.fileSize || diskSize || undefined,
@@ -355,17 +401,6 @@ async function buildPluginRequirementList(
   for (const ctx of contexts.values()) for (const k of ctx.auxKeys) auxBag.add(k);
   await Promise.all(Array.from(auxBag).map((r) => canonicalize(r)));
   const installedKeys = getInstalledPluginKeys();
-  // Subgraph wrappers carry the subgraph definition's UUID as their `type`
-  // (LiteGraph convention). Those are NOT plugins — skip them, otherwise
-  // every wrapper renders as a fake "missing plugin" entry with `repos: []`.
-  const subgraphIds = new Set<string>();
-  const sgs = (workflow.definitions as Record<string, unknown> | undefined)?.subgraphs;
-  if (Array.isArray(sgs)) {
-    for (const sg of sgs as Array<Record<string, unknown>>) {
-      const id = sg.id;
-      if (typeof id === 'string') subgraphIds.add(id);
-    }
-  }
 
   const required: RequiredPluginInfo[] = [];
   const missing: RequiredPluginInfo[] = [];
@@ -404,7 +439,6 @@ async function buildPluginRequirementList(
     k === 'comfy-core' || k === 'comfyui' || k === 'comfyanonymous/comfyui';
 
   for (const r of resolved.plugins) {
-    if (subgraphIds.has(r.classType)) continue;
     if (isSyntheticAuxRow(r.classType, r.matches)) continue;
 
     // Filter `comfy-core` / `comfyui` builtin matches; remaining matches
@@ -487,16 +521,18 @@ router.post('/check-dependencies', async (req: Request, res: Response) => {
     await catalog.seedFromComfyUI();
 
     const { required: requiredFilenames, templateDir, repoEntries } =
-      collectRequirements(allNodes, templateName);
+      collectRequirements(workflow, allNodes, templateName);
 
     await refreshStaleEntries(requiredFilenames);
 
     const installedModels = await fetchInstalledModels();
     const installedSet = installedNameSet(installedModels);
+    const modelFolders = await collectModelFolders(workflow);
 
     const { required: modelsReq, missing: modelsMissing } = buildRequiredList(
       requiredFilenames,
       templateDir,
+      modelFolders,
       installedModels,
       installedSet,
       repoEntries,

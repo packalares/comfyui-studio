@@ -6,30 +6,38 @@
 import fs from 'fs';
 import path from 'path';
 import { env } from '../../config/env.js';
-import { MODEL_SUBDIRS } from '../../config/modelDirs.js';
 import { logger } from '../../lib/logger.js';
 import * as bus from '../../lib/events.js';
-import { getExistingHubScanDirs } from './sharedModelHub.js';
 import { inferModelType, getModelSaveDir } from './download.service.js';
 import type { CatalogModelEntry } from './download.service.js';
-import { scanDirectory, type ScanInfo } from './install.scan.js';
+import { inferType, type ScanInfo } from './install.scan.js';
+import * as modelFiles from '../../lib/db/modelFiles.repo.js';
+import * as modelIndex from './modelIndex.js';
 import { matchInstalled, parseSizeString, inferModelTypeFromPath, formatFileSize } from './install.match.js';
 
-/** Walk the ComfyUI models tree + shared hub, return a Map keyed by storage path. */
+/**
+ * Read every installed model out of the SQLite-backed index, returning a Map
+ * keyed by `storePath` shape that matches the legacy walker contract:
+ * `models/<topDir>/<rest>` for local rows, abs_path for hub rows. Downstream
+ * (matchInstalled.applyMatch, resolveAbsoluteModelPath) joins COMFYUI_PATH
+ * onto this key, so dropping the `models/` prefix breaks the delete path.
+ */
 export async function scanInstalledModels(): Promise<Map<string, ScanInfo>> {
   const result = new Map<string, ScanInfo>();
-  const comfyuiPath = env.COMFYUI_PATH;
   try {
-    const modelDirs = MODEL_SUBDIRS.map((d) => path.join(comfyuiPath, 'models', d));
-    // Shared hub is a read-only mount, never mkdir there. Ensure only local.
-    for (const dir of modelDirs) {
-      try { fs.mkdirSync(dir, { recursive: true }); } catch { /* best effort */ }
-    }
-    for (const dir of modelDirs) {
-      await scanDirectory(dir, result, comfyuiPath);
-    }
-    for (const dir of getExistingHubScanDirs()) {
-      await scanDirectory(dir, result, null);
+    await modelIndex.ensureFresh();
+    const rows = modelFiles.listAll();
+    for (const row of rows) {
+      const key = row.root_kind === 'local'
+        ? path.posix.join('models', row.rel_path)
+        : row.abs_path;
+      result.set(key, {
+        path: key,
+        filename: row.filename,
+        size: row.size,
+        status: row.status as ScanInfo['status'],
+        type: inferType(row.rel_path),
+      });
     }
     logger.info('model scan completed', { count: result.size });
     return result;
@@ -108,9 +116,9 @@ export async function deleteModel(
     // resolved display name are broadcast so template dep edges keyed on
     // either variant get flipped.
     const targetFilename = info.filename || modelName;
-    bus.emit('model:removed', { filename: targetFilename });
+    bus.emit('model:removed', { filename: targetFilename, absPath: modelPath });
     if (info.name && info.name !== targetFilename) {
-      bus.emit('model:removed', { filename: info.name });
+      bus.emit('model:removed', { filename: info.name, absPath: modelPath });
     }
     return { success: true, message: `Model ${modelName} deleted successfully` };
   } catch (err) {
@@ -121,15 +129,27 @@ export async function deleteModel(
 }
 
 function resolveAbsoluteModelPath(info: CatalogModelEntry, modelName: string): string {
+  const filename = info.filename || modelName;
+  // Index lookup is the authoritative source: it has the actual on-disk
+  // path even when the catalog's `save_path` is a folder-only hint
+  // (`detection`) or when the file lives in the shared hub mount.
+  const indexed = modelFiles.listByFilename(filename)[0];
+  if (indexed) return indexed.abs_path;
+  // Fall back to deriving from catalog metadata for entries that haven't
+  // been indexed yet. `save_path` here can be either an absolute path, a
+  // legacy full-relative path (`models/<topdir>/<file>`), or a bare
+  // folder name (`detection`); each gets joined onto the right base.
   if (info.save_path) {
-    return path.isAbsolute(info.save_path)
-      ? info.save_path
-      : path.join(env.COMFYUI_PATH, info.save_path);
+    if (path.isAbsolute(info.save_path)) return info.save_path;
+    if (info.save_path.startsWith('models/') || info.save_path.startsWith('models\\')) {
+      return path.join(env.COMFYUI_PATH, info.save_path);
+    }
+    return path.join(env.COMFYUI_PATH, 'models', info.save_path, filename);
   }
   return path.join(
     env.COMFYUI_PATH,
-    getModelSaveDir(info.type || inferModelType(info.filename || modelName)),
-    info.filename || modelName,
+    getModelSaveDir(info.type || inferModelType(filename)),
+    filename,
   );
 }
 

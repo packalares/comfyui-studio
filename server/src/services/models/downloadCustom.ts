@@ -20,7 +20,7 @@ import { env } from '../../config/env.js';
 import * as bus from '../../lib/events.js';
 import {
   processHfEndpoint, validateHfUrl, validateCivitaiUrl,
-  validateGithubUrl, validateGenericUrl,
+  validateGithubUrl, validateGenericUrl, normaliseGithubUrl,
   detectDownloadHost, buildResolveUrl, ensureSaveDirectory,
 } from './download.service.js';
 import { createDownloadTask, getTaskProgress } from '../downloadController/downloadController.service.js';
@@ -95,7 +95,7 @@ export async function downloadCustom(
     tokens,
     source: 'custom',
   }).then(() => {
-    bus.emit('model:installed', { filename: fileName });
+    bus.emit('model:installed', { filename: fileName, absPath: outputPath });
     scanAndRefresh().catch(() => { /* best effort */ });
   }).catch((err: unknown) => {
     const msg = err instanceof Error ? err.message : String(err);
@@ -131,7 +131,10 @@ export function resolveCustomUrl(
     const v = validateGithubUrl(srcUrl);
     if (!v.isValid) throw new Error(v.error || 'Invalid URL');
     const fileName = pickFilename(filenameOverride, v.fileName);
-    return { fileName, url: srcUrl };
+    // Rewrite `github.com/.../raw/...` to `raw.githubusercontent.com/...`
+    // so the streamer fetches the file directly instead of relying on the
+    // 302 redirect chain (some clients drop auth headers across redirects).
+    return { fileName, url: normaliseGithubUrl(srcUrl) };
   }
   if (host === 'generic') {
     const v = validateGenericUrl(srcUrl);

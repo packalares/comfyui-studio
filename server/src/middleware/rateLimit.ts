@@ -25,6 +25,18 @@ function clientKey(req: Request): string {
   return (req.ip || req.socket.remoteAddress || 'unknown');
 }
 
+// Probability that any given request triggers a stale-bucket sweep. Sweeping
+// on every call would be O(n) at request rate; at 0.001 the amortized cost
+// is ~1 sweep per 1000 requests, plenty to keep the map from growing without
+// bound while keeping the hot path effectively O(1).
+const SWEEP_PROB = 0.001;
+
+function sweepStale(buckets: Map<string, Bucket>, now: number): void {
+  for (const [key, bucket] of buckets) {
+    if (bucket.resetAt < now) buckets.delete(key);
+  }
+}
+
 export function rateLimit(opts: RateLimitOpts): RequestHandler {
   const buckets = new Map<string, Bucket>();
   return (req: Request, res: Response, next: NextFunction) => {
@@ -36,6 +48,7 @@ export function rateLimit(opts: RateLimitOpts): RequestHandler {
       buckets.set(key, bucket);
     }
     bucket.count += 1;
+    if (Math.random() < SWEEP_PROB) sweepStale(buckets, now);
     if (bucket.count > opts.max) {
       const retryAfterSec = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
       res.setHeader('Retry-After', String(retryAfterSec));

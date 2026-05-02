@@ -86,7 +86,12 @@ function applyMatch(
   model.filename = info.filename || path.basename(pathKey);
   model.fileStatus = info.status;
   model.fileSize = info.size;
-  model.save_path = info.path;
+  // Preserve the catalog row's `save_path` — that's the folder name the
+  // workflow / UI / dep-check expects (e.g. `detection`). Overwriting it
+  // with the scan's full pathKey (`models/detection/yolov10m.onnx`)
+  // breaks the badge in the Models page and confuses every consumer that
+  // expects a bare folder. The actual file location is in the model_files
+  // index; `resolveAbsoluteModelPath` looks it up there directly.
   if (model.size) verifySizeMatch(model, info.size);
 }
 

@@ -146,6 +146,7 @@ async function entryToWorkflow(
     description: defaults?.defaultDescription,
     nodeCount: Array.isArray(workflow.nodes) ? (workflow.nodes as unknown[]).length : 0,
     models: deps.models, modelLoaderClasses: deps.modelLoaderClasses,
+    modelFolders: deps.modelFolders,
     modelUrls: extractModelUrlsFromWorkflow(workflow),
     plugins: deps.plugins,
     mediaType: deriveMediaType(io), jsonBytes: size, workflow,

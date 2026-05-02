@@ -28,6 +28,7 @@ import { getModelInfo } from '../models/info.service.js';
 import { buildDownloadUrl } from '../models/download.urlBuild.js';
 import { hfFindExactMatch, type HfSearchCache } from './autoResolve.hf.js';
 import { civitaiFindExactMatch, type CivitaiSearchCache } from './autoResolve.civitai.js';
+import { pluginReadmeFindUrl, type PluginReadmeCache } from './autoResolve.pluginReadme.js';
 import {
   stepHfRepo, stepWorkflowDeclaredUrl,
 } from './autoResolve.workflowDeclared.js';
@@ -41,9 +42,13 @@ export type { AutoResolvedModel, AutoResolveSource };
 
 const PER_WORKFLOW_CONCURRENCY = 4;
 
-interface SearchCaches { hf: HfSearchCache; civitai: CivitaiSearchCache }
+interface SearchCaches {
+  hf: HfSearchCache;
+  civitai: CivitaiSearchCache;
+  pluginReadme: PluginReadmeCache;
+}
 function newSearchCaches(): SearchCaches {
-  return { hf: new Map(), civitai: new Map() };
+  return { hf: new Map(), civitai: new Map(), pluginReadme: new Map() };
 }
 
 function basenameOf(filename: string): string {
@@ -98,7 +103,8 @@ function stepCatalog(filename: string): AutoResolvedModel | null {
 // Step 2 — MarkdownNote URL basename match.
 
 async function stepMarkdown(
-  filename: string, modelUrls: string[], loaderClass?: string,
+  filename: string, modelUrls: string[],
+  loaderClass?: string, tooltipFolder?: string,
 ): Promise<AutoResolvedModel | null> {
   for (const url of modelUrls) {
     const base = urlBasename(url);
@@ -110,32 +116,54 @@ async function stepMarkdown(
       else if (/civitai\.com$/i.test(host)) resolved = await resolveCivitaiUrl(url);
     } catch { resolved = null; }
     if (!resolved || !sameFile(resolved.fileName, filename)) continue;
-    upsertCatalogFromAuto(filename, resolved, loaderClass);
-    return toAutoResolved('markdown', resolved, loaderClass);
+    upsertCatalogFromAuto(filename, resolved, loaderClass, tooltipFolder);
+    return toAutoResolved('markdown', resolved, loaderClass, tooltipFolder);
   }
   return null;
+}
+
+// Step 2.5 — plugin README scan (delegated to autoResolve.pluginReadme.ts).
+//
+// Walks the workflow's required-plugin repos, fetches each README, looks
+// for HF/civitai URLs whose basename matches the filename. Catches the case
+// where a plugin author documents the canonical model URL but the file is
+// in a deeply-nested HF repo (e.g. yolov10m.onnx →
+// `Wan-AI/Wan2.2-Animate-14B/process_checkpoint/det/yolov10m.onnx`) that
+// HF's search-by-filename can't surface on its own.
+
+async function stepPluginReadme(
+  filename: string, pluginRepos: string[], caches: SearchCaches,
+  loaderClass?: string, tooltipFolder?: string,
+): Promise<AutoResolvedModel | null> {
+  if (pluginRepos.length === 0) return null;
+  const resolved = await pluginReadmeFindUrl(filename, pluginRepos, caches.pluginReadme);
+  if (!resolved) return null;
+  upsertCatalogFromAuto(filename, resolved, loaderClass, tooltipFolder);
+  return toAutoResolved('pluginReadme', resolved, loaderClass, tooltipFolder);
 }
 
 // Step 3 — HuggingFace search (delegated to autoResolve.hf.ts).
 
 async function stepHuggingface(
-  filename: string, caches: SearchCaches, loaderClass?: string,
+  filename: string, caches: SearchCaches,
+  loaderClass?: string, tooltipFolder?: string,
 ): Promise<AutoResolvedModel | null> {
   const resolved = await hfFindExactMatch(filename, basenameOf(filename), caches.hf);
   if (!resolved) return null;
-  upsertCatalogFromAuto(filename, resolved, loaderClass);
-  return toAutoResolved('huggingface', resolved, loaderClass);
+  upsertCatalogFromAuto(filename, resolved, loaderClass, tooltipFolder);
+  return toAutoResolved('huggingface', resolved, loaderClass, tooltipFolder);
 }
 
 // Step 4 — CivitAI search (delegated to autoResolve.civitai.ts).
 
 async function stepCivitai(
-  filename: string, caches: SearchCaches, loaderClass?: string,
+  filename: string, caches: SearchCaches,
+  loaderClass?: string, tooltipFolder?: string,
 ): Promise<AutoResolvedModel | null> {
   const resolved = await civitaiFindExactMatch(filename, basenameOf(filename), caches.civitai);
   if (!resolved) return null;
-  upsertCatalogFromAuto(filename, resolved, loaderClass);
-  return toAutoResolved('civitai', resolved, loaderClass);
+  upsertCatalogFromAuto(filename, resolved, loaderClass, tooltipFolder);
+  return toAutoResolved('civitai', resolved, loaderClass, tooltipFolder);
 }
 
 // ---------------------------------------------------------------------------
@@ -152,26 +180,49 @@ function searchesEnabled(): boolean {
   return true;
 }
 
+/** Unique `owner/repo` strings drawn from the workflow's resolved plugin
+ *  set. Bare CNR ids (no slash) are skipped — README fetch needs the
+ *  github path. */
+function collectPluginRepos(wf: StagedWorkflowEntry): string[] {
+  const seen = new Set<string>();
+  for (const r of wf.plugins || []) {
+    for (const m of r.matches || []) {
+      const repo = (m.repo || '').toLowerCase().trim();
+      if (repo.includes('/') && !repo.startsWith('http')) seen.add(repo);
+    }
+  }
+  return Array.from(seen);
+}
+
 async function resolveOne(
   filename: string, wf: StagedWorkflowEntry, caches: SearchCaches,
 ): Promise<AutoResolvedModel | null> {
   const loaderClass = wf.modelLoaderClasses?.[filename];
+  // Tooltip-derived folder from /object_info, captured at extract time.
+  // Wins over the static loaderFolders map and URL-derived guesses.
+  const tooltipFolder = wf.modelFolders?.[filename];
   // Whole-HF-repo declarations on a workflow's own `properties.models` win
   // over everything else — the author was explicit, no need to search.
   const s0 = stepHfRepo(filename, wf.workflow);
   if (s0) return s0;
   const s0b = await stepWorkflowDeclaredUrl(
-    filename, wf.workflow, loaderClass, { upsertCatalogFromAuto, toAutoResolved },
+    filename, wf.workflow, loaderClass,
+    { upsertCatalogFromAuto, toAutoResolved }, tooltipFolder,
   );
   if (s0b) return s0b;
   const s1 = stepCatalog(filename);
   if (s1) return s1;
-  const s2 = await stepMarkdown(filename, wf.modelUrls || [], loaderClass);
+  const s2 = await stepMarkdown(filename, wf.modelUrls || [], loaderClass, tooltipFolder);
   if (s2) return s2;
   if (!searchesEnabled()) return null;
-  const s3 = await stepHuggingface(filename, caches, loaderClass);
+  // Plugin READMEs often document canonical URLs the HF search can't reach
+  // (subfolder paths in repos whose names don't match the filename).
+  const pluginRepos = collectPluginRepos(wf);
+  const sReadme = await stepPluginReadme(filename, pluginRepos, caches, loaderClass, tooltipFolder);
+  if (sReadme) return sReadme;
+  const s3 = await stepHuggingface(filename, caches, loaderClass, tooltipFolder);
   if (s3) return s3;
-  const s4 = await stepCivitai(filename, caches, loaderClass);
+  const s4 = await stepCivitai(filename, caches, loaderClass, tooltipFolder);
   if (s4) return s4;
   return null;
 }

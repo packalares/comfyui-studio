@@ -69,15 +69,3 @@ export function resolveModelFilePath(
   return null;
 }
 
-function uniqueHubSubdirs(): string[] {
-  return [...new Set(Object.values(COMFY_DIR_TO_HUB_SUBDIR))];
-}
-
-/** Existing hub subdirectories to deep-scan for installed models. */
-export function getExistingHubScanDirs(): string[] {
-  const hubRoot = getSharedModelHubRoot();
-  if (!hubRoot || !fs.existsSync(hubRoot)) return [];
-  return uniqueHubSubdirs()
-    .map((s) => path.join(hubRoot, s))
-    .filter((p) => fs.existsSync(p));
-}

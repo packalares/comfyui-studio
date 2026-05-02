@@ -15,7 +15,7 @@
 // `author`, `installed`, `category`, `model_filename`, `plugin_id`). Anything
 // else stays unindexed or lives inside `raw_json` / `workflow_json`.
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -106,4 +106,17 @@ CREATE TABLE IF NOT EXISTS template_plugins (
   FOREIGN KEY (template) REFERENCES templates(name) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_template_plugins_id ON template_plugins(plugin_id);
+
+CREATE TABLE IF NOT EXISTS model_files (
+  abs_path     TEXT PRIMARY KEY,
+  filename     TEXT NOT NULL,
+  rel_path     TEXT NOT NULL,
+  root_kind    TEXT NOT NULL CHECK (root_kind IN ('local', 'hub')),
+  top_dir      TEXT NOT NULL,
+  size         INTEGER NOT NULL,
+  status       TEXT NOT NULL,
+  scanned_at   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_model_files_filename ON model_files(filename);
+CREATE INDEX IF NOT EXISTS idx_model_files_topdir_filename ON model_files(top_dir, filename);
 `;

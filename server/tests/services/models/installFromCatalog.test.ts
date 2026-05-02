@@ -24,6 +24,8 @@ vi.mock('../../../src/services/models/info.service.js', () => ({
 }));
 
 const { installFromCatalog } = await import('../../../src/services/models/models.service.js');
+const { NoDownloadSourceError } =
+  await import('../../../src/services/models/download.service.js');
 const { __resetForTests: resetProgressTracker } =
   await import('../../../src/services/downloadController/progressTracker.js');
 
@@ -72,5 +74,16 @@ describe('installFromCatalog → walker candidates', () => {
     const opts = mockedWalk.mock.calls[0][0];
     expect(opts.candidates).toHaveLength(1);
     expect(opts.candidates[0].url).toContain('huggingface.co');
+  });
+
+  it('throws NoDownloadSourceError when catalog row has no url and no urlSources', async () => {
+    mockedGetInfo.mockReturnValue({
+      name: 'yolov10m.onnx', filename: 'yolov10m.onnx',
+      save_path: '',
+    });
+    mockedLoad.mockReturnValue({ models: [] });
+    await expect(installFromCatalog('yolov10m.onnx', 'hf'))
+      .rejects.toBeInstanceOf(NoDownloadSourceError);
+    expect(mockedWalk).not.toHaveBeenCalled();
   });
 });

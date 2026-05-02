@@ -38,6 +38,10 @@ export class LogService implements ComfyUILogStore {
     const ts = new Date().toISOString();
     const entry = `[${ts}] ${isError ? 'ERROR: ' : ''}${message}`;
     this.resetLogs.push(entry);
+    // Mirror the recentLogs cap so the in-memory reset buffer can't grow
+    // unbounded across long-lived processes. The on-disk log file still
+    // accumulates the full history.
+    if (this.resetLogs.length > MAX_LOG_ENTRIES) this.resetLogs.shift();
     if (isError) logger.error(message);
     else logger.info(message);
     this.appendResetLogFile(entry);

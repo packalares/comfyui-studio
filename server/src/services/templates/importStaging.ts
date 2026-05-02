@@ -8,7 +8,7 @@ import { randomUUID } from 'crypto';
 import type { PluginResolution } from './extractDepsAsync.js';
 
 /** Wave L auto-resolution record. Declared here to avoid circular imports. */
-export type AutoResolveSource = 'catalog' | 'markdown' | 'huggingface' | 'civitai' | 'hfRepo';
+export type AutoResolveSource = 'catalog' | 'markdown' | 'huggingface' | 'civitai' | 'hfRepo' | 'pluginReadme';
 
 export interface AutoResolvedModel {
   source: AutoResolveSource;
@@ -55,6 +55,14 @@ export interface StagedWorkflowEntry {
    * field stay backwards compatible.
    */
   modelLoaderClasses?: Record<string, string>;
+  /**
+   * Filename → ComfyUI folder name parsed from `/object_info` tooltips at
+   * extract time. Wins over the static `loaderFolders.ts` map and the
+   * URL-side `suggestedFolder` because the tooltip is the plugin author's
+   * own declaration. Optional: workflows imported on a system where the
+   * plugin isn't installed yet skip this — the resolver falls back.
+   */
+  modelFolders?: Record<string, string>;
   /**
    * Model URLs discovered inside MarkdownNote / Note bodies (HuggingFace +
    * CivitAI hosts only). Wave E surfaces these in the review UI as

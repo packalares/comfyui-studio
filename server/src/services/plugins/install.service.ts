@@ -293,5 +293,8 @@ async function runInstallTask(
     cache.refreshInstalledPlugins();
   } finally {
     releaseInflight(inflightSlotKey);
+    // Drop the completed/error task after a grace window so the UI can show
+    // the final state but the per-task log buffer doesn't accumulate forever.
+    setTimeout(() => progress.removeTask(taskId), 30_000).unref();
   }
 }

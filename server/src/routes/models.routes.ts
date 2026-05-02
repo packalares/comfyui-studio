@@ -14,6 +14,9 @@
 
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import * as models from '../services/models/models.service.js';
+import { NoDownloadSourceError } from '../services/models/download.service.js';
+import * as modelIndex from '../services/models/modelIndex.js';
+import { handleDownloadHfRepo } from './models.downloadHfRepo.js';
 import { toWireEntry } from '../services/models/models.wire.js';
 import * as settings from '../services/settings.js';
 import {
@@ -25,6 +28,7 @@ import {
 } from '../services/downloadController/downloadHistory.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { sendError } from '../middleware/errors.js';
+import { handleFolders } from './models.folders.js';
 import { hostIsPrivate } from './models.validation.js';
 import {
   validateAllowedUrl, urlEncodesFilename,
@@ -89,7 +93,10 @@ const handleInstall: RequestHandler = async (req, res) => {
     const { taskId } = await models.installFromCatalog(modelName, source, hfToken);
     trackDownload(taskId, { modelName });
     res.json({ success: true, taskId, message: `Starting model download: ${modelName}` });
-  } catch (err) { sendError(res, err, 500, 'Install failed'); }
+  } catch (err) {
+    if (err instanceof NoDownloadSourceError) { res.status(400).json({ success: false, error: err.message, code: 'NO_DOWNLOAD_SOURCE' }); return; }
+    sendError(res, err, 500, 'Install failed');
+  }
 };
 
 const handleProgress: RequestHandler = async (req, res) => {
@@ -202,7 +209,16 @@ const handleDownloadCustom: RequestHandler = async (req: Request, res: Response)
 
 // ---- Mount canonical + legacy aliases ----
 
+const handleRescan: RequestHandler = async (_req, res) => {
+  try {
+    const result = await modelIndex.rebuildFullIndex();
+    res.json(result);
+  } catch (err) { sendError(res, err, 500, 'Rescan failed'); }
+};
+
 router.get(['/models', '/launcher/models'], handleGetModels);
+router.get(['/models/folders', '/launcher/models/folders'], handleFolders);
+router.post(['/models/rescan', '/launcher/models/rescan'], handleRescan);
 router.post(['/models/scan', '/launcher/models/scan'], handleScan);
 router.post(['/models/delete', '/launcher/models/delete'], handleDelete);
 router.post(['/models/cancel-download', '/launcher/models/cancel-download'], handleCancel);
@@ -212,28 +228,6 @@ router.get(['/models/download-history', '/launcher/models/download-history'], ha
 router.post(['/models/download-history/clear', '/launcher/models/download-history/clear'], handleHistoryClear);
 router.post(['/models/download-history/delete', '/launcher/models/download-history/delete'], handleHistoryDelete);
 router.post(['/models/download-custom', '/launcher/models/download-custom'], downloadCustomLimiter, handleDownloadCustom);
-
-const handleDownloadHfRepo: RequestHandler = async (req: Request, res: Response) => {
-  try {
-    const { hfRepo, directory, name, hfToken } = (req.body || {}) as {
-      hfRepo?: string; directory?: string; name?: string; hfToken?: string;
-    };
-    if (!hfRepo || !/^[A-Za-z0-9_.\-]+\/[A-Za-z0-9_.\-]+$/.test(hfRepo)) {
-      res.status(400).json({ error: 'hfRepo required (format "owner/repo")' });
-      return;
-    }
-    if (!directory || directory.includes('..') || directory.startsWith('/')) {
-      res.status(400).json({ error: 'directory required; must be relative without ".."' });
-      return;
-    }
-    const out = await models.downloadHfRepo(
-      hfRepo, directory, name || hfRepo,
-      { hfToken: hfToken || settings.getHfToken() },
-    );
-    trackDownload(out.taskId, { modelName: out.modelName, filename: out.modelName });
-    res.json({ success: true, taskId: out.taskId, modelName: out.modelName });
-  } catch (err) { sendError(res, err, 500, 'HF repo download failed'); }
-};
 
 router.post(
   ['/models/download-hf-repo', '/launcher/models/download-hf-repo'],

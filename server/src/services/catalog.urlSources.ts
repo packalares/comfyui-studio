@@ -112,12 +112,21 @@ export function mergeIntoExisting(
     existing.url = entry.url;
   }
   if (!existing.name && entry.name) existing.name = entry.name;
-  if (!existing.type && entry.type) existing.type = entry.type;
-  if (
-    entry.save_path
-    && (entry.source?.startsWith('template:') || entry.source === 'user' || !existing.save_path)
-  ) {
-    existing.save_path = entry.save_path;
+  // `type` and `save_path` both encode the destination folder. Auto-resolve
+  // and template-derived upserts know the authoritative folder (from
+  // /object_info tooltip or workflow declaration), so we let them overwrite
+  // both fields together. Plain seed/scan upserts keep the existing values.
+  const folderAuthoritative = !!entry.save_path && (
+    entry.source?.startsWith('template:')
+    || entry.source?.startsWith('auto-resolve:')
+    || entry.source === 'user'
+    || !existing.save_path
+  );
+  if (folderAuthoritative) {
+    existing.save_path = entry.save_path as string;
+    if (entry.type) existing.type = entry.type;
+  } else if (!existing.type && entry.type) {
+    existing.type = entry.type;
   }
   if (!existing.description && entry.description) existing.description = entry.description;
   if (!existing.reference && entry.reference) existing.reference = entry.reference;

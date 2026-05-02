@@ -9,6 +9,10 @@ import { hydrateFromQueue, onQueueStatus } from './services/gallery.sentry.js';
 import { loadTemplatesFromComfyUI } from './services/templates/index.js';
 import { wireTemplateEventHandlers } from './services/templates/eventSubscribers.js';
 import { wireCatalogEventHandlers } from './services/catalog.events.js';
+import {
+  ensureFresh as ensureModelIndexFresh,
+  wireModelIndexEventHandlers,
+} from './services/models/modelIndex.js';
 import { setDownloadBroadcaster, getAllDownloads } from './services/downloads.js';
 import { sweepStaleUploads } from './routes/upload.routes.js';
 import { getStatus as getLocalComfyUIStatus } from './services/comfyui/status.service.js';
@@ -240,6 +244,9 @@ async function start() {
   // pre-populated rows flip from `downloading: true` to installed/error as
   // the download finishes.
   wireCatalogEventHandlers();
+  // Subscribe the SQLite-backed model index to the bus so single-file
+  // installs/removals stay in sync without a full disk walk.
+  wireModelIndexEventHandlers();
 
   // Sweep leftover files in the uploads tmp dir (orphans from any prior
   // crash mid-upload). Safe because we only delete files older than 1h.
@@ -267,6 +274,14 @@ async function start() {
       return;
     }
     if (tmpl.getTemplates().length > 0) {
+      // Populate the SQLite-backed model index BEFORE seeding templates so
+      // the readiness recompute that follows sees real on-disk state. The
+      // gate is age-based, not boot-on-every-restart.
+      try {
+        await ensureModelIndexFresh();
+      } catch (err) {
+        logger.warn('model index ensureFresh failed', { error: String(err) });
+      }
       // Seed sqlite with the shorthand edges + kick off deep refresh in the
       // background so real filenames populate without a manual click.
       tmpl.seedTemplatesOnce();

@@ -13,16 +13,20 @@ import type { AutoResolvedModel, AutoResolveSource } from './importStaging.js';
 
 /** Build the shared `AutoResolvedModel` envelope the UI consumes. */
 export function toAutoResolved(
-  source: AutoResolveSource, resolved: ResolvedModel, loaderClass?: string,
+  source: AutoResolveSource, resolved: ResolvedModel,
+  loaderClass?: string, tooltipFolder?: string,
 ): AutoResolvedModel {
   const out: AutoResolvedModel = {
     source, downloadUrl: resolved.downloadUrl, confidence: 'high',
   };
-  // Loader-class wins over URL guess — see commitOverrides.ts for the
-  // motivating bug. `LatentUpscaleModelLoader` files default to
-  // `upscale_models` from filename heuristics; `LTXAVTextEncoderLoader`
-  // files fall to the `checkpoints` ext fallback. Both wrong.
-  const folder = folderForLoaderClass(loaderClass) || resolved.suggestedFolder;
+  // Folder priority: tooltip-derived (plugin author authoritative) >
+  // static loader-class map (ComfyUI-core convention) > URL guess. The
+  // tooltip wins because plugin authors stamp the exact folder into
+  // `/object_info` input descriptors via the
+  // `'ComfyUI/models/<folder>' -folder` convention.
+  const folder = tooltipFolder
+    || folderForLoaderClass(loaderClass)
+    || resolved.suggestedFolder;
   if (folder) out.suggestedFolder = folder;
   if (typeof resolved.sizeBytes === 'number') out.sizeBytes = resolved.sizeBytes;
   // Propagate gating so the review UI / catalog row can show the
@@ -38,9 +42,11 @@ export function toAutoResolved(
  * the resolver. Best-effort: a write failure is logged but doesn't break
  * staging (read-only FS during tests etc.). */
 export function upsertCatalogFromAuto(
-  filename: string, resolved: ResolvedModel, loaderClass?: string,
+  filename: string, resolved: ResolvedModel,
+  loaderClass?: string, tooltipFolder?: string,
 ): void {
-  const folder = folderForLoaderClass(loaderClass)
+  const folder = tooltipFolder
+    || folderForLoaderClass(loaderClass)
     || resolved.suggestedFolder
     || 'checkpoints';
   const sizeBytes = typeof resolved.sizeBytes === 'number' ? resolved.sizeBytes : undefined;

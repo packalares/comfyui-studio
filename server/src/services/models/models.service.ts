@@ -19,7 +19,7 @@ import {
   inferModelType, getModelSaveDir,
 } from './install.service.js';
 import {
-  buildDownloadUrl, processHfEndpoint, resolveOutputPath,
+  buildDownloadUrl, processHfEndpoint, resolveOutputPath, NoDownloadSourceError,
 } from './download.service.js';
 import type { CatalogModelEntry } from './download.service.js';
 import {
@@ -106,17 +106,20 @@ export async function installFromCatalog(
   const info = getModelInfo(modelName);
   if (!info) throw new Error(`Model info not found for ${modelName}`);
 
+  // Resolve candidates BEFORE allocating a taskId — without this, a row with
+  // no usable URL would still produce a "task created" success response while
+  // the walker silently failed, leaving the user with a phantom Install click.
+  const candidates = buildCatalogCandidates(modelName, info, source);
+  if (!candidates.some((c) => c.url && c.url.length > 0)) {
+    throw new NoDownloadSourceError(modelName);
+  }
+
   const taskId = createDownloadTask();
   setModelMapping(modelName, taskId);
 
   const modelType = inferModelType(modelName);
   const saveDir = getModelSaveDir(modelType);
   const outputPath = resolveOutputPath(saveDir, modelName);
-  // Build the candidate list for the walker. Catalog row's urlSources[] (when
-  // present) drives the priority order; bundled-list entries fall back to the
-  // single-URL legacy build (`buildDownloadUrl`). HF endpoint override applies
-  // to every candidate so a self-hosted mirror works across the whole walk.
-  const candidates = buildCatalogCandidates(modelName, info, source);
   logger.info('install download starting', {
     candidateCount: candidates.length, path: outputPath,
   });
@@ -129,7 +132,7 @@ export async function installFromCatalog(
   void walkAndDownload({
     modelName, outputPath, taskId, candidates, tokens, source,
   }).then(() => {
-    bus.emit('model:installed', { filename: modelName });
+    bus.emit('model:installed', { filename: modelName, absPath: outputPath });
     scanAndRefresh().catch(() => { /* best effort */ });
   }).catch((err) => {
     const msg = err instanceof Error ? err.message : String(err);
