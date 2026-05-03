@@ -111,48 +111,28 @@ function buildCivitaiPageQuery(opts: {
   return s ? `?${s}` : '';
 }
 
+export type SecretName =
+  | 'apiKeyComfyOrg'
+  | 'hfToken'
+  | 'civitaiToken'
+  | 'githubToken'
+  | 'pexelsApiKey';
+
 export const api = {
-  // Status flags (`apiKeyConfigured`, `hfTokenConfigured`) live on `/system`
-  // now; there's no separate GET here. Writers return the new flag directly.
-  setApiKey: (apiKey: string) =>
-    fetchJson<{ configured: boolean }>('/settings/api-key', {
+  // Unified secret store. Writes go to a single endpoint that accepts a
+  // name→value map (one or many keys per call — UI sends only dirty fields).
+  // Clears are per-name. Status flags still ride on `GET /system`; secret
+  // values are never returned by the server.
+  setSecrets: (values: Partial<Record<SecretName, string>>) =>
+    fetchJson<{ written: SecretName[] }>('/settings/secret', {
       method: 'PUT',
-      body: JSON.stringify({ apiKey }),
+      body: JSON.stringify(values),
     }),
-  clearApiKey: () =>
-    fetchJson<{ configured: boolean }>('/settings/api-key', { method: 'DELETE' }),
-
-  setHfToken: (token: string) =>
-    fetchJson<{ configured: boolean }>('/settings/hf-token', {
-      method: 'PUT',
-      body: JSON.stringify({ token }),
-    }),
-  clearHfToken: () =>
-    fetchJson<{ configured: boolean }>('/settings/hf-token', { method: 'DELETE' }),
-
-  setCivitaiToken: (token: string) =>
-    fetchJson<{ configured: boolean }>('/settings/civitai-token', {
-      method: 'PUT',
-      body: JSON.stringify({ token }),
-    }),
-  clearCivitaiToken: () =>
-    fetchJson<{ configured: boolean }>('/settings/civitai-token', { method: 'DELETE' }),
-
-  setGithubToken: (token: string) =>
-    fetchJson<{ configured: boolean }>('/settings/github-token', {
-      method: 'PUT',
-      body: JSON.stringify({ token }),
-    }),
-  clearGithubToken: () =>
-    fetchJson<{ configured: boolean }>('/settings/github-token', { method: 'DELETE' }),
-
-  setPexelsApiKey: (apiKey: string) =>
-    fetchJson<{ configured: boolean }>('/settings/pexels-api-key', {
-      method: 'PUT',
-      body: JSON.stringify({ apiKey }),
-    }),
-  clearPexelsApiKey: () =>
-    fetchJson<{ configured: boolean }>('/settings/pexels-api-key', { method: 'DELETE' }),
+  clearSecret: (name: SecretName) =>
+    fetchJson<{ configured: boolean }>(
+      `/settings/secret?name=${encodeURIComponent(name)}`,
+      { method: 'DELETE' },
+    ),
 
   getSystemStats: () => fetchJson<SystemStats & {
     queue?: QueueStatus | null;
@@ -239,6 +219,18 @@ export const api = {
     }),
 
   getGallery: () => fetchJson<GalleryItem[]>('/gallery'),
+
+  /**
+   * Bulk lookup by promptId — used by the chat thread on conversation
+   * reload to resolve old `<GeneratedImage>` placeholders to their rendered
+   * gallery rows. The server filters at SQL level so we don't load the
+   * whole gallery just to filter client-side.
+   */
+  getGalleryByPromptIds: (ids: string[]) => {
+    if (ids.length === 0) return Promise.resolve({ items: [] as GalleryItem[] });
+    const qs = new URLSearchParams({ ids: ids.join(',') }).toString();
+    return fetchJson<{ items: GalleryItem[] }>(`/gallery/by-prompt-ids?${qs}`);
+  },
 
   /**
    * GET /gallery/:id — full row including `workflowJson`, `promptText`, and
@@ -977,6 +969,7 @@ export const api = {
       defaultModel: string;
       keepAlive: string;
       defaultContextStrategy: ChatContextStrategy;
+      advanced: ChatAdvancedSettings;
     }>(
       '/settings/chat',
     ),
@@ -987,12 +980,14 @@ export const api = {
     defaultModel: string;
     keepAlive: string;
     defaultContextStrategy: ChatContextStrategy;
+    advanced: Partial<ChatAdvancedSettings>;
   }>) =>
     fetchJson<{
       ollamaUrl: string;
       defaultModel: string;
       keepAlive: string;
       defaultContextStrategy: ChatContextStrategy;
+      advanced: ChatAdvancedSettings;
     }>(
       '/settings/chat',
       { method: 'PUT', body: JSON.stringify(patch) },
@@ -1012,11 +1007,19 @@ export const api = {
       model?: string;
       messages: ChatUIMessage[];
       systemPrompt?: string | null;
+      /** Optional allow-list of tool names (e.g. ['web_search']). Omit to use
+       *  every configured tool. Empty array disables tools for this turn. */
+      enabledTools?: string[] | null;
     }) =>
       fetchJson<{ conversationId: string; msgId: string }>('/chat/start', {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
+
+    listTools: () =>
+      fetchJson<{ items: { name: string; label: string; description: string }[] }>(
+        '/chat/tools',
+      ),
 
     stop: (msgId: string) =>
       fetchJson<{ aborted: boolean }>(
@@ -1024,8 +1027,16 @@ export const api = {
         { method: 'POST' },
       ),
 
-    listConversations: () =>
-      fetchJson<{ items: ChatConversation[] }>('/chat/conversations'),
+    listConversations: (opts?: { limit?: number; offset?: number; q?: string }) => {
+      const params = new URLSearchParams();
+      if (opts?.limit !== undefined) params.set('limit', String(opts.limit));
+      if (opts?.offset !== undefined) params.set('offset', String(opts.offset));
+      if (opts?.q) params.set('q', opts.q);
+      const qs = params.toString();
+      return fetchJson<{
+        items: ChatConversation[]; total: number; hasMore: boolean;
+      }>(`/chat/conversations${qs ? `?${qs}` : ''}`);
+    },
 
     getConversation: (id: string) =>
       fetchJson<ChatConversation>(`/chat/conversations/${encodeURIComponent(id)}`),
@@ -1038,6 +1049,15 @@ export const api = {
     deleteConversation: (id: string) =>
       fetchJson<{ deleted: boolean; id: string }>(
         `/chat/conversations/${encodeURIComponent(id)}`,
+        { method: 'DELETE' },
+      ),
+
+    /** Drop a single message row. Used by the per-message Trash action in
+     *  the thread. Server validates the conversation/message pair so a stale
+     *  client can't delete from the wrong chat. */
+    deleteMessage: (conversationId: string, msgId: string) =>
+      fetchJson<{ deleted: boolean; id: string; msgId: string }>(
+        `/chat/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(msgId)}`,
         { method: 'DELETE' },
       ),
 
@@ -1135,6 +1155,20 @@ export interface ChatUIMessage {
 }
 
 export type ChatContextStrategy = 'sliding' | 'summarize' | 'manual';
+
+/** Tunables exposed under `advanced` on the chat settings GET/PUT.
+ *  Each is a positive number with a server-side validation step; a
+ *  cleared/missing value falls back to a documented default. */
+export interface ChatAdvancedSettings {
+  highWaterPercent: number;
+  slidingTargetPercent: number;
+  fallbackNumCtx: number;
+  maxToolSteps: number;
+  loadingHintMs: number;
+  keepRecent: number;
+  titleTimeoutMs: number;
+  summaryTimeoutMs: number;
+}
 
 export interface ChatConversation {
   id: string;

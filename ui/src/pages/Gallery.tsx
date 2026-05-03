@@ -4,21 +4,23 @@ import { useNavigate } from 'react-router-dom';
 import {
   Download, Trash2, X,
   Image as ImageIcon, Video, Music, ArrowRight, SlidersHorizontal,
-  LayoutGrid, CheckSquare, AlertCircle, DownloadCloud, Loader2,
+  LayoutGrid, CheckSquare, AlertCircle, DownloadCloud,
   Images, Star,
 } from 'lucide-react';
+import { Spinner } from '../components/ui/spinner';
 import type { GalleryItem } from '../types';
 import { api } from '../services/comfyui';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { usePaginated } from '../hooks/usePaginated';
-import Pagination from '../components/Pagination';
-import PageSubbar from '../components/PageSubbar';
-import GalleryTile from '../components/GalleryTile';
-import GalleryDetailModal from '../components/GalleryDetailModal';
-import ConfirmDialog from '../components/ConfirmDialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import Pagination from '../components/layout/Pagination';
+import PageSubbar from '../components/layout/PageSubbar';
+import GalleryTile from '../components/cards/GalleryTile';
+import GalleryDetailModal from '../components/modals/GalleryDetailModal';
+import ConfirmDialog from '../components/modals/ConfirmDialog';
+import { SelectField, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/forms/SelectField';
 import { Checkbox } from '../components/ui/checkbox';
 import { Button } from '../components/ui/button';
+import { ButtonGroup } from '../components/ui/button-group';
 import { Card } from '../components/ui/card';
 
 type FilterType = 'all' | 'image' | 'video' | 'audio';
@@ -227,7 +229,7 @@ export default function Gallery() {
                 title="Import items from ComfyUI's history"
               >
                 {importing
-                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ? <Spinner size="sm" />
                   : <DownloadCloud className="w-3.5 h-3.5" />}
                 Import
               </Button>
@@ -252,30 +254,30 @@ export default function Gallery() {
               {/* Media Type filter */}
               <div>
                 <label className="field-label mb-1.5 block">Media Type</label>
-                <div className="inline-flex w-full">
+                <ButtonGroup className="w-full">
                   {([
                     { key: 'all', label: 'All', icon: LayoutGrid },
                     { key: 'image', label: 'Image', icon: ImageIcon },
                     { key: 'video', label: 'Video', icon: Video },
                     { key: 'audio', label: 'Audio', icon: Music },
-                  ] as { key: FilterType; label: string; icon: React.ComponentType<{ className?: string }> }[]).map(({ key, label, icon: Icon }, i, arr) => (
+                  ] as { key: FilterType; label: string; icon: React.ComponentType<{ className?: string }> }[]).map(({ key, label, icon: Icon }) => (
                     <Button
                       key={key}
                       onClick={() => setFilter(key)}
                       variant={filter === key ? 'default' : 'secondary'}
-                      className={`flex-1 justify-center ${i === 0 ? 'rounded-r-none' : i === arr.length - 1 ? 'rounded-l-none -ml-px' : 'rounded-none -ml-px'}`}
+                      className="flex-1 justify-center"
                       title={label}
                     >
                       <Icon className="w-3.5 h-3.5" />
                     </Button>
                   ))}
-                </div>
+                </ButtonGroup>
               </div>
 
               {/* Sort order */}
               <div>
                 <label className="field-label mb-1.5 block">Sort by</label>
-                <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortBy)}>
+                <SelectField value={sortBy} onValueChange={(v) => setSortBy(v as SortBy)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -283,7 +285,7 @@ export default function Gallery() {
                     <SelectItem value="newest">Newest first</SelectItem>
                     <SelectItem value="oldest">Oldest first</SelectItem>
                   </SelectContent>
-                </Select>
+                </SelectField>
               </div>
 
               {/* Favorites toggle */}
@@ -395,7 +397,7 @@ export default function Gallery() {
                         className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50"
                       >
                         {importing
-                          ? <Loader2 className="w-4 h-4 animate-spin" />
+                          ? <Spinner size="md" />
                           : <DownloadCloud className="w-4 h-4" />}
                         Import from ComfyUI history
                       </button>

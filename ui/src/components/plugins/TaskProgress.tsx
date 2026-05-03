@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Loader2, CheckCircle2, XCircle } from 'lucide-react';
+import { CheckCircle2, XCircle } from 'lucide-react';
 import { api } from '../../services/comfyui';
 import type { PluginTaskProgress } from '../../types';
+import { Spinner } from '../ui/spinner';
 
 interface Props {
   taskId: string;
@@ -91,7 +92,7 @@ export default function TaskProgress({ taskId, onComplete }: Props) {
               <XCircle className="w-3.5 h-3.5 text-rose-600" />
             )
           ) : (
-            <Loader2 className="w-3.5 h-3.5 text-teal-600 animate-spin" />
+            <Spinner size="sm" className="text-teal-600" />
           )}
           <span className="font-medium">
             {progress?.type ? progress.type.replace('-', ' ') : 'task'}

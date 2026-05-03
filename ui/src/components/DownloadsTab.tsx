@@ -3,7 +3,6 @@ import {
   RefreshCw,
   Trash2,
   X,
-  Loader2,
   History,
   AlertTriangle,
   CheckCircle2,
@@ -15,7 +14,7 @@ import { api } from '../services/comfyui';
 import { useApp } from '../context/AppContext';
 import { formatBytes, formatRelativeTime } from '../lib/utils';
 import { usePaginated } from '../hooks/usePaginated';
-import Pagination from './Pagination';
+import Pagination from './layout/Pagination';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -29,6 +28,7 @@ import {
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader } from './ui/card';
+import { Spinner } from './ui/spinner';
 
 type DownloadStatus = 'downloading' | 'success' | 'failed' | 'canceled' | 'queued' | string;
 
@@ -89,7 +89,7 @@ function StatusBadge({ status }: { status: DownloadStatus }) {
   if (status === 'downloading') {
     return (
       <Badge variant="teal">
-        <Loader2 className="h-3 w-3 animate-spin" />
+        <Spinner size="xs" />
         Downloading
       </Badge>
     );
@@ -97,7 +97,7 @@ function StatusBadge({ status }: { status: DownloadStatus }) {
   if (status === 'queued') {
     return (
       <Badge variant="slate">
-        <Loader2 className="h-3 w-3 animate-spin" />
+        <Spinner size="xs" />
         Queued
       </Badge>
     );

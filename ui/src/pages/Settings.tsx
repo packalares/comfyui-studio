@@ -1,13 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import PageSubbar from '../components/PageSubbar';
-import ToolsCard from '../components/settings/ToolsCard';
+import PageSubbar from '../components/layout/PageSubbar';
+import ToolsCard from '../components/cards/ToolsCard';
 import {
   Copy,
   Check,
   Save,
   RotateCcw,
   Eye,
-  EyeOff,
   RefreshCw,
   Link2,
   GitBranch,
@@ -18,8 +17,13 @@ import {
   Globe,
   HardDrive,
   Image as ImageIcon,
-  Trash2,
   Shield,
+  HelpCircle,
+  Percent,
+  Hash,
+  Repeat,
+  Timer,
+  Server,
   MessageSquare,
   // Category icons for Launch Options sections
   Folder,
@@ -36,12 +40,16 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { api } from '../services/comfyui';
+import { api, type ChatAdvancedSettings, type SecretName } from '../services/comfyui';
 import { useApp } from '../context/AppContext';
 import { Switch } from '../components/ui/switch';
+import { SelectField, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/forms/SelectField';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from '../components/ui/card';
+import ConfirmDialog from '../components/modals/ConfirmDialog';
+import InputField from '../components/forms/InputField';
 
 /* ---------- types for launch options ---------- */
 
@@ -196,19 +204,6 @@ const KEY_DESCRIPTIONS: Record<string, string> = {
 
 /* ---------- tiny helpers ---------- */
 
-function StatusBadge({ ok, labelOk, labelBad }: { ok: boolean; labelOk: string; labelBad: string }) {
-  return (
-    <Badge variant={ok ? 'emerald' : 'amber'}>
-      <span
-        className={`inline-block h-1.5 w-1.5 rounded-full ${
-          ok ? 'bg-emerald-500' : 'bg-amber-500'
-        }`}
-      />
-      {ok ? labelOk : labelBad}
-    </Badge>
-  );
-}
-
 function SectionHeader({
   title,
   description,
@@ -234,509 +229,213 @@ function SectionHeader({
   );
 }
 
-function Toggle({
-  checked,
-  onChange,
-  disabled,
-}: {
-  checked: boolean;
-  onChange: (v: boolean) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={`toggle ${checked ? 'toggle-on' : 'toggle-off'} ${
-        disabled ? 'opacity-40 cursor-not-allowed' : ''
-      }`}
-    >
-      <span
-        className={`toggle-thumb ${checked ? 'translate-x-4' : 'translate-x-0.5'}`}
-      />
-    </button>
-  );
-}
-
 /* =================================================================
-   1. API Key Card
+   1. Secrets Card — Comfy Org / HF / CivitAI / GitHub / Pexels in one card
    ================================================================= */
 
-function ApiKeyCard() {
-  const { apiKeyConfigured: configured, refreshSystem, refreshTemplates } = useApp();
-  const [apiKey, setApiKey] = useState('');
-  const [showKey, setShowKey] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  const handleSave = async () => {
-    if (!apiKey.trim()) return;
-    setBusy(true);
-    try {
-      await api.setApiKey(apiKey.trim());
-      await Promise.all([refreshSystem(), refreshTemplates()]);
-      setApiKey('');
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleClear = async () => {
-    setBusy(true);
-    try {
-      await api.clearApiKey();
-      await Promise.all([refreshSystem(), refreshTemplates()]);
-      setApiKey('');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const saveDisabled = busy || apiKey.trim().length === 0;
-
-  return (
-    <Card>
-      <SectionHeader
-        icon={Key}
-        title="Comfy Org API Key"
-        description="Required for Gemini, Kling, Grok, Runway, and other provider workflows."
-        right={<StatusBadge ok={configured} labelOk="Configured" labelBad="Not set" />}
-      />
-      <CardContent className="space-y-3">
-        <label className="field-label">
-          API key
-        </label>
-        <div className="field-wrap">
-          <input
-            type={showKey ? 'text' : 'password'}
-            value={apiKey}
-            onChange={e => setApiKey(e.target.value)}
-            className="field-input font-mono"
-            placeholder={configured ? 'Key is set — type a new one to replace' : 'Enter your API key'}
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <button
-            type="button"
-            onClick={() => setShowKey(v => !v)}
-            className="text-slate-400 transition hover:text-slate-700"
-            aria-label={showKey ? 'Hide key' : 'Show key'}
-          >
-            {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </button>
-        </div>
-        <div className="info-box">
-          <p>
-            Stored server-side in a config file on the GPU (readable only by the process owner) and attached to every prompt as <code>extra_data.api_key_comfy_org</code>. Never returned to the browser after save.
-          </p>
-        </div>
-      </CardContent>
-      <CardFooter>
-        <p className="text-xs text-slate-500">Changes are applied immediately.</p>
-        <div className="inline-flex gap-2">
-          {configured && (
-            <Button onClick={handleClear} disabled={busy} variant="secondary" className="!text-red-600 hover:!bg-red-50">
-              <Trash2 className="h-3.5 w-3.5" />
-              Clear
-            </Button>
-          )}
-          <Button onClick={handleSave} disabled={saveDisabled}>
-            {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
-            {saved ? 'Saved' : configured ? 'Replace' : 'Save'}
-          </Button>
-        </div>
-      </CardFooter>
-    </Card>
-  );
+interface SecretDef {
+  name: SecretName;
+  label: string;
+  helper: string;
+  tooltip: string;
+  placeholder: string;
+  configuredFlag:
+    | 'apiKeyConfigured'
+    | 'hfTokenConfigured'
+    | 'civitaiTokenConfigured'
+    | 'githubTokenConfigured'
+    | 'pexelsApiKeyConfigured';
+  // Some secrets need extra refresh side-effects after save (e.g. the
+  // Comfy Org key is attached to every prompt, so the templates list
+  // re-renders availability badges once it lands).
+  refreshTemplates?: boolean;
 }
 
-/* =================================================================
-   1b. HuggingFace Token Card
-   ================================================================= */
+const SECRETS: SecretDef[] = [
+  {
+    name: 'apiKeyComfyOrg',
+    label: 'Comfy Org API Key',
+    helper: 'Required for Gemini, Kling, Grok, Runway, and other provider workflows.',
+    tooltip:
+      'Stored server-side in a config file on the GPU (readable only by the process owner) and attached to every prompt as extra_data.api_key_comfy_org. Never returned to the browser after save.',
+    placeholder: 'Enter your API key',
+    configuredFlag: 'apiKeyConfigured',
+    refreshTemplates: true,
+  },
+  {
+    name: 'hfToken',
+    label: 'HuggingFace Token',
+    helper: 'Required to download gated models (e.g. FLUX.2-klein) and private repos.',
+    tooltip:
+      'Create a read token at huggingface.co/settings/tokens. Stored server-side; sent as Authorization: Bearer on HEAD/GET calls for gated HuggingFace URLs. Never returned to the browser after save.',
+    placeholder: 'hf_…',
+    configuredFlag: 'hfTokenConfigured',
+  },
+  {
+    name: 'civitaiToken',
+    label: 'CivitAI Token',
+    helper: 'Adds authentication for civitai.com downloads (LoRAs, workflows) and gated items.',
+    tooltip:
+      'Create an API key on civitai.com/user/account. Stored server-side; attached as Authorization: Bearer to civitai.com HEAD/GET requests. Never echoed back to the browser.',
+    placeholder: 'CivitAI API key',
+    configuredFlag: 'civitaiTokenConfigured',
+  },
+  {
+    name: 'githubToken',
+    label: 'GitHub Token',
+    helper: 'Adds authentication for github.com release downloads and lifts the unauthenticated 60/h API rate limit.',
+    tooltip:
+      'Create a fine-grained read token at github.com/settings/tokens. Stored server-side; attached as Authorization: Bearer to github.com release downloads + api.github.com calls. Never echoed back to the browser.',
+    placeholder: 'github_pat_…',
+    configuredFlag: 'githubTokenConfigured',
+  },
+  {
+    name: 'pexelsApiKey',
+    label: 'Pexels API Key',
+    helper: 'Optional. Lets audio thumbnails fetch a prompt-matched stock photo instead of a generic placeholder.',
+    tooltip:
+      'Free key at pexels.com/api (200 req/hr, 20k/month). When set, audio tiles without embedded cover art search Pexels using the prompt. Unset → falls back to a deterministic Picsum placeholder. Never echoed back to the browser.',
+    placeholder: 'Pexels API key',
+    configuredFlag: 'pexelsApiKeyConfigured',
+  },
+];
 
-function HfTokenCard() {
-  const { hfTokenConfigured: configured, refreshSystem } = useApp();
-  const [token, setToken] = useState('');
-  const [showToken, setShowToken] = useState(false);
+function SecretsCard() {
+  const app = useApp();
+  const [values, setValues] = useState<Record<SecretName, string>>(() => ({
+    apiKeyComfyOrg: '',
+    hfToken: '',
+    civitaiToken: '',
+    githubToken: '',
+    pexelsApiKey: '',
+  }));
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState<SecretName | null>(null);
+
+  const dirty = SECRETS
+    .filter(d => values[d.name].trim().length > 0)
+    .map(d => d.name);
 
   const handleSave = async () => {
-    if (!token.trim()) return;
+    if (dirty.length === 0) return;
     setBusy(true);
     try {
-      await api.setHfToken(token.trim());
-      await refreshSystem();
-      setToken('');
+      const payload: Partial<Record<SecretName, string>> = {};
+      for (const name of dirty) payload[name] = values[name].trim();
+      await api.setSecrets(payload);
+      // Comfy Org key is the only one that needs templates to re-evaluate
+      // availability after save; refresh both when it's in the batch.
+      const needsTemplates = SECRETS.some(d => d.refreshTemplates && dirty.includes(d.name));
+      await Promise.all([
+        app.refreshSystem(),
+        ...(needsTemplates ? [app.refreshTemplates()] : []),
+      ]);
+      setValues(v => {
+        const next = { ...v };
+        for (const name of dirty) next[name] = '';
+        return next;
+      });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      toast.error('Save failed', {
+        description: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       setBusy(false);
     }
   };
 
-  const handleClear = async () => {
+  const handleClear = async (name: SecretName) => {
     setBusy(true);
     try {
-      await api.clearHfToken();
-      await refreshSystem();
-      setToken('');
+      await api.clearSecret(name);
+      const def = SECRETS.find(d => d.name === name);
+      await Promise.all([
+        app.refreshSystem(),
+        ...(def?.refreshTemplates ? [app.refreshTemplates()] : []),
+      ]);
+    } catch (err) {
+      toast.error('Clear failed', {
+        description: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       setBusy(false);
     }
   };
 
-  const saveDisabled = busy || token.trim().length === 0;
+  const confirmingDef = confirming ? SECRETS.find(d => d.name === confirming) : null;
 
   return (
-    <Card>
-      <SectionHeader
-        icon={Key}
-        title="HuggingFace Token"
-        description="Required to download gated models (e.g. FLUX.2-klein) and private repos."
-        right={<StatusBadge ok={configured} labelOk="Configured" labelBad="Not set" />}
-      />
-      <CardContent className="space-y-3">
-        <label className="field-label">
-          Access token
-        </label>
-        <div className="field-wrap">
-          <input
-            type={showToken ? 'text' : 'password'}
-            value={token}
-            onChange={e => setToken(e.target.value)}
-            className="field-input font-mono"
-            placeholder={configured ? 'Token is set — type a new one to replace' : 'hf_…'}
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <button
-            type="button"
-            onClick={() => setShowToken(v => !v)}
-            className="text-slate-400 transition hover:text-slate-700"
-            aria-label={showToken ? 'Hide token' : 'Show token'}
-          >
-            {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </button>
-        </div>
-        <div className="info-box">
-          <p>
-            Create a <strong>read</strong> token at <code>huggingface.co/settings/tokens</code>.
-            Stored server-side in the same config file as the API key; sent as
-            <code> Authorization: Bearer</code> on HEAD/GET calls for gated HuggingFace URLs.
+    <>
+      <Card>
+        <SectionHeader
+          icon={Key}
+          title="API Keys & Tokens"
+          description="Optional credentials for downloads, provider workflows, and stock-photo fallbacks. Stored server-side; never returned to the browser after save."
+        />
+        <CardContent className="space-y-4">
+          {(() => {
+            const renderField = (def: typeof SECRETS[number]) => {
+              const isConfigured = Boolean(app[def.configuredFlag]);
+              return (
+                <InputField
+                  key={def.name}
+                  label={def.label}
+                  tooltip={def.tooltip}
+                  helper={def.helper}
+                  type="password"
+                  placeholder={def.placeholder}
+                  value={values[def.name]}
+                  onChange={v => setValues(s => ({ ...s, [def.name]: v }))}
+                  configured={
+                    isConfigured
+                      ? { onClear: () => setConfirming(def.name), clearDisabled: busy }
+                      : undefined
+                  }
+                />
+              );
+            };
+            const [primary, ...rest] = SECRETS;
+            return (
+              <>
+                {/* Comfy Org API key — full width since it's required for all
+                    provider workflows; the other 4 are optional add-ons. */}
+                {renderField(primary)}
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  {rest.map(renderField)}
+                </div>
+              </>
+            );
+          })()}
+        </CardContent>
+        <CardFooter>
+          <p className="text-xs text-slate-500">
+            {dirty.length === 0
+              ? 'Type a value into one or more fields above to enable Save.'
+              : `Saving ${dirty.length} field${dirty.length === 1 ? '' : 's'}.`}
           </p>
-        </div>
-      </CardContent>
-      <CardFooter>
-        <p className="text-xs text-slate-500">Changes are applied immediately.</p>
-        <div className="inline-flex gap-2">
-          {configured && (
-            <Button onClick={handleClear} disabled={busy} variant="secondary" className="!text-red-600 hover:!bg-red-50">
-              <Trash2 className="h-3.5 w-3.5" />
-              Clear
-            </Button>
-          )}
-          <Button onClick={handleSave} disabled={saveDisabled}>
+          <Button onClick={handleSave} disabled={busy || dirty.length === 0}>
             {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
-            {saved ? 'Saved' : configured ? 'Replace' : 'Save'}
+            {saved ? 'Saved' : 'Save'}
           </Button>
-        </div>
-      </CardFooter>
-    </Card>
-  );
-}
-
-/* =================================================================
-   1c. CivitAI Token Card
-   ================================================================= */
-
-function CivitaiTokenCard() {
-  const { civitaiTokenConfigured: configured, refreshSystem } = useApp();
-  const [token, setToken] = useState('');
-  const [showToken, setShowToken] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  const handleSave = async () => {
-    if (!token.trim()) return;
-    setBusy(true);
-    try {
-      await api.setCivitaiToken(token.trim());
-      await refreshSystem();
-      setToken('');
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleClear = async () => {
-    setBusy(true);
-    try {
-      await api.clearCivitaiToken();
-      await refreshSystem();
-      setToken('');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const saveDisabled = busy || token.trim().length === 0;
-
-  return (
-    <Card>
-      <SectionHeader
-        icon={Key}
-        title="CivitAI Token"
-        description="Adds authentication for civitai.com downloads (LoRAs, workflows) and gated items."
-        right={<StatusBadge ok={configured} labelOk="Configured" labelBad="Not set" />}
+        </CardFooter>
+      </Card>
+      <ConfirmDialog
+        open={confirming !== null}
+        onClose={() => setConfirming(null)}
+        title={confirmingDef ? `Clear ${confirmingDef.label}?` : 'Clear secret?'}
+        description="The stored value will be removed from the server. You can re-enter it later. This cannot be undone."
+        confirmLabel="Clear"
+        confirmTone="danger"
+        busy={busy}
+        onConfirm={async () => {
+          if (confirming) await handleClear(confirming);
+          setConfirming(null);
+        }}
       />
-      <CardContent className="space-y-3">
-        <label className="field-label">
-          Access token
-        </label>
-        <div className="field-wrap">
-          <input
-            type={showToken ? 'text' : 'password'}
-            value={token}
-            onChange={e => setToken(e.target.value)}
-            className="field-input font-mono"
-            placeholder={configured ? 'Token is set — type a new one to replace' : 'CivitAI API key'}
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <button
-            type="button"
-            onClick={() => setShowToken(v => !v)}
-            className="text-slate-400 transition hover:text-slate-700"
-            aria-label={showToken ? 'Hide token' : 'Show token'}
-          >
-            {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </button>
-        </div>
-        <div className="info-box">
-          <p>
-            Create an API key on <code>civitai.com/user/account</code>. Stored
-            server-side; attached as <code>Authorization: Bearer</code> to
-            civitai.com HEAD/GET requests. Never echoed back to the browser.
-          </p>
-        </div>
-      </CardContent>
-      <CardFooter>
-        <p className="text-xs text-slate-500">Changes are applied immediately.</p>
-        <div className="inline-flex gap-2">
-          {configured && (
-            <Button onClick={handleClear} disabled={busy} variant="secondary" className="!text-red-600 hover:!bg-red-50">
-              <Trash2 className="h-3.5 w-3.5" />
-              Clear
-            </Button>
-          )}
-          <Button onClick={handleSave} disabled={saveDisabled}>
-            {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
-            {saved ? 'Saved' : configured ? 'Replace' : 'Save'}
-          </Button>
-        </div>
-      </CardFooter>
-    </Card>
-  );
-}
-
-/* =================================================================
-   1d. GitHub Token Card
-   ================================================================= */
-
-function GithubTokenCard() {
-  const { githubTokenConfigured: configured, refreshSystem } = useApp();
-  const [token, setToken] = useState('');
-  const [showToken, setShowToken] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  const handleSave = async () => {
-    if (!token.trim()) return;
-    setBusy(true);
-    try {
-      await api.setGithubToken(token.trim());
-      await refreshSystem();
-      setToken('');
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleClear = async () => {
-    setBusy(true);
-    try {
-      await api.clearGithubToken();
-      await refreshSystem();
-      setToken('');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const saveDisabled = busy || token.trim().length === 0;
-
-  return (
-    <Card>
-      <SectionHeader
-        icon={Key}
-        title="GitHub Token"
-        description="Adds authentication for github.com release downloads and lifts the unauthenticated 60/h API rate limit."
-        right={<StatusBadge ok={configured} labelOk="Configured" labelBad="Not set" />}
-      />
-      <CardContent className="space-y-3">
-        <label className="field-label">
-          Access token
-        </label>
-        <div className="field-wrap">
-          <input
-            type={showToken ? 'text' : 'password'}
-            value={token}
-            onChange={e => setToken(e.target.value)}
-            className="field-input font-mono"
-            placeholder={configured ? 'Token is set — type a new one to replace' : 'github_pat_…'}
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <button
-            type="button"
-            onClick={() => setShowToken(v => !v)}
-            className="text-slate-400 transition hover:text-slate-700"
-            aria-label={showToken ? 'Hide token' : 'Show token'}
-          >
-            {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </button>
-        </div>
-        <div className="info-box">
-          <p>
-            Create a fine-grained <strong>read</strong> token at <code>github.com/settings/tokens</code>.
-            Stored server-side; attached as <code>Authorization: Bearer</code>
-            to github.com release downloads + api.github.com calls. Never echoed back to the browser.
-          </p>
-        </div>
-      </CardContent>
-      <CardFooter>
-        <p className="text-xs text-slate-500">Changes are applied immediately.</p>
-        <div className="inline-flex gap-2">
-          {configured && (
-            <Button onClick={handleClear} disabled={busy} variant="secondary" className="!text-red-600 hover:!bg-red-50">
-              <Trash2 className="h-3.5 w-3.5" />
-              Clear
-            </Button>
-          )}
-          <Button onClick={handleSave} disabled={saveDisabled}>
-            {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
-            {saved ? 'Saved' : configured ? 'Replace' : 'Save'}
-          </Button>
-        </div>
-      </CardFooter>
-    </Card>
-  );
-}
-
-/* =================================================================
-   1e. Pexels API Key Card
-   ================================================================= */
-
-function PexelsApiKeyCard() {
-  const { pexelsApiKeyConfigured: configured, refreshSystem } = useApp();
-  const [token, setToken] = useState('');
-  const [showToken, setShowToken] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  const handleSave = async () => {
-    if (!token.trim()) return;
-    setBusy(true);
-    try {
-      await api.setPexelsApiKey(token.trim());
-      await refreshSystem();
-      setToken('');
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleClear = async () => {
-    setBusy(true);
-    try {
-      await api.clearPexelsApiKey();
-      await refreshSystem();
-      setToken('');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const saveDisabled = busy || token.trim().length === 0;
-
-  return (
-    <Card>
-      <SectionHeader
-        icon={Key}
-        title="Pexels API Key"
-        description="Optional. Lets audio thumbnails fetch a prompt-matched stock photo instead of a generic placeholder."
-        right={<StatusBadge ok={configured} labelOk="Configured" labelBad="Not set" />}
-      />
-      <CardContent className="space-y-3">
-        <label className="field-label">
-          API key
-        </label>
-        <div className="field-wrap">
-          <input
-            type={showToken ? 'text' : 'password'}
-            value={token}
-            onChange={e => setToken(e.target.value)}
-            className="field-input font-mono"
-            placeholder={configured ? 'Key is set — type a new one to replace' : 'Pexels API key'}
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <button
-            type="button"
-            onClick={() => setShowToken(v => !v)}
-            className="text-slate-400 transition hover:text-slate-700"
-            aria-label={showToken ? 'Hide key' : 'Show key'}
-          >
-            {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </button>
-        </div>
-        <div className="info-box">
-          <p>
-            Free key at <code>pexels.com/api</code> (200 req/hr, 20k/month).
-            When set, audio tiles without embedded cover art search Pexels
-            using the prompt. Unset → falls back to a deterministic Picsum
-            placeholder. Never echoed back to the browser.
-          </p>
-        </div>
-      </CardContent>
-      <CardFooter>
-        <p className="text-xs text-slate-500">Changes are applied immediately.</p>
-        <div className="inline-flex gap-2">
-          {configured && (
-            <Button onClick={handleClear} disabled={busy} variant="secondary" className="!text-red-600 hover:!bg-red-50">
-              <Trash2 className="h-3.5 w-3.5" />
-              Clear
-            </Button>
-          )}
-          <Button onClick={handleSave} disabled={saveDisabled}>
-            {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
-            {saved ? 'Saved' : configured ? 'Replace' : 'Save'}
-          </Button>
-        </div>
-      </CardFooter>
-    </Card>
+    </>
   );
 }
 
@@ -835,77 +534,94 @@ function ChatLlmCard() {
         title="Chat / LLM"
         description="Local LLM backend used by the Chat page (Ollama or any OpenAI-compatible server)."
       />
-      <CardContent className="space-y-3">
-        <div>
-          <label className="field-label">Ollama URL</label>
-          <div className="field-wrap">
-            <input
-              type="text"
-              value={ollamaUrl}
-              onChange={e => setOllamaUrl(e.target.value)}
-              className="field-input font-mono"
-              placeholder="http://localhost:11434"
-              spellCheck={false}
-              disabled={!loaded}
-            />
-          </div>
-          <p className="field-helper">
-            Base URL of your local Ollama server. Studio appends <code>/v1</code> for chat
-            completions and <code>/api</code> for tag/pull/delete calls.
-          </p>
-        </div>
-        <div>
-          <label className="field-label">Default model</label>
-          <div className="field-wrap">
-            <input
-              type="text"
-              value={defaultModel}
-              onChange={e => setDefaultModel(e.target.value)}
-              className="field-input font-mono"
-              placeholder="llama3.3:70b-instruct-q4_K_M"
-              spellCheck={false}
-              disabled={!loaded}
-            />
-          </div>
-          <p className="field-helper">
-            Pre-selected on a fresh chat. Pull this model first via the Chat → Models page.
-          </p>
-        </div>
-        <div>
-          <label className="field-label">keep_alive</label>
-          <div className="field-wrap">
-            <input
-              type="text"
-              value={keepAlive}
-              onChange={e => setKeepAlive(e.target.value)}
-              className="field-input font-mono"
-              placeholder="5m"
-              spellCheck={false}
-              disabled={!loaded}
-            />
-          </div>
-          <p className="field-helper">
-            How long Ollama keeps the model in VRAM after a request. <code>5m</code>,
-            <code>1h</code>, or <code>0</code> to unload immediately.
-          </p>
-        </div>
-        <div>
-          <label className="field-label">Default context strategy</label>
-          <div className="field-wrap">
-            <select
-              value={defaultStrategy}
-              onChange={e => setDefaultStrategy(e.target.value as 'sliding' | 'summarize' | 'manual')}
-              className="field-input"
+      <CardContent>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <InputField
+            label="Ollama URL"
+            value={ollamaUrl}
+            onChange={setOllamaUrl}
+            placeholder="http://localhost:11434"
+            disabled={!loaded}
+            tooltip="Base URL of your local Ollama server. Studio appends /v1 for chat completions and /api for tag/pull/delete calls."
+            leftIcon={<Server />}
+          />
+          <InputField
+            label="Default model"
+            value={defaultModel}
+            onChange={setDefaultModel}
+            placeholder="llama3.3:70b-instruct-q4_K_M"
+            disabled={!loaded}
+            tooltip="Pre-selected on a fresh chat. Pull this model first via the Chat → Models page."
+            leftIcon={<Cpu />}
+          />
+          <div>
+            <div className="mb-1 flex items-center gap-1.5">
+              <label className="field-label">keep_alive</label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="cursor-help text-slate-400 transition-colors hover:text-slate-600"
+                    aria-label="keep_alive info"
+                  >
+                    <HelpCircle className="h-3 w-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  How long Ollama keeps the model in VRAM after a request.
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <SelectField
+              value={keepAlive || '5m'}
+              onValueChange={setKeepAlive}
               disabled={!loaded}
             >
-              <option value="sliding">Sliding window — drop oldest turns when the budget hits 80%</option>
-              <option value="summarize">Summarize — replace older turns with a model-generated summary</option>
-              <option value="manual">Manual — warn only; user runs Compact when ready</option>
-            </select>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="0">Immediate (unload right after request)</SelectItem>
+                <SelectItem value="1m">1 minute</SelectItem>
+                <SelectItem value="5m">5 minutes</SelectItem>
+                <SelectItem value="15m">15 minutes</SelectItem>
+                <SelectItem value="1h">1 hour</SelectItem>
+              </SelectContent>
+            </SelectField>
           </div>
-          <p className="field-helper">
-            Applied to every brand-new conversation. You can override per-conversation from the chat header meter.
-          </p>
+          <div>
+            <div className="mb-1 flex items-center gap-1.5">
+              <label className="field-label">Default context strategy</label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="cursor-help text-slate-400 transition-colors hover:text-slate-600"
+                    aria-label="Default context strategy info"
+                  >
+                    <HelpCircle className="h-3 w-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Applied to every brand-new conversation. You can override per-conversation from the chat header meter.
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <SelectField
+              value={defaultStrategy}
+              onValueChange={v => setDefaultStrategy(v as 'sliding' | 'summarize' | 'manual')}
+              disabled={!loaded}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select a strategy" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="sliding">Sliding window — drop oldest turns when the budget hits 80%</SelectItem>
+                <SelectItem value="summarize">Summarize — replace older turns with a model-generated summary</SelectItem>
+                <SelectItem value="manual">Manual — warn only; user runs Compact when ready</SelectItem>
+              </SelectContent>
+            </SelectField>
+          </div>
         </div>
       </CardContent>
       <CardFooter>
@@ -925,6 +641,152 @@ function ChatLlmCard() {
             {saved ? 'Saved' : 'Save'}
           </Button>
         </div>
+      </CardFooter>
+    </Card>
+  );
+}
+
+/* =================================================================
+   1g. Chat Advanced Card — exposes 8 tunables that previously lived as
+       hardcoded constants (high-water threshold, fallback ctx, tool-loop
+       cap, etc.) so admins can tune them without redeploying.
+   ================================================================= */
+
+interface AdvancedFieldDef {
+  key: keyof ChatAdvancedSettings;
+  label: string;
+  helper: string;
+  unit?: string;
+  icon: LucideIcon;
+}
+
+const CHAT_ADVANCED_FIELDS: AdvancedFieldDef[] = [
+  {
+    key: 'highWaterPercent',
+    label: 'High-water threshold (%)',
+    unit: '%',
+    icon: Percent,
+    helper: 'Strategy fires when estimated next-turn usage hits this percent of the context budget. 80 by default.',
+  },
+  {
+    key: 'slidingTargetPercent',
+    label: 'Sliding target (%)',
+    unit: '%',
+    icon: Percent,
+    helper: 'After the sliding strategy trims, target this percent of the budget so there is room for the new turn + reply. 70 by default.',
+  },
+  {
+    key: 'fallbackNumCtx',
+    label: 'Fallback context size (tokens)',
+    unit: 'tok',
+    icon: Hash,
+    helper: 'Used when /api/show fails to report num_ctx. 4096 by default. Lower if you run small CPU-only models.',
+  },
+  {
+    key: 'maxToolSteps',
+    label: 'Max tool-dispatch loops',
+    icon: Repeat,
+    helper: 'Cap on tool-call iterations per request. Stops runaway chains. 6 by default.',
+  },
+  {
+    key: 'loadingHintMs',
+    label: 'Loading-hint delay (ms)',
+    unit: 'ms',
+    icon: Timer,
+    helper: 'Delay after submit with no chunks before the "Loading model into VRAM…" hint shows. 1500 by default.',
+  },
+  {
+    key: 'keepRecent',
+    label: 'Summarize: keep last N turns',
+    icon: Hash,
+    helper: 'How many recent user/assistant turns the summarize strategy keeps verbatim. 4 by default.',
+  },
+  {
+    key: 'titleTimeoutMs',
+    label: 'Auto-title timeout (ms)',
+    unit: 'ms',
+    icon: Timer,
+    helper: 'Bound on the auto-title one-shot LLM call. 30000 by default.',
+  },
+  {
+    key: 'summaryTimeoutMs',
+    label: 'Summary timeout (ms)',
+    unit: 'ms',
+    icon: Timer,
+    helper: 'Bound on the manual /compact + summarize-strategy LLM call. 60000 by default.',
+  },
+];
+
+function ChatAdvancedCard() {
+  const [advanced, setAdvanced] = useState<ChatAdvancedSettings | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    api.getChatSettings()
+      .then(s => { setAdvanced(s.advanced); })
+      .catch(() => { /* card stays disabled until reachable */ });
+  }, []);
+
+  const updateField = (key: keyof ChatAdvancedSettings, raw: string) => {
+    if (!advanced) return;
+    const n = Number(raw);
+    setAdvanced({
+      ...advanced,
+      [key]: Number.isFinite(n) && n > 0 ? n : advanced[key],
+    });
+  };
+
+  const handleSave = async () => {
+    if (!advanced) return;
+    setBusy(true);
+    try {
+      const next = await api.setChatSettings({ advanced });
+      setAdvanced(next.advanced);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      toast.error('Failed to save advanced chat settings', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <SectionHeader
+        icon={Database}
+        title="Chat advanced"
+        description="Power-user knobs for context-window management, tool dispatch, and timeouts. Defaults are sensible — only touch these if you know what you're tuning."
+      />
+      <CardContent>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {CHAT_ADVANCED_FIELDS.map(f => {
+            const Icon = f.icon;
+            return (
+              <InputField
+                key={f.key}
+                label={f.label}
+                tooltip={f.helper}
+                type="number"
+                min={1}
+                value={advanced ? String(advanced[f.key]) : ''}
+                onChange={v => updateField(f.key, v)}
+                disabled={!advanced}
+                leftIcon={<Icon />}
+              />
+            );
+          })}
+        </div>
+      </CardContent>
+      <CardFooter>
+        <p className="text-xs text-slate-500">Changes are applied immediately to the chat backend.</p>
+        <Button onClick={handleSave} disabled={busy || !advanced}>
+          {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
+          {saved ? 'Saved' : 'Save'}
+        </Button>
       </CardFooter>
     </Card>
   );
@@ -957,9 +819,9 @@ function LaunchOptionRow({
       }`}
     >
       <div className="shrink-0">
-        <Toggle
+        <Switch
           checked={item.enabled}
-          onChange={v => onToggle(item.key, v)}
+          onCheckedChange={v => onToggle(item.key, v)}
           disabled={isReadOnly}
         />
       </div>
@@ -1780,18 +1642,16 @@ export default function Settings() {
     <>
       <PageSubbar title="Settings" description="Configure your workspace" />
       <div className="page-container space-y-3">
-        {/* API keys row — Comfy Org | HuggingFace | CivitAI | GitHub | Pexels */}
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-          <ApiKeyCard />
-          <HfTokenCard />
-          <CivitaiTokenCard />
-          <GithubTokenCard />
-          <PexelsApiKeyCard />
+        {/* Row 1: secrets | chat advanced */}
+        <div className="grid gap-3 lg:grid-cols-2">
+          <SecretsCard />
+          <ChatAdvancedCard />
         </div>
-        {/* Chat / LLM full row */}
-        <ChatLlmCard />
-        {/* Chat tools / integrations — sits BELOW the Chat / LLM card per phase 2 spec */}
-        <ToolsCard />
+        {/* Row 2: chat LLM | tools */}
+        <div className="grid gap-3 lg:grid-cols-2">
+          <ChatLlmCard />
+          <ToolsCard />
+        </div>
         {/* Storage + Network row */}
         <div className="grid gap-3 md:grid-cols-2">
           <StorageCard />

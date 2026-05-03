@@ -19,7 +19,7 @@
 // `Reasoning.tsx` file was deleted because the bus subscription it owned is
 // now done by `StudioTransport` -> `reasoning-delta` chunks -> useChat parts.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, FileText, Upload, X, MessageSquare } from 'lucide-react';
 import {
   Conversation, ConversationContent, ConversationScrollButton,
@@ -32,10 +32,31 @@ import {
   Reasoning, ReasoningContent, ReasoningTrigger,
 } from '../ai-elements/reasoning';
 import { Loader } from '../ai-elements/loader';
+import { Spinner } from '../ui/spinner';
+import { api } from '../../services/comfyui';
+import {
+  Sources, SourcesContent, SourcesTrigger, Source,
+} from '../ai-elements/sources';
+import {
+  InlineCitation, InlineCitationCard, InlineCitationCardBody,
+  InlineCitationCardTrigger, InlineCitationCarousel,
+  InlineCitationCarouselContent, InlineCitationCarouselHeader,
+  InlineCitationCarouselIndex, InlineCitationCarouselItem,
+  InlineCitationCarouselNext, InlineCitationCarouselPrev,
+  InlineCitationSource,
+} from '../ai-elements/inline-citation';
+import { Suggestion, Suggestions } from '../ai-elements/suggestion';
+import {
+  WebPreview, WebPreviewBody, WebPreviewNavigation, WebPreviewUrl,
+} from '../ai-elements/web-preview';
 import Actions from './Actions';
 import TelemetryFooter from './TelemetryFooter';
-import { chatEvents } from '../../services/chatEvents';
+import { chatEvents, type GalleryAddedItem } from '../../services/chatEvents';
 import { formatBytes } from './attachments';
+import {
+  collectToolSources, deriveSuggestions, extractGenerateImageRefs,
+  extractInlineUrls, type ToolSourceList,
+} from './messageParts';
 import type { StudioUIMessage, StudioUIMessagePart } from './studioMessages';
 
 interface ImageAttachment { kind: 'image'; url: string; mediaType?: string; name?: string; size?: number }
@@ -51,6 +72,17 @@ interface Props {
   streamError: string;
   hasConversation: boolean;
   onFilesDropped?: (files: FileList) => void;
+  // When true, plain URLs in assistant text get a <WebPreview> iframe
+  // appended underneath the message. Off by default (composer toggle).
+  webPreviews?: boolean;
+  // Click handler for the static <Suggestion> follow-up buttons under the
+  // last assistant message. Sends the suggestion as a fresh user turn.
+  onSuggestionClick?: (text: string) => void;
+  // Click handler for the per-message Regenerate action. Provided by the
+  // page so this component stays decoupled from `useChat`.
+  onRegenerate?: () => void;
+  // Click handler for the per-message Delete action. Receives the message id.
+  onDelete?: (msgId: string) => void;
 }
 
 function partsToText(parts: StudioUIMessagePart[]): string {
@@ -75,9 +107,76 @@ function attachmentsOf(parts: StudioUIMessagePart[]): RenderedAttachment[] {
 
 export default function MessageThread({
   messages, status, streamError, hasConversation, onFilesDropped,
+  webPreviews, onSuggestionClick, onRegenerate, onDelete,
 }: Props) {
   const [dragActive, setDragActive] = useState(false);
   const [zoomed, setZoomed] = useState<string | null>(null);
+  // Prompt-id -> resolved gallery item, populated from `gallery:added` WS
+  // events keyed by `promptId`. The `generate_image` tool returns a promptId
+  // synchronously; the rendered image lands here when ComfyUI finishes the
+  // run, and `<GeneratedImage>` swaps from "queued" placeholder to the real
+  // `<img>` automatically.
+  const [galleryByPrompt, setGalleryByPrompt] = useState<Record<string, GalleryAddedItem>>({});
+  useEffect(() => {
+    return chatEvents.onGalleryAdded(({ items }) => {
+      if (!items.length) return;
+      setGalleryByPrompt(prev => {
+        const next = { ...prev };
+        for (const it of items) {
+          // Most-recent item wins per promptId — a multi-output workflow
+          // could land several rows under one promptId; the first one fills
+          // the slot and we leave it (the gallery page is the canonical
+          // multi-output viewer, not the chat thread).
+          if (!next[it.promptId]) next[it.promptId] = it;
+        }
+        return next;
+      });
+    });
+  }, []);
+
+  // Hydrate the gallery cache when a conversation is reloaded. The WS bus
+  // only fires while the user is sitting in chat watching a fresh
+  // generation; messages persisted from prior sessions still carry the
+  // promptId in their tool result, but the rendered image isn't in the
+  // local map. Walk the tool-output parts of every message, collect any
+  // promptIds we haven't already seen, and ask the server to resolve
+  // them in one batch call.
+  useEffect(() => {
+    const wanted = new Set<string>();
+    for (const m of messages) {
+      for (const ref of extractGenerateImageRefs(m.parts)) {
+        if (ref.promptId && !galleryByPrompt[ref.promptId]) {
+          wanted.add(ref.promptId);
+        }
+      }
+    }
+    if (wanted.size === 0) return;
+    const ids = [...wanted];
+    let cancelled = false;
+    api.getGalleryByPromptIds(ids)
+      .then(({ items }) => {
+        if (cancelled) return;
+        setGalleryByPrompt(prev => {
+          const next = { ...prev };
+          for (const it of items) {
+            const pid = it.promptId;
+            if (typeof pid !== 'string' || pid.length === 0) continue;
+            if (!next[pid]) {
+              next[pid] = {
+                id: it.id,
+                promptId: pid,
+                url: it.url ?? '',
+                filename: it.filename,
+                mediaType: it.mediaType,
+              };
+            }
+          }
+          return next;
+        });
+      })
+      .catch(() => { /* network blip — placeholders stay; user can refresh */ });
+    return () => { cancelled = true; };
+  }, [messages, galleryByPrompt]);
 
   useEffect(() => {
     if (!zoomed) return;
@@ -130,7 +229,7 @@ export default function MessageThread({
       }}
     >
       <Conversation className="flex-1">
-        <ConversationContent className="mx-auto w-full max-w-3xl px-4 py-6">
+        <ConversationContent className="mx-auto w-full max-w-4xl px-4 py-6">
           {!hasConversation && status === 'ready' && (
             <div className="empty-box flex flex-col items-center gap-1.5 py-12">
               <MessageSquare className="h-6 w-6 text-slate-300" />
@@ -143,14 +242,25 @@ export default function MessageThread({
               Start a conversation by typing a message below.
             </div>
           )}
-          {messages.map((m) => (
-            <MessageRow
-              key={m.id}
-              msg={m}
-              isStreaming={m.id === inFlightAssistantId}
-              onZoom={setZoomed}
-            />
-          ))}
+          {messages.map((m, idx) => {
+            const isLastAssistant = m.role === 'assistant'
+              && idx === messages.length - 1
+              && status === 'ready';
+            return (
+              <MessageRow
+                key={m.id}
+                msg={m}
+                isStreaming={m.id === inFlightAssistantId}
+                isLastAssistant={isLastAssistant}
+                webPreviews={!!webPreviews}
+                galleryByPrompt={galleryByPrompt}
+                onZoom={setZoomed}
+                onSuggestionClick={onSuggestionClick}
+                onRegenerate={onRegenerate}
+                onDelete={onDelete}
+              />
+            );
+          })}
           {showColdLoadHint && lastMessage?.role !== 'assistant' && (
             <Message from="assistant">
               <MessageContent>
@@ -200,14 +310,55 @@ export default function MessageThread({
 interface RowProps {
   msg: StudioUIMessage;
   isStreaming: boolean;
+  isLastAssistant: boolean;
+  webPreviews: boolean;
+  galleryByPrompt: Record<string, GalleryAddedItem>;
   onZoom: (url: string) => void;
+  onSuggestionClick?: (text: string) => void;
+  onRegenerate?: () => void;
+  onDelete?: (msgId: string) => void;
 }
 
-function MessageRow({ msg, isStreaming, onZoom }: RowProps) {
+function MessageRow({
+  msg, isStreaming, isLastAssistant, webPreviews, galleryByPrompt,
+  onZoom, onSuggestionClick, onRegenerate, onDelete,
+}: RowProps) {
   const isUser = msg.role === 'user';
   const text = partsToText(msg.parts);
   const atts = isUser ? attachmentsOf(msg.parts) : [];
   const meta = msg.metadata;
+
+  // Source / image / suggestion derivations are pure functions of `parts`,
+  // memoised so a streaming-tick on a sibling message doesn't re-walk the
+  // arrays for every other row.
+  const sourceLists = useMemo(
+    () => (isUser ? [] : collectToolSources(msg.parts)),
+    [isUser, msg.parts],
+  );
+  const imageRefs = useMemo(
+    () => (isUser ? [] : extractGenerateImageRefs(msg.parts)),
+    [isUser, msg.parts],
+  );
+  const previewUrls = useMemo(
+    () => (isUser || !webPreviews || isStreaming ? [] : extractInlineUrls(text)),
+    [isUser, webPreviews, isStreaming, text],
+  );
+  const suggestions = useMemo(
+    () => (isLastAssistant && !isStreaming ? deriveSuggestions(msg) : []),
+    [isLastAssistant, isStreaming, msg],
+  );
+
+  // User-message Actions (delete only) — rendered as a sibling of the bubble
+  // so the bubble's padding isn't disturbed by an always-reserved row of
+  // hidden buttons. `Message` already adds `group` to its wrapper, so the
+  // `group-hover:flex` in Actions reveals on row-hover (anywhere on the
+  // Message, not just the icons themselves).
+  const userActionsBlock = !isStreaming && onDelete ? (
+    <Actions
+      text={text}
+      onDelete={() => onDelete(msg.id)}
+    />
+  ) : null;
 
   return (
     <Message from={msg.role}>
@@ -238,6 +389,25 @@ function MessageRow({ msg, isStreaming, onZoom }: RowProps) {
             {isStreaming && text.length === 0 && msg.parts.every(p => p.type !== 'reasoning' && p.type !== 'dynamic-tool') && (
               <ColdLoadLoader />
             )}
+            {/* Sources panel (one per qualifying tool call). Sits as a
+                sibling of the <Tool> card — readers see the tool collapse
+                + the citation list as separate affordances. */}
+            {sourceLists.map(list => (
+              <SourcesBlock key={`s-${list.toolCallId}`} list={list} />
+            ))}
+            {/* Generated images: queued placeholder until `gallery:added`
+                resolves the promptId, then the rendered <img>. */}
+            {imageRefs.map(ref => (
+              <GeneratedImage
+                key={`gi-${ref.toolCallId}`}
+                refData={ref}
+                resolved={galleryByPrompt[ref.promptId]}
+                onZoom={onZoom}
+              />
+            ))}
+            {previewUrls.map((url) => (
+              <UrlPreviewCard key={`wp-${url}`} url={url} />
+            ))}
             {!isStreaming && (
               <>
                 <TelemetryFooter
@@ -248,13 +418,163 @@ function MessageRow({ msg, isStreaming, onZoom }: RowProps) {
                   tokensIn={meta?.tokens_in ?? null}
                   tokensOut={meta?.tokens_out ?? null}
                 />
-                {text.length > 0 && <Actions text={text} />}
+                {suggestions.length > 0 && onSuggestionClick && (
+                  <Suggestions className="mt-2">
+                    {suggestions.map(s => (
+                      <Suggestion
+                        key={s}
+                        suggestion={s}
+                        onClick={(picked) => onSuggestionClick(picked)}
+                      />
+                    ))}
+                  </Suggestions>
+                )}
               </>
             )}
           </>
         )}
       </MessageContent>
+      {/* Actions row — sibling of <MessageContent> so it doesn't reserve
+          space inside the bubble when hidden. `<Message>` adds `group` to
+          its wrapper; Actions uses `group-hover:flex` to surface only on
+          row hover. Rendered for both user (delete-only) and assistant
+          (copy + regenerate + delete). */}
+      {isUser ? userActionsBlock : (!isStreaming && (text.length > 0 || onDelete) && (
+        <Actions
+          text={text}
+          onRegenerate={isLastAssistant ? onRegenerate : undefined}
+          onDelete={onDelete ? () => onDelete(msg.id) : undefined}
+        />
+      ))}
     </Message>
+  );
+}
+
+// `<Sources>` collapse + InlineCitation hover-card carousel for one tool call.
+function SourcesBlock({ list }: { list: ToolSourceList }) {
+  const titleHint = list.toolName === 'web_search'
+    ? 'Web search results'
+    : 'Knowledge base chunks';
+  return (
+    <div className="mt-2">
+      <Sources>
+        <SourcesTrigger count={list.sources.length}>
+          <span className="font-medium">{titleHint}: {list.sources.length}</span>
+        </SourcesTrigger>
+        <SourcesContent>
+          {list.sources.map((s, idx) => (
+            <Source
+              key={`${list.toolCallId}-${idx}`}
+              href={s.url}
+              title={s.title}
+            />
+          ))}
+        </SourcesContent>
+      </Sources>
+      {/* Inline citation hover card so a single-line summary surfaces snippet
+          previews on hover without expanding the full Sources collapse. */}
+      <InlineCitationCarouselWrap list={list} />
+    </div>
+  );
+}
+
+function InlineCitationCarouselWrap({ list }: { list: ToolSourceList }) {
+  // <InlineCitationCardTrigger> parses the first URL via `new URL()` to
+  // render the hostname pill. Limit to http(s) URLs so the synthetic
+  // `ragflow://` scheme used by rag_search doesn't slip through and end up
+  // showing a meaningless "ragflow" hostname. Drops the inline citation
+  // rendering entirely when no http(s) URL is available — the full Sources
+  // collapse above already covers that case.
+  const urls = list.sources
+    .map(s => s.url)
+    .filter(u => /^https?:\/\//i.test(u));
+  if (urls.length === 0) return null;
+  return (
+    <InlineCitation className="mt-1 inline-flex items-center text-xs text-muted-foreground">
+      <InlineCitationCard>
+        <InlineCitationCardTrigger sources={urls} />
+        <InlineCitationCardBody>
+          <InlineCitationCarousel>
+            <InlineCitationCarouselHeader>
+              <InlineCitationCarouselPrev />
+              <InlineCitationCarouselIndex />
+              <InlineCitationCarouselNext />
+            </InlineCitationCarouselHeader>
+            <InlineCitationCarouselContent>
+              {list.sources.map((s, idx) => (
+                <InlineCitationCarouselItem key={idx}>
+                  <InlineCitationSource
+                    title={s.title}
+                    url={s.url}
+                    description={s.snippet}
+                  />
+                </InlineCitationCarouselItem>
+              ))}
+            </InlineCitationCarouselContent>
+          </InlineCitationCarousel>
+        </InlineCitationCardBody>
+      </InlineCitationCard>
+    </InlineCitation>
+  );
+}
+
+interface GeneratedImageProps {
+  refData: { toolCallId: string; promptId: string; templateName: string };
+  resolved: GalleryAddedItem | undefined;
+  onZoom: (url: string) => void;
+}
+function GeneratedImage({ refData, resolved, onZoom }: GeneratedImageProps) {
+  // Until the gallery WS event lands the image, we render a placeholder card
+  // so the user sees that something is in flight. ai-elements `<Image>` is a
+  // base64 wrapper; we want a real URL render here, so we use a plain <img>
+  // wrapped in the same look-and-feel.
+  if (!resolved) {
+    return (
+      <div className="mt-2 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+        <Spinner size="xs" className="text-teal-500" />
+        Image generating ({refData.templateName || 'template'})... prompt {refData.promptId.slice(0, 8)}
+      </div>
+    );
+  }
+  const url = resolved.url || `/api/gallery/${encodeURIComponent(resolved.id)}/file`;
+  // Only display image media types inline. Audio / video would need different
+  // controls; the user can always open the gallery for those. Studio's
+  // gallery API stores the bare type ("image", "video", "audio"), not a
+  // full MIME type, so we match either form. Filename suffix is a safety
+  // net for rows that happen to ship without a media type at all.
+  const mt = resolved.mediaType ?? '';
+  const isImage = mt.startsWith('image')
+    || /\.(png|jpe?g|webp|gif|avif|bmp|svg)$/i.test(resolved.filename);
+  if (!isImage) {
+    return (
+      <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+        Generated <a href={url} className="underline">{resolved.filename}</a> — open the gallery to play it.
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => onZoom(url)}
+      className="mt-2 block overflow-hidden rounded-md border border-slate-200 bg-slate-50 transition-shadow hover:shadow"
+    >
+      <img
+        src={url}
+        alt={resolved.filename}
+        className="h-auto max-h-64 max-w-full object-contain"
+      />
+    </button>
+  );
+}
+
+function UrlPreviewCard({ url }: { url: string }) {
+  return (
+    <WebPreview defaultUrl={url} className="mt-2 h-72">
+      <WebPreviewNavigation>
+        <WebPreviewUrl readOnly value={url} />
+      </WebPreviewNavigation>
+      <WebPreviewBody />
+    </WebPreview>
   );
 }
 
@@ -306,13 +626,24 @@ function ToolBlockCard({ part }: { part: DynamicToolPart }) {
   );
 }
 
-// "loading model into VRAM..." indicator. The cold-load hint comes from
-// Studio's `chat:status` bus (no direct UIMessageChunk type for it) so we
-// subscribe locally — same code path as the previous hand-rolled stream.
+// "loading model into VRAM..." indicator. The server emits `chat:status`
+// with a `code` ('loading_model'), and the UI maps it to a display string
+// here — single source of truth for the phrasing. Legacy callers that
+// still send a `message` literal fall through unchanged.
+const STATUS_CODE_LABELS: Record<string, string> = {
+  loading_model: 'Loading model into VRAM…',
+};
+
 function ColdLoadLoader() {
   const [status, setStatus] = useState('');
   useEffect(() => {
-    const off = chatEvents.onStatus(({ message }) => { setStatus(message); });
+    const off = chatEvents.onStatus(({ code, message }) => {
+      if (code && STATUS_CODE_LABELS[code]) {
+        setStatus(STATUS_CODE_LABELS[code]);
+      } else if (message) {
+        setStatus(message);
+      }
+    });
     return off;
   }, []);
   return <Loader status={status} />;

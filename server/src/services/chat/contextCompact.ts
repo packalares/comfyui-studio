@@ -13,10 +13,9 @@ import {
 } from '../../lib/db/chat.context.repo.js';
 import * as settings from '../settings.js';
 import type { OllamaChatMessage } from './ollamaChat.js';
+import { COMPACT_SUMMARY_PROMPT_PREFIX, COMPACT_SUMMARY_WRAP } from './prompts.js';
 
-// Bound the summary call so a stuck Ollama can't leak background fetches.
-// Matches the autoTitle.ts timeout (long enough for big models on cold load).
-const SUMMARY_TIMEOUT_MS = 60_000;
+// Bound moved to settings (`chatSummaryTimeoutMs`). Resolved at call sites.
 
 /** Render every chat message as a flat transcript for the summarizer prompt. */
 function renderTranscript(rows: repo.ChatMessageRow[]): string {
@@ -37,22 +36,18 @@ function renderTranscript(rows: repo.ChatMessageRow[]): string {
   return out.join('\n');
 }
 
-const SUMMARY_PROMPT = 'Summarize the following conversation in approximately 200 words. '
-  + 'Preserve the key topics, decisions, and any pending questions. Reply with ONLY '
-  + 'the summary, no preamble. The conversation:\n\n';
-
 export async function summarizeText(
   baseUrl: string, model: string, transcript: string,
 ): Promise<string> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), SUMMARY_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), settings.getChatSummaryTimeoutMs());
   try {
     const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model,
-        messages: [{ role: 'user', content: SUMMARY_PROMPT + transcript }],
+        messages: [{ role: 'user', content: COMPACT_SUMMARY_PROMPT_PREFIX + transcript }],
         stream: false,
       }),
       signal: ctrl.signal,
@@ -108,7 +103,7 @@ export async function compactConversation(conversationId: string): Promise<Compa
     id: makeId(),
     conversation_id: conversationId,
     role: 'system',
-    parts: JSON.stringify([{ type: 'text', text: `Conversation summary so far: ${summary}` }]),
+    parts: JSON.stringify([{ type: 'text', text: COMPACT_SUMMARY_WRAP(summary) }]),
     created_at: now,
   });
   repo.touchConversation(conversationId, now);
@@ -168,7 +163,9 @@ export function applySlidingWindow(
 export async function applySummarizeStrategy(
   messages: OllamaChatMessage[],
   baseUrl: string, model: string,
-  keepRecent = 4,
+  // Default sourced from settings (`chatKeepRecent`). Caller can still pass
+  // an explicit value to override per-call.
+  keepRecent = settings.getChatKeepRecent(),
 ): Promise<OllamaChatMessage[]> {
   // Anything more than keepRecent non-system messages from the end gets
   // summarized into a single new system message.
@@ -192,7 +189,7 @@ export async function applySummarizeStrategy(
   if (!summary) return messages;
   const summaryMsg: OllamaChatMessage = {
     role: 'system',
-    content: `Conversation summary so far: ${summary}`,
+    content: COMPACT_SUMMARY_WRAP(summary),
   };
   return [...sysHead, summaryMsg, ...recentTail];
 }

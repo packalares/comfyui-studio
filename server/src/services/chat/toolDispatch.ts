@@ -10,6 +10,7 @@
 
 import type { OllamaChatMessage, OllamaFinalFrame } from './ollamaChat.js';
 import type { OllamaToolCall, OllamaToolDef } from './ollamaTools.js';
+import { TOOL_ERROR_REPROMPT } from './prompts.js';
 
 /**
  * Persisted-on-message-row representation of one tool turn. Mirrors the
@@ -53,6 +54,16 @@ function nextCallId(): string {
 
 function toContentString(value: unknown): string {
   if (typeof value === 'string') return value;
+  // Tools (web_search / rag_search) may return a structured envelope of the
+  // shape `{ text, sources?, images? }` so the chat UI can render side-channel
+  // citation cards / image previews. The model only needs the human-readable
+  // `text`; stripping the side-channels here keeps the in-context tool message
+  // identical to the legacy plain-text result, which the model has already
+  // been tuned to consume.
+  if (value !== null && typeof value === 'object') {
+    const text = (value as { text?: unknown }).text;
+    if (typeof text === 'string') return text;
+  }
   try { return JSON.stringify(value); } catch { return String(value); }
 }
 
@@ -106,7 +117,7 @@ export async function runToolDispatch(input: ToolDispatchInput): Promise<ToolDis
         // hanging.
         messages.push({
           role: 'tool',
-          content: `tool error: ${exec.error}`,
+          content: TOOL_ERROR_REPROMPT(exec.error),
         });
       }
     }

@@ -2,19 +2,20 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Image as ImageIcon, Film, Music, Box, Wrench,
-  Loader2, Download, AlertTriangle, CheckCircle2,
+  Download, AlertTriangle, CheckCircle2,
   SlidersHorizontal, Braces, Wand2, Sparkles, RotateCcw,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import CompareSlider from '../components/CompareSlider';
-import ThreeDViewer from '../components/ThreeDViewer';
-import DynamicForm from '../components/DynamicForm';
-import AdvancedSettings from '../components/AdvancedSettings';
+import { Spinner } from '../components/ui/spinner';
+import CompareSlider from '../components/viewers/CompareSlider';
+import ThreeDViewer from '../components/viewers/ThreeDViewer';
+import DynamicForm from '../components/forms/DynamicForm';
+import AdvancedSettings from '../components/forms/AdvancedSettings';
 import ModelDropdown from '../components/ModelDropdown';
-import JsonEditor from '../components/JsonEditor';
-import DependencyModal from '../components/DependencyModal';
-import ExposeWidgetsModal from '../components/ExposeWidgetsModal';
-import PageSubbar from '../components/PageSubbar';
+import JsonEditor from '../components/viewers/JsonEditor';
+import DependencyModal from '../components/modals/DependencyModal';
+import ExposeWidgetsModal from '../components/modals/ExposeWidgetsModal';
+import PageSubbar from '../components/layout/PageSubbar';
 import { Tooltip, TooltipTrigger, TooltipContent } from '../components/ui/tooltip';
 import { Switch } from '../components/ui/switch';
 import { Card } from '../components/ui/card';
@@ -547,11 +548,7 @@ export default function Studio() {
         title="Studio"
         description={template?.title}
         right={
-          <div
-            role="tablist"
-            aria-label="Category"
-            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm"
-          >
+          <div role="tablist" aria-label="Category" className="tab-strip">
             {categories.map(cat => {
               const Icon = cat.icon;
               const isActive = activeCategory === cat.id;
@@ -561,11 +558,7 @@ export default function Studio() {
                   role="tab"
                   aria-selected={isActive}
                   onClick={() => handleCategoryChange(cat.id)}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-semibold transition ${
-                    isActive
-                      ? 'bg-slate-900 text-white'
-                      : 'text-slate-600 hover:bg-slate-100'
-                  }`}
+                  className={`tab-strip-item ${isActive ? 'is-active' : ''}`}
                 >
                   <Icon className="w-3.5 h-3.5" />
                   {cat.label}
@@ -588,18 +581,12 @@ export default function Studio() {
                   <p className="mt-0.5 text-[11px] text-slate-400 truncate">{template.title}</p>
                 )}
               </div>
-              <div
-                role="tablist"
-                aria-label="Input mode"
-                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm shrink-0"
-              >
+              <div role="tablist" aria-label="Input mode" className="tab-strip shrink-0">
                 <button
                   role="tab"
                   aria-selected={mode === 'form'}
                   onClick={() => setMode('form')}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition ${
-                    mode === 'form' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
-                  }`}
+                  className={`tab-strip-item ${mode === 'form' ? 'is-active' : ''}`}
                 >
                   <SlidersHorizontal className="w-3.5 h-3.5" />
                   Form
@@ -608,9 +595,7 @@ export default function Studio() {
                   role="tab"
                   aria-selected={mode === 'json'}
                   onClick={() => setMode('json')}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition ${
-                    mode === 'json' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
-                  }`}
+                  className={`tab-strip-item ${mode === 'json' ? 'is-active' : ''}`}
                 >
                   <Braces className="w-3.5 h-3.5" />
                   JSON
@@ -640,7 +625,7 @@ export default function Studio() {
                 <div className="flex items-center gap-2 mb-2">
                   <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Model</p>
                   {depLoading && (
-                    <Loader2 className="w-3 h-3 text-slate-400 animate-spin" />
+                    <Spinner size="xs" className="text-slate-400" />
                   )}
                   {!depLoading && depCheck?.ready && (
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
@@ -746,7 +731,7 @@ export default function Studio() {
                     )}
                     {isRunning ? (
                       <>
-                        <Loader2 className="w-4 h-4 animate-spin relative" />
+                        <Spinner size="md" className="relative" />
                         <span className="relative">Generating…</span>
                       </>
                     ) : (
@@ -863,7 +848,7 @@ export default function Studio() {
                 </div>
               ) : isRunning ? (
                 <div className="text-center">
-                  <Loader2 className="w-10 h-10 text-teal-500 animate-spin mx-auto mb-3" />
+                  <Spinner size="2xl" className="text-teal-500 mx-auto mb-3" />
                   <p className="text-sm text-slate-500">Generating…</p>
                 </div>
               ) : (

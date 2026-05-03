@@ -1,62 +1,53 @@
 import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority"
 import { Slot } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 
-const badgeVariants = cva(
-  "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3!",
-  {
-    variants: {
-      variant: {
-        default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
-        secondary:
-          "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
-        destructive:
-          "bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20",
-        outline:
-          "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
-        ghost:
-          "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
-        link: "text-primary underline-offset-4 hover:underline",
-        // Studio status pills migrated from `.badge-pill .badge-{tone}` in
-        // index.css. Visual semantics preserved: tinted background +
-        // matching ring (border) + tinted foreground.
-        emerald:
-          "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200",
-        amber:
-          "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200",
-        rose:
-          "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200",
-        slate:
-          "bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-200",
-        teal:
-          "bg-teal-50 text-teal-700 ring-1 ring-inset ring-teal-200",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-    },
-  }
-)
+// Each variant maps to a `.badge-*` shortcut class defined in `index.css`.
+// Same render as the previous cva chain — same pixels, less DOM noise.
+//
+// Of the eleven variants the cva used to expose, only seven actually have
+// consumers in the codebase (`slate`, `emerald`, `teal`, `rose`, `amber`,
+// `outline`, `secondary`). The four unused shadcn-default variants are kept
+// in the type union but currently fall through to the bare `.badge` base —
+// styling is bg-transparent / text-inherit until someone needs them.
+
+const VARIANT_CLASS: Record<string, string> = {
+  emerald: "badge-emerald",
+  amber: "badge-amber",
+  rose: "badge-rose",
+  slate: "badge-slate",
+  teal: "badge-teal",
+  outline: "badge-outline",
+  secondary: "badge-secondary",
+  // shadcn defaults retained for type-compat. No tone class — caller
+  // composes via `className` prop if they want one.
+  default: "",
+  destructive: "",
+  ghost: "",
+  link: "",
+}
+
+export type BadgeVariant = keyof typeof VARIANT_CLASS
 
 function Badge({
   className,
   variant = "default",
   asChild = false,
   ...props
-}: React.ComponentProps<"span"> &
-  VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
+}: React.ComponentProps<"span"> & {
+  variant?: BadgeVariant
+  asChild?: boolean
+}) {
   const Comp = asChild ? Slot.Root : "span"
-
   return (
     <Comp
       data-slot="badge"
       data-variant={variant}
-      className={cn(badgeVariants({ variant }), className)}
+      className={cn("badge", VARIANT_CLASS[variant] ?? "", className)}
       {...props}
     />
   )
 }
 
-export { Badge, badgeVariants }
+export { Badge }

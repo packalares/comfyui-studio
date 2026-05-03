@@ -118,11 +118,47 @@ export function createConversation(
   );
 }
 
-export function listConversations(db: Database.Database = getDb()): ConversationRow[] {
+export interface ListConversationsOpts {
+  /** Page size cap. Defaults to 20; clamped to [1, 100]. */
+  limit?: number;
+  /** Row offset for pagination. Defaults to 0. */
+  offset?: number;
+  /** Optional substring filter against `title`. Case-insensitive (SQLite
+   *  `LIKE` defaults to case-insensitive for ASCII). */
+  search?: string;
+}
+
+export interface ListConversationsResult {
+  items: ConversationRow[];
+  total: number;
+  hasMore: boolean;
+}
+
+export function listConversations(
+  opts: ListConversationsOpts = {},
+  db: Database.Database = getDb(),
+): ListConversationsResult {
+  const limit = Math.max(1, Math.min(100, opts.limit ?? 20));
+  const offset = Math.max(0, opts.offset ?? 0);
+  const search = (opts.search ?? '').trim();
+  const where = search ? 'WHERE title LIKE @q' : '';
+  const params: Record<string, unknown> = search ? { q: `%${search}%` } : {};
+
+  const totalRow = db.prepare(
+    `SELECT COUNT(*) as c FROM conversations ${where}`,
+  ).get(params) as { c: number };
+  const total = totalRow.c;
+
   const rows = db.prepare(
-    'SELECT * FROM conversations ORDER BY updated_at DESC',
-  ).all() as Record<string, unknown>[];
-  return rows.map(rowToConversation);
+    `SELECT * FROM conversations ${where}
+     ORDER BY updated_at DESC LIMIT @limit OFFSET @offset`,
+  ).all({ ...params, limit, offset }) as Record<string, unknown>[];
+
+  return {
+    items: rows.map(rowToConversation),
+    total,
+    hasMore: offset + rows.length < total,
+  };
 }
 
 export function getConversation(
@@ -137,6 +173,21 @@ export function deleteConversation(
   id: string, db: Database.Database = getDb(),
 ): boolean {
   const r = db.prepare('DELETE FROM conversations WHERE id = ?').run(id);
+  return r.changes > 0;
+}
+
+/**
+ * Drop a single message row by id, scoped to its conversation so callers
+ * can't accidentally delete a row from a different chat (the route layer
+ * passes both ids; this is belt-and-suspenders against typos / route bugs).
+ * Returns true when a row was actually removed.
+ */
+export function deleteMessage(
+  conversationId: string, messageId: string, db: Database.Database = getDb(),
+): boolean {
+  const r = db.prepare(
+    'DELETE FROM chat_messages WHERE conversation_id = ? AND id = ?',
+  ).run(conversationId, messageId);
   return r.changes > 0;
 }
 

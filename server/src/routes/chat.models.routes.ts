@@ -7,6 +7,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import * as settings from '../services/settings.js';
+import { env } from '../config/env.js';
 import { getOllamaLibrary } from '../services/chat/ollamaLibrary.js';
 import { startPull, cancelPull } from '../services/chat/ollamaPull.js';
 
@@ -105,7 +106,10 @@ router.get('/chat/models/search-hf', async (req: Request, res: Response) => {
     const headers: Record<string, string> = { Accept: 'application/json' };
     const token = settings.getHfToken();
     if (token) headers.Authorization = `Bearer ${token}`;
-    const url = `https://huggingface.co/api/models?search=${encodeURIComponent(q)}&filter=gguf&limit=25`;
+    // Honor the configurable HF endpoint (mirror) when present; fall back to
+     // the canonical host. Matches the rest of the HF-touching code paths.
+    const hfBase = (env.HF_ENDPOINT || 'https://huggingface.co').replace(/\/+$/, '');
+    const url = `${hfBase}/api/models?search=${encodeURIComponent(q)}&filter=gguf&limit=25`;
     const r = await fetch(url, { headers, signal: ctrl.signal });
     if (!r.ok) { res.status(502).json({ error: `upstream ${r.status}` }); return; }
     const body = await r.json() as unknown;

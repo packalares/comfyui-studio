@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Loader2 } from 'lucide-react';
 import type { Plugin } from '../../types';
-import AppModal from '../AppModal';
+import AppModal from '../modals/AppModal';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
+import { Spinner } from '../ui/spinner';
 
 interface Props {
   plugin: Plugin | null;
@@ -62,7 +62,7 @@ export default function SwitchVersionModal({ plugin, onClose, onConfirm }: Props
             Cancel
           </Button>
           <Button onClick={submit} disabled={busy || !selected}>
-            {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+            {busy ? <Spinner size="sm" /> : null}
             Switch
           </Button>
         </div>

@@ -6,7 +6,9 @@
 import type { UIMessage } from 'ai';
 import { logger } from '../../lib/logger.js';
 import * as repo from '../../lib/db/chat.repo.js';
+import * as settings from '../settings.js';
 import { emitChatEvent } from './broadcaster.js';
+import { TITLE_PROMPT } from './prompts.js';
 
 export interface AutoTitleArgs {
   conversationId: string;
@@ -16,8 +18,8 @@ export interface AutoTitleArgs {
   assistantText: string;
 }
 
-// Bound the title call so a stuck Ollama can't leak background fetches forever.
-const TITLE_TIMEOUT_MS = 30_000;
+// Bound moved to settings (`chatTitleTimeoutMs`). Resolved at the call
+// site so a settings change picks up without restart.
 
 export async function maybeAutoTitle(args: AutoTitleArgs): Promise<void> {
   try {
@@ -31,8 +33,7 @@ export async function maybeAutoTitle(args: AutoTitleArgs): Promise<void> {
       || (args.userText.length > 0 && seeded.startsWith(args.userText.slice(0, 40)));
     if (!looksDefault) return;
 
-    const prompt = 'Summarize this conversation in 4-6 words as a title. Reply with ONLY the title, no quotes, no punctuation. The conversation: '
-      + args.userText.slice(0, 600) + ' ' + args.assistantText.slice(0, 600);
+    const prompt = TITLE_PROMPT(args.userText, args.assistantText);
     const text = await callOllamaOneShot(args.baseUrl, args.model, prompt);
     const title = sanitizeTitle(text);
     if (!title) return;
@@ -54,7 +55,7 @@ export async function maybeAutoTitle(args: AutoTitleArgs): Promise<void> {
 // final string. Mirrors the same auth/url conventions as streamChat.ts.
 async function callOllamaOneShot(baseUrl: string, model: string, prompt: string): Promise<string> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TITLE_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), settings.getChatTitleTimeoutMs());
   try {
     const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/api/chat`, {
       method: 'POST',

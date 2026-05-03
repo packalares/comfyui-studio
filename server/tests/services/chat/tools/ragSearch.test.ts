@@ -5,6 +5,14 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { ragSearchTool, formatChunks } from '../../../../src/services/chat/tools/ragSearch.js';
 
+function envelopeText(out: unknown): string {
+  if (typeof out === 'string') return out;
+  if (out && typeof out === 'object' && typeof (out as { text?: unknown }).text === 'string') {
+    return (out as { text: string }).text;
+  }
+  throw new Error(`unexpected output shape: ${JSON.stringify(out)}`);
+}
+
 const FIXTURE = {
   code: 0,
   data: {
@@ -60,13 +68,18 @@ describe('ragSearchTool', () => {
     const t = ragSearchTool({
       baseUrl: 'https://ragflow.example',
       apiKey: 'test-key',
-    }) as { execute: (input: { query: string; knowledge_base_id?: string; top_k?: number }, opts: unknown) => Promise<string> };
+    }) as { execute: (input: { query: string; knowledge_base_id?: string; top_k?: number }, opts: unknown) => Promise<unknown> };
     const out = await t.execute({
       query: 'how does olares one ship?',
       knowledge_base_id: 'ds_001',
       top_k: 3,
     }, {});
-    expect(out).toContain('olares-one-spec.pdf');
+    const text = envelopeText(out);
+    expect(text).toContain('olares-one-spec.pdf');
+    const sources = (out as { sources?: Array<{ title: string; url: string; snippet: string }> }).sources;
+    expect(Array.isArray(sources)).toBe(true);
+    expect(sources?.length).toBe(2);
+    expect(sources?.[0].title).toBe('olares-one-spec.pdf');
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('https://ragflow.example/api/v1/retrieval');
     expect(init.method).toBe('POST');
@@ -82,9 +95,10 @@ describe('ragSearchTool', () => {
     const t = ragSearchTool({
       baseUrl: 'https://ragflow.example',
       apiKey: 'test-key',
-    }) as { execute: (input: { query: string }, opts: unknown) => Promise<string> };
+    }) as { execute: (input: { query: string }, opts: unknown) => Promise<unknown> };
     const out = await t.execute({ query: 'no kb provided' }, {});
-    expect(out).toMatch(/knowledge_base_id is required/);
+    const text = envelopeText(out);
+    expect(text).toMatch(/knowledge_base_id is required/);
   });
 
   it('surfaces RAGFlow non-zero codes verbatim', async () => {
@@ -98,9 +112,10 @@ describe('ragSearchTool', () => {
     const t = ragSearchTool({
       baseUrl: 'https://ragflow.example',
       apiKey: 'test-key',
-    }) as { execute: (input: { query: string; knowledge_base_id: string }, opts: unknown) => Promise<string> };
+    }) as { execute: (input: { query: string; knowledge_base_id: string }, opts: unknown) => Promise<unknown> };
     const out = await t.execute({ query: 'x', knowledge_base_id: 'missing' }, {});
-    expect(out).toContain('rag_search failed');
-    expect(out).toContain('dataset not found');
+    const text = envelopeText(out);
+    expect(text).toContain('rag_search failed');
+    expect(text).toContain('dataset not found');
   });
 });

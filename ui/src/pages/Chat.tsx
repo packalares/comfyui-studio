@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Boxes, AlertCircle } from 'lucide-react';
+import { Boxes, AlertCircle, MessageSquare } from 'lucide-react';
 import { toast } from 'sonner';
 import { useChat } from '@ai-sdk/react';
-import PageSubbar from '../components/PageSubbar';
+import PageSubbar from '../components/layout/PageSubbar';
 import ConversationList from '../components/chat/ConversationList';
 import MessageThread from '../components/chat/MessageThread';
 import Composer from '../components/chat/Composer';
 import ContextMeter from '../components/chat/ContextMeter';
+import ChatSearch from '../components/chat/ChatSearch';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import {
@@ -25,6 +26,10 @@ import {
   buildUserUIMessageParts, chatMessageToUIMessage,
   type StudioUIMessage,
 } from '../components/chat/studioMessages';
+import { EMPTY_STATE_PROMPTS } from '../config/chat-suggestions';
+
+// `EMPTY_STATE_PROMPTS` is imported at the top of this file from
+// `../config/chat-suggestions` and renders as the empty-state hero pills.
 
 export default function Chat() {
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -42,6 +47,35 @@ export default function Chat() {
   // library endpoint. Used by the composer for an authoritative vision
   // check before falling back to the name-pattern heuristic.
   const [libraryCaps, setLibraryCaps] = useState<Record<string, string[]>>({});
+  // Opt-in iframe previews for plain URLs in assistant text. Off by default —
+  // automatic embedding can feel aggressive and some sites X-Frame-deny which
+  // produces a blank iframe. Persisted in localStorage so the toggle sticks.
+  const [webPreviews, setWebPreviews] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem('chat:webPreviews') === '1';
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('chat:webPreviews', webPreviews ? '1' : '0');
+  }, [webPreviews]);
+  // Tools allow-list owned by the composer's <ChatToolsPopover>. `null` means
+  // "no filter — every server-configured tool is available", which matches
+  // legacy behavior. Persisted in localStorage so the user's selection sticks
+  // across reloads (string[] → JSON, null → key absent).
+  const [enabledTools, setEnabledTools] = useState<string[] | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const raw = window.localStorage.getItem('chat:enabledTools');
+    if (raw === null) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : null;
+    } catch { return null; }
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (enabledTools === null) window.localStorage.removeItem('chat:enabledTools');
+    else window.localStorage.setItem('chat:enabledTools', JSON.stringify(enabledTools));
+  }, [enabledTools]);
   const composerFocusRef = useRef<() => void>(() => {});
 
   // Refs used by `StudioTransport` so the transport always reads the latest
@@ -49,14 +83,17 @@ export default function Chat() {
   // page-state setters update the refs synchronously below.
   const conversationIdRef = useRef<string | null>(null);
   const modelRef = useRef<string>('');
+  const enabledToolsRef = useRef<string[] | null>(null);
   useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId]);
   useEffect(() => { modelRef.current = model; }, [model]);
+  useEffect(() => { enabledToolsRef.current = enabledTools; }, [enabledTools]);
 
   // useChat owns: messages, status, stop, regenerate, setMessages.
   // Transport bridges to Studio's POST /chat/start + chatEvents bus.
   const transport = useMemo(() => new StudioTransport({
     conversationIdRef,
     modelRef,
+    enabledToolsRef,
     onConversationStarted: (cid) => {
       // First send in a new conversation - server minted the id; surface it
       // up to the page state + sidebar refresh.
@@ -69,7 +106,7 @@ export default function Chat() {
   }), []);
 
   const {
-    messages, sendMessage, status, stop, setMessages,
+    messages, sendMessage, status, stop, setMessages, regenerate,
   } = useChat<StudioUIMessage>({
     transport,
     onError: (err) => {
@@ -127,20 +164,32 @@ export default function Chat() {
   // conversation. `setMessages` is the canonical reset path; we don't switch
   // useChat's internal `id` because that would also reset transport
   // refs / callback wiring.
+  //
+  // Also snap the model picker to the conversation's saved model so the
+  // context meter / next-send goes to the model the user actually used in
+  // that chat. Falls through to the current selection when the saved model
+  // is no longer installed (the user can pick one manually; we don't want
+  // to nag with toasts).
   useEffect(() => {
     if (!conversationId) {
       setMessages([]);
       return;
     }
     let cancelled = false;
-    api.chat.getMessages(conversationId)
-      .then(({ items }) => {
+    Promise.all([
+      api.chat.getConversation(conversationId),
+      api.chat.getMessages(conversationId),
+    ])
+      .then(([conv, { items }]) => {
         if (cancelled) return;
         setMessages(items.map(chatMessageToUIMessage));
+        if (conv.model && installed.some(m => m.name === conv.model)) {
+          setModel(conv.model);
+        }
       })
       .catch(() => { if (!cancelled) setMessages([]); });
     return () => { cancelled = true; };
-  }, [conversationId, setMessages]);
+  }, [conversationId, setMessages, installed]);
 
   // Auto-title broadcast updates the sidebar without a refetch.
   useEffect(() => {
@@ -193,6 +242,32 @@ export default function Chat() {
     setAttachments([]);
   };
 
+  // Click handler for the static <Suggestion> follow-up buttons under the
+  // last assistant message. Sends the suggestion as a fresh user turn so
+  // it follows the same telemetry / context-meter / autotitle paths as a
+  // typed prompt. Suppressed while busy so a stray click can't double-send.
+  const handleSuggestion = useCallback((text: string) => {
+    if (busy || !model) return;
+    const parts = buildUserUIMessageParts(text, [], formatBytes);
+    if (parts.length === 0) return;
+    void sendMessage({ parts });
+  }, [busy, model, sendMessage]);
+
+  // Per-message delete handler. Hits the new
+  // `DELETE /api/chat/conversations/:id/messages/:msgId` endpoint then strips
+  // the row from useChat's local list — refetching would re-trigger
+  // chatMessageToUIMessage and discard any in-flight stream state.
+  const handleDelete = useCallback(async (msgId: string) => {
+    if (!conversationId) return;
+    try {
+      await api.chat.deleteMessage(conversationId, msgId);
+      setMessages(prev => prev.filter(m => m.id !== msgId));
+    } catch (err) {
+      const text = err instanceof Error ? err.message : String(err);
+      toast.error('Delete failed', { description: text });
+    }
+  }, [conversationId, setMessages]);
+
   // Cmd/Ctrl+K = focus composer (works from anywhere on the page); Esc =
   // stop streaming. Composer-local Enter / Shift+Enter handling stays where
   // it lives so the textarea can handle multi-line.
@@ -219,14 +294,6 @@ export default function Chat() {
       <PageSubbar
         title="Chat"
         description="Talk to a local LLM via Ollama"
-        right={
-          <Button asChild variant="secondary" size="sm" aria-label="Browse models">
-            <Link to="/chat/models">
-              <Boxes className="w-3.5 h-3.5" />
-              Browse models
-            </Link>
-          </Button>
-        }
       />
       <div className="page-container">
         {ollamaUnreachable && (
@@ -255,30 +322,97 @@ export default function Chat() {
               />
             </aside>
             <section className="flex flex-1 min-h-0 flex-col">
-              {hasConversation && conversationId && (
-                <div className="flex items-center justify-end gap-2 border-b border-slate-100 px-3 py-1.5">
+              {/* Top bar — global chat search + page tabs + context meter. Renders
+                  unconditionally so the layout doesn't shift when the user
+                  picks a conversation; the meter shows 0% as a placeholder
+                  when there's no usage data yet. */}
+              <div className="chat-topbar">
+                <ChatSearch onSelect={(id) => setConversationId(id)} />
+                <div role="tablist" aria-label="Chat section" className="tab-strip">
+                  <button role="tab" aria-selected="true" className="tab-strip-item is-active">
+                    <MessageSquare className="w-3 h-3" />
+                    Chat
+                  </button>
+                  <Link to="/chat/models" role="tab" aria-selected="false" className="tab-strip-item">
+                    <Boxes className="w-3 h-3" />
+                    Models
+                  </Link>
+                </div>
+                <div className="ml-auto">
                   <ContextMeter conversationId={conversationId} model={model} />
                 </div>
+              </div>
+              {hasConversation ? (
+                <>
+                  <MessageThread
+                    messages={messages}
+                    status={status}
+                    streamError={streamError}
+                    hasConversation={hasConversation}
+                    onFilesDropped={handleFilesDropped}
+                    webPreviews={webPreviews}
+                    onSuggestionClick={handleSuggestion}
+                    onRegenerate={() => { void regenerate(); }}
+                    onDelete={handleDelete}
+                  />
+                  <Composer
+                    installed={installed}
+                    model={model}
+                    onModelChange={setModel}
+                    busy={busy}
+                    onSend={handleSend}
+                    onStop={handleStop}
+                    focusRef={composerFocusRef}
+                    libraryCapabilities={libraryCaps}
+                    attachments={attachments}
+                    onAttachmentsChange={setAttachments}
+                    webPreviews={webPreviews}
+                    onWebPreviewsChange={setWebPreviews}
+                    enabledTools={enabledTools}
+                    onEnabledToolsChange={setEnabledTools}
+                  />
+                </>
+              ) : (
+                /* Empty-state hero: centered headline + composer + suggestion
+                   pills. Mirrors ChatGPT's first-run UX. Once the user sends
+                   their first message we drop into the standard thread layout
+                   above. */
+                <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-8 overflow-y-auto">
+                  <h1 className="text-2xl font-medium text-slate-700">What can I help with?</h1>
+                  <div className="w-full max-w-4xl">
+                    <Composer
+                      centered
+                      installed={installed}
+                      model={model}
+                      onModelChange={setModel}
+                      busy={busy}
+                      onSend={handleSend}
+                      onStop={handleStop}
+                      focusRef={composerFocusRef}
+                      libraryCapabilities={libraryCaps}
+                      attachments={attachments}
+                      onAttachmentsChange={setAttachments}
+                      webPreviews={webPreviews}
+                      onWebPreviewsChange={setWebPreviews}
+                      enabledTools={enabledTools}
+                      onEnabledToolsChange={setEnabledTools}
+                    />
+                  </div>
+                  <div className="flex flex-wrap justify-center gap-2 max-w-4xl">
+                    {EMPTY_STATE_PROMPTS.map(p => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => handleSuggestion(p)}
+                        disabled={busy || !model}
+                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
-              <MessageThread
-                messages={messages}
-                status={status}
-                streamError={streamError}
-                hasConversation={hasConversation}
-                onFilesDropped={handleFilesDropped}
-              />
-              <Composer
-                installed={installed}
-                model={model}
-                onModelChange={setModel}
-                busy={busy}
-                onSend={handleSend}
-                onStop={handleStop}
-                focusRef={composerFocusRef}
-                libraryCapabilities={libraryCaps}
-                attachments={attachments}
-                onAttachmentsChange={setAttachments}
-              />
             </section>
           </div>
         </Card>

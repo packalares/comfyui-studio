@@ -1,22 +1,36 @@
-// Hand-rolled per-assistant-message action row (copy for now). ai-elements
-// doesn't ship `<Actions>`, so we compose shadcn primitives directly.
+// Per-message action row. Renders Copy on every message; Regenerate (last
+// assistant only) and Delete (any message) are wired in via optional props
+// so the call site decides which buttons surface.
 //
-// Future: regenerate / delete need server-side endpoints (`POST
-// /chat/messages/:id/regenerate`, `DELETE /chat/messages/:id`) that don't
-// exist yet — when they land, extend this row with matching ghost-icon
-// buttons. Keeping the component tiny means that's an additive change.
+// Layout: rendered as a sibling of `<MessageContent>` (NOT inside the
+// bubble) so the bubble's bottom padding isn't disturbed. Visibility uses
+// `opacity-0 group-hover:opacity-100` — keeps the row reserved (so layout
+// doesn't flicker between hover/unhover) and only fades the icons in on
+// row hover. Tooltips work because the plain `<button>` triggers below
+// forward refs to Radix correctly (the previous shadcn `<Button>` did
+// not, which was the original tooltip-not-firing bug).
+//
+// User vs assistant alignment: `<Message>` adds `is-user` to its wrapper
+// for user messages, so the bubble pushes right. We mirror that by
+// right-aligning the actions under the user bubble via the
+// `group-[.is-user]:justify-end` selector.
 
 import { useState } from 'react';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, RotateCcw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+import ConfirmDialog from '../modals/ConfirmDialog';
 
 interface Props {
   text: string;
+  onRegenerate?: () => void;
+  onDelete?: () => void;
 }
 
-export default function Actions({ text }: Props) {
+export default function Actions({ text, onRegenerate, onDelete }: Props) {
   const [copied, setCopied] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const onCopy = async () => {
     if (!navigator.clipboard?.writeText) {
@@ -35,20 +49,70 @@ export default function Actions({ text }: Props) {
   };
 
   return (
-    <div className="mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-      <Button
-        type="button"
-        onClick={onCopy}
-        variant="ghost"
-        size="icon"
-        aria-label={copied ? 'Copied' : 'Copy'}
-        title={copied ? 'Copied' : 'Copy'}
-        className="h-7 w-7"
-      >
-        {copied
-          ? <Check className="h-3.5 w-3.5 text-emerald-600" />
-          : <Copy className="h-3.5 w-3.5" />}
-      </Button>
-    </div>
+    <>
+      <div className="mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-[.is-user]:justify-end">
+        {text.length > 0 && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={onCopy}
+                aria-label={copied ? 'Copied' : 'Copy'}
+                className="inline-flex h-6 w-6 items-center justify-center rounded text-slate-300 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                {copied
+                  ? <Check className="h-3.5 w-3.5 text-emerald-600" />
+                  : <Copy className="h-3.5 w-3.5" />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{copied ? 'Copied' : 'Copy'}</TooltipContent>
+          </Tooltip>
+        )}
+        {onRegenerate && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={onRegenerate}
+                aria-label="Regenerate"
+                className="inline-flex h-6 w-6 items-center justify-center rounded text-slate-300 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Regenerate</TooltipContent>
+          </Tooltip>
+        )}
+        {onDelete && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => setConfirmOpen(true)}
+                aria-label="Delete message"
+                className="inline-flex h-6 w-6 items-center justify-center rounded text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Delete message</TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+      {onDelete && (
+        <ConfirmDialog
+          open={confirmOpen}
+          onClose={() => setConfirmOpen(false)}
+          title="Delete this message?"
+          description="The message will be permanently removed from this conversation. This cannot be undone."
+          confirmLabel="Delete"
+          confirmTone="danger"
+          onConfirm={() => {
+            onDelete();
+            setConfirmOpen(false);
+          }}
+        />
+      )}
+    </>
   );
 }

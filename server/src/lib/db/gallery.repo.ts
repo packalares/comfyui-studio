@@ -225,6 +225,22 @@ export function listAll(
   return rows.map(rowToSlim);
 }
 
+/** Look up gallery rows whose `promptId` is in the provided set. Used by
+ *  the chat thread on conversation reload to rehydrate `<GeneratedImage>`
+ *  placeholders for old `generate_image` tool calls — the message parts
+ *  carry the promptId, this query resolves it back to the rendered image. */
+export function listByPromptIds(
+  promptIds: readonly string[],
+  db: Database.Database = getDb(),
+): GalleryListRow[] {
+  const ids = promptIds.filter(id => typeof id === 'string' && id.length > 0);
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => '?').join(',');
+  const sql = `SELECT ${LIST_COLUMNS} FROM gallery WHERE promptId IN (${placeholders}) ORDER BY createdAt DESC`;
+  const rows = db.prepare(sql).all(...ids) as Record<string, unknown>[];
+  return rows.map(rowToSlim);
+}
+
 export interface PageResult {
   items: GalleryListRow[];
   total: number;

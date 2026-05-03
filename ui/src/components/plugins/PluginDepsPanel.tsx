@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Loader2,
   RefreshCw,
   AlertTriangle,
   CheckCircle2,
@@ -13,6 +12,7 @@ import type { PluginDependencyReport } from '../../types';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader } from '../ui/card';
+import { Spinner } from '../ui/spinner';
 
 interface OpState {
   busy: boolean;
@@ -106,7 +106,7 @@ export default function PluginDepsPanel() {
         )}
         {loading ? (
           <div className="flex items-center justify-center py-6">
-            <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />
+            <Spinner size="lg" className="text-slate-400" />
           </div>
         ) : reports.length === 0 ? (
           <div className="empty-box">No plugins installed.</div>
@@ -160,7 +160,7 @@ export default function PluginDepsPanel() {
                         className="shrink-0"
                       >
                         {op?.busy ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <Spinner size="sm" />
                         ) : (
                           <Wrench className="w-3.5 h-3.5" />
                         )}

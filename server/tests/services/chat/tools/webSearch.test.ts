@@ -1,9 +1,21 @@
 // Unit tests for the web_search chat tool. Stubs `fetch` to return a fixed
 // SearXNG envelope; asserts the formatter produces the expected text and
 // that the JSON-disabled fallback path surfaces a clear error.
+//
+// `execute()` now returns a structured envelope `{ text, sources }` on the
+// happy path so the chat UI can render an ai-elements `<Sources>` block.
+// Failure / empty paths still return a plain string for backward compat.
 
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { webSearchTool, _formatResults } from '../../../../src/services/chat/tools/webSearch.js';
+
+function envelopeText(out: unknown): string {
+  if (typeof out === 'string') return out;
+  if (out && typeof out === 'object' && typeof (out as { text?: unknown }).text === 'string') {
+    return (out as { text: string }).text;
+  }
+  throw new Error(`unexpected output shape: ${JSON.stringify(out)}`);
+}
 
 const SAMPLE = {
   query: 'olares one ai',
@@ -57,10 +69,18 @@ describe('webSearchTool', () => {
       headers: { 'Content-Type': 'application/json' },
     }));
     const t = webSearchTool({ baseUrl: 'https://searx.example' }) as
-      { execute: (input: { query: string; max?: number }, opts: unknown) => Promise<string> };
+      { execute: (input: { query: string; max?: number }, opts: unknown) => Promise<unknown> };
     const out = await t.execute({ query: 'olares one ai', max: 2 }, {});
-    expect(out).toContain('Olares One');
-    expect(out).toContain('Reviews of self-hosted');
+    const text = envelopeText(out);
+    expect(text).toContain('Olares One');
+    expect(text).toContain('Reviews of self-hosted');
+    // Side-channel sources mirror the same two results so the UI can render
+    // an ai-elements <Sources> block keyed on URL.
+    const sources = (out as { sources?: Array<{ title: string; url: string; snippet: string }> }).sources;
+    expect(Array.isArray(sources)).toBe(true);
+    expect(sources?.length).toBe(2);
+    expect(sources?.[0].url).toBe('https://example.com/olares-one');
+    expect(sources?.[0].title).toContain('Olares One');
     const url = fetchMock.mock.calls[0][0] as string;
     expect(url).toContain('format=json');
     expect(url).toContain('q=olares%20one%20ai');
@@ -73,20 +93,22 @@ describe('webSearchTool', () => {
       headers: { 'Content-Type': 'text/html' },
     }));
     const t = webSearchTool({ baseUrl: 'https://searx.example' }) as
-      { execute: (input: { query: string }, opts: unknown) => Promise<string> };
+      { execute: (input: { query: string }, opts: unknown) => Promise<unknown> };
     const out = await t.execute({ query: 'hello' }, {});
-    expect(out.toLowerCase()).toContain('did not return json');
-    expect(out).toContain('settings.yml');
+    const text = envelopeText(out);
+    expect(text.toLowerCase()).toContain('did not return json');
+    expect(text).toContain('settings.yml');
   });
 
   it('returns a structured failure when SearXNG is unreachable', async () => {
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
     fetchMock.mockRejectedValueOnce(new Error('connect ECONNREFUSED'));
     const t = webSearchTool({ baseUrl: 'https://searx.example' }) as
-      { execute: (input: { query: string }, opts: unknown) => Promise<string> };
+      { execute: (input: { query: string }, opts: unknown) => Promise<unknown> };
     const out = await t.execute({ query: 'hello' }, {});
-    expect(out).toMatch(/web_search failed/);
-    expect(out).toContain('ECONNREFUSED');
+    const text = envelopeText(out);
+    expect(text).toMatch(/web_search failed/);
+    expect(text).toContain('ECONNREFUSED');
   });
 
   it('returns "no results" when the envelope is empty', async () => {
@@ -96,8 +118,9 @@ describe('webSearchTool', () => {
       headers: { 'Content-Type': 'application/json' },
     }));
     const t = webSearchTool({ baseUrl: 'https://searx.example' }) as
-      { execute: (input: { query: string }, opts: unknown) => Promise<string> };
+      { execute: (input: { query: string }, opts: unknown) => Promise<unknown> };
     const out = await t.execute({ query: 'nothing here' }, {});
-    expect(out).toMatch(/^No results/);
+    const text = envelopeText(out);
+    expect(text).toMatch(/^No results/);
   });
 });

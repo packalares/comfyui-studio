@@ -1,21 +1,18 @@
-// Composer rebuilt on top of ai-elements <PromptInput>. ai-elements ships its
-// own file-attachment context but Studio's Chat page owns the canonical
-// `attachments` array (so the drag-drop overlay on the thread can append into
-// the same list); we therefore bypass PromptInput's file state entirely and
-// drive submit/stop/textarea through it for the layout polish only.
-//
-// Ported from the hand-rolled composer:
-//   * vision-capability gate (toast on image-attached + non-vision model);
-//   * paperclip / Cmd-Ctrl-K focus / Enter / Shift+Enter / Esc keybindings;
-//   * controlled `attachments` list, including chip remove + paperclip add;
-//   * shortcut help bubble.
+// Composer redesigned to match ChatGPT-style polish: a single rounded card
+// with the textarea on top, and a footer that runs across the bottom with
+// `+` attach + Tools popover + Web-preview toggle on the LEFT and the model
+// picker pill + round Send arrow on the RIGHT. The ai-elements <PromptInput>
+// gives the rounded surface + has-disabled cascade; we keep ownership of the
+// `attachments` array (drag-drop on the thread shares this list) and feed it
+// into the standard ai-elements layout primitives only for visual polish.
 
 import { useEffect, useRef, type MutableRefObject } from 'react';
-import { Send, StopCircle, HelpCircle, Paperclip, X, FileText, Image as ImageIcon } from 'lucide-react';
+import {
+  ArrowUp, StopCircle, Plus, X, FileText, Image as ImageIcon, Globe,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import {
   PromptInput,
-  PromptInputBody,
   PromptInputFooter,
   PromptInputHeader,
   PromptInputTextarea,
@@ -24,12 +21,14 @@ import {
 } from '../ai-elements/prompt-input';
 import type { OllamaInstalledModel } from '../../services/comfyui';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
-import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import {
   ALLOWED_ACCEPT, MAX_ATTACHMENTS, formatBytes, modelIsVisionCapable,
+  listVisionCapableBaseNames,
   processFile, type PendingAttachment,
 } from './attachments';
+import ChatModelPickerModal from './ChatModelPickerModal';
+import ChatToolsPopover from './ChatToolsPopover';
 
 interface Props {
   installed: OllamaInstalledModel[];
@@ -42,11 +41,23 @@ interface Props {
   libraryCapabilities?: Record<string, string[]>;
   attachments: PendingAttachment[];
   onAttachmentsChange: (next: PendingAttachment[]) => void;
+  webPreviews: boolean;
+  onWebPreviewsChange: (next: boolean) => void;
+  /** null = use every configured tool. string[] = explicit allow-list. */
+  enabledTools: string[] | null;
+  onEnabledToolsChange: (next: string[] | null) => void;
+  /** When true the composer renders without docked-bottom chrome (border-t /
+   *  white bg). Used by the centered empty-state hero in `Chat.tsx` so the
+   *  composer floats inside its own column instead of pinning the page. */
+  centered?: boolean;
 }
 
 export default function Composer({
   installed, model, onModelChange, busy, onSend, onStop, focusRef,
   libraryCapabilities, attachments, onAttachmentsChange,
+  webPreviews, onWebPreviewsChange,
+  enabledTools, onEnabledToolsChange,
+  centered = false,
 }: Props) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -58,20 +69,22 @@ export default function Composer({
   }, [focusRef]);
 
   const noModel = !model;
-  const noInstalled = installed.length === 0;
   const baseName = model.split(':')[0];
   const caps = libraryCapabilities?.[baseName] ?? null;
   const visionCapable = modelIsVisionCapable(model, caps);
   const hasImageAttachment = attachments.some(a => a.kind === 'image');
+  const attachFull = attachments.length >= MAX_ATTACHMENTS;
 
   const submit = (m: PromptInputMessage) => {
     if (busy || !model) return;
     const trimmed = m.text.trim();
     if (!trimmed && attachments.length === 0) return;
     if (hasImageAttachment && !visionCapable) {
-      toast.error("Current model can't see images", {
-        description: 'Switch to a vision-capable model (e.g. gemma3, llava, qwen2.5vl).',
-      });
+      const visionList = listVisionCapableBaseNames(libraryCapabilities).slice(0, 3);
+      const hint = visionList.length > 0
+        ? `Switch to a vision-capable model (e.g. ${visionList.join(', ')}).`
+        : 'Switch to a vision-capable model.';
+      toast.error("Current model can't see images", { description: hint });
       return;
     }
     onSend(trimmed, attachments);
@@ -100,9 +113,18 @@ export default function Composer({
     onAttachmentsChange(attachments.filter(a => a.id !== id));
   };
 
+  const openFilePicker = () => {
+    if (busy || noModel) return;
+    if (attachFull) {
+      toast.error(`Max ${MAX_ATTACHMENTS} attachments`);
+      return;
+    }
+    fileInputRef.current?.click();
+  };
+
   return (
-    <div className="border-t border-slate-200 bg-white">
-      <div className="mx-auto max-w-3xl px-4 py-3">
+    <div className={centered ? '' : 'border-t border-slate-200 bg-white'}>
+      <div className="mx-auto max-w-4xl px-4 py-3">
         <input
           ref={fileInputRef}
           type="file"
@@ -117,41 +139,12 @@ export default function Composer({
           }}
         />
 
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <label className={`flex items-center gap-2 text-xs ${
-                noModel ? 'text-rose-600' : 'text-slate-500'
-              }`}>
-                <span>Model</span>
-                <select
-                  value={model}
-                  onChange={(e) => onModelChange(e.target.value)}
-                  className={`field-input !py-1 !px-2 !text-xs !w-auto font-mono ${
-                    noModel ? '!border-rose-300 ring-1 ring-rose-200' : ''
-                  }`}
-                  disabled={busy}
-                >
-                  {noInstalled && <option value="">No models installed</option>}
-                  {!installed.some(m => m.name === model) && model && (
-                    <option value={model}>{model}</option>
-                  )}
-                  {installed.map(m => (
-                    <option key={m.name} value={m.name}>{m.name}</option>
-                  ))}
-                </select>
-                {visionCapable && (
-                  <Badge variant="teal" title="Can see images">vision</Badge>
-                )}
-              </label>
-            </TooltipTrigger>
-            {noModel && <TooltipContent>Pick a model first</TooltipContent>}
-          </Tooltip>
-          <ShortcutsHelp />
-        </div>
-
+        {/* PromptInputBody (display:contents) is intentionally NOT used —
+            it puts a wrapper between InputGroup and its children, breaking
+            the `:has(> textarea)` selector that expands the group from h-8
+            to h-auto/flex-col. Children must be direct DOM kids of the
+            InputGroup for the layout to lift to two-row mode. */}
         <PromptInput onSubmit={submit}>
-          <PromptInputBody>
             {attachments.length > 0 && (
               <PromptInputHeader>
                 {attachments.map(a => (
@@ -163,10 +156,10 @@ export default function Composer({
               ref={taRef}
               placeholder={
                 busy ? 'Generating... (Esc to stop)'
-                  : noModel ? 'Pick a model above to start chatting'
-                    : 'Type a message. Shift+Enter for newline. Drop files to attach.'
+                  : noModel ? 'Pick a model below to start chatting'
+                    : 'Ask anything...'
               }
-              disabled={busy || noModel}
+              disabled={busy}
               onKeyDown={(e) => {
                 if (e.key === 'Escape' && busy) {
                   e.preventDefault();
@@ -176,35 +169,75 @@ export default function Composer({
             />
             <PromptInputFooter>
               <PromptInputTools>
-                <Button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={busy || noModel || attachments.length >= MAX_ATTACHMENTS}
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Attach files"
-                  title="Attach files"
-                >
-                  <Paperclip className="w-4 h-4" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      onClick={openFilePicker}
+                      aria-disabled={busy || noModel || attachFull}
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Attach files"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Attach files</TooltipContent>
+                </Tooltip>
+                <ChatToolsPopover
+                  enabled={enabledTools}
+                  onChange={onEnabledToolsChange}
+                />
+                <WebPreviewToggle enabled={webPreviews} onToggle={onWebPreviewsChange} />
               </PromptInputTools>
-              {busy ? (
-                <Button type="button" onClick={onStop} variant="secondary" className="!text-red-600 hover:!bg-red-50">
-                  <StopCircle className="w-4 h-4" />
-                  Stop
-                </Button>
-              ) : (
-                <Button
-                  type="submit"
-                  disabled={noModel}
-                  aria-label="Send"
-                >
-                  <Send className="w-4 h-4" />
-                  Send
-                </Button>
-              )}
+              <PromptInputTools>
+                <ChatModelPickerModal
+                  installed={installed}
+                  model={model}
+                  disabled={busy}
+                  libraryCapabilities={libraryCapabilities}
+                  onChange={onModelChange}
+                />
+                {busy ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        onClick={onStop}
+                        variant="secondary"
+                        size="icon"
+                        className="!h-9 !w-9 !rounded-full !p-0 !text-rose-600 hover:!bg-rose-50"
+                        aria-label="Stop"
+                      >
+                        <StopCircle className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Stop (Esc)</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="submit"
+                        size="icon"
+                        aria-disabled={noModel}
+                        aria-label="Send"
+                        className="!h-9 !w-9 !rounded-full !p-0 !bg-blue-600 hover:!bg-blue-700 !text-white"
+                        onClick={(e) => {
+                          if (noModel) {
+                            e.preventDefault();
+                            toast.error('Pick a model first');
+                          }
+                        }}
+                      >
+                        <ArrowUp className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Send (Enter)</TooltipContent>
+                  </Tooltip>
+                )}
+              </PromptInputTools>
             </PromptInputFooter>
-          </PromptInputBody>
         </PromptInput>
       </div>
     </div>
@@ -242,26 +275,26 @@ function AttachmentChip({ att, onRemove }: ChipProps) {
   );
 }
 
-function ShortcutsHelp() {
+interface ToggleProps { enabled: boolean; onToggle: (next: boolean) => void }
+function WebPreviewToggle({ enabled, onToggle }: ToggleProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
+        <Button
           type="button"
-          aria-label="Keyboard shortcuts"
-          className="text-slate-400 hover:text-slate-600 transition-colors"
+          variant="ghost"
+          size="sm"
+          aria-pressed={enabled}
+          aria-label="Inline URL previews"
+          onClick={() => onToggle(!enabled)}
+          className={enabled ? 'text-teal-700 bg-teal-50 hover:bg-teal-100' : ''}
         >
-          <HelpCircle className="h-3.5 w-3.5" />
-        </button>
+          <Globe className="h-3.5 w-3.5" />
+          <span>Previews</span>
+        </Button>
       </TooltipTrigger>
       <TooltipContent>
-        <div className="space-y-1 text-left">
-          <div><kbd className="font-mono">Enter</kbd> send</div>
-          <div><kbd className="font-mono">Shift+Enter</kbd> newline</div>
-          <div><kbd className="font-mono">Esc</kbd> stop streaming</div>
-          <div><kbd className="font-mono">Ctrl/Cmd+K</kbd> focus composer</div>
-          <div><kbd className="font-mono">Drop files</kbd> attach</div>
-        </div>
+        Render iframe previews for URLs in assistant replies. Off by default — enable when you want to see the linked page directly under the message.
       </TooltipContent>
     </Tooltip>
   );

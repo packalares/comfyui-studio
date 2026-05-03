@@ -9,90 +9,48 @@ import * as settings from '../services/settings.js';
 
 const router = Router();
 
-// ---- Comfy Org API key (stored server-side, never returned to client) ----
-// Status (`configured` flag) is exposed via `GET /api/system` — there's no
-// separate GET here. Only writes remain.
-router.put('/settings/api-key', (req: Request, res: Response) => {
-  const { apiKey } = req.body as { apiKey?: unknown };
-  if (typeof apiKey !== 'string' || apiKey.trim().length === 0) {
-    res.status(400).json({ error: 'apiKey must be a non-empty string' });
+// ---- Unified secret store ----
+// Status flags (`apiKeyConfigured`, `hfTokenConfigured`, …) live on
+// `GET /api/system`. There is no GET here — values never leave the server.
+// PUT accepts a name→value map (1+ pairs at once, only dirty ones sent by the
+// UI). DELETE clears one named secret per call.
+const SECRET_HANDLERS = {
+  apiKeyComfyOrg: { set: settings.setApiKey,       clear: settings.clearApiKey },
+  hfToken:        { set: settings.setHfToken,      clear: settings.clearHfToken },
+  civitaiToken:   { set: settings.setCivitaiToken, clear: settings.clearCivitaiToken },
+  githubToken:    { set: settings.setGithubToken,  clear: settings.clearGithubToken },
+  pexelsApiKey:   { set: settings.setPexelsApiKey, clear: settings.clearPexelsApiKey },
+} as const;
+type SecretName = keyof typeof SECRET_HANDLERS;
+const isSecretName = (s: unknown): s is SecretName =>
+  typeof s === 'string' && s in SECRET_HANDLERS;
+
+router.put('/settings/secret', (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const entries = Object.entries(body).filter(([k]) => isSecretName(k));
+  if (entries.length === 0) {
+    res.status(400).json({ error: 'no recognized secret names in body' });
     return;
   }
-  settings.setApiKey(apiKey.trim());
-  res.json({ configured: true });
+  const written: SecretName[] = [];
+  for (const [name, raw] of entries) {
+    if (typeof raw !== 'string' || raw.trim().length === 0) {
+      res.status(400).json({ error: `value for "${name}" must be a non-empty string` });
+      return;
+    }
+    SECRET_HANDLERS[name as SecretName].set(raw.trim());
+    written.push(name as SecretName);
+  }
+  res.json({ written });
 });
 
-router.delete('/settings/api-key', (_req: Request, res: Response) => {
-  settings.clearApiKey();
-  res.json({ configured: false });
-});
-
-// ---- HuggingFace token (for gated models + private HEAD/GET requests) ----
-// Status flag is carried on `GET /api/system`. Only writes remain.
-router.put('/settings/hf-token', (req: Request, res: Response) => {
-  const { token } = req.body as { token?: unknown };
-  if (typeof token !== 'string' || token.trim().length === 0) {
-    res.status(400).json({ error: 'token must be a non-empty string' });
+router.delete('/settings/secret', (req: Request, res: Response) => {
+  const name = String(req.query.name ?? '');
+  if (!isSecretName(name)) {
+    res.status(400).json({ error: 'unknown secret name' });
     return;
   }
-  settings.setHfToken(token.trim());
-  res.json({ configured: true });
-});
-
-router.delete('/settings/hf-token', (_req: Request, res: Response) => {
-  settings.clearHfToken();
-  res.json({ configured: false });
-});
-
-// ---- CivitAI token (for authenticated civitai.com downloads + private content) ----
-// Status flag is carried on `GET /api/system`. Only writes remain.
-router.put('/settings/civitai-token', (req: Request, res: Response) => {
-  const { token } = req.body as { token?: unknown };
-  if (typeof token !== 'string' || token.trim().length === 0) {
-    res.status(400).json({ error: 'token must be a non-empty string' });
-    return;
-  }
-  settings.setCivitaiToken(token.trim());
-  res.json({ configured: true });
-});
-
-router.delete('/settings/civitai-token', (_req: Request, res: Response) => {
-  settings.clearCivitaiToken();
-  res.json({ configured: false });
-});
-
-// ---- GitHub token (for github-release downloads + REST API auth) ----
-// Status flag is carried on `GET /api/system`. Only writes remain.
-router.put('/settings/github-token', (req: Request, res: Response) => {
-  const { token } = req.body as { token?: unknown };
-  if (typeof token !== 'string' || token.trim().length === 0) {
-    res.status(400).json({ error: 'token must be a non-empty string' });
-    return;
-  }
-  settings.setGithubToken(token.trim());
-  res.json({ configured: true });
-});
-
-router.delete('/settings/github-token', (_req: Request, res: Response) => {
-  settings.clearGithubToken();
-  res.json({ configured: false });
-});
-
-// ---- Pexels API key (stock-photo fallback for audio thumbnails) ----
-// Unset → audio rows without embedded cover art skip straight to Picsum.
-// Status flag is carried on `GET /api/system`. Only writes remain.
-router.put('/settings/pexels-api-key', (req: Request, res: Response) => {
-  const { apiKey } = req.body as { apiKey?: unknown };
-  if (typeof apiKey !== 'string' || apiKey.trim().length === 0) {
-    res.status(400).json({ error: 'apiKey must be a non-empty string' });
-    return;
-  }
-  settings.setPexelsApiKey(apiKey.trim());
-  res.json({ configured: true });
-});
-
-router.delete('/settings/pexels-api-key', (_req: Request, res: Response) => {
-  settings.clearPexelsApiKey();
+  SECRET_HANDLERS[name].clear();
   res.json({ configured: false });
 });
 
@@ -103,13 +61,27 @@ router.delete('/settings/pexels-api-key', (_req: Request, res: Response) => {
 // (`http://localhost:11434`) so /api/system + GET here always render
 // something sensible even on a brand-new install.
 
-router.get('/settings/chat', (_req: Request, res: Response) => {
-  res.json({
+function chatSettingsResponse() {
+  return {
     ollamaUrl: settings.getOllamaUrl(),
     defaultModel: settings.getChatDefaultModel() ?? '',
     keepAlive: settings.getChatKeepAlive(),
     defaultContextStrategy: settings.getDefaultContextStrategy(),
-  });
+    advanced: {
+      highWaterPercent: settings.getChatHighWaterPercent(),
+      slidingTargetPercent: settings.getChatSlidingTargetPercent(),
+      fallbackNumCtx: settings.getChatFallbackNumCtx(),
+      maxToolSteps: settings.getChatMaxToolSteps(),
+      loadingHintMs: settings.getChatLoadingHintMs(),
+      keepRecent: settings.getChatKeepRecent(),
+      titleTimeoutMs: settings.getChatTitleTimeoutMs(),
+      summaryTimeoutMs: settings.getChatSummaryTimeoutMs(),
+    },
+  };
+}
+
+router.get('/settings/chat', (_req: Request, res: Response) => {
+  res.json(chatSettingsResponse());
 });
 
 // Probe an Ollama URL without persisting it — used by the Settings Chat card
@@ -148,6 +120,16 @@ router.put('/settings/chat', (req: Request, res: Response) => {
     defaultModel?: unknown;
     keepAlive?: unknown;
     defaultContextStrategy?: unknown;
+    advanced?: {
+      highWaterPercent?: unknown;
+      slidingTargetPercent?: unknown;
+      fallbackNumCtx?: unknown;
+      maxToolSteps?: unknown;
+      loadingHintMs?: unknown;
+      keepRecent?: unknown;
+      titleTimeoutMs?: unknown;
+      summaryTimeoutMs?: unknown;
+    };
   };
   if (typeof body.ollamaUrl === 'string') {
     const trimmed = body.ollamaUrl.trim();
@@ -171,12 +153,23 @@ router.put('/settings/chat', (req: Request, res: Response) => {
   ) {
     settings.setDefaultContextStrategy(body.defaultContextStrategy);
   }
-  res.json({
-    ollamaUrl: settings.getOllamaUrl(),
-    defaultModel: settings.getChatDefaultModel() ?? '',
-    keepAlive: settings.getChatKeepAlive(),
-    defaultContextStrategy: settings.getDefaultContextStrategy(),
-  });
+  // Advanced tunables — each is a positive number; null/undefined clears
+  // back to the documented default. All getters validate so a corrupt
+  // write can't break the chat path.
+  const adv = body.advanced;
+  if (adv && typeof adv === 'object') {
+    const numOrNull = (v: unknown): number | null =>
+      typeof v === 'number' && Number.isFinite(v) ? v : null;
+    if ('highWaterPercent' in adv)     settings.setChatHighWaterPercent(numOrNull(adv.highWaterPercent));
+    if ('slidingTargetPercent' in adv) settings.setChatSlidingTargetPercent(numOrNull(adv.slidingTargetPercent));
+    if ('fallbackNumCtx' in adv)       settings.setChatFallbackNumCtx(numOrNull(adv.fallbackNumCtx));
+    if ('maxToolSteps' in adv)         settings.setChatMaxToolSteps(numOrNull(adv.maxToolSteps));
+    if ('loadingHintMs' in adv)        settings.setChatLoadingHintMs(numOrNull(adv.loadingHintMs));
+    if ('keepRecent' in adv)           settings.setChatKeepRecent(numOrNull(adv.keepRecent));
+    if ('titleTimeoutMs' in adv)       settings.setChatTitleTimeoutMs(numOrNull(adv.titleTimeoutMs));
+    if ('summaryTimeoutMs' in adv)     settings.setChatSummaryTimeoutMs(numOrNull(adv.summaryTimeoutMs));
+  }
+  res.json(chatSettingsResponse());
 });
 
 export default router;

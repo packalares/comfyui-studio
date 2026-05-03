@@ -11,12 +11,14 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Wand2, Database, AlertTriangle } from 'lucide-react';
+import { Wand2, Database, AlertTriangle } from 'lucide-react';
 import {
   HoverCard, HoverCardContent, HoverCardTrigger,
 } from '../ui/hover-card';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Button } from '../ui/button';
+import { Spinner } from '../ui/spinner';
+import { ProgressCircle } from '../ui/progress-circle';
 import { chatEvents } from '../../services/chatEvents';
 import {
   api, type ChatContextStrategy, type ChatUsageState,
@@ -44,17 +46,16 @@ function formatTokens(n: number): string {
   return Math.round(n).toLocaleString('en-US');
 }
 
-function colorFor(warning: ChatUsageState['warning']): string {
-  // Reuses the existing badge color palette so the meter inherits the same
-  // visual language as the rest of the app.
-  if (warning === 'red') return 'bg-rose-500';
-  if (warning === 'yellow') return 'bg-amber-500';
-  return 'bg-emerald-500';
+function fillStrokeFor(warning: ChatUsageState['warning'] | undefined): string {
+  if (warning === 'red') return 'stroke-rose-500';
+  if (warning === 'yellow') return 'stroke-amber-500';
+  return 'stroke-emerald-500';
 }
 
-function textColorFor(warning: ChatUsageState['warning']): string {
+function textColorFor(warning: ChatUsageState['warning'] | undefined): string {
   if (warning === 'red') return 'text-rose-700';
   if (warning === 'yellow') return 'text-amber-700';
+  if (!warning) return 'text-slate-500';
   return 'text-emerald-700';
 }
 
@@ -80,11 +81,13 @@ export default function ContextMeter({ conversationId, model }: Props) {
     return chatEvents.onDone(() => { refresh(); });
   }, [conversationId, refresh]);
 
-  if (!conversationId || !model || !usage) return null;
-
-  const pct = Math.round(usage.percent * 10) / 10;
-  const dot = colorFor(usage.warning);
-  const label = `${formatTokens(usage.used)} / ${formatTokens(usage.budget)} tokens (${pct}%)`;
+  // Always render — when no conversation / model / usage data we show 0%
+  // (empty circle, slate text). Keeps the topbar layout stable so the search
+  // input + tabs don't shift when a conversation is selected.
+  const hasData = !!(conversationId && model && usage);
+  const pct = hasData ? Math.round(usage.percent * 10) / 10 : 0;
+  const fillStroke = fillStrokeFor(hasData ? usage.warning : undefined);
+  const textColor = textColorFor(hasData ? usage.warning : undefined);
 
   const handleStrategyChange = async (next: ChatContextStrategy) => {
     if (!conversationId) return;
@@ -131,37 +134,39 @@ export default function ContextMeter({ conversationId, model }: Props) {
           <PopoverTrigger asChild>
             <button
               type="button"
-              className={`inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/70 px-2.5 py-0.5 text-[11px] font-medium ${textColorFor(usage.warning)} transition hover:bg-slate-50`}
+              className={`context-meter-trigger ${textColor}`}
               aria-label="Context window usage"
+              disabled={!hasData}
             >
-              <span className={`inline-block h-1.5 w-1.5 rounded-full ${dot}`} />
-              {label}
+              <span>{pct}%</span>
+              <ProgressCircle percent={pct} fillClassName={fillStroke} />
             </button>
           </PopoverTrigger>
         </HoverCardTrigger>
-        <HoverCardContent className="w-72 p-3 text-xs leading-snug">
-          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-            <Database className="h-3 w-3" />
-            Context window
-          </div>
-          <div className="mt-2 space-y-1 font-mono text-[11px] text-slate-700">
-            <div className="flex justify-between"><span>Budget</span><span>{formatTokens(usage.budget)}</span></div>
-            <div className="flex justify-between"><span>Used</span><span>{formatTokens(usage.used)}</span></div>
-            <div className="flex justify-between"><span>Estimated next</span><span>{formatTokens(usage.estimatedNext)}</span></div>
-            <div className="flex justify-between"><span>Strategy</span><span>{STRATEGY_LABELS[usage.strategy]}</span></div>
-          </div>
-          {usage.warning === 'red' && (
-            <div className="mt-2 flex items-start gap-1.5 rounded border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-800">
-              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-              Budget nearly full. The active strategy will trim older messages on the next send.
+        {hasData && (
+          <HoverCardContent className="w-72 p-3 text-xs leading-snug">
+            <div className="eyebrow flex items-center gap-1.5">
+              <Database className="h-3 w-3" />
+              Context window
             </div>
-          )}
-        </HoverCardContent>
+            <div className="mt-2 space-y-1 font-mono text-[11px] text-slate-700">
+              <div className="kv-row"><span>Budget</span><span>{formatTokens(usage.budget)}</span></div>
+              <div className="kv-row"><span>Used</span><span>{formatTokens(usage.used)}</span></div>
+              <div className="kv-row"><span>Estimated next</span><span>{formatTokens(usage.estimatedNext)}</span></div>
+              <div className="kv-row"><span>Strategy</span><span>{STRATEGY_LABELS[usage.strategy]}</span></div>
+            </div>
+            {usage.warning === 'red' && (
+              <div className="alert-rose mt-2 text-[11px]">
+                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                <span>Budget nearly full. The active strategy will trim older messages on the next send.</span>
+              </div>
+            )}
+          </HoverCardContent>
+        )}
       </HoverCard>
-      <PopoverContent align="end" className="w-80 p-3 text-xs">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-            Context strategy
-          </div>
+      {hasData && (
+        <PopoverContent align="end" className="w-80 p-3 text-xs">
+          <div className="eyebrow">Context strategy</div>
           <div className="mt-2 space-y-1.5">
             {(['sliding', 'summarize', 'manual'] as ChatContextStrategy[]).map(s => (
               <label key={s} className="flex cursor-pointer items-start gap-2 rounded p-1.5 hover:bg-slate-50">
@@ -189,14 +194,15 @@ export default function ContextMeter({ conversationId, model }: Props) {
               size="sm"
               className="w-full"
             >
-              {compacting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
+              {compacting ? <Spinner size="xs" /> : <Wand2 className="h-3 w-3" />}
               {compacting ? 'Compacting...' : 'Compact now'}
             </Button>
             <p className="mt-1 text-[10px] leading-tight text-slate-500">
               Replaces the entire transcript with a one-shot summary. Original messages are removed; the conversation row is preserved.
             </p>
           </div>
-      </PopoverContent>
+        </PopoverContent>
+      )}
     </Popover>
   );
 }

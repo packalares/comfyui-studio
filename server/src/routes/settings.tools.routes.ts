@@ -4,8 +4,8 @@
 //
 // Returns plain values for the URLs and the configured-flag for the
 // RAGFlow API key — same convention the existing `/settings/chat` GET uses
-// for non-secret fields, and the same convention `/settings/api-key`
-// (Comfy Org) uses for the secret part.
+// for non-secret fields, and the same convention `/settings/secret`
+// uses for the secret part.
 
 import { Router, type Request, type Response } from 'express';
 import * as toolsSettings from '../services/settings.tools.js';

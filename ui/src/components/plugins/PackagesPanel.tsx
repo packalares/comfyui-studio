@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Loader2,
   Search,
   Plus,
   RefreshCw,
@@ -11,6 +10,7 @@ import {
 import { api } from '../../services/comfyui';
 import { usePersistedState } from '../../hooks/usePersistedState';
 import type { PythonPackage } from '../../types';
+import { Spinner } from '../ui/spinner';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -155,7 +155,7 @@ export default function PackagesPanel() {
             onClick={handleInstall}
             disabled={installOp.busy || !installSpec.trim()}
           >
-            {installOp.busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+            {installOp.busy ? <Spinner size="sm" /> : <Plus className="w-3.5 h-3.5" />}
             Install
           </Button>
         </div>
@@ -192,7 +192,7 @@ export default function PackagesPanel() {
 
         {loading ? (
           <div className="flex items-center justify-center py-6">
-            <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />
+            <Spinner size="lg" className="text-slate-400" />
           </div>
         ) : filtered.length === 0 ? (
           <div className="empty-box">
@@ -227,7 +227,7 @@ export default function PackagesPanel() {
                       title="Uninstall"
                     >
                       {op?.busy ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <Spinner size="md" />
                       ) : (
                         <Trash2 className="w-4 h-4" />
                       )}

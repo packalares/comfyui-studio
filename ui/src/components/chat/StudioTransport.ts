@@ -42,6 +42,9 @@ interface TransportOptions {
   conversationIdRef: { current: string | null };
   /** Mutable ref to the model name. Same reasoning as `conversationIdRef`. */
   modelRef: { current: string };
+  /** Mutable ref to the user's tools allow-list (composer Tools popover).
+   *  `null` means "no filter — use every configured tool". */
+  enabledToolsRef: { current: string[] | null };
   /** Called whenever `/chat/start` returns a fresh `conversationId` so the
    *  page can update its state + sidebar. The server may either echo the
    *  caller-provided id or mint a new one (first send in a new chat). */
@@ -72,6 +75,7 @@ export class StudioTransport implements ChatTransport<StudioUIMessage> {
       conversationId: this.opts.conversationIdRef.current ?? undefined,
       model: this.opts.modelRef.current,
       messages: wireMessages,
+      enabledTools: this.opts.enabledToolsRef.current,
     });
 
     const conversationId = start.conversationId;

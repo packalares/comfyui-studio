@@ -35,8 +35,8 @@ export interface UsageState {
   model: string;
 }
 
-/** Fallback budget when /api/show is unreachable or the model is unknown. */
-const FALLBACK_NUM_CTX = 4096;
+// Fallback budget moved to settings (`chatFallbackNumCtx`). Resolved via
+// `settings.getChatFallbackNumCtx()` at the single call site below.
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1h
 
 interface CacheEntry {
@@ -122,7 +122,7 @@ export async function getModelContext(modelName: string): Promise<ContextWindowI
       const num = parseNumCtx(body);
       if (num !== null) info = { num_ctx: num, model: modelName };
     }
-  } catch { /* leave info null; caller falls back to FALLBACK_NUM_CTX */ }
+  } catch { /* leave info null; caller falls back to settings.chatFallbackNumCtx */ }
   finally { clearTimeout(timer); }
 
   cache.set(modelName, { info, expiresAt: Date.now() + CACHE_TTL_MS });
@@ -146,7 +146,7 @@ export interface ComputeUsageInput {
 
 export async function computeUsage(input: ComputeUsageInput): Promise<UsageState> {
   const ctx = await getModelContext(input.model);
-  const budget = ctx?.num_ctx ?? FALLBACK_NUM_CTX;
+  const budget = ctx?.num_ctx ?? settings.getChatFallbackNumCtx();
 
   const conv = repo.getConversation(input.conversationId);
   const lastAssistant = lastAssistantMessage(input.conversationId);

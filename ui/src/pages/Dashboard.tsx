@@ -8,7 +8,6 @@ import {
   HardDrive,
   Cpu,
   Cog,
-  Loader2,
   WifiOff,
   Settings,
   Package,
@@ -17,10 +16,11 @@ import {
   Clock,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import PageSubbar from '../components/PageSubbar';
+import PageSubbar from '../components/layout/PageSubbar';
 import NetworkWidget from '../components/NetworkWidget';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
+import { Spinner } from '../components/ui/spinner';
 
 type ComfyUIProcessStatus = 'running' | 'stopped' | 'starting' | 'unknown';
 
@@ -42,7 +42,7 @@ export default function Dashboard() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-6 h-6 text-slate-400 animate-spin" />
+        <Spinner size="xl" className="text-slate-400" />
       </div>
     );
   }

@@ -12,6 +12,7 @@ import { webSearchTool } from './webSearch.js';
 import { ragSearchTool } from './ragSearch.js';
 import { ragUploadTool } from './ragUpload.js';
 import { generateImageTool } from './generateImage.js';
+import { TOOL_LABELS, TOOL_LABEL_DESCRIPTIONS } from '../prompts.js';
 
 export type ToolName = 'web_search' | 'rag_search' | 'rag_upload' | 'generate_image';
 
@@ -51,4 +52,33 @@ export function listEnabledToolNames(): ToolName[] {
   }
   if (toolsSettings.getDefaultImageTemplate()) names.push('generate_image');
   return names;
+}
+
+export interface ToolListing {
+  name: ToolName;
+  label: string;
+  description: string;
+}
+
+// Labels + descriptions live in `prompts.ts` so the LLM-facing tool
+// description and the human-facing UI description stay in one place.
+export function listAvailableTools(): ToolListing[] {
+  return listEnabledToolNames().map((name) => ({
+    name,
+    label: TOOL_LABELS[name],
+    description: TOOL_LABEL_DESCRIPTIONS[name],
+  }));
+}
+
+export function filterEnabledTools(
+  enabled: EnabledToolMap,
+  allow: readonly string[] | null,
+): EnabledToolMap {
+  if (!allow) return enabled;
+  const allowSet = new Set(allow);
+  const out: EnabledToolMap = {};
+  for (const [name, def] of Object.entries(enabled)) {
+    if (allowSet.has(name)) out[name] = def;
+  }
+  return out;
 }

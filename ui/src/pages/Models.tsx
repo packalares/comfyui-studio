@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Box, Trash2, Loader2, Search, WifiOff, Settings,
+  Box, Trash2, Search, WifiOff, Settings,
   Download, SlidersHorizontal, History, X, HardDrive, CheckCircle2, Package,
   RefreshCw,
 } from 'lucide-react';
+import { Spinner } from '../components/ui/spinner';
 import { toast } from 'sonner';
 import type { CatalogModel, CivitaiModelSummary } from '../types';
 import { findDownloadForModel } from '../types';
@@ -12,14 +13,14 @@ import { api } from '../services/comfyui';
 import { useApp } from '../context/AppContext';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { usePaginated } from '../hooks/usePaginated';
-import PageSubbar from '../components/PageSubbar';
+import PageSubbar from '../components/layout/PageSubbar';
 import DownloadsTab from '../components/DownloadsTab';
-import ModelRow, { type ModelRowDownload, type ModelRowItem } from '../components/ModelRow';
-import ModelInfoModal, { type ModelInfoSource } from '../components/ModelInfoModal';
-import ModelFolderPickerModal from '../components/ModelFolderPickerModal';
+import ModelRow, { type ModelRowDownload, type ModelRowItem } from '../components/cards/ModelRow';
+import ModelInfoModal, { type ModelInfoSource } from '../components/modals/ModelInfoModal';
+import ModelFolderPickerModal from '../components/modals/ModelFolderPickerModal';
 import { formatBytes } from '../lib/utils';
 import { imgProxy } from '../lib/imgProxy';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { SelectField, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/forms/SelectField';
 import { Combobox, COMBOBOX_SEARCH_THRESHOLD } from '../components/ui/combobox';
 import { Checkbox } from '../components/ui/checkbox';
 import { Button } from '../components/ui/button';
@@ -622,7 +623,7 @@ export default function Models() {
               {/* Source — local catalog vs. CivitAI remote search. */}
               <div>
                 <label className="field-label mb-1.5 block">Source</label>
-                <Select value={source} onValueChange={(v) => setSource(v as ModelSource)}>
+                <SelectField value={source} onValueChange={(v) => setSource(v as ModelSource)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -632,7 +633,7 @@ export default function Models() {
                     {/* HuggingFace is a placeholder for a future source. */}
                     <SelectItem value="huggingface" disabled>HuggingFace (coming soon)</SelectItem>
                   </SelectContent>
-                </Select>
+                </SelectField>
               </div>
 
               {/* Local-catalog-only filters. CivitAI search uses its own query
@@ -668,7 +669,7 @@ export default function Models() {
                         );
                       }
                       return (
-                        <Select value={current} onValueChange={handle}>
+                        <SelectField value={current} onValueChange={handle}>
                           <SelectTrigger>
                             <SelectValue placeholder="All Models" />
                           </SelectTrigger>
@@ -677,7 +678,7 @@ export default function Models() {
                               <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                             ))}
                           </SelectContent>
-                        </Select>
+                        </SelectField>
                       );
                     })()}
                   </div>
@@ -685,7 +686,7 @@ export default function Models() {
                   {/* Installed filter */}
                   <div>
                     <label className="field-label mb-1.5 block">Installed</label>
-                    <Select value={installedFilter} onValueChange={(v) => setInstalledFilter(v as 'all' | 'yes' | 'no')}>
+                    <SelectField value={installedFilter} onValueChange={(v) => setInstalledFilter(v as 'all' | 'yes' | 'no')}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -694,7 +695,7 @@ export default function Models() {
                         <SelectItem value="yes">Installed</SelectItem>
                         <SelectItem value="no">Not installed</SelectItem>
                       </SelectContent>
-                    </Select>
+                    </SelectField>
                   </div>
 
                   {/* Type filter */}
@@ -787,15 +788,13 @@ export default function Models() {
                 <div
                   role="tablist"
                   aria-label="Models sections"
-                  className={`${tab === 'models' ? '' : 'flex-1'} inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm self-start md:self-auto`}
+                  className={`tab-strip self-start md:self-auto ${tab === 'models' ? '' : 'flex-1'}`}
                 >
                   <button
                     role="tab"
                     aria-selected={tab === 'models'}
                     onClick={() => setTab('models')}
-                    className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold transition ${
-                      tab === 'models' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
-                    }`}
+                    className={`tab-strip-item ${tab === 'models' ? 'is-active' : ''}`}
                   >
                     <Box className="w-3.5 h-3.5" />
                     Models
@@ -804,9 +803,7 @@ export default function Models() {
                     role="tab"
                     aria-selected={tab === 'downloads'}
                     onClick={() => setTab('downloads')}
-                    className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold transition ${
-                      tab === 'downloads' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
-                    }`}
+                    className={`tab-strip-item ${tab === 'downloads' ? 'is-active' : ''}`}
                   >
                     <History className="w-3.5 h-3.5" />
                     Downloads
@@ -978,7 +975,7 @@ export default function Models() {
                 >
                   {paged.hasMore ? (
                     <span className="inline-flex items-center gap-2 text-xs text-slate-500">
-                      {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      {loading && <Spinner size="sm" />}
                       {loading ? 'Loading more…' : 'Scroll to load more'}
                     </span>
                   ) : (

@@ -1,7 +1,7 @@
 import { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { Loader2 } from 'lucide-react';
-import Layout from './components/Layout';
+import { Spinner } from './components/ui/spinner';
+import Layout from './components/layout/Layout';
 import Dashboard from './pages/Dashboard';
 
 const Explore = lazy(() => import('./pages/Explore'));
@@ -20,7 +20,7 @@ const Settings = lazy(() => import('./pages/Settings'));
 function RouteFallback() {
   return (
     <div className="flex items-center justify-center h-64">
-      <Loader2 className="w-6 h-6 text-slate-400 animate-spin" />
+      <Spinner size="xl" className="text-slate-400" />
     </div>
   );
 }

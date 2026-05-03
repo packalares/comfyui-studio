@@ -8,7 +8,7 @@ import {
   Wrench,
   Boxes,
 } from 'lucide-react';
-import PageSubbar from '../components/PageSubbar';
+import PageSubbar from '../components/layout/PageSubbar';
 import { Card } from '../components/ui/card';
 
 interface NavItem {

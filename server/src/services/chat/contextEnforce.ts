@@ -7,13 +7,8 @@ import { logger } from '../../lib/logger.js';
 import { computeUsage } from './contextWindow.js';
 import { applySlidingWindow, applySummarizeStrategy } from './contextCompact.js';
 import { emitChatEvent } from './broadcaster.js';
+import * as settings from '../settings.js';
 import type { OllamaChatMessage } from './ollamaChat.js';
-
-// Threshold above which the configured strategy kicks in. Below 80% the
-// in-flight messages pass through untouched.
-const HIGH_WATER_PERCENT = 80;
-// Sliding-window target; 70% leaves headroom for the new turn + reply.
-const SLIDING_TARGET_PERCENT = 70;
 
 export interface EnforceContextArgs {
   conversationId: string;
@@ -41,7 +36,7 @@ export async function enforceContextStrategy(
     });
     return args.messages;
   }
-  if (usage.percent < HIGH_WATER_PERCENT) return args.messages;
+  if (usage.percent < settings.getChatHighWaterPercent()) return args.messages;
 
   if (usage.strategy === 'manual') {
     emitChatEvent({
@@ -58,7 +53,7 @@ export async function enforceContextStrategy(
   }
   if (usage.strategy === 'sliding') {
     return applySlidingWindow(
-      args.messages, usage.budget, usage.used, SLIDING_TARGET_PERCENT,
+      args.messages, usage.budget, usage.used, settings.getChatSlidingTargetPercent(),
     );
   }
   // 'summarize' — best effort; falls back to the original list on upstream

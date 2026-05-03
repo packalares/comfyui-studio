@@ -27,10 +27,46 @@ interface Settings {
   defaultImageTemplate?: string;
   /** Default context-window management strategy applied to brand-new conversations. */
   defaultContextStrategy?: 'sliding' | 'summarize' | 'manual';
+  // ===== Chat tunables (advanced) =====
+  // Trigger threshold for the active context strategy. The strategy fires when
+  // estimated next-turn usage hits this percent of the model's budget.
+  chatHighWaterPercent?: number;
+  // After the sliding strategy trims, target this much budget headroom.
+  chatSlidingTargetPercent?: number;
+  // Used when /api/show fails to report the model's num_ctx — usually the
+  // baseline 4K Ollama default. Conservative; users with tiny CPU-only
+  // models may want to lower it.
+  chatFallbackNumCtx?: number;
+  // Max tool-dispatch loop iterations before we give up. Caps runaway
+  // chains where the model keeps calling tools in a circle.
+  chatMaxToolSteps?: number;
+  // Delay after submit with no chunks before we surface the
+  // "Loading model into VRAM..." hint.
+  chatLoadingHintMs?: number;
+  // For the `summarize` strategy: how many recent user/assistant turns to
+  // keep verbatim alongside the rolling summary.
+  chatKeepRecent?: number;
+  // Timeout for the auto-title one-shot LLM call.
+  chatTitleTimeoutMs?: number;
+  // Timeout for the summary one-shot LLM call (manual /compact + summarize
+  // strategy share this knob).
+  chatSummaryTimeoutMs?: number;
 }
 
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
 const DEFAULT_CHAT_KEEP_ALIVE = '5m';
+
+// Defaults for the chat-advanced tunables. Exported so tests can pin them
+// and so any out-of-tree consumer can read them without round-tripping
+// through `load()`.
+export const DEFAULT_CHAT_HIGH_WATER_PERCENT = 80;
+export const DEFAULT_CHAT_SLIDING_TARGET_PERCENT = 70;
+export const DEFAULT_CHAT_FALLBACK_NUM_CTX = 4096;
+export const DEFAULT_CHAT_MAX_TOOL_STEPS = 6;
+export const DEFAULT_CHAT_LOADING_HINT_MS = 1500;
+export const DEFAULT_CHAT_KEEP_RECENT = 4;
+export const DEFAULT_CHAT_TITLE_TIMEOUT_MS = 30_000;
+export const DEFAULT_CHAT_SUMMARY_TIMEOUT_MS = 60_000;
 
 let cache: Settings | null = null;
 
@@ -216,6 +252,81 @@ export function setDefaultContextStrategy(value: 'sliding' | 'summarize' | 'manu
   if (!VALID_CONTEXT_STRATEGIES.includes(value)) return;
   const settings = load();
   save({ ...settings, defaultContextStrategy: value });
+}
+
+// ===== Chat-advanced tunables — getters + setters =====
+// Each one validates basic shape (positive number, percent in [1, 100]) and
+// falls back to the documented default. Settings UI / API can write them;
+// in code, always call the getter so a misconfigured value gets repaired.
+
+function readPercent(v: unknown, fallback: number): number {
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 100 ? v : fallback;
+}
+function readPositiveInt(v: unknown, fallback: number): number {
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.floor(v) : fallback;
+}
+
+export function getChatHighWaterPercent(): number {
+  return readPercent(load().chatHighWaterPercent, DEFAULT_CHAT_HIGH_WATER_PERCENT);
+}
+export function getChatSlidingTargetPercent(): number {
+  return readPercent(load().chatSlidingTargetPercent, DEFAULT_CHAT_SLIDING_TARGET_PERCENT);
+}
+export function getChatFallbackNumCtx(): number {
+  return readPositiveInt(load().chatFallbackNumCtx, DEFAULT_CHAT_FALLBACK_NUM_CTX);
+}
+export function getChatMaxToolSteps(): number {
+  return readPositiveInt(load().chatMaxToolSteps, DEFAULT_CHAT_MAX_TOOL_STEPS);
+}
+export function getChatLoadingHintMs(): number {
+  return readPositiveInt(load().chatLoadingHintMs, DEFAULT_CHAT_LOADING_HINT_MS);
+}
+export function getChatKeepRecent(): number {
+  return readPositiveInt(load().chatKeepRecent, DEFAULT_CHAT_KEEP_RECENT);
+}
+export function getChatTitleTimeoutMs(): number {
+  return readPositiveInt(load().chatTitleTimeoutMs, DEFAULT_CHAT_TITLE_TIMEOUT_MS);
+}
+export function getChatSummaryTimeoutMs(): number {
+  return readPositiveInt(load().chatSummaryTimeoutMs, DEFAULT_CHAT_SUMMARY_TIMEOUT_MS);
+}
+
+// Setters — pass `undefined`/`null` to clear and fall back to the default.
+function setNumeric(
+  key: keyof Settings,
+  value: number | null | undefined,
+): void {
+  const settings = load();
+  if (value == null || !Number.isFinite(value)) {
+    const { [key]: _r, ...rest } = settings;
+    save(rest);
+    return;
+  }
+  save({ ...settings, [key]: value });
+}
+export function setChatHighWaterPercent(v: number | null | undefined): void {
+  setNumeric('chatHighWaterPercent', v);
+}
+export function setChatSlidingTargetPercent(v: number | null | undefined): void {
+  setNumeric('chatSlidingTargetPercent', v);
+}
+export function setChatFallbackNumCtx(v: number | null | undefined): void {
+  setNumeric('chatFallbackNumCtx', v);
+}
+export function setChatMaxToolSteps(v: number | null | undefined): void {
+  setNumeric('chatMaxToolSteps', v);
+}
+export function setChatLoadingHintMs(v: number | null | undefined): void {
+  setNumeric('chatLoadingHintMs', v);
+}
+export function setChatKeepRecent(v: number | null | undefined): void {
+  setNumeric('chatKeepRecent', v);
+}
+export function setChatTitleTimeoutMs(v: number | null | undefined): void {
+  setNumeric('chatTitleTimeoutMs', v);
+}
+export function setChatSummaryTimeoutMs(v: number | null | undefined): void {
+  setNumeric('chatSummaryTimeoutMs', v);
 }
 
 // Internal accessors used by `settings.tools.ts` so the chat-tools fields share

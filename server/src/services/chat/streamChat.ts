@@ -18,20 +18,14 @@ import {
   type OllamaFinalFrame,
 } from './ollamaChat.js';
 import { runOllamaStep } from './ollamaStep.js';
-import { getEnabledTools } from './tools/index.js';
+import { getEnabledTools, filterEnabledTools } from './tools/index.js';
 import { toOllamaTools, executeOllamaToolCall } from './ollamaTools.js';
 import { runToolDispatch, type ToolPart } from './toolDispatch.js';
 import { ThinkParser } from './thinkParser.js';
 import { enforceContextStrategy } from './contextEnforce.js';
 
-// If no chunk arrives within this many ms after submit, surface a "Loading
-// model into VRAM..." status. Picked above typical TTFT (~200-600ms warm)
-// and below cold-load (commonly multiple seconds on big models).
-const LOADING_HINT_MS = 1500;
-
-// Hard cap on tool-dispatch iterations. Without this a buggy tool-loop could
-// monopolize the GPU; the LLM normally wraps up in 1-3 rounds.
-const MAX_TOOL_STEPS = 6;
+// `LOADING_HINT_MS` and `MAX_TOOL_STEPS` are now `settings.chatLoadingHintMs`
+// and `settings.chatMaxToolSteps`. Resolved at call sites below.
 
 interface InFlight {
   abort: AbortController;
@@ -49,6 +43,9 @@ export interface StreamChatInput {
   model: string;
   systemPrompt?: string | null;
   keepAlive?: string;
+  /** Optional allow-list of tool names the user has enabled in the composer.
+   *  null/undefined = use every configured tool (legacy behavior). */
+  enabledToolFilter?: readonly string[] | null;
 }
 
 export interface StreamChatStarted {
@@ -66,6 +63,7 @@ export function startStream(input: StreamChatInput): StreamChatStarted {
   const { conversationId, messages, model, systemPrompt } = input;
   const baseUrl = settings.getOllamaUrl();
   const keepAlive = input.keepAlive ?? settings.getChatKeepAlive();
+  const toolFilter = input.enabledToolFilter ?? null;
   const now = Date.now();
 
   const lastUser = [...messages].reverse().find(m => m.role === 'user');
@@ -98,6 +96,7 @@ export function startStream(input: StreamChatInput): StreamChatStarted {
   void runStream({
     msgId, conversationId, baseUrl, model, keepAlive,
     abort, messages, systemPrompt: systemPrompt ?? null,
+    enabledToolFilter: toolFilter,
   });
 
   return { msgId };
@@ -112,10 +111,14 @@ interface RunStreamArgs {
   abort: AbortController;
   messages: UIMessage[];
   systemPrompt: string | null;
+  enabledToolFilter: readonly string[] | null;
 }
 
 async function runStream(args: RunStreamArgs): Promise<void> {
-  const { msgId, conversationId, baseUrl, model, keepAlive, abort, messages, systemPrompt } = args;
+  const {
+    msgId, conversationId, baseUrl, model, keepAlive,
+    abort, messages, systemPrompt, enabledToolFilter,
+  } = args;
   const startedAt = Date.now();
   const tracker = { firstTokenAt: 0 };
   let accumulated = '';
@@ -144,10 +147,13 @@ async function runStream(args: RunStreamArgs): Promise<void> {
     if (tracker.firstTokenAt === 0) {
       emitChatEvent({
         type: 'chat:status',
-        data: { msgId, message: 'Loading model into VRAM...' },
+        // Status code, not literal — the UI maps `loading_model` to its
+        // displayed phrase so the string only lives in one place. See
+        // `ui/src/components/chat/MessageThread.tsx:ColdLoadLoader`.
+        data: { msgId, code: 'loading_model' },
       });
     }
-  }, LOADING_HINT_MS);
+  }, settings.getChatLoadingHintMs());
 
   try {
     let ollamaMessages: OllamaChatMessage[] = convertToOllamaMessages(messages, systemPrompt);
@@ -157,13 +163,13 @@ async function runStream(args: RunStreamArgs): Promise<void> {
       messages: ollamaMessages,
       msgId,
     });
-    const enabledTools = getEnabledTools();
+    const enabledTools = filterEnabledTools(getEnabledTools(), enabledToolFilter);
     const ollamaTools = Object.keys(enabledTools).length > 0
       ? await toOllamaTools(enabledTools)
       : [];
 
     const dispatch = await runToolDispatch({
-      maxSteps: MAX_TOOL_STEPS,
+      maxSteps: settings.getChatMaxToolSteps(),
       enabledTools,
       ollamaTools,
       runStep: (msgs) => runOllamaStep({

@@ -65,10 +65,7 @@ const TabsList = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivEl
     <div
       ref={ref}
       role="tablist"
-      className={cn(
-        'inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm',
-        className,
-      )}
+      className={cn('tab-strip', className)}
       {...props}
     />
   ),
@@ -97,8 +94,8 @@ const TabsTrigger = React.forwardRef<HTMLButtonElement, TabsTriggerProps>(
           onClick?.(e);
         }}
         className={cn(
-          'inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold transition',
-          isActive ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100',
+          'tab-strip-item',
+          isActive && 'is-active',
           className,
         )}
         {...props}

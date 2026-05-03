@@ -5,14 +5,14 @@ import {
   RotateCw,
   FileText,
   Trash2,
-  Loader2,
   AlertTriangle,
   CheckCircle2,
   X,
 } from 'lucide-react';
+import { Spinner } from './ui/spinner';
 import { useApp } from '../context/AppContext';
 import { api } from '../services/comfyui';
-import LogsDrawer from './LogsDrawer';
+import LogsDrawer from './viewers/LogsDrawer';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -95,7 +95,7 @@ function WipeModal({
       <Card className="relative w-full max-w-3xl max-h-[80vh] flex flex-col">
         <CardHeader className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-            {phase === 'running' && <Loader2 className="w-4 h-4 animate-spin text-amber-500" />}
+            {phase === 'running' && <Spinner size="md" className="text-amber-500" />}
             {phase === 'done' && <CheckCircle2 className="w-4 h-4 text-teal-600" />}
             {phase === 'error' && <AlertTriangle className="w-4 h-4 text-red-600" />}
             {phase === 'running' ? `Wiping (${mode})…` : phase === 'done' ? 'Wipe complete' : 'Wipe failed'}
@@ -222,7 +222,7 @@ export default function ComfyUIActions() {
               aria-label="ComfyUI actions"
               disabled={actionLoading !== null}
             >
-              {actionLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <ChevronDown className="w-3 h-3" />}
+              {actionLoading ? <Spinner size="xs" /> : <ChevronDown className="w-3 h-3" />}
             </button>
           </TooltipTrigger>
           <TooltipContent>ComfyUI actions</TooltipContent>

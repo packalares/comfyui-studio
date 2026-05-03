@@ -45,6 +45,17 @@
     0%   { transform: translateX(-100%) skewX(-12deg); }
     100% { transform: translateX(400%) skewX(-12deg); }
   }
+
+  /* Text-shimmer for the chat "Thinking..." label (replaces Framer Motion).
+     The element sets a 250%-wide gradient as backgroundImage with a "shine"
+     zone in the middle; this keyframe slides that gradient across the text
+     using CSS only — no JS animation runtime. */
+  --animate-text-shimmer: text-shimmer 2s linear infinite;
+
+  @keyframes text-shimmer {
+    from { background-position: 100% center; }
+    to   { background-position: 0%   center; }
+  }
 }
 
 /* v3 default `border-color: gray-200` compat. v4 ships `currentColor`.
@@ -63,6 +74,11 @@
 @layer base {
   html {
     font-size: 15px;
+    /* Always reserve space for the vertical scrollbar so Radix popovers
+       (Select, Dropdown, Dialog) don't reflow the page when they lock body
+       scroll on open — fixes the "dropdown opens off-position then snaps
+       back" flicker on long pages like Settings. */
+    scrollbar-gutter: stable;
   }
   body {
     @apply bg-gray-50 text-gray-900;
@@ -75,39 +91,333 @@
     @apply max-w-[1400px] mx-auto px-4 sm:px-6 py-6;
   }
 
-  /* ===== Cards =====
-     `.panel` + `.panel-{header,body,footer,...}` and `.btn-{primary,secondary,
-     icon,sm,group}` were retired in Phase C2; use the shadcn primitives in
-     `components/ui/card.tsx` and `components/ui/button.tsx` instead — they
-     render identical visual output. */
+  /* ===== Buttons =====
+     Restored as `@apply` shortcuts so plain markup like
+     `<button class="btn-primary">` renders identical to the shadcn `<Button>`
+     component. Each rule mirrors the cva config in `components/ui/button.tsx`
+     verbatim (base classes + variant + size). Edit either side and update the
+     other to keep authoring styles aligned. */
+  /* Base — Tailwind v4 doesn't allow `@apply` of one custom component class
+     inside another, so the JSX always emits `class="btn btn-<variant>"` (two
+     classes). Variant rules contain ONLY the colors that change between
+     variants; the base layout/typography lives here. */
+  .btn {
+    @apply cursor-pointer inline-flex shrink-0 items-center justify-center gap-1
+           rounded-md border border-transparent whitespace-nowrap font-medium
+           transition outline-none select-none focus-visible:ring-2
+           focus-visible:ring-teal-500/40 disabled:opacity-50
+           disabled:pointer-events-none disabled:cursor-not-allowed
+           [&_svg]:pointer-events-none [&_svg]:shrink-0
+           [&_svg:not([class*='size-'])]:size-4
+           px-2 py-1 text-xs;
+  }
+  /* Variants — colors only. Pair with `.btn` for full styling. */
+  .btn-primary     { @apply bg-teal-600 text-white hover:bg-teal-700; }
+  .btn-secondary   { @apply border-slate-300 bg-white text-slate-700 hover:bg-slate-50; }
+  .btn-outline     { @apply border-slate-300 bg-transparent text-slate-700 hover:bg-slate-50; }
+  .btn-ghost       { @apply text-slate-600 hover:bg-slate-100 hover:text-slate-700; }
+  .btn-destructive { @apply bg-rose-600 text-white hover:bg-rose-700; }
+  .btn-link        { @apply text-teal-600 underline-offset-4 hover:underline; }
+  /* Convenience all-in-one for plain `<button class="btn-icon">` authoring.
+     Inlines the base utilities since `@apply btn` isn't allowed in v4. */
+  .btn-icon {
+    @apply inline-flex shrink-0 items-center justify-center gap-1
+           rounded-md border border-transparent whitespace-nowrap font-medium
+           transition outline-none select-none focus-visible:ring-2
+           focus-visible:ring-teal-500/40 disabled:opacity-50
+           disabled:pointer-events-none disabled:cursor-not-allowed
+           text-slate-600 hover:bg-slate-100 hover:text-slate-700 p-1.5;
+  }
+  /* Size overrides — applied alongside a variant class.
+     Declared AFTER variants so cascade overrides padding/text-size correctly. */
+  .btn-sm          { @apply px-1.5 py-0.5 text-[11px]; }
+  .btn-lg          { @apply px-3 py-2 text-sm; }
+  .btn-icon-pad    { @apply p-1.5; }
+  .btn-icon-xs     { @apply p-1 [&_svg:not([class*='size-'])]:size-3; }
+  .btn-icon-lg     { @apply p-2; }
+  /* Segmented row of buttons: strips inner border-radii + collapses borders so
+     adjacent buttons read as one connected control. Mirrors the `<ButtonGroup>`
+     primitive in `components/ui/button-group.tsx`. */
+  .btn-group {
+    @apply inline-flex w-fit items-stretch;
+  }
+  .btn-group > *:not(:first-child) {
+    @apply rounded-l-none border-l-0;
+  }
+  .btn-group > *:not(:last-child) {
+    @apply rounded-r-none;
+  }
+  /* Vertical orientation — same idea but stacked. Used by `<ButtonGroup
+     orientation="vertical">` and any direct `<div class="btn-group-vertical">`. */
+  .btn-group-vertical {
+    @apply inline-flex flex-col w-fit items-stretch;
+  }
+  .btn-group-vertical > *:not(:first-child) {
+    @apply rounded-t-none border-t-0;
+  }
+  .btn-group-vertical > *:not(:last-child) {
+    @apply rounded-b-none;
+  }
+  /* Size modifiers — pair with `.btn-group` (or `.btn-group-vertical`) to
+     scale every child button at once. CSS specificity (`.btn-group-sm > *`
+     = 0,2,0) wins over a child's `.btn-primary` padding (0,1,0) so authors
+     don't need to touch each button. */
+  .btn-group-sm > * {
+    @apply px-1.5 py-[0.2rem] text-[10px] rounded;
+  }
+  .btn-group-lg > * {
+    @apply px-3 py-2 text-sm;
+  }
+
+  /* ===== Tab strip =====
+     Pill-style segmented tab control. Used everywhere we need exclusive-mode
+     tabs: Studio's Form/JSON switch, Models/Downloads, Explore civitai feed,
+     Plugins All/Installed/Available, etc. The shadcn `<Tabs>` primitive emits
+     these classes too, so direct markup and the JSX component render identical.
+     Active item: add the `is-active` modifier. */
+  .tab-strip {
+    @apply inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm;
+  }
+  .tab-strip-item {
+    @apply inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[11px] font-semibold
+           transition cursor-pointer text-slate-600 hover:bg-slate-100;
+  }
+  .tab-strip-item.is-active {
+    @apply bg-slate-900 text-white hover:bg-slate-900;
+  }
+
+  /* ===== Generic micro-utilities =====
+     Small repeated patterns hoisted from inline className chains so they're
+     editable from one place. */
+  /* Uppercase section label — date dividers, KV-row eyebrows, modal headings.
+     Smaller + lighter than `.stat-label` (which is for dashboard widgets). */
+  .eyebrow {
+    @apply text-[10px] font-semibold uppercase tracking-wider text-slate-500;
+  }
+  /* Generic list-row hover surface — sidebar lists, model rows, plugin rows. */
+  .row-hover {
+    @apply transition-colors hover:bg-slate-50;
+  }
+  /* Hover-reveal pattern: child becomes visible when the `group` ancestor is
+     hovered. Pair with `group` on the parent. */
+  .hover-reveal {
+    @apply opacity-0 transition-opacity group-hover:opacity-100;
+  }
+
+  /* ===== Streamdown code-block overrides =====
+     Verified rendered DOM:
+       <div data-streamdown="code-block"
+            class="...rounded-xl border bg-sidebar p-2...">
+         <div data-streamdown="code-block-header" class="h-8...">
+           <span>{language}</span>
+         </div>
+         <div class="...sticky top-2 -mt-10 h-8 justify-end">
+           <div data-streamdown="code-block-actions"
+                class="...rounded-md border bg-sidebar/80 px-1.5 py-1">
+             ...buttons...
+           </div>
+         </div>
+         <div data-streamdown="code-block-body"
+              class="...rounded-md border bg-background p-4">
+           <pre>...code...</pre>
+         </div>
+       </div>
+     We flatten this into a single surface — outer is the only card, body
+     drops its border/bg/radius (no nested-frame look), sticky wrapper
+     collapses, actions get pulled out with `position:absolute` so they
+     sit on the header row.
+     `!important` is via plain CSS — Tailwind v4's `!` prefix in `@apply`
+     doesn't reliably win over inline utilities at the consumer level. */
+  [data-streamdown="code-block"] {
+    position: relative !important;
+    margin: 0.75rem 0 !important;
+    padding: 0 !important;
+    gap: 0 !important;
+    background: rgb(248 250 252) !important; /* slate-50 */
+    border: 1px solid rgb(226 232 240) !important; /* slate-200 */
+    border-radius: 0.375rem !important; /* rounded-md */
+    overflow: hidden !important;
+  }
+  [data-streamdown="code-block-header"] {
+    height: auto !important;
+    padding: 0.375rem 0.75rem !important; /* py-1.5 px-3 */
+    border-bottom: 1px solid rgb(226 232 240) !important;
+    font-size: 11px !important;
+    line-height: 1rem !important;
+    color: rgb(100 116 139) !important; /* slate-500 */
+  }
+  /* The sticky wrapper is the unnamed div parent of code-block-actions.
+     `:has()` reaches it without depending on streamdown's class names. */
+  [data-streamdown="code-block"] > div:has(> [data-streamdown="code-block-actions"]) {
+    position: static !important;
+    margin: 0 !important;
+    height: 0 !important;
+    overflow: visible !important;
+    pointer-events: none !important;
+  }
+  [data-streamdown="code-block-actions"] {
+    position: absolute !important;
+    top: 0.375rem !important;
+    right: 0.5rem !important;
+    pointer-events: auto !important;
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    gap: 0.125rem !important;
+    z-index: 10;
+  }
+  [data-streamdown="code-block-body"] {
+    padding: 0.75rem 1rem !important;
+    margin: 0 !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+  [data-streamdown="code-block-copy-button"],
+  [data-streamdown="code-block-download-button"] {
+    height: 1.5rem !important;
+    width: 1.5rem !important;
+    padding: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 0.25rem !important;
+    color: rgb(100 116 139) !important; /* slate-500 */
+    transition: background-color .15s, color .15s !important;
+  }
+  [data-streamdown="code-block-copy-button"]:hover,
+  [data-streamdown="code-block-download-button"]:hover {
+    background: rgb(226 232 240) !important; /* slate-200 */
+    color: rgb(51 65 85) !important; /* slate-700 */
+  }
+  [data-streamdown="code-block-copy-button"] svg,
+  [data-streamdown="code-block-download-button"] svg {
+    width: 0.875rem !important;
+    height: 0.875rem !important;
+  }
+
+  /* ===== Conversation list (chat sidebar) ===== */
+  /* Each row is a wrapper `<div>` with two button children (open + delete) so
+     we don't nest buttons. The wrapper gets the hover surface; `is-active`
+     adds a teal accent border + tinted bg. */
+  /* JSX must also add `group` as a class on the wrapper so children can
+     opt into `.hover-reveal` (Tailwind v4 doesn't allow `@apply group`). */
+  .chat-list-item {
+    @apply relative flex items-start gap-2 border-l-2 border-transparent
+           px-3 py-2 transition-colors hover:bg-slate-50;
+  }
+  .chat-list-item.is-active {
+    @apply border-teal-500 bg-teal-50 hover:bg-teal-50;
+  }
+  .chat-list-item-title {
+    @apply truncate text-sm font-medium text-slate-800;
+  }
+  .chat-list-item-meta {
+    @apply mt-0.5 text-[11px] text-slate-500;
+  }
+
+  /* ===== Chat main-content topbar =====
+     Horizontal strip above the message thread holding search + nav tabs +
+     context meter. */
+  .chat-topbar {
+    @apply flex items-center gap-2 border-b border-slate-100 px-3 py-2;
+  }
+
+  /* ===== Context meter trigger =====
+     Compact pill rendered in the chat topbar — shows percent + circle. The
+     text-color class gets layered on top via callsite (emerald/amber/rose
+     based on warning level). */
+  .context-meter-trigger {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-slate-200
+           bg-white/70 px-2.5 py-0.5 text-[11px] font-medium transition
+           hover:bg-slate-50 cursor-pointer disabled:cursor-default
+           disabled:hover:bg-white/70;
+  }
+
+  /* ===== Label/value justify-between row =====
+     Used in ContextMeter hovercard, dashboard stats, etc. Pair with mono
+     typeface for numeric tables. */
+  .kv-row {
+    @apply flex items-center justify-between;
+  }
+
+  /* ===== Alert banner — rose tone =====
+     Generic error/warning row used by Chat 502s, Gallery delete failures,
+     ContextMeter overage warning, etc. Caller controls text size + adds
+     icon as a child. */
+  .alert-rose {
+    @apply flex items-start gap-2 rounded-lg border border-rose-200
+           bg-rose-50 px-3 py-2 text-rose-800;
+  }
+
+  /* ===== Panels =====
+     Restored to mirror the shadcn `<Card>` slot tree. Use `.panel` for the
+     surface, `.panel-header` / `.panel-body` / `.panel-footer` for the slots.
+     Title + description shortcuts match `<CardTitle>` / `<CardDescription>`. */
+  .panel {
+    @apply flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm;
+  }
+  .panel-header {
+    @apply border-b border-slate-200 px-4 py-3;
+  }
+  .panel-header-title {
+    @apply text-sm font-semibold text-slate-900;
+  }
+  .panel-header-desc {
+    @apply mt-0.5 text-[11px] text-slate-400;
+  }
+  /* Body grows to push the footer to the bottom — matters when sibling
+     cards in the same grid row have different content heights and the
+     grid stretches both to the tallest, leaving short cards with empty
+     space that the footer was floating in the middle of. */
+  .panel-body {
+    @apply flex-1 px-4 py-4;
+  }
+  .panel-footer {
+    @apply flex items-center justify-between gap-3 border-t border-slate-200
+           bg-slate-50 px-4 py-3;
+  }
+  .panel-action {
+    @apply ml-auto flex items-center gap-2;
+  }
+
+  /* ===== Cards (legacy hover-card surface) =====
+     Lighter than `.panel` — used by content tiles that lift on hover. */
   .card {
     @apply bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow;
   }
 
-  /* ===== Badges ===== */
+  /* ===== Badges =====
+     `.badge-{blue,green,purple,orange}` were retired (zero usages found in
+     the audit). Studio's tone variants live in `components/ui/badge.tsx`
+     under `<Badge variant="emerald|amber|rose|slate|teal">`. */
   .badge {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+    @apply inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1
+           overflow-hidden rounded-full border border-transparent
+           px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-colors;
   }
-  .badge-blue {
-    @apply bg-blue-50 text-blue-700 border border-blue-200;
+  .badge > svg {
+    @apply size-3 pointer-events-none;
   }
-  .badge-green {
-    @apply bg-green-50 text-green-700 border border-green-200;
-  }
-  .badge-purple {
-    @apply bg-purple-50 text-purple-700 border border-purple-200;
-  }
-  .badge-orange {
-    @apply bg-orange-50 text-orange-700 border border-orange-200;
-  }
+  /* Studio tone variants — `<Badge variant="emerald">` etc emit
+     `class="badge badge-emerald"`. Mirrors the cva config in
+     `components/ui/badge.tsx`. */
+  .badge-emerald   { @apply bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200; }
+  .badge-amber     { @apply bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200; }
+  .badge-rose      { @apply bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200; }
+  .badge-slate     { @apply bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-200; }
+  .badge-teal      { @apply bg-teal-50 text-teal-700 ring-1 ring-inset ring-teal-200; }
+  .badge-outline   { @apply border-slate-200 text-slate-700; }
+  .badge-secondary { @apply bg-slate-100 text-slate-700; }
+  /* Plain-CSS shortcut used by direct `<span class="badge-gray">` consumers
+     (TemplateCard "User Workflows" indicator). */
   .badge-gray {
-    @apply bg-gray-100 text-gray-600 border border-gray-200;
+    @apply bg-slate-50 text-slate-600 ring-1 ring-inset ring-slate-200;
   }
-  /* `.badge-pill` and the `.badge-{tone}` family (emerald/amber/rose/slate/teal)
-     were Phase C–migrated to shadcn `<Badge>` with matching custom variants
-     (`emerald`, `amber`, `rose`, `slate`, `teal`) defined in
-     `components/ui/badge.tsx`. Old classes removed; consumers use
-     `<Badge variant="emerald">` etc. */
 
   /* `.stat-box` / `.stat-box-label` / `.stat-box-value` removed in Phase C —
      no consumers remained after the refactor. `.stat-label` (the small
@@ -195,18 +505,8 @@
   }
 
   /* ===== Toggle ===== */
-  .toggle {
-    @apply relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-teal-400 focus:ring-offset-1;
-  }
-  .toggle-off {
-    @apply bg-slate-200;
-  }
-  .toggle-on {
-    @apply bg-teal-600;
-  }
-  .toggle-thumb {
-    @apply inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform;
-  }
+  /* `.toggle` family removed — Settings.tsx now uses shadcn `<Switch>` like
+     the rest of the app. Two switch implementations were unnecessary. */
 }
 
 /* Custom scrollbar */

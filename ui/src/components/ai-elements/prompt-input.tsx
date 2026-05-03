@@ -27,12 +27,12 @@ import {
   InputGroupTextarea,
 } from "@/components/ui/input-group";
 import {
-  Select,
+  SelectField,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "@/components/forms/SelectField";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip,
@@ -1262,10 +1262,10 @@ export const PromptInputSubmit = ({
   );
 };
 
-export type PromptInputSelectProps = ComponentProps<typeof Select>;
+export type PromptInputSelectProps = ComponentProps<typeof SelectField>;
 
 export const PromptInputSelect = (props: PromptInputSelectProps) => (
-  <Select {...props} />
+  <SelectField {...props} />
 );
 
 export type PromptInputSelectTriggerProps = ComponentProps<

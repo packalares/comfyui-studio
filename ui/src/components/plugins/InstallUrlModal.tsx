@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Loader2 } from 'lucide-react';
-import AppModal from '../AppModal';
+import AppModal from '../modals/AppModal';
 import { Button } from '../ui/button';
+import { Spinner } from '../ui/spinner';
 
 interface Props {
   open: boolean;
@@ -82,7 +82,7 @@ export default function InstallUrlModal({
             Cancel
           </Button>
           <Button onClick={submit} disabled={busy}>
-            {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+            {busy ? <Spinner size="sm" /> : null}
             Install
           </Button>
         </div>

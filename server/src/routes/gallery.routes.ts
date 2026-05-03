@@ -67,6 +67,23 @@ router.get(['/gallery', '/launcher/gallery'], async (req: Request, res: Response
  * endpoint above trimmed these fields from its rows to shrink the wire
  * payload — this route is the counterpart that restores them on demand.
  */
+/**
+ * Bulk lookup by promptId — used by the chat thread on conversation reload
+ * to rehydrate `<GeneratedImage>` cards. Accepts a comma-separated `ids`
+ * query param; returns the slim list rows that match. Empty / missing
+ * `ids` returns an empty list (avoids accidentally fetching everything).
+ */
+router.get(['/gallery/by-prompt-ids', '/launcher/gallery/by-prompt-ids'], (req: Request, res: Response) => {
+  const raw = typeof req.query.ids === 'string' ? req.query.ids : '';
+  const ids = raw.split(',').map(s => s.trim()).filter(s => s.length > 0);
+  if (ids.length === 0) { res.json({ items: [] }); return; }
+  try {
+    res.json({ items: gallery.listByPromptIds(ids) });
+  } catch {
+    res.json({ items: [] });
+  }
+});
+
 router.get(['/gallery/:id', '/launcher/gallery/:id'], (req: Request, res: Response) => {
   const id = req.params.id;
   if (typeof id !== 'string' || id.length === 0) {

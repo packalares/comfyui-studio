@@ -210,6 +210,13 @@ export async function list(): Promise<GalleryListItem[]> {
   return repo.listAll({ sort: 'newest' });
 }
 
+/** Bulk lookup by promptId — used by the chat thread on conversation
+ *  reload to rehydrate `<GeneratedImage>` placeholders for old
+ *  `generate_image` tool calls. */
+export function listByPromptIds(promptIds: readonly string[]): GalleryListItem[] {
+  return repo.listByPromptIds(promptIds);
+}
+
 /** Paginated list. Filters applied at SQL level. */
 export async function listPaginated(
   filter: ListFilter,

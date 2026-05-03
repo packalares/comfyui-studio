@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   History,
-  Loader2,
   RefreshCw,
   Trash2,
   X,
@@ -9,9 +8,10 @@ import {
   XCircle,
   AlertTriangle,
 } from 'lucide-react';
+import { Spinner } from '../ui/spinner';
 import { api } from '../../services/comfyui';
 import { usePaginated } from '../../hooks/usePaginated';
-import Pagination from '../Pagination';
+import Pagination from '../layout/Pagination';
 import { formatRelativeTime } from '../../lib/utils';
 import type { PluginHistoryEntry } from '../../types';
 import {
@@ -40,7 +40,7 @@ function StatusBadge({ status }: { status: PluginHistoryEntry['status'] }) {
   if (status === 'running') {
     return (
       <Badge variant="teal">
-        <Loader2 className="h-3 w-3 animate-spin" />
+        <Spinner size="xs" />
         Running
       </Badge>
     );

@@ -5,9 +5,17 @@
 // when `format=json` is supported. Servers that haven't enabled JSON respond
 // with HTML — we detect that via Content-Type and surface a helpful error so
 // the operator knows to flip the flag instead of silently returning nothing.
+//
+// Result envelope: when results are present we return a structured object
+// `{ text, sources: [...] }` so the chat UI can render an ai-elements
+// `<Sources>` block alongside the regular `<Tool>` card. Plain text is
+// preserved verbatim in the `text` field so the LLM still sees the same
+// numbered list it has always consumed (the model never reads the side
+// channel — only the `text` round-trips back into the prompt context).
 
 import { tool } from 'ai';
 import { z } from 'zod';
+import { TOOL_DESCRIPTION_WEB_SEARCH } from '../prompts.js';
 
 export interface WebSearchConfig {
   baseUrl: string;
@@ -25,6 +33,20 @@ interface SearxngEnvelope {
   answers?: unknown;
 }
 
+/** Structured-output envelope shape consumed by the chat UI. The string-only
+ *  variant covers failure / empty-result paths so callers can keep treating
+ *  `string` as a valid return shape (back-compat with the original tool). */
+export interface WebSearchSource {
+  title: string;
+  url: string;
+  snippet: string;
+}
+export interface WebSearchEnvelope {
+  text: string;
+  sources?: WebSearchSource[];
+}
+export type WebSearchOutput = string | WebSearchEnvelope;
+
 const inputSchema = z.object({
   query: z.string().min(1).describe('Free-text search query.'),
   max: z.number().int().positive().max(20).optional()
@@ -35,7 +57,7 @@ async function runSearch(
   baseUrl: string,
   query: string,
   max: number,
-): Promise<string> {
+): Promise<WebSearchOutput> {
   const url = `${baseUrl}/search?format=json&q=${encodeURIComponent(query)}`;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 15_000);
@@ -66,26 +88,33 @@ async function runSearch(
     return `No results for "${query}".`;
   }
   const top = results.slice(0, max);
-  const lines: string[] = [];
-  top.forEach((r, i) => {
-    const title = (r.title ?? '').trim() || '(untitled)';
-    const link = (r.url ?? '').trim();
-    const snippet = (r.content ?? '').trim();
-    lines.push(`${i + 1}. ${title}`);
-    if (link) lines.push(`   ${link}`);
-    if (snippet) lines.push(`   ${snippet}`);
-    lines.push('');
-  });
-  return lines.join('\n').trimEnd();
+  const text = _formatResults(top, top.length);
+  const sources = _toSources(top);
+  return { text, sources };
+}
+
+/** Map raw SearXNG results to the UI-friendly source shape. Drops entries
+ *  without a usable URL — InlineCitation rendering relies on `new URL()` for
+ *  the hostname pill, so an empty href would throw at render time. */
+export function _toSources(results: SearxngResult[]): WebSearchSource[] {
+  const out: WebSearchSource[] = [];
+  for (const r of results) {
+    const url = (r.url ?? '').trim();
+    if (!url) continue;
+    out.push({
+      title: (r.title ?? '').trim() || url,
+      url,
+      snippet: (r.content ?? '').trim(),
+    });
+  }
+  return out;
 }
 
 export function webSearchTool(config: WebSearchConfig) {
   return tool({
-    description: 'Search the public web via a SearXNG metasearch engine. '
-      + 'Returns a numbered list of titles, URLs, and snippets — use the URLs '
-      + 'as citations when answering the user.',
+    description: TOOL_DESCRIPTION_WEB_SEARCH,
     inputSchema,
-    execute: async ({ query, max }) => {
+    execute: async ({ query, max }): Promise<WebSearchOutput> => {
       const cap = typeof max === 'number' ? Math.max(1, Math.min(20, max)) : 5;
       try {
         return await runSearch(config.baseUrl, query, cap);

@@ -1,19 +1,21 @@
 import { useMemo, useEffect, useCallback, useState, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Search, Layers, WifiOff, Settings, SlidersHorizontal, X, RefreshCw, Upload, Loader2 } from 'lucide-react';
+import { Search, Layers, WifiOff, Settings, SlidersHorizontal, X, RefreshCw, Upload } from 'lucide-react';
 import { toast } from 'sonner';
+import { Spinner } from '../components/ui/spinner';
 import type { Template, CivitaiModelSummary, StagedImportManifest } from '../types';
 import { api } from '../services/comfyui';
 import { useApp } from '../context/AppContext';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { usePaginated } from '../hooks/usePaginated';
-import Pagination from '../components/Pagination';
-import TemplateCard, { CivitaiTemplateCard } from '../components/TemplateCard';
-import PageSubbar from '../components/PageSubbar';
-import ImportWorkflowModal from '../components/ImportWorkflowModal';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import Pagination from '../components/layout/Pagination';
+import TemplateCard, { CivitaiTemplateCard } from '../components/cards/TemplateCard';
+import PageSubbar from '../components/layout/PageSubbar';
+import ImportWorkflowModal from '../components/modals/ImportWorkflowModal';
+import { SelectField, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/forms/SelectField';
 import { Checkbox } from '../components/ui/checkbox';
 import { Button } from '../components/ui/button';
+import { ButtonGroup } from '../components/ui/button-group';
 import { Card } from '../components/ui/card';
 
 type ReadyFilter = 'all' | 'yes' | 'no';
@@ -305,12 +307,11 @@ export default function Explore() {
         description={`${templates.length} workflows available`}
         right={
           <div className="flex items-center gap-2">
-            <div className="inline-flex">
+            <ButtonGroup>
               <Button
                 onClick={() => handleImportOpen(null)}
                 aria-label="Import workflow"
                 title="Import a workflow from a .json or .zip file"
-                className="rounded-r-none"
               >
                 <Upload className="w-3.5 h-3.5" />
                 Import workflow
@@ -321,12 +322,11 @@ export default function Explore() {
                 variant="secondary"
                 aria-label="Refresh templates"
                 title="Re-pull template catalog from ComfyUI and recompute readiness"
-                className="rounded-l-none -ml-px"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
                 {refreshing ? 'Refreshing...' : 'Refresh'}
               </Button>
-            </div>
+            </ButtonGroup>
             <Button
               onClick={() => setFiltersOpen(o => !o)}
               variant="secondary"
@@ -353,7 +353,7 @@ export default function Explore() {
                   require an API key; only the `api` option does. */}
               <div>
                 <label className="field-label mb-1.5 block">Source</label>
-                <Select value={sourceFilter} onValueChange={(v) => setSourceFilter(v as SourceFilter)}>
+                <SelectField value={sourceFilter} onValueChange={(v) => setSourceFilter(v as SourceFilter)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -366,7 +366,7 @@ export default function Explore() {
                     <SelectItem value="user">User imported</SelectItem>
                     <SelectItem value="civitai">CivitAI</SelectItem>
                   </SelectContent>
-                </Select>
+                </SelectField>
               </div>
 
               {/* Feed — civitai only. Swaps between Latest / Hot / Search
@@ -375,7 +375,7 @@ export default function Explore() {
               {sourceFilter === 'civitai' && (
                 <div>
                   <label className="field-label mb-1.5 block">Feed</label>
-                  <Select value={civitaiFeed} onValueChange={(v) => setCivitaiFeed(v as CivitaiFeed)}>
+                  <SelectField value={civitaiFeed} onValueChange={(v) => setCivitaiFeed(v as CivitaiFeed)}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -384,7 +384,7 @@ export default function Explore() {
                       <SelectItem value="hot">Hot</SelectItem>
                       <SelectItem value="search">Search</SelectItem>
                     </SelectContent>
-                  </Select>
+                  </SelectField>
                   {civitaiFeed === 'search' && !debouncedSearch.trim() && (
                     <p className="mt-1.5 text-[11px] text-slate-500">
                       Type a query in the Search box above to run a CivitAI search.
@@ -401,7 +401,7 @@ export default function Explore() {
               {sourceFilter !== 'civitai' && (
                 <div>
                   <label className="field-label mb-1.5 block">Category</label>
-                  <Select value={activeCategory} onValueChange={setActiveCategory}>
+                  <SelectField value={activeCategory} onValueChange={setActiveCategory}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -416,7 +416,7 @@ export default function Explore() {
                         );
                       })}
                     </SelectContent>
-                  </Select>
+                  </SelectField>
                 </div>
               )}
 
@@ -501,11 +501,8 @@ export default function Explore() {
                   )}
                 </div>
                 {sourceFilter !== 'civitai' && (
-                  <div
-                    role="tablist"
-                    aria-label="Ready to use filter"
-                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm self-start md:self-auto"
-                  >
+                  <div role="tablist" aria-label="Ready to use filter"
+                    className="tab-strip self-start md:self-auto">
                     {(['all', 'yes', 'no'] as const).map(v => {
                       const labelMap = { all: 'All', yes: 'Ready', no: 'Missing' };
                       const active = readyFilter === v;
@@ -515,9 +512,7 @@ export default function Explore() {
                           role="tab"
                           aria-selected={active}
                           onClick={() => setReadyFilter(v)}
-                          className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold transition ${
-                            active ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
-                          }`}
+                          className={`tab-strip-item ${active ? 'is-active' : ''}`}
                         >
                           {labelMap[v]}
                         </button>
@@ -645,7 +640,7 @@ function CivitaiLoadMore({ hasMore, loading, error, hasRows, onLoadMore }: Civit
     <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-center gap-3">
       {loading ? (
         <span className="text-xs text-slate-500 inline-flex items-center gap-2">
-          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          <Spinner size="sm" />
           Loading…
         </span>
       ) : error && !hasRows ? (

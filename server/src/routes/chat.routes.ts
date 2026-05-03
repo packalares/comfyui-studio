@@ -13,6 +13,7 @@ import * as settings from '../services/settings.js';
 import { startStream, abortStream } from '../services/chat/streamChat.js';
 import { computeUsage } from '../services/chat/contextWindow.js';
 import { compactConversation } from '../services/chat/contextCompact.js';
+import { listAvailableTools } from '../services/chat/tools/index.js';
 
 const router = Router();
 
@@ -39,6 +40,7 @@ router.post('/chat/start', (req: Request, res: Response) => {
     model?: unknown;
     messages?: unknown;
     systemPrompt?: unknown;
+    enabledTools?: unknown;
   };
   const messages = Array.isArray(body.messages) ? body.messages as UIMessage[] : [];
   if (messages.length === 0) {
@@ -55,6 +57,12 @@ router.post('/chat/start', (req: Request, res: Response) => {
     return;
   }
   const systemPrompt = typeof body.systemPrompt === 'string' ? body.systemPrompt : null;
+  // Optional allow-list from the composer's Tools popover. Absent / non-array
+  // means "use every configured tool" (unchanged legacy behavior); an empty
+  // array means "no tools this turn".
+  const enabledToolFilter = Array.isArray(body.enabledTools)
+    ? body.enabledTools.filter((x): x is string => typeof x === 'string')
+    : null;
 
   let conversationId = typeof body.conversationId === 'string' && body.conversationId.length > 0
     ? body.conversationId
@@ -86,6 +94,7 @@ router.post('/chat/start', (req: Request, res: Response) => {
       model: requestedModel,
       systemPrompt,
       keepAlive: settings.getChatKeepAlive(),
+      enabledToolFilter,
     });
     res.json({ conversationId, msgId });
   } catch (err) {
@@ -104,8 +113,20 @@ router.post('/chat/stop/:msgId', (req: Request, res: Response) => {
   res.json({ aborted });
 });
 
-router.get('/chat/conversations', (_req: Request, res: Response) => {
-  res.json({ items: chatRepo.listConversations() });
+router.get('/chat/tools', (_req: Request, res: Response) => {
+  res.json({ items: listAvailableTools() });
+});
+
+router.get('/chat/conversations', (req: Request, res: Response) => {
+  // Pagination + title-search support. Defaults preserve the legacy
+  // "give me everything" caller (limit=20, offset=0, no search) — clients
+  // that want larger pages pass an explicit `?limit=N`.
+  const limitRaw = Number.parseInt(String(req.query.limit ?? ''), 10);
+  const offsetRaw = Number.parseInt(String(req.query.offset ?? ''), 10);
+  const limit = Number.isFinite(limitRaw) ? limitRaw : 20;
+  const offset = Number.isFinite(offsetRaw) ? offsetRaw : 0;
+  const q = typeof req.query.q === 'string' ? req.query.q : '';
+  res.json(chatRepo.listConversations({ limit, offset, search: q }));
 });
 
 router.get('/chat/conversations/:id', (req: Request, res: Response) => {
@@ -143,6 +164,17 @@ router.delete('/chat/conversations/:id', (req: Request, res: Response) => {
   const ok = chatRepo.deleteConversation(id);
   if (!ok) { res.status(404).json({ error: 'not found' }); return; }
   res.json({ deleted: true, id });
+});
+
+// Per-message delete used by the new in-thread Trash action. Scoped by
+// conversation id so a stale ui state can't accidentally delete a message
+// from a different chat. Returns 404 when nothing matched (no-op).
+router.delete('/chat/conversations/:id/messages/:msgId', (req: Request, res: Response) => {
+  const id = paramStr(req.params.id);
+  const msgId = paramStr(req.params.msgId);
+  const ok = chatRepo.deleteMessage(id, msgId);
+  if (!ok) { res.status(404).json({ error: 'not found' }); return; }
+  res.json({ deleted: true, id, msgId });
 });
 
 router.patch('/chat/conversations/:id', (req: Request, res: Response) => {

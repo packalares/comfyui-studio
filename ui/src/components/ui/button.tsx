@@ -1,51 +1,59 @@
 import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority"
 import { Slot } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 
-// Variants are tuned to match Studio's pre-existing `.btn-primary`,
-// `.btn-secondary`, `.btn-icon`, `.btn-ghost`, `.btn-sm` rules in index.css so
-// migrating consumers from those classes to <Button /> is visually identical.
-// See ui/src/index.css for the original rules.
-const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center gap-1 rounded-md border border-transparent whitespace-nowrap font-medium transition outline-none select-none focus-visible:ring-2 focus-visible:ring-teal-500/40 disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-  {
-    variants: {
-      variant: {
-        // .btn-primary: bg-teal-600 text-white hover:bg-teal-700
-        default: "bg-teal-600 text-white hover:bg-teal-700",
-        // .btn-secondary: white surface with slate border
-        secondary:
-          "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
-        outline:
-          "border-slate-300 bg-transparent text-slate-700 hover:bg-slate-50",
-        // .btn-ghost / .btn-icon hover: light slate hover
-        ghost: "text-slate-600 hover:bg-slate-100 hover:text-slate-700",
-        destructive: "bg-rose-600 text-white hover:bg-rose-700",
-        link: "text-teal-600 underline-offset-4 hover:underline",
-      },
-      size: {
-        // matches .btn (px-2.5 py-1.5 text-xs)
-        default: "px-2.5 py-1.5 text-xs",
-        // matches .btn-sm (px-1.5 py-0.5 text-[11px])
-        sm: "px-1.5 py-0.5 text-[11px]",
-        // legacy xs alias for sm; preserved for any existing consumers
-        xs: "px-1.5 py-0.5 text-[11px]",
-        lg: "px-3 py-2 text-sm",
-        // .btn-icon: square padding, no x/y padding
-        icon: "p-1.5",
-        "icon-xs": "p-1 [&_svg:not([class*='size-'])]:size-3",
-        "icon-sm": "p-1.5",
-        "icon-lg": "p-2",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-      size: "default",
-    },
-  }
-)
+// Each variant + size maps to a CSS shortcut class defined in `index.css`
+// (`.btn-primary`, `.btn-sm`, `.btn-icon-pad`, etc) so the rendered DOM stays
+// readable (`<button class="btn-primary">`) and there's a single source of
+// truth in CSS. The Tailwind utility chain still ships through `@apply`
+// inside each shortcut — same pixels, less verbosity.
+
+const VARIANT_CLASS: Record<string, string> = {
+  default: "btn-primary",
+  secondary: "btn-secondary",
+  outline: "btn-outline",
+  ghost: "btn-ghost",
+  destructive: "btn-destructive",
+  link: "btn-link",
+}
+
+const SIZE_CLASS: Record<string, string> = {
+  // default size baked into each variant class — no extra modifier needed
+  default: "",
+  sm: "btn-sm",
+  // legacy alias preserved for any existing consumers
+  xs: "btn-sm",
+  lg: "btn-lg",
+  // size=icon swaps padding only — variant supplies colors
+  icon: "btn-icon-pad",
+  "icon-xs": "btn-icon-xs",
+  "icon-sm": "btn-icon-pad",
+  "icon-lg": "btn-icon-lg",
+}
+
+export type ButtonVariant = keyof typeof VARIANT_CLASS
+export type ButtonSize = keyof typeof SIZE_CLASS
+
+export interface ButtonVariantsArgs {
+  variant?: ButtonVariant
+  size?: ButtonSize
+  className?: string
+}
+
+/** Compose the CSS class string for a given variant/size. Kept as a function
+ *  export so existing call sites that previously imported `buttonVariants`
+ *  from cva (e.g. `alert-dialog.tsx`) keep working unchanged. */
+export function buttonVariants({
+  variant = "default",
+  size = "default",
+  className,
+}: ButtonVariantsArgs = {}): string {
+  // Always include `btn` (the base) — Tailwind v4 forbids `@apply btn` inside
+  // variant rules, so the variant classes carry ONLY their colors. The base
+  // layout/typography needs to be present on the element directly.
+  return cn("btn", VARIANT_CLASS[variant] ?? "", SIZE_CLASS[size] ?? "", className)
+}
 
 function Button({
   className,
@@ -53,21 +61,21 @@ function Button({
   size = "default",
   asChild = false,
   ...props
-}: React.ComponentProps<"button"> &
-  VariantProps<typeof buttonVariants> & {
-    asChild?: boolean
-  }) {
+}: React.ComponentProps<"button"> & {
+  variant?: ButtonVariant
+  size?: ButtonSize
+  asChild?: boolean
+}) {
   const Comp = asChild ? Slot.Root : "button"
-
   return (
     <Comp
       data-slot="button"
       data-variant={variant}
       data-size={size}
-      className={cn(buttonVariants({ variant, size, className }))}
+      className={buttonVariants({ variant, size, className })}
       {...props}
     />
   )
 }
 
-export { Button, buttonVariants }
+export { Button }

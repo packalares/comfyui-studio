@@ -3,14 +3,14 @@ import {
   RefreshCw,
   Plus,
   Search,
-  Loader2,
   AlertTriangle,
   Package as PackageIcon,
 } from 'lucide-react';
 import { api } from '../../services/comfyui';
+import { Spinner } from '../../components/ui/spinner';
 import { usePersistedState } from '../../hooks/usePersistedState';
 import { usePaginated } from '../../hooks/usePaginated';
-import Pagination from '../../components/Pagination';
+import Pagination from '../../components/layout/Pagination';
 import type { Plugin } from '../../types';
 import PluginRow from '../../components/plugins/PluginRow';
 import InstallUrlModal from '../../components/plugins/InstallUrlModal';
@@ -170,11 +170,7 @@ export default function Installed() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <div
-            role="tablist"
-            aria-label="Plugin filter"
-            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1"
-          >
+          <div role="tablist" aria-label="Plugin filter" className="tab-strip">
             {(
               [
                 ['all', 'All'],
@@ -187,9 +183,7 @@ export default function Installed() {
                 role="tab"
                 aria-selected={filter === key}
                 onClick={() => setFilter(key)}
-                className={`inline-flex items-center rounded-md px-2.5 py-1 text-xs font-semibold transition ${
-                  filter === key ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
-                }`}
+                className={`tab-strip-item ${filter === key ? 'is-active' : ''}`}
               >
                 {label}
               </button>
@@ -235,7 +229,7 @@ export default function Installed() {
         </CardHeader>
         {loading && plugins.length === 0 ? (
           <CardContent className="flex items-center justify-center py-10">
-            <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />
+            <Spinner size="lg" className="text-slate-400" />
           </CardContent>
         ) : plugins.length === 0 ? (
           <CardContent>

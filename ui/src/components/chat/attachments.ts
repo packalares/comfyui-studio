@@ -12,27 +12,31 @@
 // persisted-wire shape and lets `useChat` round-trip it through the
 // transport.
 
-// Heuristic vision-capable model match. The chat library response may carry
-// authoritative `capabilities: ['vision']` for known catalog entries — we
-// fall back to a name-pattern match for installed-only models that aren't
-// in the public library (custom HF pulls, fine-tunes).
-const VISION_NAME_PATTERNS: RegExp[] = [
-  /(^|[/:_-])gemma\s*3/i,
-  /(^|[/:_-])gemma\s*4/i,
-  /llama.*vision/i,
-  /llava/i,
-  /qwen.*vl/i,
-  /qwen2\.?5vl/i,
-  /minicpm-v/i,
-  /bakllava/i,
-  /moondream/i,
-  /llama3\.2-vision/i,
-  /llama4/i,
-];
+// Vision-capable detection — single source: the chat-library capabilities
+// map already loaded by `Chat.tsx` from `/api/chat/models/library`. The old
+// hardcoded regex list (gemma3 / llava / qwen-vl / etc) drifted from the
+// upstream catalog whenever Ollama added new vision models; the library
+// response is authoritative.
+//
+// `libraryCaps` is keyed by the model's *base* name (`gemma3`, not
+// `gemma3:9b`). Callers strip the tag suffix before lookup; here we only
+// check the array contains 'vision'.
+export function modelIsVisionCapable(_modelName: string, libraryCaps?: string[] | null): boolean {
+  return !!(libraryCaps && libraryCaps.includes('vision'));
+}
 
-export function modelIsVisionCapable(modelName: string, libraryCaps?: string[] | null): boolean {
-  if (libraryCaps && libraryCaps.includes('vision')) return true;
-  return VISION_NAME_PATTERNS.some((rx) => rx.test(modelName));
+/** List of installed-base-names that look vision-capable, used for the
+ *  toast hint when the user attaches an image to a non-vision model. The
+ *  toast is informational only; if the library map is empty we fall back
+ *  to a generic message. */
+export function listVisionCapableBaseNames(
+  libraryCapabilities: Record<string, string[]> | undefined,
+): string[] {
+  if (!libraryCapabilities) return [];
+  return Object.entries(libraryCapabilities)
+    .filter(([, caps]) => caps.includes('vision'))
+    .map(([name]) => name)
+    .sort();
 }
 
 export const MAX_ATTACHMENTS = 5;

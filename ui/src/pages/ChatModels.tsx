@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Download, Trash2, RefreshCw, Search, Loader2, ArrowLeft, Check } from 'lucide-react';
+import { Download, Trash2, RefreshCw, Search, ArrowLeft, Check } from 'lucide-react';
 import { toast } from 'sonner';
-import PageSubbar from '../components/PageSubbar';
+import PageSubbar from '../components/layout/PageSubbar';
+import { Spinner } from '../components/ui/spinner';
 import {
   api, type OllamaInstalledModel, type OllamaLibraryModel, type HfModelSummary,
 } from '../services/comfyui';
@@ -160,23 +161,23 @@ export default function ChatModels() {
         }
       />
       <div className="page-container space-y-3">
-        <div className="flex gap-2 border-b border-slate-200">
-          {(['installed', 'library', 'huggingface'] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
-                tab === t
-                  ? 'border-blue-600 text-blue-700'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              {t === 'installed' && `Installed${installed.length ? ` (${installed.length})` : ''}`}
-              {t === 'library' && 'Ollama Library'}
-              {t === 'huggingface' && 'Hugging Face'}
-            </button>
-          ))}
-          <div className="ml-auto flex items-center pb-1">
+        <div className="flex items-center gap-2">
+          <div role="tablist" aria-label="Chat model source" className="tab-strip">
+            {(['installed', 'library', 'huggingface'] as const).map((t) => (
+              <button
+                key={t}
+                role="tab"
+                aria-selected={tab === t}
+                onClick={() => setTab(t)}
+                className={`tab-strip-item ${tab === t ? 'is-active' : ''}`}
+              >
+                {t === 'installed' && `Installed${installed.length ? ` (${installed.length})` : ''}`}
+                {t === 'library' && 'Ollama Library'}
+                {t === 'huggingface' && 'Hugging Face'}
+              </button>
+            ))}
+          </div>
+          <div className="ml-auto">
             <Button
               onClick={tab === 'installed' ? refreshInstalled : tab === 'library' ? refreshLibrary : handleHfSearch}
               disabled={loadingTab}
@@ -192,7 +193,7 @@ export default function ChatModels() {
 
         {tab === 'installed' && (
           <div className="grid gap-2 md:grid-cols-2">
-            {loadingTab && <div className="col-span-full py-8 text-center"><Loader2 className="mx-auto w-5 h-5 animate-spin text-slate-400" /></div>}
+            {loadingTab && <div className="col-span-full py-8 text-center"><Spinner size="lg" className="mx-auto text-slate-400" /></div>}
             {!loadingTab && installed.length === 0 && (
               <div className="col-span-full py-8 text-center text-sm text-slate-400">
                 No models installed. Browse the Ollama Library tab to pull one.
@@ -223,7 +224,7 @@ export default function ChatModels() {
 
         {tab === 'library' && (
           <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
-            {loadingTab && <div className="col-span-full py-8 text-center"><Loader2 className="mx-auto w-5 h-5 animate-spin text-slate-400" /></div>}
+            {loadingTab && <div className="col-span-full py-8 text-center"><Spinner size="lg" className="mx-auto text-slate-400" /></div>}
             {!loadingTab && library.length === 0 && (
               <div className="col-span-full py-8 text-center text-sm text-slate-400">
                 Couldn't load the Ollama library (the upstream may be unreachable).

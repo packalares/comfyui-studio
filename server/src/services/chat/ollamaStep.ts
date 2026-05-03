@@ -74,10 +74,15 @@ export async function runOllamaStep(input: OllamaStepInput): Promise<OllamaStepR
       accumulated += delta;
       input.onChunk(delta);
     }
+    // Ollama streams the `tool_calls` payload on a `done: false` frame
+    // *before* the closing telemetry frame (verified against llama3.1:latest +
+    // mistral-nemo: frame 1 carries the call, frame 2 has done:true but no
+    // tool_calls). Extracting only on the final frame loses every tool call
+    // when streaming is on. Pull from every frame; the last non-empty wins.
+    const calls = extractToolCalls(frame);
+    if (calls.length > 0) toolCalls = calls;
     if (frame.done === true) {
       finalFrame = frame;
-      const calls = extractToolCalls(frame);
-      if (calls.length > 0) toolCalls = calls;
       break;
     }
   }

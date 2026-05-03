@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Globe, Loader2 } from 'lucide-react';
+import { Globe } from 'lucide-react';
 import { api } from '../services/comfyui';
 import { Card } from './ui/card';
+import { Spinner } from './ui/spinner';
 
 /**
  * Mirror of the backend `NetworkConfigView` in
@@ -75,7 +76,7 @@ export default function NetworkWidget() {
         </div>
         <h3 className="stat-label">Network</h3>
         <span className="ml-auto text-[11px] text-slate-500 flex items-center gap-1.5">
-          {loading && <Loader2 className="w-3 h-3 animate-spin text-slate-400" />}
+          {loading && <Spinner size="xs" className="text-slate-400" />}
           {summary}
         </span>
       </div>

@@ -7,9 +7,16 @@
 // returns a structured error directing the user / model to pick one. (We
 // intentionally don't auto-fan-out across every dataset because the API call
 // would cost more than the LLM step itself on a populous tenant.)
+//
+// Result envelope: when chunks are present we return a structured object
+// `{ text, sources }` so the chat UI can render an ai-elements `<Sources>`
+// block alongside the regular `<Tool>` card. The model only sees `text`
+// (toolDispatch.toContentString unwraps it), keeping the existing tool-message
+// shape unchanged.
 
 import { tool } from 'ai';
 import { z } from 'zod';
+import { TOOL_DESCRIPTION_RAG_SEARCH, RAG_SEARCH_NO_KB_ERROR } from '../prompts.js';
 
 export interface RagSearchConfig {
   baseUrl: string;
@@ -34,6 +41,18 @@ interface RagflowResponse {
   };
 }
 
+/** Same shape as `WebSearchSource` so the UI can reuse one renderer. */
+export interface RagSearchSource {
+  title: string;
+  url: string;
+  snippet: string;
+}
+export interface RagSearchEnvelope {
+  text: string;
+  sources?: RagSearchSource[];
+}
+export type RagSearchOutput = string | RagSearchEnvelope;
+
 const inputSchema = z.object({
   query: z.string().min(1)
     .describe('Natural-language question to retrieve relevant chunks for.'),
@@ -52,7 +71,7 @@ interface RetrieveArgs {
   topK: number;
 }
 
-async function retrieve(args: RetrieveArgs): Promise<string> {
+async function retrieve(args: RetrieveArgs): Promise<RagSearchOutput> {
   const url = `${args.baseUrl}/api/v1/retrieval`;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 30_000);
@@ -85,7 +104,35 @@ async function retrieve(args: RetrieveArgs): Promise<string> {
   if (chunks.length === 0) {
     return `No matching chunks for "${args.query}" in dataset ${args.datasetId}.`;
   }
-  return formatChunks(chunks, args.topK);
+  const text = formatChunks(chunks, args.topK);
+  const sources = _toSources(args.baseUrl, chunks.slice(0, args.topK));
+  return { text, sources };
+}
+
+/** Map RAGFlow chunks onto a `WebSearchSource`-compatible shape. URL points at
+ *  the RAGFlow document download endpoint when a `document_id` is available
+ *  so InlineCitation can render a working link; otherwise fall back to a
+ *  synthetic `ragflow:` href so the row still renders (UI degrades gracefully
+ *  to a plain text source — no `new URL()` failure since we always emit a
+ *  scheme). */
+export function _toSources(
+  baseUrl: string,
+  chunks: RagflowChunk[],
+): RagSearchSource[] {
+  const out: RagSearchSource[] = [];
+  for (const c of chunks) {
+    const docName = (c.document_keyword ?? c.document_name ?? '').trim();
+    const id = (c.document_id ?? '').trim();
+    const url = id
+      ? `${baseUrl}/api/v1/document/${encodeURIComponent(id)}`
+      : `ragflow://${encodeURIComponent(docName || 'chunk')}`;
+    out.push({
+      title: docName || '(untitled chunk)',
+      url,
+      snippet: (c.content_with_weight ?? c.content ?? '').trim(),
+    });
+  }
+  return out;
 }
 
 export function formatChunks(chunks: RagflowChunk[], topK: number): string {
@@ -105,15 +152,11 @@ export function formatChunks(chunks: RagflowChunk[], topK: number): string {
 
 export function ragSearchTool(config: RagSearchConfig) {
   return tool({
-    description: 'Search the user\'s RAGFlow knowledge bases for relevant '
-      + 'chunks. Each result includes the source document name plus the '
-      + 'matching text — quote the chunks back when answering and cite the '
-      + 'source document name.',
+    description: TOOL_DESCRIPTION_RAG_SEARCH,
     inputSchema,
-    execute: async ({ query, knowledge_base_id, top_k }) => {
+    execute: async ({ query, knowledge_base_id, top_k }): Promise<RagSearchOutput> => {
       if (!knowledge_base_id) {
-        return 'rag_search failed: knowledge_base_id is required. Ask the '
-          + 'user which knowledge base to search before retrying.';
+        return RAG_SEARCH_NO_KB_ERROR;
       }
       const k = typeof top_k === 'number' ? Math.max(1, Math.min(20, top_k)) : 5;
       try {

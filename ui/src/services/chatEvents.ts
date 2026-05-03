@@ -26,7 +26,15 @@ export interface ChatDonePayload { msgId: string; stats: ChatDoneStats }
 export interface ChatErrorPayload { msgId: string; error: string }
 // Surfaced while the assistant is "warming up" — currently emitted by the
 // server when no token has arrived after a short delay (cold-load hint).
-export interface ChatStatusPayload { msgId: string; message: string }
+// `code` is the canonical tag the UI maps to a localized string;
+// `message` is kept for backwards-compat with anything still emitting a
+// literal. New emit sites should set `code` and leave `message` empty.
+export type ChatStatusCode = 'loading_model' | 'unknown';
+export interface ChatStatusPayload {
+  msgId: string;
+  code?: ChatStatusCode;
+  message?: string;
+}
 // Best-effort auto-title broadcast after the first assistant turn finishes.
 // Sidebar listens to update its row without refetching the conversation list.
 export interface ChatTitlePayload { conversationId: string; title: string }
@@ -58,6 +66,24 @@ export interface ModelPullProgressPayload {
 export interface ModelPullDonePayload { name: string; taskId: string }
 export interface ModelPullErrorPayload { name: string; taskId: string; error: string }
 
+/**
+ * Gallery-added envelope re-emitted onto this bus from the page-level WS
+ * handler. The chat UI subscribes (filtered by `promptId`) to swap a pending
+ * `generate_image` tool result over to a rendered image when ComfyUI
+ * finishes the run. We don't carry the full GalleryItem shape here — the
+ * subscriber only needs the promptId + best-effort thumbnail/url so the
+ * component can render an `<img>` without a separate /api lookup.
+ */
+export interface GalleryAddedItem {
+  id: string;
+  promptId: string;
+  url: string;
+  filename: string;
+  mediaType: string;
+  thumbnailUrl?: string;
+}
+export interface GalleryAddedPayload { items: GalleryAddedItem[] }
+
 interface Bus {
   start: Set<Handler<ChatStartPayload>>;
   chunk: Set<Handler<ChatChunkPayload>>;
@@ -67,6 +93,7 @@ interface Bus {
   status: Set<Handler<ChatStatusPayload>>;
   title: Set<Handler<ChatTitlePayload>>;
   tool: Set<Handler<ChatToolPayload>>;
+  galleryAdded: Set<Handler<GalleryAddedPayload>>;
   pullProgress: Set<Handler<ModelPullProgressPayload>>;
   pullDone: Set<Handler<ModelPullDonePayload>>;
   pullError: Set<Handler<ModelPullErrorPayload>>;
@@ -76,6 +103,7 @@ const bus: Bus = {
   start: new Set(), chunk: new Set(), reasoning: new Set(),
   done: new Set(), error: new Set(),
   status: new Set(), title: new Set(), tool: new Set(),
+  galleryAdded: new Set(),
   pullProgress: new Set(), pullDone: new Set(), pullError: new Set(),
 };
 
@@ -93,6 +121,7 @@ export const chatEvents = {
   onStatus: (h: Handler<ChatStatusPayload>) => subscribe(bus.status, h),
   onTitle: (h: Handler<ChatTitlePayload>) => subscribe(bus.title, h),
   onTool: (h: Handler<ChatToolPayload>) => subscribe(bus.tool, h),
+  onGalleryAdded: (h: Handler<GalleryAddedPayload>) => subscribe(bus.galleryAdded, h),
   onPullProgress: (h: Handler<ModelPullProgressPayload>) => subscribe(bus.pullProgress, h),
   onPullDone: (h: Handler<ModelPullDonePayload>) => subscribe(bus.pullDone, h),
   onPullError: (h: Handler<ModelPullErrorPayload>) => subscribe(bus.pullError, h),
@@ -105,6 +134,7 @@ export const chatEvents = {
   dispatchStatus: (p: ChatStatusPayload) => bus.status.forEach(h => { h(p); }),
   dispatchTitle: (p: ChatTitlePayload) => bus.title.forEach(h => { h(p); }),
   dispatchTool: (p: ChatToolPayload) => bus.tool.forEach(h => { h(p); }),
+  dispatchGalleryAdded: (p: GalleryAddedPayload) => bus.galleryAdded.forEach(h => { h(p); }),
   dispatchPullProgress: (p: ModelPullProgressPayload) => bus.pullProgress.forEach(h => { h(p); }),
   dispatchPullDone: (p: ModelPullDonePayload) => bus.pullDone.forEach(h => { h(p); }),
   dispatchPullError: (p: ModelPullErrorPayload) => bus.pullError.forEach(h => { h(p); }),

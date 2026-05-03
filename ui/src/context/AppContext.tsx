@@ -321,6 +321,23 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
             const data = msg.data as { total: number; recent: GalleryItem[] };
             _setGalleryTotal(data.total);
             _setRecentGallery(data.recent);
+            // Re-emit on the chat events bus so the chat thread can swap a
+            // pending `generate_image` tool result for the rendered image
+            // when ComfyUI finishes the run. Filtered by promptId on the
+            // subscriber side; the page-level WS owns the network.
+            // Drop entries without a promptId — they can't correlate to any
+            // tool call and would just produce a no-op subscription tick.
+            chatEvents.dispatchGalleryAdded({
+              items: data.recent
+                .filter(item => typeof item.promptId === 'string' && item.promptId.length > 0)
+                .map(item => ({
+                  id: item.id,
+                  promptId: item.promptId as string,
+                  url: item.url ?? '',
+                  filename: item.filename,
+                  mediaType: item.mediaType,
+                })),
+            });
           } else if (msg.type === 'download') {
             const d = msg.data as DownloadState;
             _setDownloads(prev => {

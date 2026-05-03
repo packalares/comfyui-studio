@@ -1,37 +1,43 @@
-import { cva, type VariantProps } from "class-variance-authority"
 import { Slot } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
 
-const buttonGroupVariants = cva(
-  "group/button-group flex w-fit items-stretch *:focus-visible:relative *:focus-visible:z-10 has-[>[data-slot=button-group]]:gap-2 has-[select[aria-hidden=true]:last-child]:[&>[data-slot=select-trigger]:last-of-type]:rounded-r-lg [&>[data-slot=select-trigger]:not([class*='w-'])]:w-fit [&>input]:flex-1",
-  {
-    variants: {
-      orientation: {
-        horizontal:
-          "[&>*:not(:first-child)]:rounded-l-none [&>*:not(:first-child)]:border-l-0 [&>*:not(:last-child)]:rounded-r-none [&>[data-slot]:not(:has(~[data-slot]))]:rounded-r-lg!",
-        vertical:
-          "flex-col [&>*:not(:first-child)]:rounded-t-none [&>*:not(:first-child)]:border-t-0 [&>*:not(:last-child)]:rounded-b-none [&>[data-slot]:not(:has(~[data-slot]))]:rounded-b-lg!",
-      },
-    },
-    defaultVariants: {
-      orientation: "horizontal",
-    },
-  }
-)
+// Emits the `.btn-group` / `.btn-group-vertical` shortcut classes defined in
+// `index.css` so the rendered DOM stays readable (`<div class="btn-group">`)
+// and there's a single source of truth for segmented-button styling. Same
+// JSX API as before; the cva chain that used to live here has been hoisted
+// into CSS via `@apply`.
+
+export type ButtonGroupOrientation = "horizontal" | "vertical"
+export type ButtonGroupSize = "sm" | "default" | "lg"
+
+const SIZE_CLASS: Record<ButtonGroupSize, string> = {
+  default: "",
+  sm: "btn-group-sm",
+  lg: "btn-group-lg",
+}
 
 function ButtonGroup({
   className,
-  orientation,
+  orientation = "horizontal",
+  size = "default",
   ...props
-}: React.ComponentProps<"div"> & VariantProps<typeof buttonGroupVariants>) {
+}: React.ComponentProps<"div"> & {
+  orientation?: ButtonGroupOrientation
+  size?: ButtonGroupSize
+}) {
   return (
     <div
       role="group"
       data-slot="button-group"
       data-orientation={orientation}
-      className={cn(buttonGroupVariants({ orientation }), className)}
+      data-size={size}
+      className={cn(
+        orientation === "vertical" ? "btn-group-vertical" : "btn-group",
+        SIZE_CLASS[size],
+        className,
+      )}
       {...props}
     />
   )
@@ -79,5 +85,4 @@ export {
   ButtonGroup,
   ButtonGroupSeparator,
   ButtonGroupText,
-  buttonGroupVariants,
 }

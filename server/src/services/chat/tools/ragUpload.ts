@@ -9,6 +9,7 @@
 
 import { tool } from 'ai';
 import { z } from 'zod';
+import { TOOL_DESCRIPTION_RAG_UPLOAD } from '../prompts.js';
 
 export interface RagUploadConfig {
   baseUrl: string;
@@ -85,9 +86,7 @@ async function uploadFromUrl(args: UploadArgs): Promise<string> {
 
 export function ragUploadTool(config: RagUploadConfig) {
   return tool({
-    description: 'Upload a publicly reachable file URL into a RAGFlow '
-      + 'knowledge base. The file is downloaded server-side and forwarded '
-      + 'to RAGFlow which queues it for chunking + embedding asynchronously.',
+    description: TOOL_DESCRIPTION_RAG_UPLOAD,
     inputSchema,
     execute: async ({ file_url, knowledge_base_id }) => {
       try {

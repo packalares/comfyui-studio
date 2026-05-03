@@ -2,12 +2,12 @@
 
 import { Button } from "@/components/ui/button";
 import {
-  Select,
+  SelectField,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "@/components/forms/SelectField";
 import { cn } from "@/lib/utils";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import type { ComponentProps, CSSProperties, HTMLAttributes } from "react";
@@ -510,11 +510,11 @@ export const CodeBlockCopyButton = ({
   );
 };
 
-export type CodeBlockLanguageSelectorProps = ComponentProps<typeof Select>;
+export type CodeBlockLanguageSelectorProps = ComponentProps<typeof SelectField>;
 
 export const CodeBlockLanguageSelector = (
   props: CodeBlockLanguageSelectorProps
-) => <Select {...props} />;
+) => <SelectField {...props} />;
 
 export type CodeBlockLanguageSelectorTriggerProps = ComponentProps<
   typeof SelectTrigger
