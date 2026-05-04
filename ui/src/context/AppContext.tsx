@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useCallback, useMemo } from 'react';
 import type {
-  Template,
+  TemplateSummary,
   SystemStats,
   QueueStatus,
   GalleryItem,
@@ -16,6 +16,7 @@ import { chatEvents } from '../services/chatEvents';
 import type {
   ChatStartPayload, ChatChunkPayload, ChatDonePayload, ChatErrorPayload,
   ChatStatusPayload, ChatTitlePayload, ChatToolPayload, ChatReasoningPayload,
+  ChatSuggestionsPayload,
   ModelPullProgressPayload, ModelPullDonePayload, ModelPullErrorPayload,
 } from '../services/chatEvents';
 import { SystemProvider, useSystem } from './SystemContext';
@@ -29,7 +30,7 @@ export { useJobs } from './JobsContext';
 export { useSettings } from './SettingsContext';
 
 interface AppContextType {
-  templates: Template[];
+  templates: TemplateSummary[];
   systemStats: SystemStats | null;
   monitorStats: MonitorStats | null;
   queueStatus: QueueStatus;
@@ -391,6 +392,8 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
             chatEvents.dispatchTitle(msg.data as ChatTitlePayload);
           } else if (msg.type === 'chat:tool') {
             chatEvents.dispatchTool(msg.data as ChatToolPayload);
+          } else if (msg.type === 'chat:suggestions') {
+            chatEvents.dispatchSuggestions(msg.data as ChatSuggestionsPayload);
           } else if (msg.type === 'model:pull:progress') {
             chatEvents.dispatchPullProgress(msg.data as ModelPullProgressPayload);
           } else if (msg.type === 'model:pull:done') {

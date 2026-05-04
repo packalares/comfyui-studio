@@ -161,8 +161,10 @@ function applyGalleryWaveFMigration(db: DB): void {
 
 /**
  * Schema v7 widens `conversations` with `context_strategy` so each chat row
- * carries its own context-window management policy (sliding / summarize /
- * manual). Existing DBs were created before the column existed; we add it
+ * carries its own context-window management policy. The column was added
+ * before the v13 migration that collapsed the strategies down to
+ * 'sliding' / 'auto'; the original three-value vocabulary lived here.
+ * Existing DBs were created before the column existed; we add it
  * idempotently here so v6 → v7 boots without a destructive rewrite.
  */
 function applyConversationsContextStrategyMigration(db: DB): void {
@@ -176,6 +178,108 @@ function applyConversationsContextStrategyMigration(db: DB): void {
   }
 }
 
+/**
+ * Schema v9 widens `ollama_library` with `updated_ago_sec` so the catalog
+ * can be ordered newest-first via a numeric column (the upstream `updated`
+ * field is a free-form "X ago" string that's not directly sortable). The
+ * default is a large sentinel so rows that haven't been re-scraped yet
+ * land at the bottom rather than mixing into the recent set.
+ */
+/**
+ * Schema v10 widens `conversations` with `num_ctx` so each chat row can pin
+ * its own runtime context window. NULL means "let Ollama decide" (its
+ * built-in default, usually 2048). The send path includes `options.num_ctx`
+ * in the request body only when the row carries a non-null value.
+ */
+function applyConversationsNumCtxMigration(db: DB): void {
+  const cols = db.prepare('PRAGMA table_info(conversations)').all() as
+    Array<{ name: string }>;
+  const present = new Set(cols.map(c => c.name));
+  if (!present.has('num_ctx')) {
+    db.exec('ALTER TABLE conversations ADD COLUMN num_ctx INTEGER');
+  }
+}
+
+/**
+ * Schema v11 widens `conversations` with `think_mode` so each chat row can
+ * pin reasoning-mode behavior independently. NULL = "auto" (let the model
+ * default decide); 'on' / 'off' map to `think: true|false` on the outgoing
+ * /api/chat body.
+ */
+function applyConversationsThinkModeMigration(db: DB): void {
+  const cols = db.prepare('PRAGMA table_info(conversations)').all() as
+    Array<{ name: string }>;
+  const present = new Set(cols.map(c => c.name));
+  if (!present.has('think_mode')) {
+    db.exec('ALTER TABLE conversations ADD COLUMN think_mode TEXT');
+  }
+}
+
+/**
+ * Schema v12 widens `conversations` with `temperature` (REAL, nullable) and
+ * `format` (TEXT, nullable; values: 'json' or NULL). Both are per-chat
+ * runtime overrides — the send path writes `options.temperature` and the
+ * top-level `format` field on /api/chat when set.
+ *
+ * Also adds `chat_messages.load_duration_ms` so the cold-load latency
+ * reported by Ollama on the final NDJSON frame can be persisted alongside
+ * the existing `ms_total` / `ms_to_first_token` telemetry.
+ */
+function applyConversationsTemperatureFormatMigration(db: DB): void {
+  const cols = db.prepare('PRAGMA table_info(conversations)').all() as
+    Array<{ name: string }>;
+  const present = new Set(cols.map(c => c.name));
+  if (!present.has('temperature')) {
+    db.exec('ALTER TABLE conversations ADD COLUMN temperature REAL');
+  }
+  if (!present.has('format')) {
+    db.exec('ALTER TABLE conversations ADD COLUMN format TEXT');
+  }
+}
+
+function applyChatMessagesLoadDurationMigration(db: DB): void {
+  const cols = db.prepare('PRAGMA table_info(chat_messages)').all() as
+    Array<{ name: string }>;
+  const present = new Set(cols.map(c => c.name));
+  if (!present.has('load_duration_ms')) {
+    db.exec('ALTER TABLE chat_messages ADD COLUMN load_duration_ms INTEGER');
+  }
+}
+
+/**
+ * Schema v13 collapses the three-strategy model down to two:
+ *   - 'summarize' (in-flight summary, recomputed each send) → 'auto'
+ *     (destructive server-side Compact when threshold is hit). The
+ *     persisted column value is renamed; the auto path itself reuses
+ *     compactConversation() which already exists.
+ *   - 'manual' (warn-only, never auto-trim) → 'sliding'. Manual users
+ *     who didn't want auto-trim get the gentle path; the destructive
+ *     Compact-now button still works as before regardless of the
+ *     selected strategy, so they aren't locked out.
+ * Idempotent UPDATEs — running this on a fresh DB is a no-op.
+ */
+function applyContextStrategyV13Migration(db: DB): void {
+  db.prepare(
+    "UPDATE conversations SET context_strategy = 'auto' WHERE context_strategy = 'summarize'",
+  ).run();
+  db.prepare(
+    "UPDATE conversations SET context_strategy = 'sliding' WHERE context_strategy = 'manual'",
+  ).run();
+}
+
+function applyOllamaLibraryUpdatedAgoMigration(db: DB): void {
+  const cols = db.prepare('PRAGMA table_info(ollama_library)').all() as
+    Array<{ name: string }>;
+  if (cols.length === 0) return; // table not created yet (handled by SCHEMA_SQL above)
+  const present = new Set(cols.map(c => c.name));
+  if (!present.has('updated_ago_sec')) {
+    db.exec(
+      'ALTER TABLE ollama_library ADD COLUMN updated_ago_sec INTEGER NOT NULL DEFAULT 9999999999',
+    );
+    db.exec('CREATE INDEX IF NOT EXISTS idx_ollama_library_updated_ago ON ollama_library(updated_ago_sec)');
+  }
+}
+
 function openAndInit(dbPath: string): DB {
   const db = new Database(dbPath);
   // WAL: many readers + single writer, durable across crashes, and the
@@ -186,6 +290,12 @@ function openAndInit(dbPath: string): DB {
   db.exec(SCHEMA_SQL);
   applyGalleryWaveFMigration(db);
   applyConversationsContextStrategyMigration(db);
+  applyConversationsNumCtxMigration(db);
+  applyConversationsThinkModeMigration(db);
+  applyConversationsTemperatureFormatMigration(db);
+  applyChatMessagesLoadDurationMigration(db);
+  applyContextStrategyV13Migration(db);
+  applyOllamaLibraryUpdatedAgoMigration(db);
   const row = db.prepare('SELECT version FROM schema_version LIMIT 1').get() as
     | { version: number } | undefined;
   if (!row) {

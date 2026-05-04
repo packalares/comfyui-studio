@@ -9,10 +9,19 @@ import { getDb } from './connection.js';
 
 export type ChatRole = 'user' | 'assistant' | 'system';
 
-/** Valid context-window management strategies (Phase F). */
-export type ContextStrategy = 'sliding' | 'summarize' | 'manual';
+/** Valid context-window management strategies.
+ *  - `sliding` — at high-water, drop older non-system messages from the
+ *    OUTGOING request only (DB untouched). Reversible.
+ *  - `auto` — at high-water, run a destructive Compact server-side
+ *    (DELETE all messages, insert one synthetic system summary). UI
+ *    re-hydrates via `chat:compacted`. Same operation as the manual
+ *    Compact-now button, just auto-fired.
+ *  Legacy values `'summarize'` (in-flight summary, kept resending) and
+ *  `'manual'` (warn-only, never auto-trim) are no longer accepted; the
+ *  v13 migration in `connection.ts` remaps any persisted rows. */
+export type ContextStrategy = 'sliding' | 'auto';
 export const CONTEXT_STRATEGIES: readonly ContextStrategy[] = [
-  'sliding', 'summarize', 'manual',
+  'sliding', 'auto',
 ] as const;
 export function isContextStrategy(v: unknown): v is ContextStrategy {
   return typeof v === 'string'
@@ -27,6 +36,21 @@ export interface ConversationRow {
   created_at: number;
   updated_at: number;
   context_strategy: ContextStrategy;
+  /** Per-conversation runtime context window override. NULL means "use
+   *  Ollama's default" (the send path omits `options.num_ctx` in that case
+   *  and Ollama falls back to 2048 / its env default). */
+  num_ctx: number | null;
+  /** Per-conversation reasoning-mode override. NULL = auto (omit `think`
+   *  on the body and let the model default decide); `'on'` → `think: true`;
+   *  `'off'` → `think: false`. Used to suppress chain-of-thought on
+   *  thinking-mode models when the user just wants the answer. */
+  think_mode: 'on' | 'off' | null;
+  /** Sampling temperature override. NULL = use Ollama default (~0.8).
+   *  Range typically 0.0 – 1.5; the UI clamps to a slider. */
+  temperature: number | null;
+  /** Output format override. NULL = free text; `'json'` forces Ollama to
+   *  emit valid JSON (top-level `format: 'json'` on the request body). */
+  format: 'json' | null;
 }
 
 export interface ChatMessageRow {
@@ -41,6 +65,7 @@ export interface ChatMessageRow {
   tokens_per_sec: number | null;
   model: string | null;
   created_at: number;
+  load_duration_ms: number | null;
 }
 
 export interface ChatTelemetry {
@@ -50,6 +75,11 @@ export interface ChatTelemetry {
   ms_total?: number | null;
   tokens_per_sec?: number | null;
   model?: string | null;
+  /** Milliseconds Ollama spent loading the model into VRAM for this turn,
+   *  read from the final NDJSON frame's `load_duration` (nanoseconds → ms).
+   *  Zero / undefined when the model was already resident; nonzero when a
+   *  cold-load happened. */
+  load_duration_ms?: number | null;
 }
 
 function nullableNumber(v: unknown): number | null {
@@ -65,6 +95,10 @@ function nullableString(v: unknown): string | null {
 function rowToConversation(r: Record<string, unknown>): ConversationRow {
   const rawStrategy = r.context_strategy;
   const strategy: ContextStrategy = isContextStrategy(rawStrategy) ? rawStrategy : 'sliding';
+  const rawThink = r.think_mode;
+  const thinkMode: 'on' | 'off' | null = rawThink === 'on' || rawThink === 'off' ? rawThink : null;
+  const rawFormat = r.format;
+  const format: 'json' | null = rawFormat === 'json' ? 'json' : null;
   return {
     id: String(r.id),
     title: String(r.title ?? ''),
@@ -73,6 +107,10 @@ function rowToConversation(r: Record<string, unknown>): ConversationRow {
     created_at: Number(r.created_at ?? 0),
     updated_at: Number(r.updated_at ?? 0),
     context_strategy: strategy,
+    num_ctx: nullableNumber(r.num_ctx),
+    think_mode: thinkMode,
+    temperature: nullableNumber(r.temperature),
+    format,
   };
 }
 
@@ -90,6 +128,7 @@ function rowToMessage(r: Record<string, unknown>): ChatMessageRow {
     tokens_per_sec: nullableNumber(r.tokens_per_sec),
     model: nullableString(r.model),
     created_at: Number(r.created_at ?? 0),
+    load_duration_ms: nullableNumber(r.load_duration_ms),
   };
 }
 
@@ -101,6 +140,11 @@ export interface CreateConversationInput {
   created_at: number;
   updated_at: number;
   context_strategy?: ContextStrategy;
+  /** Optional initial think_mode override. NULL/undefined = "auto"
+   *  (column stays NULL). The route layer reads
+   *  `settings.getChatDefaultThinkMode()` and passes 'on' / 'off' here
+   *  so a global default lights up new conversations automatically. */
+  think_mode?: 'on' | 'off' | null;
 }
 
 export function createConversation(
@@ -109,12 +153,13 @@ export function createConversation(
 ): void {
   db.prepare(
     `INSERT INTO conversations
-       (id, title, model, system_prompt, created_at, updated_at, context_strategy)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (id, title, model, system_prompt, created_at, updated_at, context_strategy, think_mode)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     input.id, input.title, input.model,
     input.system_prompt ?? null, input.created_at, input.updated_at,
     input.context_strategy ?? 'sliding',
+    input.think_mode ?? null,
   );
 }
 
@@ -195,6 +240,10 @@ export interface UpdateConversationPatch {
   title?: string;
   model?: string;
   system_prompt?: string | null;
+  num_ctx?: number | null;
+  think_mode?: 'on' | 'off' | null;
+  temperature?: number | null;
+  format?: 'json' | null;
 }
 
 export function renameConversation(
@@ -209,6 +258,18 @@ export function renameConversation(
   if (patch.model !== undefined) { sets.push('model = ?'); params.push(patch.model); }
   if (patch.system_prompt !== undefined) {
     sets.push('system_prompt = ?'); params.push(patch.system_prompt);
+  }
+  if (patch.num_ctx !== undefined) {
+    sets.push('num_ctx = ?'); params.push(patch.num_ctx);
+  }
+  if (patch.think_mode !== undefined) {
+    sets.push('think_mode = ?'); params.push(patch.think_mode);
+  }
+  if (patch.temperature !== undefined) {
+    sets.push('temperature = ?'); params.push(patch.temperature);
+  }
+  if (patch.format !== undefined) {
+    sets.push('format = ?'); params.push(patch.format);
   }
   if (sets.length === 0) return false;
   sets.push('updated_at = ?'); params.push(updated_at);

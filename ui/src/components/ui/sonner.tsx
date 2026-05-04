@@ -3,20 +3,26 @@ import { Toaster as Sonner } from 'sonner';
 type ToasterProps = React.ComponentProps<typeof Sonner>;
 
 /**
- * shadcn Sonner wrapper. Mirrors the official snippet from
- * https://ui.shadcn.com/docs/components/sonner — minus the `next-themes`
- * integration since this app doesn't use next-themes. Light theme only.
+ * Minimal Sonner wrapper matching the shadcn docs reference — plain white
+ * toast cards with a subtle shadow, no rich-color tinting, no close X, no
+ * stacked-expand behaviour. Sized down a bit from the Sonner default so
+ * toasts feel proportional to the rest of the app's typography.
+ *
+ * Sonner exposes width via the `--width` CSS var; everything else (padding,
+ * font size) we trim through classNames.
  */
 const Toaster = ({ ...props }: ToasterProps) => {
   return (
     <Sonner
       theme="light"
       className="toaster group"
+      style={{ '--width': '320px' } as React.CSSProperties}
       toastOptions={{
         classNames: {
           toast:
-            'group toast group-[.toaster]:bg-white group-[.toaster]:text-slate-900 group-[.toaster]:border-slate-200 group-[.toaster]:shadow-lg',
-          description: 'group-[.toast]:text-slate-500',
+            'group toast group-[.toaster]:!p-3 group-[.toaster]:!text-[12px] group-[.toaster]:!gap-2',
+          title: 'group-[.toast]:text-[12px] group-[.toast]:font-medium',
+          description: 'group-[.toast]:text-[11px]',
           actionButton:
             'group-[.toast]:bg-teal-600 group-[.toast]:text-white',
           cancelButton:

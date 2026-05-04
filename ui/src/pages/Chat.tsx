@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Boxes, AlertCircle, MessageSquare } from 'lucide-react';
+import { Boxes, MessageSquare } from 'lucide-react';
 import { toast } from 'sonner';
 import { useChat } from '@ai-sdk/react';
 import PageSubbar from '../components/layout/PageSubbar';
@@ -9,7 +9,6 @@ import MessageThread from '../components/chat/MessageThread';
 import Composer from '../components/chat/Composer';
 import ContextMeter from '../components/chat/ContextMeter';
 import ChatSearch from '../components/chat/ChatSearch';
-import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import {
   api, ApiError, type OllamaInstalledModel,
@@ -34,11 +33,17 @@ import { EMPTY_STATE_PROMPTS } from '../config/chat-suggestions';
 export default function Chat() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [installed, setInstalled] = useState<OllamaInstalledModel[]>([]);
+  // True until the first installed-models fetch resolves (success or error).
+  // The composer shows a skeleton in the model-picker pill during this window
+  // so the user never sees a flash of "No models installed" → real model name.
+  const [installedLoading, setInstalledLoading] = useState(true);
   const [model, setModel] = useState<string>('');
   const [streamError, setStreamError] = useState<string>('');
   const [listKey, setListKey] = useState(0);
-  // 502 from /api/chat/models means Ollama itself is unreachable - surface a
-  // banner so the user can fix Settings without opening the browser console.
+  // 502 from /api/chat/models means Ollama itself is unreachable. Surfaced
+  // via a sonner toast (with a Retry action) instead of an inline banner so
+  // it doesn't push the conversation panel down on every visit while the
+  // service is starting up.
   const [ollamaUnreachable, setOllamaUnreachable] = useState(false);
   // Pending attachments staged in the composer + appended via drag-drop on
   // the thread. Owned here so both children read the same source of truth.
@@ -58,6 +63,18 @@ export default function Chat() {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem('chat:webPreviews', webPreviews ? '1' : '0');
   }, [webPreviews]);
+  // Show the verbose `<ToolBlockCard>` (parameters + raw result JSON) under
+  // each tool call. Off by default — for `generate_image` the rendered image
+  // already shows up below; the JSON noise is mostly useful for debugging.
+  // Persisted so the toggle sticks across reloads.
+  const [showToolDetails, setShowToolDetails] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem('chat:showToolDetails') === '1';
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('chat:showToolDetails', showToolDetails ? '1' : '0');
+  }, [showToolDetails]);
   // Tools allow-list owned by the composer's <ChatToolsPopover>. `null` means
   // "no filter — every server-configured tool is available", which matches
   // legacy behavior. Persisted in localStorage so the user's selection sticks
@@ -139,6 +156,20 @@ export default function Chat() {
   }, []);
 
   const refreshInstalled = useCallback(() => {
+    setInstalledLoading(true);
+    // Minimum 400ms hold on the loading state so the composer skeleton is
+    // actually perceivable — local Ollama replies in ~20ms otherwise and
+    // the skeleton flashes for one frame, which reads as "nothing
+    // happened". The hold is enforced via a timestamp diff in `finally`
+    // rather than a debounce on the setter so the network race is still
+    // honored (no extra delay when the call genuinely takes longer).
+    const startedAt = Date.now();
+    const finish = () => {
+      const elapsed = Date.now() - startedAt;
+      const remaining = Math.max(0, 400 - elapsed);
+      if (remaining === 0) setInstalledLoading(false);
+      else setTimeout(() => setInstalledLoading(false), remaining);
+    };
     api.chat.listInstalledModels()
       .then(({ models }) => {
         const list = Array.isArray(models) ? models : [];
@@ -155,10 +186,41 @@ export default function Chat() {
           setOllamaUnreachable(true);
         }
         setInstalled([]);
-      });
+      })
+      .finally(finish);
   }, []);
 
   useEffect(() => { refreshInstalled(); }, [refreshInstalled]);
+
+  // Background retry while Ollama is unreachable. Re-runs the installed
+  // models fetch every 4 seconds; when it succeeds, `setOllamaUnreachable(false)`
+  // fires inside `refreshInstalled`'s success branch and the interval is
+  // cleared on the next effect pass. Keeps the composer skeleton in lockstep
+  // with the actual service state without forcing the user to click Retry.
+  useEffect(() => {
+    if (!ollamaUnreachable) return;
+    const t = setInterval(() => { refreshInstalled(); }, 4000);
+    return () => clearInterval(t);
+  }, [ollamaUnreachable, refreshInstalled]);
+
+  // Surface the "Ollama unreachable" state as a persistent toast (no
+  // auto-dismiss) with a Retry action. Stable `id` lets us replace/dismiss
+  // it cleanly when the service comes back. Keeping the layout free of an
+  // inline banner means the chat panel doesn't jump down every time the
+  // service is briefly starting.
+  useEffect(() => {
+    const id = 'ollama-unreachable';
+    if (ollamaUnreachable) {
+      toast.error('Ollama is not reachable', {
+        id,
+        description: 'Check the URL in Settings and make sure Ollama is running.',
+        duration: Number.POSITIVE_INFINITY,
+        action: { label: 'Retry', onClick: () => refreshInstalled() },
+      });
+    } else {
+      toast.dismiss(id);
+    }
+  }, [ollamaUnreachable, refreshInstalled]);
 
   // Hydrate useChat's messages whenever the user picks a different
   // conversation. `setMessages` is the canonical reset path; we don't switch
@@ -195,6 +257,21 @@ export default function Chat() {
   useEffect(() => {
     return chatEvents.onTitle(() => { setListKey(k => k + 1); });
   }, []);
+
+  // Compact wiped + reseeded the persisted message list — re-hydrate the
+  // active thread from the DB so the visible scrollback collapses to the
+  // single synthetic system summary. Same path as the conversation-switch
+  // hydrate above, just triggered explicitly. Sidebar gets bumped too so
+  // the conversation row reflects the new updated_at.
+  useEffect(() => {
+    return chatEvents.onCompacted((p) => {
+      if (p.conversationId !== conversationId) return;
+      api.chat.getMessages(conversationId)
+        .then(({ items }) => setMessages(items.map(chatMessageToUIMessage)))
+        .catch(() => { /* ignore — next conv-switch will rehydrate */ });
+      setListKey(k => k + 1);
+    });
+  }, [conversationId, setMessages]);
 
   const busy = status === 'submitted' || status === 'streaming';
 
@@ -296,18 +373,6 @@ export default function Chat() {
         description="Talk to a local LLM via Ollama"
       />
       <div className="page-container">
-        {ollamaUnreachable && (
-          <div className="mb-2 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            <div className="flex-1">
-              <div className="font-medium">Ollama is not reachable.</div>
-              <div className="text-xs text-rose-700">
-                Check the URL in <Link to="/settings" className="underline">Settings</Link> and make sure Ollama is running.
-              </div>
-            </div>
-            <Button onClick={refreshInstalled} variant="secondary" size="sm">Retry</Button>
-          </div>
-        )}
         {/* Single panel with an internal flex split — same idiom as Studio
             (left aside + right main share one rounded surface, instead of
             two side-by-side panels). */}
@@ -333,7 +398,7 @@ export default function Chat() {
                     <MessageSquare className="w-3 h-3" />
                     Chat
                   </button>
-                  <Link to="/chat/models" role="tab" aria-selected="false" className="tab-strip-item">
+                  <Link to="/models?source=ollama" role="tab" aria-selected="false" className="tab-strip-item">
                     <Boxes className="w-3 h-3" />
                     Models
                   </Link>
@@ -351,12 +416,14 @@ export default function Chat() {
                     hasConversation={hasConversation}
                     onFilesDropped={handleFilesDropped}
                     webPreviews={webPreviews}
+                    showToolDetails={showToolDetails}
                     onSuggestionClick={handleSuggestion}
                     onRegenerate={() => { void regenerate(); }}
                     onDelete={handleDelete}
                   />
                   <Composer
                     installed={installed}
+                    installedLoading={installedLoading || ollamaUnreachable}
                     model={model}
                     onModelChange={setModel}
                     busy={busy}
@@ -368,6 +435,8 @@ export default function Chat() {
                     onAttachmentsChange={setAttachments}
                     webPreviews={webPreviews}
                     onWebPreviewsChange={setWebPreviews}
+                    showToolDetails={showToolDetails}
+                    onShowToolDetailsChange={setShowToolDetails}
                     enabledTools={enabledTools}
                     onEnabledToolsChange={setEnabledTools}
                   />
@@ -383,6 +452,7 @@ export default function Chat() {
                     <Composer
                       centered
                       installed={installed}
+                      installedLoading={installedLoading || ollamaUnreachable}
                       model={model}
                       onModelChange={setModel}
                       busy={busy}
@@ -394,6 +464,8 @@ export default function Chat() {
                       onAttachmentsChange={setAttachments}
                       webPreviews={webPreviews}
                       onWebPreviewsChange={setWebPreviews}
+                      showToolDetails={showToolDetails}
+                      onShowToolDetailsChange={setShowToolDetails}
                       enabledTools={enabledTools}
                       onEnabledToolsChange={setEnabledTools}
                     />

@@ -61,7 +61,12 @@ export class ThinkParser {
     toolParts: unknown[], reasoning: string, content: string,
   ): unknown[] {
     const out: unknown[] = [...toolParts];
-    if (reasoning.length > 0) out.push({ type: 'reasoning', text: reasoning });
+    // Whitespace-only reasoning ("\n\n", " ", etc.) commonly leaks through
+    // when a model emits a stub `<think></think>` block or a no-op
+    // `message.thinking: " "` delta despite `think: false`. Persisting it
+    // makes the UI render an empty "Thought for a few seconds" panel.
+    // Trim before length-check so the part is omitted entirely.
+    if (reasoning.trim().length > 0) out.push({ type: 'reasoning', text: reasoning });
     out.push({ type: 'text', text: content });
     return out;
   }

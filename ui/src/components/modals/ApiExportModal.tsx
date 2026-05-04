@@ -8,11 +8,12 @@
 // payloads — safe to paste into external diff tools.
 
 import { useEffect, useState } from 'react';
-import { Copy, Download, Braces, Check } from 'lucide-react';
+import { Copy, Download, Braces, Check, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../../services/comfyui';
 import AppModal from './AppModal';
 import { Button } from '../ui/button';
+import { ButtonGroup } from '../ui/button-group';
 import { Spinner } from '../ui/spinner';
 
 interface Props {
@@ -98,44 +99,58 @@ export default function ApiExportModal({ open, templateName, onClose }: Props) {
       title="API Prompt"
       subtitle={templateName}
       footer={
-        <div className="inline-flex gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>Close</Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={handleDownload}
-            disabled={!payload}
-          >
-            <Download className="w-3.5 h-3.5" />
-            Download
+        // Cancel/Close pinned far-left, action buttons grouped on the far
+        // right — same shape as ConfirmDialog so all our footers feel
+        // consistent.
+        <div className="flex w-full items-center justify-between">
+          <Button type="button" variant="secondary" onClick={onClose}>
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Close
           </Button>
-          <Button
-            type="button"
-            onClick={handleCopy}
-            disabled={!payload}
-          >
-            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-            {copied ? 'Copied' : 'Copy'}
-          </Button>
+          <ButtonGroup>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleDownload}
+              disabled={!payload}
+            >
+              <Download className="w-3.5 h-3.5" />
+              Download
+            </Button>
+            <Button
+              type="button"
+              onClick={handleCopy}
+              disabled={!payload}
+            >
+              {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              {copied ? 'Copied' : 'Copy'}
+            </Button>
+          </ButtonGroup>
         </div>
       }
     >
-      {loading && (
-        <div className="flex items-center gap-2 text-xs text-slate-500 p-4">
-          <Spinner size="md" />
-          Converting workflow…
-        </div>
-      )}
-      {error && (
-        <div className="rounded-md bg-rose-50 border border-rose-100 px-3 py-2 text-[12px] text-rose-700">
-          {error}
-        </div>
-      )}
-      {!loading && !error && payload && (
-        <pre className="text-[11px] font-mono text-slate-700 whitespace-pre-wrap break-words bg-slate-50 rounded-lg p-4 ring-1 ring-inset ring-slate-200 min-h-[200px] max-h-[60vh] overflow-auto">
-          {payload}
-        </pre>
-      )}
+      {/* Body wrapper reserves a consistent min-height across loading /
+          error / payload states. Without it the modal grew from spinner-
+          sized to a full pre-block during the entrance transition, which
+          read as a "modal flickers / opens twice" jump. */}
+      <div className="min-h-[200px]">
+        {loading && (
+          <div className="flex items-center gap-2 text-xs text-slate-500 p-4">
+            <Spinner size="md" />
+            Converting workflow…
+          </div>
+        )}
+        {error && (
+          <div className="rounded-md bg-rose-50 border border-rose-100 px-3 py-2 text-[12px] text-rose-700">
+            {error}
+          </div>
+        )}
+        {!loading && !error && payload && (
+          <pre className="text-[11px] font-mono text-slate-700 whitespace-pre-wrap break-words bg-slate-50 rounded-lg p-4 ring-1 ring-inset ring-slate-200 max-h-[60vh] overflow-auto">
+            {payload}
+          </pre>
+        )}
+      </div>
     </AppModal>
   );
 }

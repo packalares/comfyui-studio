@@ -63,7 +63,7 @@ export default function ModelInfoModal({ open, onClose, source }: Props): JSX.El
         onClose={onClose}
         title={model.filename || model.name}
         subtitle={model.type ? `${model.type} — Local catalog` : 'Local catalog'}
-        size="md"
+        size="lg"
       >
         <CatalogModelBody model={model} />
       </AppModal>
@@ -91,7 +91,7 @@ export default function ModelInfoModal({ open, onClose, source }: Props): JSX.El
       onClose={onClose}
       title={item.name}
       subtitle={item.type ? `${item.type} — CivitAI` : 'CivitAI'}
-      size="md"
+      size="lg"
     >
       <div className="space-y-4">
         {creator && (

@@ -152,7 +152,7 @@ export default function ExposeWidgetsModal({ templateName, onClose, onSaved }: P
       onClose={onClose}
       title="Edit advanced fields"
       subtitle="Check the widgets you want surfaced in the Advanced Settings panel for this template."
-      size="md"
+      size="lg"
       disableClose={saving}
       footer={
         <>

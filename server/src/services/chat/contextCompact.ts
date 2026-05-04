@@ -1,21 +1,25 @@
-// Phase F summarization helpers — drives the manual /compact route and the
-// automatic 'summarize' strategy. Both share the same one-shot Ollama call:
-// stream:false /api/chat asking for a ~200-word recap. The result is then
-// persisted (manual path) or returned for inline use (automatic path).
+// Compaction + sliding-window helpers shared by the manual /compact route
+// and the automatic 'auto' strategy.
 //
-// Lives apart from streamChat.ts / contextWindow.ts to keep both under the
-// 250-line cap and so the summary pipeline can be unit-tested independently.
+// `compactConversation` is destructive: it summarizes the transcript via a
+// stream:false /api/chat call, deletes the persisted message rows, and
+// re-seeds with one synthetic system message containing the summary. The
+// auto path passes `preserveIds` so the just-appended user message + the
+// in-flight assistant placeholder survive the destructive write — without
+// that, the user's typed turn would vanish before the model ever saw it.
+//
+// `applySlidingWindow` is non-destructive and runs entirely on the
+// outgoing in-flight message list. Keeps the latest N user/assistant
+// turns (`chatKeepRecent`) plus any system messages; everything older is
+// dropped from THIS request only. DB rows are untouched.
 
-import { logger } from '../../lib/logger.js';
 import * as repo from '../../lib/db/chat.repo.js';
 import {
-  deleteAllMessages, lastAssistantMessage,
+  deleteAllMessages, deleteMessagesNotIn,
 } from '../../lib/db/chat.context.repo.js';
 import * as settings from '../settings.js';
 import type { OllamaChatMessage } from './ollamaChat.js';
 import { COMPACT_SUMMARY_PROMPT_PREFIX, COMPACT_SUMMARY_WRAP } from './prompts.js';
-
-// Bound moved to settings (`chatSummaryTimeoutMs`). Resolved at call sites.
 
 /** Render every chat message as a flat transcript for the summarizer prompt. */
 function renderTranscript(rows: repo.ChatMessageRow[]): string {
@@ -71,18 +75,39 @@ export interface CompactResult {
   error?: string;
 }
 
+export interface CompactOptions {
+  /** Message ids that survive the destructive write. Excluded from the
+   *  summarized transcript AND retained on disk. The summary system row
+   *  is inserted with a `created_at` earlier than every preserved row so
+   *  it sorts to the top of the rebuilt thread. */
+  preserveIds?: ReadonlySet<string>;
+}
+
 /**
- * Manual /compact: summarizes the entire transcript, deletes all messages,
- * and re-seeds the conversation with a single `system` message containing
- * the summary. Conversation row + telemetry are preserved.
+ * Summarizes the conversation, deletes all messages (except `preserveIds`),
+ * and re-seeds with a single `system` row containing the summary. Used by:
+ *   - the manual `/compact` route (no preserveIds — full wipe)
+ *   - the 'auto' strategy in `enforceContextStrategy` (preserves the
+ *     just-appended user msg + assistant placeholder so the in-flight
+ *     turn keeps working)
  */
-export async function compactConversation(conversationId: string): Promise<CompactResult> {
+export async function compactConversation(
+  conversationId: string,
+  opts: CompactOptions = {},
+): Promise<CompactResult> {
   const conv = repo.getConversation(conversationId);
   if (!conv) return { ok: false, error: 'conversation not found' };
-  const messages = repo.listMessages(conversationId);
-  if (messages.length === 0) return { ok: false, error: 'conversation has no messages' };
+  const preserve = opts.preserveIds ?? new Set<string>();
+  const allMessages = repo.listMessages(conversationId);
+  if (allMessages.length === 0) return { ok: false, error: 'conversation has no messages' };
 
-  const transcript = renderTranscript(messages);
+  // Summarize only the messages that won't be preserved. If `preserveIds`
+  // covers everything (edge case — short conversation triggered the
+  // strategy), there's nothing to summarize and we leave the DB alone.
+  const toSummarize = allMessages.filter(m => !preserve.has(m.id));
+  if (toSummarize.length === 0) return { ok: false, error: 'no messages to summarize' };
+
+  const transcript = renderTranscript(toSummarize);
   if (!transcript) return { ok: false, error: 'no text content to summarize' };
 
   const baseUrl = settings.getOllamaUrl();
@@ -97,99 +122,51 @@ export async function compactConversation(conversationId: string): Promise<Compa
   }
   if (!summary) return { ok: false, error: 'empty summary from upstream' };
 
-  deleteAllMessages(conversationId);
-  const now = Date.now();
+  // Delete everything that wasn't preserved. Using a single SQL pass
+  // avoids inconsistent intermediate states under concurrent reads.
+  if (preserve.size === 0) {
+    deleteAllMessages(conversationId);
+  } else {
+    deleteMessagesNotIn(conversationId, preserve);
+  }
+
+  // Insert the summary BEFORE every preserved row so the rebuilt thread
+  // reads as: [system summary, preserved user msg, preserved assistant
+  // placeholder, ...]. We pick `created_at` 1 ms before the earliest
+  // preserved row's `created_at`; if nothing is preserved we use Date.now.
+  const earliestPreserved = allMessages
+    .filter(m => preserve.has(m.id))
+    .reduce<number | null>((acc, m) => acc === null || m.created_at < acc ? m.created_at : acc, null);
+  const summaryCreatedAt = earliestPreserved !== null
+    ? Math.max(0, earliestPreserved - 1)
+    : Date.now();
+
   repo.appendMessage({
     id: makeId(),
     conversation_id: conversationId,
     role: 'system',
     parts: JSON.stringify([{ type: 'text', text: COMPACT_SUMMARY_WRAP(summary) }]),
-    created_at: now,
+    created_at: summaryCreatedAt,
   });
-  repo.touchConversation(conversationId, now);
+  repo.touchConversation(conversationId, Date.now());
   return { ok: true, summary };
 }
 
 /**
- * Trim the in-flight `messages` array (Ollama wire shape) so total estimated
- * size stays under `targetPercent` of `budget`. Drops oldest non-system
- * messages first; system prompt is preserved.
+ * Sliding strategy: filter the in-flight `messages` (Ollama wire shape) so
+ * the model sees only the last `keepRecent` non-system turns plus every
+ * system message. DB is never touched — recovery is just "switch
+ * strategy" or wait for context to drop below the threshold.
  *
- * The returned array references the same string contents — we only filter,
- * never mutate. Used by the 'sliding' strategy.
+ * `keepRecent` defaults to `settings.getChatKeepRecent()` so a global
+ * setting tweak is picked up on the next call.
  */
 export function applySlidingWindow(
   messages: OllamaChatMessage[],
-  budget: number,
-  consumed: number,
-  targetPercent: number,
-): OllamaChatMessage[] {
-  const target = Math.max(0, (targetPercent / 100) * budget);
-  if (consumed <= target) return messages;
-
-  // Estimate per-message cost using the same heuristic the meter uses, so the
-  // trim threshold is consistent across UI / server.
-  const estimated = messages.map(m => ({
-    msg: m,
-    tokens: Math.ceil((m.content?.length ?? 0) / 4),
-  }));
-  let total = consumed;
-  const keep = new Set<number>();
-  // Always keep system messages.
-  for (let i = 0; i < estimated.length; i += 1) {
-    if (estimated[i].msg.role === 'system') keep.add(i);
-  }
-  // Walk newest -> oldest, keeping until total drops under target.
-  for (let i = estimated.length - 1; i >= 0; i -= 1) {
-    if (keep.has(i)) continue;
-    keep.add(i);
-    if (total <= target) break;
-    total -= estimated[i].tokens;
-    if (total <= target) break;
-  }
-  // Drop anything not marked.
-  const out: OllamaChatMessage[] = [];
-  for (let i = 0; i < estimated.length; i += 1) {
-    if (keep.has(i)) out.push(estimated[i].msg);
-  }
-  return out;
-}
-
-/**
- * 'summarize' strategy: replace older messages with a single summary while
- * preserving the latest `keepRecent` user/assistant turns + any system
- * prompt. Mutates the in-flight array, not the persisted DB rows.
- */
-export async function applySummarizeStrategy(
-  messages: OllamaChatMessage[],
-  baseUrl: string, model: string,
-  // Default sourced from settings (`chatKeepRecent`). Caller can still pass
-  // an explicit value to override per-call.
   keepRecent = settings.getChatKeepRecent(),
-): Promise<OllamaChatMessage[]> {
-  // Anything more than keepRecent non-system messages from the end gets
-  // summarized into a single new system message.
+): OllamaChatMessage[] {
   const sysHead = messages.filter(m => m.role === 'system');
   const tail = messages.filter(m => m.role !== 'system');
   if (tail.length <= keepRecent) return messages;
-  const olderTail = tail.slice(0, tail.length - keepRecent);
-  const recentTail = tail.slice(tail.length - keepRecent);
-  const transcript = olderTail
-    .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
-    .join('\n');
-  let summary = '';
-  try {
-    summary = await summarizeText(baseUrl, model, transcript);
-  } catch (err) {
-    logger.warn('summarize-strategy failed', {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return messages; // Best-effort; stream still proceeds with original list.
-  }
-  if (!summary) return messages;
-  const summaryMsg: OllamaChatMessage = {
-    role: 'system',
-    content: COMPACT_SUMMARY_WRAP(summary),
-  };
-  return [...sysHead, summaryMsg, ...recentTail];
+  return [...sysHead, ...tail.slice(tail.length - keepRecent)];
 }

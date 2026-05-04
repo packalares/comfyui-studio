@@ -13,16 +13,7 @@ import { Spinner } from './ui/spinner';
 import { useApp } from '../context/AppContext';
 import { api } from '../services/comfyui';
 import LogsDrawer from './viewers/LogsDrawer';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogFooter,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogAction,
-  AlertDialogCancel,
-} from './ui/alert-dialog';
+import ConfirmDialog from './modals/ConfirmDialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { Button } from './ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from './ui/card';
@@ -43,49 +34,42 @@ function WipeModal({
 }) {
   if (phase === 'confirm') {
     return (
-      <AlertDialog open onOpenChange={(open) => !open && onClose()}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Wipe and reinitialize ComfyUI?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This stops ComfyUI and resets its state. Choose a mode:
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="space-y-2 px-1">
-            <label className="flex items-start gap-2 cursor-pointer p-2 rounded-md hover:bg-slate-50">
-              <input
-                type="radio"
-                checked={mode === 'normal'}
-                onChange={() => onModeChange('normal')}
-                className="mt-1"
-              />
-              <div>
-                <p className="text-xs font-medium text-slate-900">Normal</p>
-                <p className="text-[11px] text-slate-500">Reset configuration and cache; keeps installed models and plugins.</p>
-              </div>
-            </label>
-            <label className="flex items-start gap-2 cursor-pointer p-2 rounded-md hover:bg-slate-50 border border-red-100 bg-red-50/30">
-              <input
-                type="radio"
-                checked={mode === 'hard'}
-                onChange={() => onModeChange('hard')}
-                className="mt-1"
-              />
-              <div>
-                <p className="text-xs font-medium text-red-700">Hard</p>
-                <p className="text-[11px] text-red-600/80">Aggressive wipe: everything goes except essential files. Not reversible.</p>
-              </div>
-            </label>
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={onConfirm} className="!bg-red-600 hover:!bg-red-700">
-              <Trash2 className="w-3.5 h-3.5" />
-              Wipe ({mode})
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open
+        onClose={onClose}
+        title="Wipe and reinitialize ComfyUI?"
+        description="This stops ComfyUI and resets its state. Choose a mode:"
+        confirmLabel={`Wipe (${mode})`}
+        confirmTone="danger"
+        onConfirm={onConfirm}
+      >
+        <div className="space-y-2 px-1 mt-2">
+          <label className="flex items-start gap-2 cursor-pointer p-2 rounded-md hover:bg-slate-50">
+            <input
+              type="radio"
+              checked={mode === 'normal'}
+              onChange={() => onModeChange('normal')}
+              className="mt-1"
+            />
+            <div>
+              <p className="text-xs font-medium text-slate-900">Normal</p>
+              <p className="text-[11px] text-slate-500">Reset configuration and cache; keeps installed models and plugins.</p>
+            </div>
+          </label>
+          <label className="flex items-start gap-2 cursor-pointer p-2 rounded-md hover:bg-slate-50 border border-red-100 bg-red-50/30">
+            <input
+              type="radio"
+              checked={mode === 'hard'}
+              onChange={() => onModeChange('hard')}
+              className="mt-1"
+            />
+            <div>
+              <p className="text-xs font-medium text-red-700">Hard</p>
+              <p className="text-[11px] text-red-600/80">Aggressive wipe: everything goes except essential files. Not reversible.</p>
+            </div>
+          </label>
+        </div>
+      </ConfirmDialog>
     );
   }
 

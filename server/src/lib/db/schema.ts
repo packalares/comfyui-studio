@@ -15,7 +15,7 @@
 // `author`, `installed`, `category`, `model_filename`, `plugin_id`). Anything
 // else stays unindexed or lives inside `raw_json` / `workflow_json`.
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 13;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -127,7 +127,11 @@ CREATE TABLE IF NOT EXISTS conversations (
   system_prompt    TEXT,
   created_at       INTEGER NOT NULL,
   updated_at       INTEGER NOT NULL,
-  context_strategy TEXT NOT NULL DEFAULT 'sliding'
+  context_strategy TEXT NOT NULL DEFAULT 'sliding',
+  num_ctx          INTEGER,
+  think_mode       TEXT,
+  temperature      REAL,
+  format           TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at DESC);
 
@@ -142,7 +146,23 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   ms_total            INTEGER,
   tokens_per_sec      REAL,
   model               TEXT,
-  created_at          INTEGER NOT NULL
+  created_at          INTEGER NOT NULL,
+  load_duration_ms    INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_chat_messages_conv ON chat_messages(conversation_id, created_at);
+
+CREATE TABLE IF NOT EXISTS ollama_library (
+  name            TEXT PRIMARY KEY,
+  title           TEXT NOT NULL,
+  description     TEXT NOT NULL,
+  pulls           TEXT NOT NULL,
+  tag_count       TEXT NOT NULL,
+  updated         TEXT NOT NULL,
+  sizes           TEXT NOT NULL,
+  capabilities    TEXT NOT NULL,
+  fetched_at      INTEGER NOT NULL,
+  updated_ago_sec INTEGER NOT NULL DEFAULT 9999999999
+);
+CREATE INDEX IF NOT EXISTS idx_ollama_library_title ON ollama_library(title);
+CREATE INDEX IF NOT EXISTS idx_ollama_library_updated_ago ON ollama_library(updated_ago_sec);
 `;

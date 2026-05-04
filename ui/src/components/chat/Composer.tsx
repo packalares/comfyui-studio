@@ -8,7 +8,7 @@
 
 import { useEffect, useRef, type MutableRefObject } from 'react';
 import {
-  ArrowUp, StopCircle, Plus, X, FileText, Image as ImageIcon, Globe,
+  ArrowUp, StopCircle, Paperclip, X, FileText, Image as ImageIcon, Globe, Code2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -32,6 +32,9 @@ import ChatToolsPopover from './ChatToolsPopover';
 
 interface Props {
   installed: OllamaInstalledModel[];
+  /** True while the first installed-models fetch is in flight; the model
+   *  picker pill renders a skeleton during this window. */
+  installedLoading?: boolean;
   model: string;
   onModelChange: (model: string) => void;
   busy: boolean;
@@ -43,6 +46,8 @@ interface Props {
   onAttachmentsChange: (next: PendingAttachment[]) => void;
   webPreviews: boolean;
   onWebPreviewsChange: (next: boolean) => void;
+  showToolDetails: boolean;
+  onShowToolDetailsChange: (next: boolean) => void;
   /** null = use every configured tool. string[] = explicit allow-list. */
   enabledTools: string[] | null;
   onEnabledToolsChange: (next: string[] | null) => void;
@@ -53,20 +58,48 @@ interface Props {
 }
 
 export default function Composer({
-  installed, model, onModelChange, busy, onSend, onStop, focusRef,
+  installed, installedLoading, model, onModelChange, busy, onSend, onStop, focusRef,
   libraryCapabilities, attachments, onAttachmentsChange,
   webPreviews, onWebPreviewsChange,
+  showToolDetails, onShowToolDetailsChange,
   enabledTools, onEnabledToolsChange,
   centered = false,
 }: Props) {
-  const taRef = useRef<HTMLTextAreaElement>(null);
+  // The ref attached to <PromptInputTextarea> won't actually land on the
+  // underlying <textarea> because the ai-elements wrapper is a plain
+  // function component (not React.forwardRef) and we're on React 18 where
+  // refs on function components are silently dropped. Instead we hold a
+  // ref on the surrounding container and locate the textarea by DOM query
+  // when we need to focus it. The `name="message"` attribute is set by
+  // ai-elements' `<InputGroupTextarea>` and is stable.
+  const wrapRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const focusTextarea = () => {
+    const ta = wrapRef.current?.querySelector<HTMLTextAreaElement>('textarea[name="message"]');
+    ta?.focus();
+  };
 
   useEffect(() => {
     if (!focusRef) return;
-    focusRef.current = () => taRef.current?.focus();
+    focusRef.current = focusTextarea;
     return () => { if (focusRef) focusRef.current = () => {}; };
   }, [focusRef]);
+
+  // Re-focus the textarea when the assistant finishes streaming so the user
+  // can keep typing without clicking back into the input. We only fire on
+  // the busy:true→false transition (`prevBusy` ref) — focusing on every
+  // render or on mount would steal focus from any other element the user
+  // legitimately clicked while the response was still streaming.
+  // `requestAnimationFrame` waits one paint so the `disabled` prop has
+  // settled to `false` on the DOM node before we call focus() — focusing
+  // a still-disabled <textarea> is a no-op in every browser.
+  const prevBusyRef = useRef(busy);
+  useEffect(() => {
+    if (prevBusyRef.current && !busy) {
+      requestAnimationFrame(focusTextarea);
+    }
+    prevBusyRef.current = busy;
+  }, [busy]);
 
   const noModel = !model;
   const baseName = model.split(':')[0];
@@ -122,9 +155,51 @@ export default function Composer({
     fileInputRef.current?.click();
   };
 
+  // While the first installed-models fetch is in flight, render a skeleton
+  // in place of the entire composer so the user doesn't see "Pick a model" /
+  // disabled chrome flicker before Ollama responds. The silhouette mirrors
+  // the real composer (textarea block on top, footer row of chips beneath)
+  // so the layout doesn't jump on swap. `animate-shimmer` keyframe ships
+  // globally in `index.css`.
+  if (installedLoading) {
+    return (
+      <div className={centered ? '' : 'border-t border-slate-200 bg-white'}>
+        <div className="mx-auto max-w-4xl px-4 py-3">
+          <div
+            role="status"
+            aria-label="Loading chat composer"
+            className="relative overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
+          >
+            {/* Diagonal shine band — same effect we use on the generated-
+                image placeholder. Sits behind the silhouette blocks. */}
+            <div className="pointer-events-none absolute inset-y-0 left-0 w-1/2 animate-shimmer bg-gradient-to-r from-transparent via-white/70 to-transparent" />
+            {/* Textarea silhouette */}
+            <div className="relative space-y-2 px-4 pt-4">
+              <div className="h-3 w-2/3 rounded bg-slate-200" />
+              <div className="h-3 w-1/2 rounded bg-slate-200" />
+              <div className="h-3 w-2/5 rounded bg-slate-200" />
+            </div>
+            {/* Footer silhouette — left chips + right (model + send) */}
+            <div className="relative mt-6 flex items-center justify-between px-3 py-2">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-md bg-slate-200" />
+                <div className="h-8 w-20 rounded-md bg-slate-200" />
+                <div className="h-8 w-24 rounded-md bg-slate-200" />
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-32 rounded-md bg-slate-200" />
+                <div className="h-8 w-8 rounded-full bg-slate-200" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={centered ? '' : 'border-t border-slate-200 bg-white'}>
-      <div className="mx-auto max-w-4xl px-4 py-3">
+      <div ref={wrapRef} className="mx-auto max-w-4xl px-4 py-3">
         <input
           ref={fileInputRef}
           type="file"
@@ -153,7 +228,6 @@ export default function Composer({
               </PromptInputHeader>
             )}
             <PromptInputTextarea
-              ref={taRef}
               placeholder={
                 busy ? 'Generating... (Esc to stop)'
                   : noModel ? 'Pick a model below to start chatting'
@@ -178,8 +252,13 @@ export default function Composer({
                       variant="ghost"
                       size="icon"
                       aria-label="Attach files"
+                      // Persistent slate-50 surface so the attach affordance
+                      // reads as a tappable chip even at rest, not a ghost
+                      // icon that only appears on hover. Slightly darker on
+                      // hover keeps the standard "press" feedback.
+                      className="!h-8 !w-8 !rounded-md !bg-slate-100 !text-slate-600 hover:!bg-slate-200 hover:!text-slate-800"
                     >
-                      <Plus className="h-4 w-4" />
+                      <Paperclip className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>Attach files</TooltipContent>
@@ -189,10 +268,12 @@ export default function Composer({
                   onChange={onEnabledToolsChange}
                 />
                 <WebPreviewToggle enabled={webPreviews} onToggle={onWebPreviewsChange} />
+                <ToolDetailsToggle enabled={showToolDetails} onToggle={onShowToolDetailsChange} />
               </PromptInputTools>
               <PromptInputTools>
                 <ChatModelPickerModal
                   installed={installed}
+                  loading={!!installedLoading}
                   model={model}
                   disabled={busy}
                   libraryCapabilities={libraryCapabilities}
@@ -206,10 +287,10 @@ export default function Composer({
                         onClick={onStop}
                         variant="secondary"
                         size="icon"
-                        className="!h-9 !w-9 !rounded-full !p-0 !text-rose-600 hover:!bg-rose-50"
+                        className="!h-8 !w-8 !rounded-full !p-0 !text-rose-600 hover:!bg-rose-50"
                         aria-label="Stop"
                       >
-                        <StopCircle className="h-4 w-4" />
+                        <StopCircle className="h-3.5 w-3.5" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>Stop (Esc)</TooltipContent>
@@ -222,7 +303,7 @@ export default function Composer({
                         size="icon"
                         aria-disabled={noModel}
                         aria-label="Send"
-                        className="!h-9 !w-9 !rounded-full !p-0 !bg-blue-600 hover:!bg-blue-700 !text-white"
+                        className="!h-8 !w-8 !rounded-full !p-0 !bg-blue-600 hover:!bg-blue-700 !text-white"
                         onClick={(e) => {
                           if (noModel) {
                             e.preventDefault();
@@ -230,7 +311,7 @@ export default function Composer({
                           }
                         }}
                       >
-                        <ArrowUp className="h-4 w-4" />
+                        <ArrowUp className="h-3.5 w-3.5" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>Send (Enter)</TooltipContent>
@@ -295,6 +376,30 @@ function WebPreviewToggle({ enabled, onToggle }: ToggleProps) {
       </TooltipTrigger>
       <TooltipContent>
         Render iframe previews for URLs in assistant replies. Off by default — enable when you want to see the linked page directly under the message.
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function ToolDetailsToggle({ enabled, onToggle }: ToggleProps) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          aria-pressed={enabled}
+          aria-label="Show tool call details"
+          onClick={() => onToggle(!enabled)}
+          className={enabled ? 'text-teal-700 bg-teal-50 hover:bg-teal-100' : ''}
+        >
+          <Code2 className="h-3.5 w-3.5" />
+          <span>Tool details</span>
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        Show the parameters and raw JSON result for each tool call inline. Off by default — for image generation you already see the rendered image, so the JSON is mostly useful for debugging.
       </TooltipContent>
     </Tooltip>
   );

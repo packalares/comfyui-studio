@@ -102,6 +102,25 @@ export interface TemplateCivitaiMeta {
   originalUrl?: string;
 }
 
+/** Slim wire shape returned by `/api/templates/list`. Used in AppContext +
+ *  picker dropdowns + Models/Explore aggregations. Audited consumers read
+ *  ONLY these 8 fields — anything else (description, thumbnails, civitai
+ *  meta, etc.) lives on the full `Template` and ships via
+ *  `/api/template-bundle/:name` on demand or via the paginated
+ *  `/api/templates?page=…` for the Explore grid. Add fields back here only
+ *  when a real consumer appears. */
+export interface TemplateSummary {
+  name: string;
+  title: string;
+  category: string;
+  studioCategory?: StudioCategory;
+  mediaType: string;
+  tags: string[];
+  /** First-required-model badge shown by ModelDropdown + the search corpus. */
+  models: string[];
+  openSource?: boolean;
+}
+
 export interface Template {
   name: string;
   title: string;

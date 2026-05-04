@@ -59,3 +59,19 @@ export function deleteAllMessages(
   ).run(conversationId);
   return r.changes;
 }
+
+/** Drop every message in the conversation except the given ids. Used by the
+ *  auto-compact path so the just-appended user message + assistant
+ *  placeholder survive the destructive summarization. */
+export function deleteMessagesNotIn(
+  conversationId: string, preserveIds: Iterable<string>,
+  db: Database.Database = getDb(),
+): number {
+  const ids = [...preserveIds];
+  if (ids.length === 0) return deleteAllMessages(conversationId, db);
+  const placeholders = ids.map(() => '?').join(', ');
+  const r = db.prepare(
+    `DELETE FROM chat_messages WHERE conversation_id = ? AND id NOT IN (${placeholders})`,
+  ).run(conversationId, ...ids);
+  return r.changes;
+}

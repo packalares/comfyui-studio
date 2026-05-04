@@ -1,9 +1,9 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
-import type { Template, GalleryItem } from '../types';
+import type { TemplateSummary, GalleryItem } from '../types';
 import { api } from '../services/comfyui';
 
 export interface CatalogContextType {
-  templates: Template[];
+  templates: TemplateSummary[];
   gallery: GalleryItem[];
   galleryTotal: number;
   recentGallery: GalleryItem[];
@@ -17,14 +17,18 @@ export interface CatalogContextType {
 const CatalogContext = createContext<CatalogContextType | null>(null);
 
 export function CatalogProvider({ children }: { children: React.ReactNode }) {
-  const [templates, setTemplates] = useState<Template[]>([]);
+  // Templates are kept as the slim `TemplateSummary` shape — the heavy
+  // fields (workflow JSON, formInputs, io, models[], plugins[]) live behind
+  // `/api/template-bundle/:name`, fetched on demand by Studio when a
+  // template is picked.
+  const [templates, setTemplates] = useState<TemplateSummary[]>([]);
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
   const [galleryTotal, setGalleryTotal] = useState<number>(0);
   const [recentGallery, setRecentGallery] = useState<GalleryItem[]>([]);
 
   const refreshTemplates = useCallback(async () => {
     try {
-      const data = await api.getTemplates();
+      const data = await api.getTemplatesList();
       setTemplates(data);
     } catch {
       // Keep existing templates if any are cached; don't clear on failure

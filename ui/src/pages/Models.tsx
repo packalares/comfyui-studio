@@ -7,14 +7,16 @@ import {
 } from 'lucide-react';
 import { Spinner } from '../components/ui/spinner';
 import { toast } from 'sonner';
-import type { CatalogModel, CivitaiModelSummary } from '../types';
+import type { CatalogModel, CivitaiModelSummary, RequiredItem, RequiredModel } from '../types';
 import { findDownloadForModel } from '../types';
-import { api } from '../services/comfyui';
+import { api, type PageEnvelope } from '../services/comfyui';
 import { useApp } from '../context/AppContext';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { usePaginated } from '../hooks/usePaginated';
 import PageSubbar from '../components/layout/PageSubbar';
+import Pagination from '../components/layout/Pagination';
 import DownloadsTab from '../components/DownloadsTab';
+import OllamaModelsPanel from '../components/OllamaModelsPanel';
 import ModelRow, { type ModelRowDownload, type ModelRowItem } from '../components/cards/ModelRow';
 import ModelInfoModal, { type ModelInfoSource } from '../components/modals/ModelInfoModal';
 import ModelFolderPickerModal from '../components/modals/ModelFolderPickerModal';
@@ -25,16 +27,7 @@ import { Combobox, COMBOBOX_SEARCH_THRESHOLD } from '../components/ui/combobox';
 import { Checkbox } from '../components/ui/checkbox';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogFooter,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogAction,
-  AlertDialogCancel,
-} from '../components/ui/alert-dialog';
+import ConfirmDialog from '../components/modals/ConfirmDialog';
 
 type ModelsTab = 'models' | 'downloads';
 
@@ -113,41 +106,75 @@ export default function Models() {
   const [typeFilter, setTypeFilter] = usePersistedState<Set<string>>('models.types', new Set());
   const [installedFilter, setInstalledFilter] = usePersistedState<'all' | 'yes' | 'no'>('models.installed', 'all');
   const [filtersOpen, setFiltersOpen] = usePersistedState('models.filtersOpen', false);
-  // Source: local catalog vs. CivitAI. Can be primed from `?source=civitai`
-  // (used by the legacy /plugins/civitai/models redirect).
-  type ModelSource = 'local' | 'civitai';
+  // Source: local catalog | CivitAI | Ollama. Can be primed from
+  // `?source=ollama` (the legacy /chat/models redirect lands here) or
+  // `?source=civitai` (the legacy /plugins/civitai/models redirect).
+  type ModelSource = 'local' | 'civitai' | 'ollama';
   const urlSource = searchParams.get('source');
+  const initialSource: ModelSource =
+    urlSource === 'civitai' ? 'civitai'
+    : urlSource === 'ollama' ? 'ollama'
+    : 'local';
   const [source, setSource] = usePersistedState<ModelSource>(
     'models.source',
-    urlSource === 'civitai' ? 'civitai' : 'local',
+    initialSource,
   );
   useEffect(() => {
     if (urlSource === 'civitai' && source !== 'civitai') setSource('civitai');
+    else if (urlSource === 'ollama' && source !== 'ollama') setSource('ollama');
     // URL → state sync is one-way; we don't want the source to ping-pong.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlSource]);
 
-  // Full catalog loaded once for stats + type-list + workflow dep filter. The
-  // displayed list is server-paginated below. Models.types is bounded (~50
-  // types max), so the overhead is acceptable.
-  const [allModels, setAllModels] = useState<CatalogModel[]>([]);
+  // CivitAI feed picker — Latest / Hot / Search. Mirrors Explore's UX so
+  // both pages have the same vocabulary. Persisted so a reload restores it.
+  // CivitAI's "Most Downloaded" sort returns cursor-based responses (page=
+  // is silently ignored upstream) so we thread `nextCursor` between fetches
+  // — see `civCursorRef` below.
+  type CivitaiFeed = 'latest' | 'hot' | 'search';
+  const [civitaiFeed, setCivitaiFeed] = usePersistedState<CivitaiFeed>(
+    'models.civitaiFeed',
+    'hot',
+  );
+  const civCursorRef = useRef<string | undefined>(undefined);
+  // Reset the cursor whenever a civitai axis changes (source, feed, or
+  // search query). usePaginated's own deps array resets `page→1`; we just
+  // need to clear the cursor in lock-step so page-1 fetches fresh, not
+  // from the previous feed's tail.
+  useEffect(() => {
+    civCursorRef.current = undefined;
+  }, [source, civitaiFeed, debouncedSearch]);
+
+  // Sidebar aggregates (installedCount + totalDiskSize + types) come from
+  // /models/stats — a server-side aggregation that replaces the prior
+  // full-catalog fetch. The displayed list is server-paginated; only the
+  // sidebar counts + Types checklist need a global view, and now those
+  // come pre-aggregated.
+  const [stats, setStats] = useState<{
+    installedCount: number;
+    available: number;
+    totalDiskSize: number;
+    types: string[];
+  } | null>(null);
   const lastCompletedRef = useRef<Set<string>>(new Set());
 
-  const loadAllModels = useCallback(async () => {
-    try {
-      const data = await api.getModelsCatalog();
-      setAllModels(data);
-    } catch {
-      setAllModels([]);
-    }
+  const loadStats = useCallback(async () => {
+    try { setStats(await api.getModelsStats()); } catch { setStats(null); }
   }, []);
 
-  useEffect(() => {
-    loadAllModels();
-    refreshTemplates();
-  }, [loadAllModels, refreshTemplates]);
+  // Workflow-dependency state — kept as the FULL list of RequiredItem so the
+  // "Download All Missing" button has the metadata it needs to install each
+  // missing model directly (no full-catalog scan). `workflowRequired` is the
+  // Set<string> of required model names, derived from the same list, used
+  // for the highlight-required-row UI cue.
+  const [workflowDeps, setWorkflowDeps] = useState<RequiredItem[]>([]);
 
-  // Watch for completed downloads → rescan + reload full catalog + current page.
+  useEffect(() => {
+    loadStats();
+    refreshTemplates();
+  }, [loadStats, refreshTemplates]);
+
+  // Watch for completed downloads → rescan + refresh stats + current page.
   // `refetchPage` is pulled from the `paged` memo below; set after it's defined.
   const refetchPageRef = useRef<(() => Promise<void>) | null>(null);
   useEffect(() => {
@@ -156,33 +183,37 @@ export default function Models() {
         lastCompletedRef.current.add(taskId);
         (async () => {
           try { await api.scanModels(); } catch { /* ignore */ }
-          await loadAllModels();
+          await loadStats();
           // Explicitly refetch the visible page once so newly-installed
-          // rows reflect their `installed` flag. Avoids the loopy
-          // `useEffect(() => refetchPage(), [allModels])` that fired on
-          // every mount + catalog change.
+          // rows reflect their `installed` flag.
           await refetchPageRef.current?.();
         })();
       }
     }
-  }, [downloads, loadAllModels]);
+  }, [downloads, loadStats]);
 
   // When workflow filter changes, check dependencies
   useEffect(() => {
     if (!selectedWorkflow) {
       setWorkflowRequired(new Set());
+      setWorkflowDeps([]);
       return;
     }
     api.checkDependencies(selectedWorkflow)
       .then(result => {
         // Models page only cares about model rows, not plugin entries.
         const names = new Set<string>();
+        const modelDeps: RequiredItem[] = [];
         for (const r of result.required) {
-          if (r.kind !== 'plugin') names.add(r.name);
+          if (r.kind !== 'plugin') {
+            names.add(r.name);
+            modelDeps.push(r);
+          }
         }
         setWorkflowRequired(names);
+        setWorkflowDeps(modelDeps);
       })
-      .catch(() => setWorkflowRequired(new Set()));
+      .catch(() => { setWorkflowRequired(new Set()); setWorkflowDeps([]); });
   }, [selectedWorkflow]);
 
   // Server-paginated fetch for the visible list. Filters are forwarded so
@@ -200,17 +231,30 @@ export default function Models() {
   const fetcher = useCallback(
     async ({ page, pageSize }: { page: number; pageSize: number }) => {
       if (source === 'civitai') {
+        // Cursor threading: Civitai's Most-Downloaded sort silently ignores
+        // `page=`. We pass the previous response's `nextCursor` on every
+        // fetch after page 1; the cursor was reset to undefined when the
+        // axis changed (see `civCursorRef` effect above).
+        const cursor = page > 1 ? civCursorRef.current : undefined;
         const trimmed = debouncedSearch.trim();
-        // Mirror CivitaiModelsView: search when the query is non-empty;
-        // otherwise page the "hot" sort as a sensible default.
-        const res = trimmed
-          ? await api.searchCivitaiModels(trimmed, { page, pageSize })
-          : await api.getCivitaiHotModels({ page, pageSize });
+        let res: PageEnvelope<CivitaiModelSummary>;
+        if (civitaiFeed === 'search') {
+          if (!trimmed) {
+            // Empty search query → reset and short-circuit. Don't hit the
+            // server; the empty-state branch renders the "type a query" hint.
+            civCursorRef.current = undefined;
+            return { items: [], total: 0, hasMore: false };
+          }
+          res = await api.searchCivitaiModels(trimmed, { pageSize, cursor });
+        } else if (civitaiFeed === 'hot') {
+          res = await api.getCivitaiHotModels({ page, pageSize, cursor });
+        } else {
+          res = await api.getCivitaiLatestModels({ page, pageSize, cursor });
+        }
+        civCursorRef.current = res.nextCursor;
         return {
           items: res.items.map<PageRow>((item) => ({ kind: 'civitai', item })),
           total: res.total,
-          // CivitAI search doesn't support page-based pagination; the service
-          // surfaces that by setting hasMore=false on search responses.
           hasMore: res.hasMore,
         };
       }
@@ -225,27 +269,35 @@ export default function Models() {
         hasMore: res.hasMore,
       };
     },
-    [source, debouncedSearch, types, installedParam],
+    [source, civitaiFeed, debouncedSearch, types, installedParam],
   );
   const paged = usePaginated<PageRow>(fetcher, {
-    deps: [source, debouncedSearch, types, installedParam],
+    deps: [source, civitaiFeed, debouncedSearch, types, installedParam],
   });
   const { items: pageItems, loading, refetch: refetchPage } = paged;
 
-  // "Load more" accumulator. `usePaginated` replaces `items` on every page
-  // change; the Models page wants cumulative rows across pages (CivitAI +
-  // local), so we keep a separate append-only list keyed off the current
-  // page number. page=1 → reset; page>1 → append (dedup by kind+id).
+  // Pagination strategy split:
+  //  - CivitAI uses "Load more" + an IntersectionObserver sentinel. Pages
+  //    accumulate (`pageRows`) and dedup by `civ-<id>`. CivitAI's API doesn't
+  //    return a stable `total`, so numbered pagination wouldn't work.
+  //  - Local catalog uses numbered <Pagination>. Each page replaces the
+  //    previous (no accumulator); `total` from the server drives the page
+  //    count. Faster jumps + jump-to-last vs the old infinite-scroll feel.
   const [pageRows, setPageRows] = useState<PageRow[]>([]);
-  // Reset accumulated rows immediately when filter/source axes change so the
-  // user doesn't see stale rows from the previous source while the new fetch
-  // is in flight. `usePaginated` resets page→1 and kicks off the refetch; we
-  // mirror that here.
   useEffect(() => {
+    // On any axis change reset the accumulator AND mirror the new pageItems
+    // immediately so local-catalog renders show no stale rows.
     setPageRows([]);
-  }, [source, debouncedSearch, types, installedParam]);
+  }, [source, civitaiFeed, debouncedSearch, types, installedParam]);
   useEffect(() => {
     if (loading) return;
+    // Local + Ollama (Ollama renders elsewhere — guard preserved): always
+    // replace with the current page only.
+    if (source !== 'civitai') {
+      setPageRows(pageItems);
+      return;
+    }
+    // CivitAI: accumulate.
     if (paged.page === 1) {
       setPageRows(pageItems);
       return;
@@ -265,7 +317,7 @@ export default function Models() {
       }
       return next;
     });
-  }, [pageItems, loading, paged.page]);
+  }, [pageItems, loading, paged.page, source]);
 
   // For the parts of the UI that only care about local catalog items (e.g.
   // the workflow-deps filter, download-by-model map) preserve the old name.
@@ -463,14 +515,14 @@ export default function Models() {
       // Mirror the post-install path: refresh the full catalog AND the
       // visible page so the deleted row drops out immediately instead of
       // sticking around with a stale "Installed" badge.
-      await loadAllModels();
+      await loadStats();
       await refetchPageRef.current?.();
     } catch (err) {
       console.error('Failed to delete model:', err);
     } finally {
       setDeleteTarget(null);
     }
-  }, [deleteTarget, loadAllModels]);
+  }, [deleteTarget, loadStats]);
 
   const [rescanning, setRescanning] = useState(false);
   const handleRescan = useCallback(async () => {
@@ -481,7 +533,7 @@ export default function Models() {
       toast.success('Index updated', {
         description: `Indexed ${res.total} files (added ${res.added}, removed ${res.removed}).`,
       });
-      await loadAllModels();
+      await loadStats();
       await refetchPageRef.current?.();
     } catch (err) {
       console.error('Rescan failed:', err);
@@ -491,7 +543,7 @@ export default function Models() {
     } finally {
       setRescanning(false);
     }
-  }, [rescanning, loadAllModels]);
+  }, [rescanning, loadStats]);
 
   const handleCancelDownload = useCallback(async (_modelName: string, downloadId: string) => {
     try {
@@ -502,38 +554,44 @@ export default function Models() {
   }, []);
 
   // Unique types from the FULL catalog (not just current page) so the sidebar
-  // Types checklist is stable.
-  const uniqueTypes = useMemo(() => {
-    const t = new Set<string>();
-    for (const m of allModels) t.add(m.type || 'other');
-    return Array.from(t).sort();
-  }, [allModels]);
+  // Types checklist — pulled from /models/stats so we don't need the full
+  // catalog client-side.
+  const uniqueTypes = useMemo(() => stats?.types ?? [], [stats]);
 
-  // When a template is selected, the required-model list is typically small
-  // (<30 entries) and must not be hidden by pagination. Source from the full
-  // catalog + filter client-side in that case; otherwise use the paginated
-  // page. Only applies when Source = local catalog.
+  // When a template is selected, the visible grid currently shows whatever
+  // the paginated fetch returns — `workflowRequired` highlights required
+  // rows (`isRequired` badge in <ModelRow>). The dependency modal continues
+  // to be the place where the user sees the FULL required list in one
+  // place; the grid's job is to filter the local catalog.
   const filteredModels = useMemo(() => {
     if (source !== 'local') return [];
-    if (selectedWorkflow && workflowRequired.size > 0) {
-      return allModels.filter(m =>
-        workflowRequired.has(m.filename) || workflowRequired.has(m.name),
-      );
-    }
     return models;
-  }, [source, models, allModels, selectedWorkflow, workflowRequired]);
+  }, [source, models]);
 
   const handleDownloadAllMissing = useCallback(async () => {
-    // Pull from the full catalog (not just this page) so the action truly
-    // covers every missing model required by the selected workflow.
-    const requiredNow = workflowRequired;
-    const missing = allModels.filter(m =>
-      !m.installed && (requiredNow.has(m.filename) || requiredNow.has(m.name)),
+    // Use the dependency-check result directly — each `RequiredModel` already
+    // has the URL + directory + (optional) hfRepo we need to start a download.
+    // No full-catalog scan required.
+    const missing = workflowDeps.filter(
+      (d): d is RequiredModel => d.kind !== 'plugin' && !d.installed,
     );
-    for (const model of missing) {
-      await handleInstall({ kind: 'catalog', model });
+    for (const m of missing) {
+      try {
+        if (m.hfRepo) {
+          await api.downloadHfRepo(m.hfRepo, m.directory, m.name);
+        } else {
+          await api.downloadCustomModel(m.url, m.directory || 'checkpoints', {
+            modelName: m.name,
+            filename: m.name,
+          });
+        }
+      } catch (err) {
+        toast.error(`Failed to start ${m.name}`, {
+          description: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
-  }, [allModels, workflowRequired, handleInstall]);
+  }, [workflowDeps]);
 
   const toggleTypeFilter = useCallback((type: string) => {
     setTypeFilter(prev => {
@@ -553,17 +611,13 @@ export default function Models() {
     setTypeFilter(new Set());
   }, []);
 
-  const installedCount = allModels.filter(m => m.installed).length;
-  const totalDiskSize = allModels
-    .filter(m => m.installed)
-    .reduce((sum, m) => sum + (m.fileSize || 0), 0);
-  // "Missing for workflow" counts against the full catalog so the banner count
-  // reflects global state, not just the current page.
-  const missingInFilter = selectedWorkflow && workflowRequired.size > 0
-    ? allModels.filter(m =>
-        !m.installed && (workflowRequired.has(m.filename) || workflowRequired.has(m.name)),
-      ).length
-    : 0;
+  const installedCount = stats?.installedCount ?? 0;
+  const totalDiskSize = stats?.totalDiskSize ?? 0;
+  // "Missing for workflow" comes from the dependency-check result so the
+  // banner count reflects global state — not just the current paginated page.
+  const missingInFilter = workflowDeps.filter(
+    (d): d is RequiredModel => d.kind !== 'plugin' && !d.installed,
+  ).length;
 
   // Map model.name -> download descriptor so each <ModelRow> only receives the
   // download object that actually concerns it (memoized rows won't re-render
@@ -594,7 +648,7 @@ export default function Models() {
   const subbarDescription =
     tab === 'downloads'
       ? 'Download history'
-      : `${allModels.length} total, ${installedCount} installed`;
+      : `${stats?.available ?? 0} total, ${installedCount} installed`;
 
   return (
     <>
@@ -630,11 +684,36 @@ export default function Models() {
                   <SelectContent>
                     <SelectItem value="local">Local catalog</SelectItem>
                     <SelectItem value="civitai">CivitAI</SelectItem>
+                    <SelectItem value="ollama">Ollama (chat models)</SelectItem>
                     {/* HuggingFace is a placeholder for a future source. */}
                     <SelectItem value="huggingface" disabled>HuggingFace (coming soon)</SelectItem>
                   </SelectContent>
                 </SelectField>
               </div>
+
+              {/* CivitAI feed picker — Latest / Hot / Search. Only visible
+                  when source === 'civitai'. Mirrors the Explore sidebar so
+                  the vocabulary is consistent across pages. */}
+              {source === 'civitai' && (
+                <div>
+                  <label className="field-label mb-1.5 block">Feed</label>
+                  <SelectField value={civitaiFeed} onValueChange={(v) => setCivitaiFeed(v as CivitaiFeed)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="latest">Latest</SelectItem>
+                      <SelectItem value="hot">Hot</SelectItem>
+                      <SelectItem value="search">Search</SelectItem>
+                    </SelectContent>
+                  </SelectField>
+                  {civitaiFeed === 'search' && !debouncedSearch.trim() && (
+                    <p className="mt-1.5 text-[11px] text-slate-500">
+                      Type a query in the Search box above to run a CivitAI search.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Local-catalog-only filters. CivitAI search uses its own query
                   so these don't apply (there's no per-template dep resolution
@@ -721,33 +800,44 @@ export default function Models() {
                 </>
               )}
 
-              {/* Storage Summary — vertical list (redesigned from the prior
-                  stat-box grid). Matches the row-style language of Settings
-                  StorageCard: icon + label on the left, value on the right. */}
-              <div className="pt-4 border-t border-slate-200">
-                <label className="field-label mb-2 block">Storage</label>
-                <div className="divide-y divide-slate-100 rounded-lg ring-1 ring-inset ring-slate-200 overflow-hidden bg-white">
-                  <div className="flex items-center gap-2 px-3 py-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                    <span className="text-xs text-slate-600 flex-1">Installed</span>
-                    <span className="font-mono text-sm font-semibold text-slate-900">{installedCount}</span>
-                  </div>
-                  <div className="flex items-center gap-2 px-3 py-2">
-                    <Package className="w-4 h-4 text-slate-500 shrink-0" />
-                    <span className="text-xs text-slate-600 flex-1">Available</span>
-                    <span className="font-mono text-sm font-semibold text-slate-900">{allModels.length}</span>
-                  </div>
-                  <div className="flex items-center gap-2 px-3 py-2">
-                    <HardDrive className="w-4 h-4 text-teal-600 shrink-0" />
-                    <span className="text-xs text-slate-600 flex-1">Disk usage</span>
-                    <span className="font-mono text-sm font-semibold text-slate-900">{formatBytes(totalDiskSize)}</span>
+              {/* Storage Summary — local catalog stats. Hidden for Ollama,
+                  whose installed/disk-usage numbers come from `ollama list`
+                  and would conflict with the local catalog totals shown
+                  here. */}
+              {source !== 'ollama' && (
+                <div className="pt-4 border-t border-slate-200">
+                  <label className="field-label mb-2 block">Storage</label>
+                  <div className="divide-y divide-slate-100 rounded-lg ring-1 ring-inset ring-slate-200 overflow-hidden bg-white">
+                    <div className="flex items-center gap-2 px-3 py-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                      <span className="text-xs text-slate-600 flex-1">Installed</span>
+                      <span className="font-mono text-sm font-semibold text-slate-900">{installedCount}</span>
+                    </div>
+                    <div className="flex items-center gap-2 px-3 py-2">
+                      <Package className="w-4 h-4 text-slate-500 shrink-0" />
+                      <span className="text-xs text-slate-600 flex-1">Available</span>
+                      <span className="font-mono text-sm font-semibold text-slate-900">{stats?.available ?? 0}</span>
+                    </div>
+                    <div className="flex items-center gap-2 px-3 py-2">
+                      <HardDrive className="w-4 h-4 text-teal-600 shrink-0" />
+                      <span className="text-xs text-slate-600 flex-1">Disk usage</span>
+                      <span className="font-mono text-sm font-semibold text-slate-900">{formatBytes(totalDiskSize)}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </aside>
 
             {/* ===== Right content ===== */}
             <main className="flex-1 p-4 overflow-y-auto">
+              {/* Ollama source pane — its own tab strip (Installed / Library /
+                  HuggingFace) replaces the Models/Downloads strip used for
+                  the local + civitai sources. Mounted via OllamaModelsPanel
+                  which owns its own search, refresh, and pull state. */}
+              {source === 'ollama' ? (
+                <OllamaModelsPanel />
+              ) : (
+              <>
               {/* Toolbar — search (Models tab only) + tab strip */}
               <div className="flex flex-col md:flex-row md:items-center gap-2 mb-4">
                 {tab === 'models' && (
@@ -772,17 +862,6 @@ export default function Models() {
                         </button>
                       )}
                     </div>
-                    <Button
-                      type="button"
-                      onClick={handleRescan}
-                      disabled={rescanning}
-                      variant="secondary"
-                      aria-label="Rescan models on disk"
-                      title="Rescan model files on disk"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${rescanning ? 'animate-spin' : ''}`} />
-                      {rescanning ? 'Rescanning…' : 'Rescan'}
-                    </Button>
                   </>
                 )}
                 <div
@@ -807,6 +886,21 @@ export default function Models() {
                   >
                     <History className="w-3.5 h-3.5" />
                     Downloads
+                  </button>
+                  {/* Rescan sits inline with the tabs (action, not a tab —
+                      no aria-selected). Tinted teal so it's visually marked
+                      as an action and doesn't read as an "off" tab waiting
+                      to be picked. */}
+                  <button
+                    type="button"
+                    onClick={handleRescan}
+                    disabled={rescanning}
+                    aria-label="Rescan models on disk"
+                    title="Rescan model files on disk"
+                    className="tab-strip-item text-teal-700 hover:text-teal-800 hover:bg-teal-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${rescanning ? 'animate-spin' : ''}`} />
+                    {rescanning ? 'Rescanning…' : 'Rescan'}
                   </button>
                 </div>
               </div>
@@ -941,7 +1035,7 @@ export default function Models() {
                         Check Settings
                       </Button>
                     </>
-                  ) : allModels.length === 0 ? (
+                  ) : (stats?.available ?? 0) === 0 ? (
                     <>
                       <Box className="w-10 h-10 text-slate-200 mx-auto mb-3" />
                       <p className="text-sm font-medium text-slate-500">No models found</p>
@@ -962,13 +1056,11 @@ export default function Models() {
                 </div>
               )}
 
-              {/* Infinite scroll sentinel — replaces the manual "Load more"
-                  button. An IntersectionObserver above watches this div and
-                  advances the page when it scrolls into view. Hidden when
-                  browsing the local catalog with a template filter active
-                  (required-model list is a fixed set — auto-load is
-                  misleading). */}
-              {!(source === 'local' && selectedWorkflow) && pageRows.length > 0 && (
+              {/* CivitAI: infinite-scroll sentinel. CivitAI's API doesn't
+                  ship a usable `total`, so numbered pagination isn't an
+                  option here — keep "Load more" via the
+                  IntersectionObserver above. */}
+              {source === 'civitai' && pageRows.length > 0 && (
                 <div
                   ref={sentinelRef}
                   className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-center"
@@ -982,6 +1074,25 @@ export default function Models() {
                     <span className="text-xs text-slate-500">No more results</span>
                   )}
                 </div>
+              )}
+
+              {/* Local catalog: numbered Pagination — page-replace, jump-by-page,
+                  page-size select. Hidden when a workflow filter is active
+                  (the required-model list is a fixed set, paging would just
+                  hide rows the user picked the workflow to surface). */}
+              {source === 'local' && !selectedWorkflow && paged.total > 0 && (
+                <div className="mt-4">
+                  <Pagination
+                    page={paged.page}
+                    pageSize={paged.pageSize}
+                    total={paged.total}
+                    hasMore={paged.hasMore}
+                    onPageChange={paged.setPage}
+                    onPageSizeChange={paged.setPageSize}
+                  />
+                </div>
+              )}
+              </>
               )}
               </>
               )}
@@ -1016,23 +1127,15 @@ export default function Models() {
         }}
       />
 
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete model?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete <span className="font-mono text-slate-700">{deleteTarget?.filename || deleteTarget?.name}</span> from disk. You can re-download it later.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete} className="!bg-red-600 hover:!bg-red-700">
-              <Trash2 className="w-3.5 h-3.5" />
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete model?"
+        description={`This will permanently delete "${deleteTarget?.filename || deleteTarget?.name}" from disk. You can re-download it later.`}
+        confirmLabel="Delete"
+        confirmTone="danger"
+        onConfirm={confirmDelete}
+      />
     </>
   );
 }

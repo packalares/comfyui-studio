@@ -26,6 +26,10 @@ import type { OllamaInstalledModel } from '../../services/comfyui';
 
 interface Props {
   installed: OllamaInstalledModel[];
+  /** True while the first installed-models fetch is in flight. The pill
+   *  trigger renders a skeleton shimmer instead of "No models installed"
+   *  during this window — avoids the brief flash of a misleading label. */
+  loading?: boolean;
   model: string;
   disabled?: boolean;
   libraryCapabilities?: Record<string, string[]>;
@@ -90,7 +94,7 @@ function CapBadge({ cap }: { cap: KnownCap }) {
 }
 
 export default function ChatModelPickerModal({
-  installed, model, disabled, libraryCapabilities, onChange,
+  installed, loading, model, disabled, libraryCapabilities, onChange,
 }: Props) {
   const [open, setOpen] = useState(false);
   const rows = useMemo(
@@ -113,20 +117,38 @@ export default function ChatModelPickerModal({
           type="button"
           variant="ghost"
           size="sm"
-          disabled={disabled}
+          disabled={disabled || loading}
           className={cn(
-            'h-7 gap-1.5 px-2 font-mono text-xs',
-            noModel && 'border border-rose-300 bg-rose-50 text-rose-600',
+            // Pill height matched to the round send button (h-8) so the
+            // composer footer right-side reads as one consistent row.
+            'h-8 gap-1.5 px-2.5 font-mono text-xs',
+            // Rose ring only once we're certain there's no model — never
+            // during the initial fetch (would flash red on every reload).
+            !loading && noModel && 'text-rose-600 ring-1 ring-rose-300 ring-inset bg-rose-50/60',
           )}
           aria-label="Pick a chat model"
         >
-          <Boxes className="h-3.5 w-3.5" />
-          {noInstalled
-            ? 'No models installed'
-            : noModel
-              ? 'Pick a model'
-              : model}
-          <ChevronDown className="h-3 w-3 opacity-60" />
+          {loading ? (
+            // Skeleton shimmer inside the pill while we don't yet know
+            // whether a model is installed. `animate-shimmer` keyframe
+            // is defined globally in `index.css`.
+            <span
+              aria-label="Loading models"
+              className="relative inline-block h-3.5 w-28 overflow-hidden rounded bg-slate-200"
+            >
+              <span className="absolute inset-y-0 left-0 w-1/2 animate-shimmer bg-gradient-to-r from-transparent via-white/70 to-transparent" />
+            </span>
+          ) : (
+            <>
+              <Boxes className="h-3.5 w-3.5" />
+              {noInstalled
+                ? 'No models installed'
+                : noModel
+                  ? 'Pick a model'
+                  : model}
+              <ChevronDown className="h-3 w-3 opacity-60" />
+            </>
+          )}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-lg p-0">

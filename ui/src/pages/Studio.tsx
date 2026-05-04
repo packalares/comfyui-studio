@@ -23,7 +23,7 @@ import { Button } from '../components/ui/button';
 import { api, ApiError } from '../services/comfyui';
 import { isThreeDFilename } from '../lib/media';
 import { toast } from 'sonner';
-import type { StudioCategory, Template, DependencyCheck, AdvancedSetting, FormInput } from '../types';
+import type { StudioCategory, TemplateSummary, DependencyCheck, AdvancedSetting, FormInput } from '../types';
 import { Settings2 } from 'lucide-react';
 
 const categories: { id: StudioCategory; label: string; icon: React.ElementType }[] = [
@@ -42,7 +42,7 @@ const categoryTitles: Record<StudioCategory, string> = {
   tools: 'AI-Tools Generator',
 };
 
-function getCategoryForTemplate(t: Template): StudioCategory {
+function getCategoryForTemplate(t: TemplateSummary): StudioCategory {
   if (t.studioCategory) return t.studioCategory;
   const cat = t.category?.toLowerCase();
   if (cat === 'image') return 'image';
@@ -159,15 +159,14 @@ export default function Studio() {
     [templates, selectedTemplate]
   );
 
-  // Once `/api/template-widgets` returns we use ONLY its output — that's
-  // the canonical workflow-aware list with full bindings, defaults, and
-  // dedup applied. Catalog-time `template.formInputs` is a placeholder
-  // only until the fetch resolves. Mixing them post-load would re-introduce
-  // the duplicates the canonical pipeline removed.
+  // Form fields come from `/api/template-bundle/:name` (the canonical
+  // workflow-aware list with bindings, defaults, dedup applied). Until the
+  // bundle returns we render no fields — the slim `TemplateSummary` cached
+  // in AppContext doesn't carry the placeholder formInputs anymore. The
+  // bundle is fast (single round-trip) so the brief empty render is fine.
   const mergedFormInputs = useMemo(() => {
-    if (formFieldsLoaded) return primitiveFormFields;
-    return template?.formInputs ?? [];
-  }, [template?.formInputs, primitiveFormFields, formFieldsLoaded]);
+    return formFieldsLoaded ? primitiveFormFields : [];
+  }, [primitiveFormFields, formFieldsLoaded]);
 
   // Fetch advanced settings when template changes. We also probe `/template-widgets`
   // to decide whether the "Edit advanced fields" button should be shown — only if there
@@ -322,17 +321,9 @@ export default function Studio() {
   // primitive-field defaults that the /template-widgets fetch already
   // merged in.
   useEffect(() => {
-    if (template?.formInputs) {
-      const defaults: Record<string, unknown> = {};
-      for (const input of template.formInputs) {
-        if (input.default !== undefined) {
-          defaults[input.id] = input.default;
-        }
-      }
-      setFormValues(defaults);
-    } else {
-      setFormValues({});
-    }
+    // Reset on template change. Defaults are merged in by the
+    // primitiveFormFields effect below, after the bundle arrives.
+    setFormValues({});
   }, [selectedTemplate]);
 
   // Merge primitive defaults into formValues when they arrive. Only fills

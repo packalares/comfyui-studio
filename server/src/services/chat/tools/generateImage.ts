@@ -32,14 +32,16 @@ export interface GenerateImageConfig {
   defaultTemplate: string;
 }
 
+// `template` was previously an optional arg the model could pass to pick a
+// specific Studio template. Removed because Llama-family models filled it
+// reflexively (often with hallucinated or stale names from prior turns),
+// silently overriding the user's UI-configured default. The chat tool now
+// always uses the configured default image template — single source of
+// truth, matches user expectation that "the Settings UI is authoritative".
 const inputSchema = z.object({
   prompt: z.string().min(1)
     .describe('Text prompt for the image. Routed to the template\'s primary '
       + 'prompt input field.'),
-  template: z.string().optional()
-    .describe('Optional Studio template name. When omitted, the user\'s '
-      + 'configured default image template is used. Must be one of the '
-      + 'templates listed under category "image" in Studio.'),
 });
 
 // Pick the prompt-bearing field. Templates with explicit form bindings put a
@@ -129,15 +131,10 @@ export function generateImageTool(config: GenerateImageConfig) {
   return tool({
     description: TOOL_DESCRIPTION_GENERATE_IMAGE,
     inputSchema,
-    execute: async ({ prompt, template }): Promise<GenerateImageOutput> => {
-      // LLMs frequently hallucinate template names ("cyberpunk-city" etc).
-      // If the model-supplied name doesn't resolve, silently fall back to the
-      // user's configured default rather than failing the tool call.
-      const requested = (template ?? '').trim();
-      const fallback = (config.defaultTemplate ?? '').trim();
-      const requestedExists = requested.length > 0
-        && templates.getTemplate(requested) !== undefined;
-      const templateName = requestedExists ? requested : fallback;
+    execute: async ({ prompt }): Promise<GenerateImageOutput> => {
+      // Always use the user's configured default. The model has no say —
+      // see the inputSchema comment above for context.
+      const templateName = (config.defaultTemplate ?? '').trim();
       if (!templateName) {
         return GENERATE_IMAGE_NO_TEMPLATE_ERROR;
       }

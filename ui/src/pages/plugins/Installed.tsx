@@ -17,16 +17,7 @@ import InstallUrlModal from '../../components/plugins/InstallUrlModal';
 import SwitchVersionModal from '../../components/plugins/SwitchVersionModal';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader } from '../../components/ui/card';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogFooter,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogAction,
-  AlertDialogCancel,
-} from '../../components/ui/alert-dialog';
+import ConfirmDialog from '../../components/modals/ConfirmDialog';
 
 type StatusFilter = 'all' | 'installed' | 'available';
 
@@ -281,30 +272,15 @@ export default function Installed() {
         onConfirm={handleSwitchVersion}
       />
 
-      <AlertDialog
+      <ConfirmDialog
         open={!!uninstallTarget}
-        onOpenChange={(open) => !open && setUninstallTarget(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Uninstall plugin?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This removes{' '}
-              <span className="font-mono text-slate-700">
-                {uninstallTarget?.name || uninstallTarget?.id}
-              </span>{' '}
-              from <code className="font-mono text-slate-700">custom_nodes/</code>. You can
-              re-install it from the catalog later.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleUninstall} className="!bg-red-600 hover:!bg-red-700">
-              Uninstall
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onClose={() => setUninstallTarget(null)}
+        title="Uninstall plugin?"
+        description={`This removes "${uninstallTarget?.name || uninstallTarget?.id || ''}" from custom_nodes/. You can re-install it from the catalog later.`}
+        confirmLabel="Uninstall"
+        confirmTone="danger"
+        onConfirm={handleUninstall}
+      />
     </div>
   );
 }

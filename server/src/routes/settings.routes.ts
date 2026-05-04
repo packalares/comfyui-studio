@@ -67,15 +67,15 @@ function chatSettingsResponse() {
     defaultModel: settings.getChatDefaultModel() ?? '',
     keepAlive: settings.getChatKeepAlive(),
     defaultContextStrategy: settings.getDefaultContextStrategy(),
+    defaultThinkMode: settings.getChatDefaultThinkMode(),
     advanced: {
       highWaterPercent: settings.getChatHighWaterPercent(),
-      slidingTargetPercent: settings.getChatSlidingTargetPercent(),
-      fallbackNumCtx: settings.getChatFallbackNumCtx(),
       maxToolSteps: settings.getChatMaxToolSteps(),
       loadingHintMs: settings.getChatLoadingHintMs(),
       keepRecent: settings.getChatKeepRecent(),
       titleTimeoutMs: settings.getChatTitleTimeoutMs(),
       summaryTimeoutMs: settings.getChatSummaryTimeoutMs(),
+      smartSuggestions: settings.getChatSmartSuggestions(),
     },
   };
 }
@@ -120,15 +120,15 @@ router.put('/settings/chat', (req: Request, res: Response) => {
     defaultModel?: unknown;
     keepAlive?: unknown;
     defaultContextStrategy?: unknown;
+    defaultThinkMode?: unknown;
     advanced?: {
       highWaterPercent?: unknown;
-      slidingTargetPercent?: unknown;
-      fallbackNumCtx?: unknown;
       maxToolSteps?: unknown;
       loadingHintMs?: unknown;
       keepRecent?: unknown;
       titleTimeoutMs?: unknown;
       summaryTimeoutMs?: unknown;
+      smartSuggestions?: unknown;
     };
   };
   if (typeof body.ollamaUrl === 'string') {
@@ -148,10 +148,16 @@ router.put('/settings/chat', (req: Request, res: Response) => {
   }
   if (
     body.defaultContextStrategy === 'sliding'
-    || body.defaultContextStrategy === 'summarize'
-    || body.defaultContextStrategy === 'manual'
+    || body.defaultContextStrategy === 'auto'
   ) {
     settings.setDefaultContextStrategy(body.defaultContextStrategy);
+  }
+  if (
+    body.defaultThinkMode === 'on'
+    || body.defaultThinkMode === 'off'
+    || body.defaultThinkMode === 'auto'
+  ) {
+    settings.setChatDefaultThinkMode(body.defaultThinkMode);
   }
   // Advanced tunables — each is a positive number; null/undefined clears
   // back to the documented default. All getters validate so a corrupt
@@ -161,13 +167,15 @@ router.put('/settings/chat', (req: Request, res: Response) => {
     const numOrNull = (v: unknown): number | null =>
       typeof v === 'number' && Number.isFinite(v) ? v : null;
     if ('highWaterPercent' in adv)     settings.setChatHighWaterPercent(numOrNull(adv.highWaterPercent));
-    if ('slidingTargetPercent' in adv) settings.setChatSlidingTargetPercent(numOrNull(adv.slidingTargetPercent));
-    if ('fallbackNumCtx' in adv)       settings.setChatFallbackNumCtx(numOrNull(adv.fallbackNumCtx));
     if ('maxToolSteps' in adv)         settings.setChatMaxToolSteps(numOrNull(adv.maxToolSteps));
     if ('loadingHintMs' in adv)        settings.setChatLoadingHintMs(numOrNull(adv.loadingHintMs));
     if ('keepRecent' in adv)           settings.setChatKeepRecent(numOrNull(adv.keepRecent));
     if ('titleTimeoutMs' in adv)       settings.setChatTitleTimeoutMs(numOrNull(adv.titleTimeoutMs));
     if ('summaryTimeoutMs' in adv)     settings.setChatSummaryTimeoutMs(numOrNull(adv.summaryTimeoutMs));
+    if ('smartSuggestions' in adv) {
+      const v = adv.smartSuggestions;
+      settings.setChatSmartSuggestions(typeof v === 'boolean' ? v : null);
+    }
   }
   res.json(chatSettingsResponse());
 });

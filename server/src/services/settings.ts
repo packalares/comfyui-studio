@@ -26,17 +26,11 @@ interface Settings {
   /** Template name used when the chat `generate_image` tool runs without an explicit template. */
   defaultImageTemplate?: string;
   /** Default context-window management strategy applied to brand-new conversations. */
-  defaultContextStrategy?: 'sliding' | 'summarize' | 'manual';
+  defaultContextStrategy?: 'sliding' | 'auto';
   // ===== Chat tunables (advanced) =====
   // Trigger threshold for the active context strategy. The strategy fires when
   // estimated next-turn usage hits this percent of the model's budget.
   chatHighWaterPercent?: number;
-  // After the sliding strategy trims, target this much budget headroom.
-  chatSlidingTargetPercent?: number;
-  // Used when /api/show fails to report the model's num_ctx — usually the
-  // baseline 4K Ollama default. Conservative; users with tiny CPU-only
-  // models may want to lower it.
-  chatFallbackNumCtx?: number;
   // Max tool-dispatch loop iterations before we give up. Caps runaway
   // chains where the model keeps calling tools in a circle.
   chatMaxToolSteps?: number;
@@ -51,6 +45,15 @@ interface Settings {
   // Timeout for the summary one-shot LLM call (manual /compact + summarize
   // strategy share this knob).
   chatSummaryTimeoutMs?: number;
+  // When true, after each assistant turn the server fires a small
+  // non-streaming /api/chat call asking the model to suggest 3 short
+  // follow-up prompts. Result is broadcast over WS as `chat:suggestions`.
+  // Off → UI falls back to static `CONTEXTUAL_SUGGESTIONS` heuristics.
+  chatSmartSuggestions?: boolean;
+  // Default thinking-mode applied to newly-created conversations. NULL or
+  // 'auto' = model decides; 'on' / 'off' force the override on every new
+  // chat row so the user doesn't have to flip the popover every time.
+  chatDefaultThinkMode?: 'on' | 'off' | 'auto';
 }
 
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
@@ -60,13 +63,13 @@ const DEFAULT_CHAT_KEEP_ALIVE = '5m';
 // and so any out-of-tree consumer can read them without round-tripping
 // through `load()`.
 export const DEFAULT_CHAT_HIGH_WATER_PERCENT = 80;
-export const DEFAULT_CHAT_SLIDING_TARGET_PERCENT = 70;
-export const DEFAULT_CHAT_FALLBACK_NUM_CTX = 4096;
 export const DEFAULT_CHAT_MAX_TOOL_STEPS = 6;
 export const DEFAULT_CHAT_LOADING_HINT_MS = 1500;
 export const DEFAULT_CHAT_KEEP_RECENT = 4;
 export const DEFAULT_CHAT_TITLE_TIMEOUT_MS = 30_000;
 export const DEFAULT_CHAT_SUMMARY_TIMEOUT_MS = 60_000;
+export const DEFAULT_CHAT_SMART_SUGGESTIONS = true;
+export const DEFAULT_CHAT_DEFAULT_THINK_MODE: 'on' | 'off' | 'auto' = 'auto';
 
 let cache: Settings | null = null;
 
@@ -240,15 +243,14 @@ export function clearChatKeepAlive(): void {
   save(rest);
 }
 
-const VALID_CONTEXT_STRATEGIES: Array<'sliding' | 'summarize' | 'manual'> =
-  ['sliding', 'summarize', 'manual'];
+const VALID_CONTEXT_STRATEGIES: Array<'sliding' | 'auto'> = ['sliding', 'auto'];
 
-export function getDefaultContextStrategy(): 'sliding' | 'summarize' | 'manual' {
+export function getDefaultContextStrategy(): 'sliding' | 'auto' {
   const v = load().defaultContextStrategy;
   return VALID_CONTEXT_STRATEGIES.includes(v as never) ? v! : 'sliding';
 }
 
-export function setDefaultContextStrategy(value: 'sliding' | 'summarize' | 'manual'): void {
+export function setDefaultContextStrategy(value: 'sliding' | 'auto'): void {
   if (!VALID_CONTEXT_STRATEGIES.includes(value)) return;
   const settings = load();
   save({ ...settings, defaultContextStrategy: value });
@@ -269,12 +271,6 @@ function readPositiveInt(v: unknown, fallback: number): number {
 export function getChatHighWaterPercent(): number {
   return readPercent(load().chatHighWaterPercent, DEFAULT_CHAT_HIGH_WATER_PERCENT);
 }
-export function getChatSlidingTargetPercent(): number {
-  return readPercent(load().chatSlidingTargetPercent, DEFAULT_CHAT_SLIDING_TARGET_PERCENT);
-}
-export function getChatFallbackNumCtx(): number {
-  return readPositiveInt(load().chatFallbackNumCtx, DEFAULT_CHAT_FALLBACK_NUM_CTX);
-}
 export function getChatMaxToolSteps(): number {
   return readPositiveInt(load().chatMaxToolSteps, DEFAULT_CHAT_MAX_TOOL_STEPS);
 }
@@ -289,6 +285,14 @@ export function getChatTitleTimeoutMs(): number {
 }
 export function getChatSummaryTimeoutMs(): number {
   return readPositiveInt(load().chatSummaryTimeoutMs, DEFAULT_CHAT_SUMMARY_TIMEOUT_MS);
+}
+export function getChatSmartSuggestions(): boolean {
+  const v = load().chatSmartSuggestions;
+  return typeof v === 'boolean' ? v : DEFAULT_CHAT_SMART_SUGGESTIONS;
+}
+export function getChatDefaultThinkMode(): 'on' | 'off' | 'auto' {
+  const v = load().chatDefaultThinkMode;
+  return v === 'on' || v === 'off' || v === 'auto' ? v : DEFAULT_CHAT_DEFAULT_THINK_MODE;
 }
 
 // Setters — pass `undefined`/`null` to clear and fall back to the default.
@@ -307,12 +311,6 @@ function setNumeric(
 export function setChatHighWaterPercent(v: number | null | undefined): void {
   setNumeric('chatHighWaterPercent', v);
 }
-export function setChatSlidingTargetPercent(v: number | null | undefined): void {
-  setNumeric('chatSlidingTargetPercent', v);
-}
-export function setChatFallbackNumCtx(v: number | null | undefined): void {
-  setNumeric('chatFallbackNumCtx', v);
-}
 export function setChatMaxToolSteps(v: number | null | undefined): void {
   setNumeric('chatMaxToolSteps', v);
 }
@@ -327,6 +325,25 @@ export function setChatTitleTimeoutMs(v: number | null | undefined): void {
 }
 export function setChatSummaryTimeoutMs(v: number | null | undefined): void {
   setNumeric('chatSummaryTimeoutMs', v);
+}
+export function setChatSmartSuggestions(v: boolean | null | undefined): void {
+  const settings = load();
+  if (v === null || v === undefined) {
+    const { chatSmartSuggestions: _r, ...rest } = settings;
+    save(rest);
+    return;
+  }
+  save({ ...settings, chatSmartSuggestions: !!v });
+}
+export function setChatDefaultThinkMode(v: 'on' | 'off' | 'auto' | null | undefined): void {
+  const settings = load();
+  if (v === null || v === undefined) {
+    const { chatDefaultThinkMode: _r, ...rest } = settings;
+    save(rest);
+    return;
+  }
+  if (v !== 'on' && v !== 'off' && v !== 'auto') return;
+  save({ ...settings, chatDefaultThinkMode: v });
 }
 
 // Internal accessors used by `settings.tools.ts` so the chat-tools fields share

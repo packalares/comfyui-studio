@@ -75,6 +75,10 @@ interface Props {
   // When true, plain URLs in assistant text get a <WebPreview> iframe
   // appended underneath the message. Off by default (composer toggle).
   webPreviews?: boolean;
+  // When true, render the verbose <ToolBlockCard> (parameters + raw result
+  // JSON) under each tool call. Off by default — for `generate_image` the
+  // rendered image already shows up below; the JSON is mostly debug noise.
+  showToolDetails?: boolean;
   // Click handler for the static <Suggestion> follow-up buttons under the
   // last assistant message. Sends the suggestion as a fresh user turn.
   onSuggestionClick?: (text: string) => void;
@@ -107,7 +111,7 @@ function attachmentsOf(parts: StudioUIMessagePart[]): RenderedAttachment[] {
 
 export default function MessageThread({
   messages, status, streamError, hasConversation, onFilesDropped,
-  webPreviews, onSuggestionClick, onRegenerate, onDelete,
+  webPreviews, showToolDetails, onSuggestionClick, onRegenerate, onDelete,
 }: Props) {
   const [dragActive, setDragActive] = useState(false);
   const [zoomed, setZoomed] = useState<string | null>(null);
@@ -131,6 +135,21 @@ export default function MessageThread({
         }
         return next;
       });
+    });
+  }, []);
+
+  // Dynamic follow-up suggestions, keyed by `msgId`. The server's
+  // `chat:suggestions` event lands here ~300-500ms after the assistant's
+  // main reply finishes (one extra non-streaming /api/chat call). When a
+  // row is present, `MessageRow` renders these instead of the static
+  // heuristic pills from `deriveSuggestions`. Toggle in Settings → Chat
+  // disables the round-trip server-side; in that case the bus event never
+  // fires and the static fallback continues.
+  const [suggestionsByMsg, setSuggestionsByMsg] = useState<Record<string, string[]>>({});
+  useEffect(() => {
+    return chatEvents.onSuggestions(({ msgId, suggestions }) => {
+      if (!msgId || suggestions.length === 0) return;
+      setSuggestionsByMsg(prev => ({ ...prev, [msgId]: suggestions }));
     });
   }, []);
 
@@ -253,7 +272,9 @@ export default function MessageThread({
                 isStreaming={m.id === inFlightAssistantId}
                 isLastAssistant={isLastAssistant}
                 webPreviews={!!webPreviews}
+                showToolDetails={!!showToolDetails}
                 galleryByPrompt={galleryByPrompt}
+                dynamicSuggestions={suggestionsByMsg[m.id] ?? null}
                 onZoom={setZoomed}
                 onSuggestionClick={onSuggestionClick}
                 onRegenerate={onRegenerate}
@@ -312,7 +333,12 @@ interface RowProps {
   isStreaming: boolean;
   isLastAssistant: boolean;
   webPreviews: boolean;
+  showToolDetails: boolean;
   galleryByPrompt: Record<string, GalleryAddedItem>;
+  /** Server-generated suggestions for this row, or null when none have
+   *  arrived yet (or the smart-suggestions toggle is off). When present,
+   *  these replace the static heuristic pills from `deriveSuggestions`. */
+  dynamicSuggestions: string[] | null;
   onZoom: (url: string) => void;
   onSuggestionClick?: (text: string) => void;
   onRegenerate?: () => void;
@@ -320,7 +346,8 @@ interface RowProps {
 }
 
 function MessageRow({
-  msg, isStreaming, isLastAssistant, webPreviews, galleryByPrompt,
+  msg, isStreaming, isLastAssistant, webPreviews, showToolDetails, galleryByPrompt,
+  dynamicSuggestions,
   onZoom, onSuggestionClick, onRegenerate, onDelete,
 }: RowProps) {
   const isUser = msg.role === 'user';
@@ -343,10 +370,15 @@ function MessageRow({
     () => (isUser || !webPreviews || isStreaming ? [] : extractInlineUrls(text)),
     [isUser, webPreviews, isStreaming, text],
   );
-  const suggestions = useMemo(
-    () => (isLastAssistant && !isStreaming ? deriveSuggestions(msg) : []),
-    [isLastAssistant, isStreaming, msg],
-  );
+  // Prefer the server-generated suggestions when they've arrived for this
+  // row; fall back to the static heuristic so the UI never feels empty
+  // while the post-turn LLM call is still in flight (or when the toggle
+  // is off). Only the last assistant message renders pills.
+  const suggestions = useMemo(() => {
+    if (!isLastAssistant || isStreaming) return [];
+    if (dynamicSuggestions && dynamicSuggestions.length > 0) return dynamicSuggestions;
+    return deriveSuggestions(msg);
+  }, [isLastAssistant, isStreaming, msg, dynamicSuggestions]);
 
   // User-message Actions (delete only) — rendered as a sibling of the bubble
   // so the bubble's padding isn't disturbed by an always-reserved row of
@@ -385,7 +417,7 @@ function MessageRow({
             {/* Render every assistant part in source order so the model's
                 interleaved reasoning / tools / text show up where they
                 were emitted, not bucketed at the top of the row. */}
-            {msg.parts.map((p, i) => renderAssistantPart(p, i, isStreaming))}
+            {msg.parts.map((p, i) => renderAssistantPart(p, i, isStreaming, showToolDetails))}
             {isStreaming && text.length === 0 && msg.parts.every(p => p.type !== 'reasoning' && p.type !== 'dynamic-tool') && (
               <ColdLoadLoader />
             )}
@@ -417,6 +449,7 @@ function MessageRow({
                   msToFirstToken={meta?.ms_to_first_token ?? null}
                   tokensIn={meta?.tokens_in ?? null}
                   tokensOut={meta?.tokens_out ?? null}
+                  loadDurationMs={meta?.load_duration_ms ?? null}
                 />
                 {suggestions.length > 0 && onSuggestionClick && (
                   <Suggestions className="mt-2">
@@ -524,15 +557,32 @@ interface GeneratedImageProps {
   onZoom: (url: string) => void;
 }
 function GeneratedImage({ refData, resolved, onZoom }: GeneratedImageProps) {
-  // Until the gallery WS event lands the image, we render a placeholder card
-  // so the user sees that something is in flight. ai-elements `<Image>` is a
-  // base64 wrapper; we want a real URL render here, so we use a plain <img>
-  // wrapped in the same look-and-feel.
+  // Until the gallery WS event lands the image, render a skeleton placeholder
+  // sized to the same `max-w-md` × roughly-4:3 box the final image will take,
+  // so the layout doesn't jump when the image arrives. `animate-pulse` on the
+  // shimmer band gives the standard "loading" affordance; a faint image icon
+  // anchors the eye in the centre.
   if (!resolved) {
     return (
-      <div className="mt-2 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-        <Spinner size="xs" className="text-teal-500" />
-        Image generating ({refData.templateName || 'template'})... prompt {refData.promptId.slice(0, 8)}
+      <div
+        role="status"
+        aria-label={`Generating image (${refData.templateName || 'template'})`}
+        // Fixed dimensions — the placeholder must NOT reflow as the
+        // assistant's surrounding text streams in and grows the bubble.
+        // 24rem × 18rem = 384×288, 4:3, fits comfortably in any bubble
+        // width and matches roughly the size the rendered image will land at.
+        className="relative mt-2 h-72 w-96 overflow-hidden rounded-lg bg-slate-200"
+      >
+        {/* Diagonal "shine" band sweeping left-to-right — the classic
+            content-skeleton affordance (Twitter / YouTube / shadcn). The
+            keyframe is defined as `--animate-shimmer` in `index.css`. */}
+        <div className="absolute inset-y-0 left-0 w-1/2 animate-shimmer bg-gradient-to-r from-transparent via-white/70 to-transparent" />
+        {/* Centered "Generating image" caption above the shimmer — text
+            stays still while the band moves underneath, like a watermark
+            on a polished surface. */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-xs font-medium text-slate-500">Generating image…</span>
+        </div>
       </div>
     );
   }
@@ -553,15 +603,19 @@ function GeneratedImage({ refData, resolved, onZoom }: GeneratedImageProps) {
     );
   }
   return (
+    // Bare image inside a stripped <button> — every browser default is
+    // explicitly killed (border / outline / focus ring / hover shadow)
+    // so nothing draws outside the image's rounded edge. Affordance is
+    // limited to `cursor-zoom-in`.
     <button
       type="button"
       onClick={() => onZoom(url)}
-      className="mt-2 block overflow-hidden rounded-md border border-slate-200 bg-slate-50 transition-shadow hover:shadow"
+      className="mt-2 inline-block cursor-zoom-in border-0 bg-transparent p-0 align-top outline-none focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0"
     >
       <img
         src={url}
         alt={resolved.filename}
-        className="h-auto max-h-64 max-w-full object-contain"
+        className="block max-h-80 max-w-md rounded-lg object-contain"
       />
     </button>
   );
@@ -578,11 +632,14 @@ function UrlPreviewCard({ url }: { url: string }) {
   );
 }
 
-function renderAssistantPart(part: StudioUIMessagePart, key: number, isStreaming: boolean) {
+function renderAssistantPart(part: StudioUIMessagePart, key: number, isStreaming: boolean, showToolDetails: boolean) {
   if (part.type === 'reasoning') {
     // No reasoning produced for this turn -> stay invisible so non-thinking
-    // models don't render a stray "Thinking..." chip.
-    if (!isStreaming && part.text.length === 0) return null;
+    // models don't render a stray "Thinking..." chip. Also drop
+    // whitespace-only reasoning that legacy rows may have persisted before
+    // the server-side trim landed — `\n` / `  ` etc. would otherwise show
+    // up as an empty "Thought for a few seconds" panel.
+    if (!isStreaming && part.text.trim().length === 0) return null;
     return (
       <Reasoning key={`r-${key}`} className="mb-2" isStreaming={isStreaming && part.state !== 'done'}>
         <ReasoningTrigger />
@@ -591,6 +648,10 @@ function renderAssistantPart(part: StudioUIMessagePart, key: number, isStreaming
     );
   }
   if (part.type === 'dynamic-tool') {
+    // Hide the verbose tool card unless the user opted in via the composer
+    // toggle. Errors are always shown — silently swallowing a tool failure
+    // would leave the user staring at a non-response with no clue why.
+    if (!showToolDetails && part.state !== 'output-error') return null;
     return <ToolBlockCard key={`t-${part.toolCallId}-${key}`} part={part} />;
   }
   if (part.type === 'text') {
@@ -632,6 +693,11 @@ function ToolBlockCard({ part }: { part: DynamicToolPart }) {
 // still send a `message` literal fall through unchanged.
 const STATUS_CODE_LABELS: Record<string, string> = {
   loading_model: 'Loading model into VRAM…',
+  // Fired by the Auto context strategy just before it runs the
+  // destructive Compact (summarize → DELETE all → reseed). Banner
+  // explains the 2–6s pause; cleared when the first chunk of the
+  // assistant reply arrives or the `chat:compacted` event lands.
+  compacting: 'Compacting conversation…',
 };
 
 function ColdLoadLoader() {

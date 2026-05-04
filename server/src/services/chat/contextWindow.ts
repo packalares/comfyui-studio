@@ -15,6 +15,7 @@
 import * as settings from '../settings.js';
 import * as repo from '../../lib/db/chat.repo.js';
 import { getStrategy, lastAssistantMessage } from '../../lib/db/chat.context.repo.js';
+import { getLoadedContextLength } from './ollamaPs.js';
 
 export interface ContextWindowInfo {
   /** Total budget for the model. Ollama refers to this as `num_ctx`. */
@@ -24,19 +25,36 @@ export interface ContextWindowInfo {
 
 export interface UsageState {
   used: number;
-  budget: number;
-  /** used / budget * 100 (clamped to [0, 100]). */
+  /** Token budget the meter draws against. Numeric when we know the
+   *  exact runtime allocation (user pinned a value, OR model is loaded
+   *  and `/api/ps` reported its `context_length`). `null` when on Auto
+   *  and the model isn't loaded yet — the UI shows an "Auto"
+   *  placeholder until the next request lands and we can re-fetch. */
+  budget: number | null;
+  /** used / budget * 100 (clamped to [0, 100]). 0 when `budget` is null. */
   percent: number;
   /** Heuristic estimate of the pending user message + system prompt cost. */
   estimatedNext: number;
   warning: 'green' | 'yellow' | 'red';
   /** Active strategy on the conversation row (sliding by default). */
-  strategy: 'sliding' | 'summarize' | 'manual';
+  strategy: 'sliding' | 'auto';
   model: string;
+  /** Model's published architectural max context (e.g. 131072 for llama3.1)
+   *  read from `/api/show`. Used by the UI as the upper bound of the
+   *  context-window slider. `null` when /api/show is unreachable. */
+  modelMaxCtx: number | null;
+  /** Per-conversation runtime override. `null` means "use Ollama default" — the
+   *  send path omits `options.num_ctx` in that case. */
+  numCtx: number | null;
+  /** Per-conversation reasoning-mode override. `null` = "auto" (model
+   *  default); `'on'` / `'off'` map to `think: true|false` on the request. */
+  thinkMode: 'on' | 'off' | null;
+  /** Per-conversation sampling temperature override. `null` = Ollama default. */
+  temperature: number | null;
+  /** Per-conversation output format override. `null` = free text. */
+  format: 'json' | null;
 }
 
-// Fallback budget moved to settings (`chatFallbackNumCtx`). Resolved via
-// `settings.getChatFallbackNumCtx()` at the single call site below.
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1h
 
 interface CacheEntry {
@@ -146,9 +164,21 @@ export interface ComputeUsageInput {
 
 export async function computeUsage(input: ComputeUsageInput): Promise<UsageState> {
   const ctx = await getModelContext(input.model);
-  const budget = ctx?.num_ctx ?? settings.getChatFallbackNumCtx();
-
   const conv = repo.getConversation(input.conversationId);
+  // Budget priority — what we report as the "denominator" for the meter:
+  //   1. conversation.num_ctx (user pinned via the slider). Sent on every
+  //      request as `options.num_ctx`, so this is what Ollama allocates.
+  //   2. /api/ps `context_length` (model is loaded; Ollama auto-picked
+  //      its own default — typically the modelfile's value). The most
+  //      honest "what's actually allocated right now" signal we have.
+  //   3. null — model not loaded yet AND no override; we genuinely don't
+  //      know the budget. UI shows an "Auto" placeholder.
+  let budget: number | null = conv?.num_ctx ?? null;
+  if (budget === null) {
+    const baseUrl = settings.getOllamaUrl();
+    budget = await getLoadedContextLength(baseUrl, input.model);
+  }
+
   const lastAssistant = lastAssistantMessage(input.conversationId);
   const consumed = lastAssistant?.tokens_in ?? 0;
 
@@ -160,7 +190,7 @@ export async function computeUsage(input: ComputeUsageInput): Promise<UsageState
     : 0;
   const estimatedNext = systemTokens + pendingTokens;
   const used = consumed + estimatedNext;
-  const percent = budget > 0
+  const percent = budget !== null && budget > 0
     ? Math.max(0, Math.min(100, (used / budget) * 100))
     : 0;
 
@@ -170,5 +200,10 @@ export async function computeUsage(input: ComputeUsageInput): Promise<UsageState
     warning: classify(percent),
     strategy,
     model: input.model,
+    modelMaxCtx: ctx?.num_ctx ?? null,
+    numCtx: conv?.num_ctx ?? null,
+    thinkMode: conv?.think_mode ?? null,
+    temperature: conv?.temperature ?? null,
+    format: conv?.format ?? null,
   };
 }

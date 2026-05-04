@@ -21,6 +21,10 @@ export interface ChatDoneStats {
   ms_total: number | null;
   tokens_per_sec: number | null;
   model: string | null;
+  /** Time Ollama spent loading the model into VRAM for this turn (ms).
+   *  Nonzero on cold loads; near-zero / null when the model was already
+   *  resident. Surfaced in the per-message TelemetryFooter as "loaded in 4.2s". */
+  load_duration_ms: number | null;
 }
 export interface ChatDonePayload { msgId: string; stats: ChatDoneStats }
 export interface ChatErrorPayload { msgId: string; error: string }
@@ -29,7 +33,7 @@ export interface ChatErrorPayload { msgId: string; error: string }
 // `code` is the canonical tag the UI maps to a localized string;
 // `message` is kept for backwards-compat with anything still emitting a
 // literal. New emit sites should set `code` and leave `message` empty.
-export type ChatStatusCode = 'loading_model' | 'unknown';
+export type ChatStatusCode = 'loading_model' | 'compacting' | 'unknown';
 export interface ChatStatusPayload {
   msgId: string;
   code?: ChatStatusCode;
@@ -53,6 +57,14 @@ export interface ChatToolPart {
   errorMessage?: string;
 }
 export interface ChatToolPayload { msgId: string; part: ChatToolPart }
+
+export interface ChatCompactedPayload { conversationId: string }
+
+export interface ChatSuggestionsPayload {
+  conversationId: string;
+  msgId: string;
+  suggestions: string[];
+}
 
 export interface ModelPullProgressPayload {
   name: string;
@@ -97,6 +109,8 @@ interface Bus {
   pullProgress: Set<Handler<ModelPullProgressPayload>>;
   pullDone: Set<Handler<ModelPullDonePayload>>;
   pullError: Set<Handler<ModelPullErrorPayload>>;
+  compacted: Set<Handler<ChatCompactedPayload>>;
+  suggestions: Set<Handler<ChatSuggestionsPayload>>;
 }
 
 const bus: Bus = {
@@ -105,6 +119,8 @@ const bus: Bus = {
   status: new Set(), title: new Set(), tool: new Set(),
   galleryAdded: new Set(),
   pullProgress: new Set(), pullDone: new Set(), pullError: new Set(),
+  compacted: new Set(),
+  suggestions: new Set(),
 };
 
 function subscribe<T>(set: Set<Handler<T>>, h: Handler<T>): () => void {
@@ -125,6 +141,8 @@ export const chatEvents = {
   onPullProgress: (h: Handler<ModelPullProgressPayload>) => subscribe(bus.pullProgress, h),
   onPullDone: (h: Handler<ModelPullDonePayload>) => subscribe(bus.pullDone, h),
   onPullError: (h: Handler<ModelPullErrorPayload>) => subscribe(bus.pullError, h),
+  onCompacted: (h: Handler<ChatCompactedPayload>) => subscribe(bus.compacted, h),
+  onSuggestions: (h: Handler<ChatSuggestionsPayload>) => subscribe(bus.suggestions, h),
 
   dispatchStart: (p: ChatStartPayload) => bus.start.forEach(h => { h(p); }),
   dispatchChunk: (p: ChatChunkPayload) => bus.chunk.forEach(h => { h(p); }),
@@ -138,4 +156,6 @@ export const chatEvents = {
   dispatchPullProgress: (p: ModelPullProgressPayload) => bus.pullProgress.forEach(h => { h(p); }),
   dispatchPullDone: (p: ModelPullDonePayload) => bus.pullDone.forEach(h => { h(p); }),
   dispatchPullError: (p: ModelPullErrorPayload) => bus.pullError.forEach(h => { h(p); }),
+  dispatchCompacted: (p: ChatCompactedPayload) => bus.compacted.forEach(h => { h(p); }),
+  dispatchSuggestions: (p: ChatSuggestionsPayload) => bus.suggestions.forEach(h => { h(p); }),
 };

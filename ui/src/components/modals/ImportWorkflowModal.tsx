@@ -367,7 +367,7 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
           ? 'Pick which workflows to add to your library.'
           : 'Upload a .json or .zip exported from ComfyUI.'
       }
-      size="md"
+      size="lg"
       disableClose={uploading || committing}
       footer={
         <>

@@ -8,7 +8,8 @@
 import { Router, type Request, type Response } from 'express';
 import * as settings from '../services/settings.js';
 import { env } from '../config/env.js';
-import { getOllamaLibrary } from '../services/chat/ollamaLibrary.js';
+import { getOllamaLibrary, refreshOllamaLibrary } from '../services/chat/ollamaLibrary.js';
+import { getOllamaTags } from '../services/chat/ollamaTags.js';
 import { startPull, cancelPull } from '../services/chat/ollamaPull.js';
 
 const router = Router();
@@ -78,10 +79,48 @@ router.delete('/chat/models/:name', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/chat/models/library', async (_req: Request, res: Response) => {
+router.get('/chat/models/library', async (req: Request, res: Response) => {
   try {
-    const items = await getOllamaLibrary();
-    res.json({ items });
+    // Optional `q` filters by case-insensitive substring across name/title/
+    // description. `page` is 1-indexed; `pageSize` is clamped to 200 in the
+    // service. Defaults preserve back-compat for callers that just GET the
+    // bare endpoint and expect every row.
+    const q = typeof req.query.q === 'string' ? req.query.q : undefined;
+    const page = Number(req.query.page ?? 1);
+    const pageSize = Number(req.query.pageSize ?? 200);
+    const result = await getOllamaLibrary({
+      q,
+      page: Number.isFinite(page) ? page : 1,
+      pageSize: Number.isFinite(pageSize) ? pageSize : 200,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// Force-rescrape upstream and overwrite the `ollama_library` table. The UI's
+// Refresh button hits this. POST (not GET) because the call has a side
+// effect (DB rewrite) and is rate-limited indirectly by the in-flight
+// dedupe inside the service.
+router.post('/chat/models/library/refresh', async (_req: Request, res: Response) => {
+  try {
+    const outcome = await refreshOllamaLibrary();
+    res.json(outcome);
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// Per-model tag list — scraped lazily from
+// `https://ollama.com/library/<name>/tags`. Cached for 1h server-side; the
+// UI lazy-fetches on each dropdown open without its own cache.
+router.get('/chat/models/library/:name/tags', async (req: Request, res: Response) => {
+  const name = typeof req.params.name === 'string' ? req.params.name.trim() : '';
+  if (!name) { res.status(400).json({ error: 'name is required' }); return; }
+  try {
+    const tags = await getOllamaTags(name);
+    res.json({ tags });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
   }

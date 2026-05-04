@@ -1,21 +1,26 @@
 // Scrape https://ollama.com/library — list of public models.
 //
-// Caching: a single module-level entry with 1h TTL. The first request fills
-// the cache; concurrent requests during a fetch share a single in-flight
-// promise so we don't fan out N upstream hits on a cold start.
+// Persistence: rows live in the `ollama_library` sqlite table (see
+// `lib/db/ollamaLibrary.repo.ts`). The previous module-level 1h cache is
+// gone — the DB is the cache. Service contract:
+//   - `getOllamaLibrary({ q, page, pageSize })` queries the DB. If the
+//     table is empty (cold start, fresh install) it scrapes once to seed.
+//   - `refreshOllamaLibrary()` always scrapes + replaces the table — this
+//     is the path the UI's Refresh button takes.
+//   - Concurrent calls into either function share a single `inFlight`
+//     promise so a cold-start avalanche never fans out N upstream hits.
 //
 // Parsing: the page renders `<li x-test-model>` cards with stable Alpine
-// `x-test-*` data attributes. We extract them with regexes — bringing in a
-// full HTML parser for ~9 fields per card is overkill, and the Alpine
-// attribute scheme is mirrored in Ollama's own end-to-end tests so it's
-// reasonably stable. If extraction returns fewer than 50 cards we treat it
-// as a parse-failure regression and fall back to the cached value (or [])
-// rather than serving a half-empty list.
+// `x-test-*` data attributes. Regexes are sufficient — bringing in a full
+// HTML parser for ~9 fields per card is overkill. Threshold: if a scrape
+// returns fewer than `MIN_CARDS` cards we treat it as a parse-failure
+// regression and DO NOT replace the existing DB rows (otherwise an
+// upstream HTML change would silently wipe the catalog).
 
 import { logger } from '../../lib/logger.js';
+import * as repo from '../../lib/db/ollamaLibrary.repo.js';
 
 const LIBRARY_URL = 'https://ollama.com/library';
-const TTL_MS = 60 * 60 * 1000;
 const MIN_CARDS = 50;
 const FETCH_TIMEOUT_MS = 8000;
 
@@ -30,13 +35,44 @@ export interface OllamaLibraryModel {
   capabilities: string[];
 }
 
-interface CacheEntry {
-  value: OllamaLibraryModel[];
-  expiresAt: number;
-}
-
-let cache: CacheEntry | null = null;
 let inFlight: Promise<OllamaLibraryModel[]> | null = null;
+
+/**
+ * Convert an Ollama-library "X ago" relative time into approximate
+ * seconds-ago (smaller = newer). Used as the sort key so the catalog
+ * orders newest-first without depending on upstream URL params. Returns
+ * a large sentinel for unparseable strings so they sink to the bottom.
+ *
+ * Recognised forms:
+ *   "today" / "just now"             → 0
+ *   "yesterday"                       → 86 400
+ *   "N seconds/minutes/hours ago"     → N × unit
+ *   "N days/weeks/months/years ago"   → N × unit
+ *   "N day/week/month/year ago"       → singular tolerated
+ */
+const SENTINEL_AGO_SEC = 9_999_999_999;
+const UNIT_SECONDS: Record<string, number> = {
+  second: 1,
+  minute: 60,
+  hour: 3600,
+  day: 86_400,
+  week: 7 * 86_400,
+  month: 30 * 86_400,   // calendar month is fuzzy; 30d is the common convention
+  year: 365 * 86_400,
+};
+
+export function parseRelativeAgoSeconds(s: string): number {
+  if (!s) return SENTINEL_AGO_SEC;
+  const lower = s.toLowerCase().trim();
+  if (lower === 'today' || lower === 'just now') return 0;
+  if (lower === 'yesterday') return UNIT_SECONDS.day;
+  const m = /(\d+)\s*(second|minute|hour|day|week|month|year)s?\s*ago/.exec(lower);
+  if (!m) return SENTINEL_AGO_SEC;
+  const n = parseInt(m[1], 10);
+  const unit = UNIT_SECONDS[m[2]] ?? 0;
+  if (!Number.isFinite(n) || unit === 0) return SENTINEL_AGO_SEC;
+  return n * unit;
+}
 
 function decodeEntities(s: string): string {
   return s
@@ -96,7 +132,11 @@ export function parseLibraryHtml(html: string): OllamaLibraryModel[] {
   return out;
 }
 
-async function fetchOnce(): Promise<OllamaLibraryModel[]> {
+/**
+ * Run one upstream scrape. On parse-failure (too few cards) returns null —
+ * caller decides whether to fall back to existing DB rows.
+ */
+async function scrapeOnce(): Promise<OllamaLibraryModel[] | null> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -111,33 +151,101 @@ async function fetchOnce(): Promise<OllamaLibraryModel[]> {
       logger.warn('ollama library: parse returned suspiciously few cards', {
         count: parsed.length, min: MIN_CARDS,
       });
-      const stale = cache?.value;
-      if (stale && stale.length >= MIN_CARDS) return stale;
-      return [];
+      return null;
     }
-    cache = { value: parsed, expiresAt: Date.now() + TTL_MS };
     return parsed;
   } finally {
     clearTimeout(timer);
   }
 }
 
-export async function getOllamaLibrary(): Promise<OllamaLibraryModel[]> {
-  const now = Date.now();
-  if (cache && cache.expiresAt > now) return cache.value;
-  if (inFlight) return inFlight;
-  inFlight = fetchOnce()
+/**
+ * Scrape upstream and replace the entire `ollama_library` table in a single
+ * transaction. Concurrent callers share a single in-flight scrape so a
+ * cold-start race doesn't fan out N hits to ollama.com. On parse failure,
+ * the existing DB rows are left untouched.
+ */
+export async function refreshOllamaLibrary(): Promise<{ replaced: boolean; total: number }> {
+  if (inFlight) {
+    await inFlight.catch(() => {});
+    return { replaced: false, total: repo.count() };
+  }
+  const promise = scrapeOnce()
     .catch((err) => {
       logger.warn('ollama library fetch failed', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return cache?.value ?? [];
-    })
-    .finally(() => { inFlight = null; });
-  return inFlight;
+      return null;
+    });
+  inFlight = promise.then((rows) => rows ?? []);
+  try {
+    const rows = await promise;
+    if (!rows) return { replaced: false, total: repo.count() };
+    const fetchedAt = Date.now();
+    repo.replaceAll(rows.map((r) => ({
+      name: r.name,
+      title: r.title,
+      description: r.description,
+      pulls: r.pulls,
+      tag_count: r.tagCount,
+      updated: r.updated,
+      sizes: r.sizes,
+      capabilities: r.capabilities,
+      fetched_at: fetchedAt,
+      updated_ago_sec: parseRelativeAgoSeconds(r.updated),
+    })));
+    return { replaced: true, total: rows.length };
+  } finally {
+    inFlight = null;
+  }
+}
+
+export interface ListLibraryOpts {
+  q?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface ListLibraryResult {
+  items: OllamaLibraryModel[];
+  total: number;
+  page: number;
+  pageSize: number;
+  fetchedAt: number;
+}
+
+/**
+ * Paginated read from the `ollama_library` table. If the table is empty
+ * (fresh install / freshly migrated DB) we run one seed scrape so the
+ * caller doesn't get an empty list on first use. After that, the table
+ * only changes via `refreshOllamaLibrary()`.
+ */
+export async function getOllamaLibrary(opts: ListLibraryOpts = {}): Promise<ListLibraryResult> {
+  if (repo.count() === 0) {
+    await refreshOllamaLibrary();
+  }
+  const page = Math.max(1, opts.page ?? 1);
+  const pageSize = Math.max(1, Math.min(200, opts.pageSize ?? 50));
+  const offset = (page - 1) * pageSize;
+  const { items, total } = repo.list({ q: opts.q, limit: pageSize, offset });
+  return {
+    items: items.map((r) => ({
+      name: r.name,
+      title: r.title,
+      description: r.description,
+      pulls: r.pulls,
+      tagCount: r.tag_count,
+      updated: r.updated,
+      sizes: r.sizes,
+      capabilities: r.capabilities,
+    })),
+    total,
+    page,
+    pageSize,
+    fetchedAt: repo.lastFetchedAt(),
+  };
 }
 
 export function _resetCacheForTests(): void {
-  cache = null;
   inFlight = null;
 }

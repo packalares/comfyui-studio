@@ -103,7 +103,7 @@ export default function GalleryDetailModal({
       onClose={onClose}
       title={detail.filename}
       subtitle={`${detail.mediaType}${detail.templateName ? ` · ${detail.templateName}` : ''}`}
-      size="md"
+      size="lg"
       disableClose={regenerating}
       footer={
         <>

@@ -14,16 +14,7 @@ import { usePaginated } from '../../hooks/usePaginated';
 import Pagination from '../layout/Pagination';
 import { formatRelativeTime } from '../../lib/utils';
 import type { PluginHistoryEntry } from '../../types';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogFooter,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogAction,
-  AlertDialogCancel,
-} from '../ui/alert-dialog';
+import ConfirmDialog from '../modals/ConfirmDialog';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader } from '../ui/card';
@@ -221,45 +212,25 @@ export default function PluginHistoryPanel() {
         onPageSizeChange={paged.setPageSize}
       />
 
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove from history?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Removes the history entry for{' '}
-              <span className="font-mono text-slate-700">
-                {deleteTarget?.pluginName || deleteTarget?.pluginId}
-              </span>
-              . The underlying plugin on disk is not affected.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="!bg-red-600 hover:!bg-red-700">
-              <Trash2 className="w-3.5 h-3.5" />
-              Remove
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Remove from history?"
+        description={`Removes the history entry for "${deleteTarget?.pluginName || deleteTarget?.pluginId || ''}". The underlying plugin on disk is not affected.`}
+        confirmLabel="Remove"
+        confirmTone="danger"
+        onConfirm={handleDelete}
+      />
 
-      <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Clear all plugin history?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Removes every entry from plugin operation history. Installed plugins are not affected.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleClearAll} className="!bg-red-600 hover:!bg-red-700">
-              <Trash2 className="w-3.5 h-3.5" />
-              Clear All
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={clearOpen}
+        onClose={() => setClearOpen(false)}
+        title="Clear all plugin history?"
+        description="Removes every entry from plugin operation history. Installed plugins are not affected."
+        confirmLabel="Clear All"
+        confirmTone="danger"
+        onConfirm={handleClearAll}
+      />
     </Card>
   );
 }

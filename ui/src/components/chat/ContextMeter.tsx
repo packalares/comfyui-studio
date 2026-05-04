@@ -18,6 +18,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Button } from '../ui/button';
 import { Spinner } from '../ui/spinner';
+import { Slider } from '../ui/slider';
 import { ProgressCircle } from '../ui/progress-circle';
 import { chatEvents } from '../../services/chatEvents';
 import {
@@ -30,21 +31,30 @@ interface Props {
 }
 
 const STRATEGY_LABELS: Record<ChatContextStrategy, string> = {
-  sliding: 'Sliding window',
-  summarize: 'Summarize',
-  manual: 'Manual',
+  sliding: 'Sliding',
+  auto: 'Auto',
 };
 
 const STRATEGY_DESCRIPTIONS: Record<ChatContextStrategy, string> = {
-  sliding: 'Drops the oldest user/assistant turns when the budget hits 80%, keeping the system prompt and recent context intact.',
-  summarize: 'Replaces older turns with a one-shot model-generated summary the moment the budget hits 80%.',
-  manual: 'Never trims automatically. You will see a warning when the budget is nearly full and can press "Compact now" to summarize on demand.',
+  sliding: 'When the budget hits 80%, drop older user/assistant turns from the outgoing request only. DB and scrollback are untouched — switching strategies later still has the full history.',
+  auto: 'When the budget hits 80%, run Compact: summarize the conversation, replace the persisted history with that summary. Same destructive operation as the manual Compact button — visible scrollback collapses to the summary.',
 };
 
 function formatTokens(n: number): string {
   if (!Number.isFinite(n)) return '0';
   return Math.round(n).toLocaleString('en-US');
 }
+
+/** Compact label for context-window pickers. 16384 → "16K". */
+function formatCtxShort(n: number): string {
+  if (n >= 1024) return `${Math.round(n / 1024)}K`;
+  return String(n);
+}
+
+// Common num_ctx steps the slider snaps to. Filtered to those <= the
+// model's published max at render time so the upper end of the slider
+// reflects what the active model can actually allocate.
+const NUMCTX_STEPS = [2048, 4096, 8192, 16384, 32768, 65536, 131072] as const;
 
 function fillStrokeFor(warning: ChatUsageState['warning'] | undefined): string {
   if (warning === 'red') return 'stroke-rose-500';
@@ -85,9 +95,76 @@ export default function ContextMeter({ conversationId, model }: Props) {
   // (empty circle, slate text). Keeps the topbar layout stable so the search
   // input + tabs don't shift when a conversation is selected.
   const hasData = !!(conversationId && model && usage);
-  const pct = hasData ? Math.round(usage.percent * 10) / 10 : 0;
-  const fillStroke = fillStrokeFor(hasData ? usage.warning : undefined);
-  const textColor = textColorFor(hasData ? usage.warning : undefined);
+  // `budget === null` means the user is on Auto AND the model isn't
+  // loaded yet — we don't know the budget, so we can't compute a real
+  // percentage. The pill switches to a literal "Auto" label and the
+  // progress arc stays empty until the next request lands and /api/ps
+  // returns the actual `context_length`.
+  const budgetKnown = hasData && usage.budget !== null;
+  const pct = budgetKnown ? Math.round(usage.percent * 10) / 10 : 0;
+  const fillStroke = fillStrokeFor(budgetKnown ? usage.warning : undefined);
+  const textColor = textColorFor(budgetKnown ? usage.warning : undefined);
+
+  // Per-conversation num_ctx override. The slider snaps over the
+  // {Auto, 2K, 4K, ..., model_max}-capped scale and writes the chosen
+  // value via PATCH; on success we re-fetch usage so the meter reflects
+  // the new budget immediately (otherwise the next chat:done would catch
+  // up, which feels laggy for a tweak the user just made).
+  const handleNumCtxChange = async (next: number | null) => {
+    if (!conversationId) return;
+    try {
+      await api.chat.setNumCtx(conversationId, next);
+      refresh();
+    } catch (err) {
+      toast.error('Could not update context window', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
+
+  // Per-conversation temperature. NULL = Ollama default (~0.8). Slider
+  // step is 0.05 over [0, 1.5] which covers virtually every chat use case
+  // — temperatures above 1.5 reliably produce gibberish on most models.
+  const handleTemperatureChange = async (next: number | null) => {
+    if (!conversationId) return;
+    try {
+      await api.chat.setTemperature(conversationId, next);
+      refresh();
+    } catch (err) {
+      toast.error('Could not update temperature', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
+
+  // Per-conversation output format. NULL = free text; 'json' tells Ollama
+  // to constrain output to valid JSON via the top-level `format` field.
+  const handleFormatChange = async (next: 'json' | null) => {
+    if (!conversationId) return;
+    try {
+      await api.chat.setFormat(conversationId, next);
+      refresh();
+    } catch (err) {
+      toast.error('Could not update output format', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
+
+  // Per-conversation reasoning-mode override. The three-state pill maps
+  // 'auto' → null (model default), 'on' → 'on' (force think:true), 'off'
+  // → 'off' (force think:false, ~30x fewer tokens on thinking models).
+  const handleThinkModeChange = async (next: 'on' | 'off' | null) => {
+    if (!conversationId) return;
+    try {
+      await api.chat.setThinkMode(conversationId, next);
+      refresh();
+    } catch (err) {
+      toast.error('Could not update thinking mode', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
 
   const handleStrategyChange = async (next: ChatContextStrategy) => {
     if (!conversationId) return;
@@ -107,8 +184,12 @@ export default function ContextMeter({ conversationId, model }: Props) {
     try {
       await api.chat.compactConversation(conversationId);
       toast.success('Conversation compacted');
-      // Trigger a hard refetch via the chat:done bus the page already subscribes
-      // to. We dispatch synthetic stats so the sidebar updates `updated_at`.
+      // Two events: `chat:done` bumps the sidebar's updated_at (synthetic
+      // stats); `chat:compacted` tells the page to re-hydrate the active
+      // thread from the DB, since the compact rewrote `chat_messages`
+      // (deleted everything, inserted a single system summary). Without
+      // the second event the visible scrollback would stay stale until
+      // the user switched conversations.
       chatEvents.dispatchDone({
         msgId: '',
         stats: {
@@ -117,6 +198,7 @@ export default function ContextMeter({ conversationId, model }: Props) {
           model: null,
         },
       });
+      chatEvents.dispatchCompacted({ conversationId });
       setPickerOpen(false);
     } catch (err) {
       toast.error('Compact failed', {
@@ -138,7 +220,7 @@ export default function ContextMeter({ conversationId, model }: Props) {
               aria-label="Context window usage"
               disabled={!hasData}
             >
-              <span>{pct}%</span>
+              <span>{budgetKnown ? `${pct}%` : 'Auto'}</span>
               <ProgressCircle percent={pct} fillClassName={fillStroke} />
             </button>
           </PopoverTrigger>
@@ -150,7 +232,10 @@ export default function ContextMeter({ conversationId, model }: Props) {
               Context window
             </div>
             <div className="mt-2 space-y-1 font-mono text-[11px] text-slate-700">
-              <div className="kv-row"><span>Budget</span><span>{formatTokens(usage.budget)}</span></div>
+              <div className="kv-row">
+                <span>Budget</span>
+                <span>{usage.budget !== null ? formatTokens(usage.budget) : 'Auto (load to detect)'}</span>
+              </div>
               <div className="kv-row"><span>Used</span><span>{formatTokens(usage.used)}</span></div>
               <div className="kv-row"><span>Estimated next</span><span>{formatTokens(usage.estimatedNext)}</span></div>
               <div className="kv-row"><span>Strategy</span><span>{STRATEGY_LABELS[usage.strategy]}</span></div>
@@ -165,28 +250,258 @@ export default function ContextMeter({ conversationId, model }: Props) {
         )}
       </HoverCard>
       {hasData && (
-        <PopoverContent align="end" className="w-80 p-3 text-xs">
-          <div className="eyebrow">Context strategy</div>
-          <div className="mt-2 space-y-1.5">
-            {(['sliding', 'summarize', 'manual'] as ChatContextStrategy[]).map(s => (
-              <label key={s} className="flex cursor-pointer items-start gap-2 rounded p-1.5 hover:bg-slate-50">
-                <input
-                  type="radio"
-                  name="context-strategy"
-                  className="mt-0.5"
-                  checked={usage.strategy === s}
-                  onChange={() => handleStrategyChange(s)}
-                />
-                <div className="min-w-0">
-                  <div className="text-xs font-medium text-slate-800">{STRATEGY_LABELS[s]}</div>
-                  <div className="mt-0.5 text-[11px] leading-snug text-slate-500">
+        <PopoverContent
+          align="end"
+          // `max-h-[80vh] overflow-y-auto` keeps the popover usable on
+          // shorter viewports — the strategy + slider + compact stack adds
+          // up to ~520px and previously pushed "Compact now" off-screen.
+          className="w-80 max-h-[80vh] overflow-y-auto p-0 text-xs"
+        >
+          {/* Header strip — small label + subtle separator anchors the
+              panel's identity instead of the previous bare eyebrow */}
+          <div className="border-b border-slate-100 px-3 py-2.5">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              Context strategy
+            </div>
+          </div>
+          {/* Selectable cards — hide the native radio circle and let the
+              row itself signal selection via teal ring + bg. The full row
+              is the click target so the cursor/hover area matches the
+              visible affordance instead of needing to land on the dot. */}
+          <div className="space-y-1 p-2">
+            {(['sliding', 'auto'] as ChatContextStrategy[]).map(s => {
+              const active = usage.strategy === s;
+              return (
+                <label
+                  key={s}
+                  className={`block cursor-pointer rounded-md p-2 transition-colors ${
+                    active
+                      ? 'bg-teal-50 ring-1 ring-inset ring-teal-300'
+                      : 'hover:bg-slate-50'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="context-strategy"
+                    className="sr-only"
+                    checked={active}
+                    onChange={() => handleStrategyChange(s)}
+                  />
+                  <div className="flex items-center gap-2">
+                    <span
+                      aria-hidden
+                      className={`h-1.5 w-1.5 rounded-full ${active ? 'bg-teal-500' : 'bg-slate-300'}`}
+                    />
+                    <span className={`text-xs font-medium ${active ? 'text-teal-900' : 'text-slate-800'}`}>
+                      {STRATEGY_LABELS[s]}
+                    </span>
+                  </div>
+                  <div className="ml-3.5 mt-1 text-[11px] leading-snug text-slate-500">
                     {STRATEGY_DESCRIPTIONS[s]}
                   </div>
-                </div>
-              </label>
-            ))}
+                </label>
+              );
+            })}
           </div>
-          <div className="mt-3 border-t border-slate-100 pt-3">
+          {/* Context-window slider — discrete snap over Auto + powers of
+              two up to the model's published max. "Auto" omits
+              `options.num_ctx` from the request so Ollama uses its own
+              default (typically 2048). Picking a value pins it and the
+              send path mirrors it via `options.num_ctx` so the meter's
+              budget matches what's actually allocated per request. */}
+          {(() => {
+            const max = usage.modelMaxCtx ?? NUMCTX_STEPS[NUMCTX_STEPS.length - 1];
+            const allowed = NUMCTX_STEPS.filter(v => v <= max);
+            // Index 0 = "Auto" (null). Indices 1..allowed.length map to
+            // allowed[i-1].
+            const indexFromValue = (v: number | null) => {
+              if (v === null) return 0;
+              const i = allowed.indexOf(v as (typeof NUMCTX_STEPS)[number]);
+              return i === -1 ? 0 : i + 1;
+            };
+            const valueFromIndex = (i: number): number | null =>
+              i === 0 ? null : allowed[i - 1];
+            const currentIndex = indexFromValue(usage.numCtx);
+            const display = usage.numCtx === null
+              ? 'Auto'
+              : formatCtxShort(usage.numCtx);
+            return (
+              <div className="border-t border-slate-100 px-3 py-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    Context window
+                  </div>
+                  <span className="font-mono text-[11px] text-slate-700">{display}</span>
+                </div>
+                <div className="mt-3 px-1">
+                  <Slider
+                    min={0}
+                    max={allowed.length}
+                    step={1}
+                    value={[currentIndex]}
+                    onValueChange={(vs) => {
+                      const i = vs[0] ?? 0;
+                      handleNumCtxChange(valueFromIndex(i));
+                    }}
+                  />
+                  <div className="mt-1.5 flex justify-between text-[10px] text-slate-400">
+                    <span>Auto</span>
+                    {allowed.map((v) => <span key={v}>{formatCtxShort(v)}</span>)}
+                  </div>
+                </div>
+                <p className="mt-2 text-[10px] leading-tight text-slate-500">
+                  {usage.numCtx === null && usage.budget !== null
+                    && `Auto: Ollama allocated ${usage.budget.toLocaleString()} tokens for this model. Pin a value to override.`}
+                  {usage.numCtx === null && usage.budget === null
+                    && 'Auto: Ollama picks per model on first request. Send a message to detect the actual budget.'}
+                  {usage.numCtx !== null
+                    && `Pinned: every request from this chat sends options.num_ctx=${usage.numCtx.toLocaleString()}.`}
+                  {usage.modelMaxCtx ? ` Model max ${formatCtxShort(usage.modelMaxCtx)}.` : ''}
+                </p>
+              </div>
+            );
+          })()}
+          {/* Thinking-mode pills. `Auto` clears the override (model default
+              wins); `On` / `Off` force `think: true|false` on every
+              outgoing /api/chat call from this conversation. Off is the
+              fast path on thinking-mode models (qwen3.5, gemma3) — those
+              spend the bulk of eval tokens on the reasoning trace, so
+              disabling drops latency to seconds-not-minutes. */}
+          {(() => {
+            const choices: Array<{ key: 'auto' | 'on' | 'off'; label: string; value: 'on' | 'off' | null }> = [
+              { key: 'auto', label: 'Auto', value: null },
+              { key: 'on', label: 'On', value: 'on' },
+              { key: 'off', label: 'Off', value: 'off' },
+            ];
+            const currentKey = usage.thinkMode === 'on' ? 'on' : usage.thinkMode === 'off' ? 'off' : 'auto';
+            return (
+              <div className="border-t border-slate-100 px-3 py-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    Thinking
+                  </div>
+                  <span className="font-mono text-[11px] text-slate-700">{currentKey}</span>
+                </div>
+                <div className="mt-2 inline-flex w-full overflow-hidden rounded-md border border-slate-200">
+                  {choices.map((c) => {
+                    const active = currentKey === c.key;
+                    return (
+                      <button
+                        key={c.key}
+                        type="button"
+                        onClick={() => handleThinkModeChange(c.value)}
+                        className={`flex-1 px-2 py-1 text-xs transition-colors ${
+                          active
+                            ? 'bg-teal-50 font-medium text-teal-900'
+                            : 'bg-white text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        {c.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-2 text-[10px] leading-tight text-slate-500">
+                  {currentKey === 'auto' && 'Model decides whether to emit chain-of-thought.'}
+                  {currentKey === 'on' && 'Forces the model to emit reasoning. Renders as the collapsible "Thinking" panel.'}
+                  {currentKey === 'off' && 'Suppresses chain-of-thought. Much faster on thinking-mode models.'}
+                </p>
+              </div>
+            );
+          })()}
+          {/* Temperature slider — 0.0 (deterministic) to 1.5 (very wild)
+              with 0.05 steps. NULL = Ollama default (~0.8). The slider
+              treats index 0 as "Auto" so the user has a discoverable way
+              to clear the override without typing. */}
+          {(() => {
+            const STEP = 0.05;
+            const MAX = 1.5;
+            const STEPS = Math.round(MAX / STEP);  // 30 steps over [0, 1.5]
+            // Index 0 = Auto (null). Indices 1..STEPS+1 map to 0.0..MAX.
+            const indexFromValue = (v: number | null): number => {
+              if (v === null) return 0;
+              return Math.max(1, Math.min(STEPS + 1, Math.round(v / STEP) + 1));
+            };
+            const valueFromIndex = (i: number): number | null =>
+              i === 0 ? null : Math.round((i - 1) * STEP * 100) / 100;
+            const display = usage.temperature === null
+              ? 'Auto'
+              : usage.temperature.toFixed(2);
+            return (
+              <div className="border-t border-slate-100 px-3 py-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    Temperature
+                  </div>
+                  <span className="font-mono text-[11px] text-slate-700">{display}</span>
+                </div>
+                <div className="mt-3 px-1">
+                  <Slider
+                    min={0}
+                    max={STEPS + 1}
+                    step={1}
+                    value={[indexFromValue(usage.temperature)]}
+                    onValueChange={(vs) => {
+                      handleTemperatureChange(valueFromIndex(vs[0] ?? 0));
+                    }}
+                  />
+                  <div className="mt-1.5 flex justify-between text-[10px] text-slate-400">
+                    <span>Auto</span>
+                    <span>0.0</span>
+                    <span>0.7</span>
+                    <span>1.5</span>
+                  </div>
+                </div>
+                <p className="mt-2 text-[10px] leading-tight text-slate-500">
+                  {usage.temperature === null
+                    ? 'Auto: Ollama default (~0.8). Lower = more focused, higher = more creative.'
+                    : `Pinned: every request from this chat sends options.temperature=${usage.temperature.toFixed(2)}.`}
+                </p>
+              </div>
+            );
+          })()}
+          {/* Output format pills. JSON forces the model to emit valid JSON
+              via Ollama's top-level `format: 'json'` field — useful for
+              tool-light chats that consume structured replies. */}
+          {(() => {
+            const isJson = usage.format === 'json';
+            return (
+              <div className="border-t border-slate-100 px-3 py-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    Output format
+                  </div>
+                  <span className="font-mono text-[11px] text-slate-700">{isJson ? 'json' : 'text'}</span>
+                </div>
+                <div className="mt-2 inline-flex w-full overflow-hidden rounded-md border border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => handleFormatChange(null)}
+                    className={`flex-1 px-2 py-1 text-xs transition-colors ${
+                      !isJson ? 'bg-teal-50 font-medium text-teal-900' : 'bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    Text
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleFormatChange('json')}
+                    className={`flex-1 px-2 py-1 text-xs transition-colors ${
+                      isJson ? 'bg-teal-50 font-medium text-teal-900' : 'bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    JSON
+                  </button>
+                </div>
+                <p className="mt-2 text-[10px] leading-tight text-slate-500">
+                  {isJson
+                    ? 'Replies are constrained to valid JSON. Tell the model what shape you want in your message.'
+                    : 'Free-form text replies (default).'}
+                </p>
+              </div>
+            );
+          })()}
+          <div className="border-t border-slate-100 px-3 py-3">
             <Button
               onClick={handleCompact}
               disabled={compacting}
@@ -197,7 +512,7 @@ export default function ContextMeter({ conversationId, model }: Props) {
               {compacting ? <Spinner size="xs" /> : <Wand2 className="h-3 w-3" />}
               {compacting ? 'Compacting...' : 'Compact now'}
             </Button>
-            <p className="mt-1 text-[10px] leading-tight text-slate-500">
+            <p className="mt-1.5 text-[10px] leading-tight text-slate-500">
               Replaces the entire transcript with a one-shot summary. Original messages are removed; the conversation row is preserved.
             </p>
           </div>

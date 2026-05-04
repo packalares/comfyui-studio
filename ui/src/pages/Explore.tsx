@@ -201,6 +201,31 @@ export default function Explore() {
     });
   }, [civLoading, civHasMore, civPage, civitaiFeed, debouncedSearch, civCursor, fetchCivitaiPage]);
 
+  // Auto-load next page when the sentinel scrolls into view. Mirrors the
+  // local-catalog infinite-scroll on Models.tsx — refs keep the observer
+  // callback bound to the freshest hasMore/loading values without
+  // re-creating the observer on every render.
+  const civSentinelRef = useRef<HTMLDivElement | null>(null);
+  const civLoadMoreRef = useRef(handleCivitaiLoadMore);
+  civLoadMoreRef.current = handleCivitaiLoadMore;
+  const civHasMoreRef = useRef(civHasMore);
+  civHasMoreRef.current = civHasMore;
+  const civLoadingRef = useRef(civLoading);
+  civLoadingRef.current = civLoading;
+  useEffect(() => {
+    const el = civSentinelRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting && civHasMoreRef.current && !civLoadingRef.current) {
+          civLoadMoreRef.current();
+        }
+      }
+    }, { rootMargin: '200px' });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [civRows.length]);
+
   // Final row list the grid renders. Non-civitai sources use the paginated
   // hook; civitai uses the accumulator.
   const gridRows: ExploreRow[] = useMemo(() => {
@@ -261,9 +286,10 @@ export default function Explore() {
     }
   }, [refreshing, refetch]);
 
-  // Tag options + category counts still derive from the bootstrap templates
-  // cached in AppContext (the full list was loaded once for the workflow
-  // dropdowns). Keeps the sidebar stable across pages.
+  // Tag options — top 20 by frequency, computed locally over the slim
+  // template list (tags + category fields are still on TemplateSummary, so
+  // a separate stats request would just duplicate work the browser does
+  // for free over a small array).
   const tagOptions = useMemo(() => {
     const tagCounts = new Map<string, number>();
     templates.forEach(t => {
@@ -283,7 +309,7 @@ export default function Explore() {
     );
   };
 
-  // Count templates per category
+  // Count templates per category — local aggregation over the slim list.
   const categoryCounts = useMemo(() => {
     const counts = new Map<string, number>();
     counts.set('All', templates.length);
@@ -592,6 +618,7 @@ export default function Explore() {
                     error={civError}
                     hasRows={civRows.length > 0}
                     onLoadMore={handleCivitaiLoadMore}
+                    sentinelRef={civSentinelRef}
                   />
                 ) : (
                   <Pagination
@@ -629,15 +656,24 @@ interface CivitaiLoadMoreProps {
   error: string | null;
   hasRows: boolean;
   onLoadMore: () => void;
+  /** Sentinel ref — attaches to the wrapper div so an IntersectionObserver
+   *  in the parent can fire `onLoadMore` automatically when this row scrolls
+   *  into view. Replaces the manual "Load more" button. */
+  sentinelRef?: React.Ref<HTMLDivElement>;
 }
 
 /**
- * "Load more" footer for the CivitAI feed. We intentionally avoid numbered
- * pagination because CivitAI doesn't return a total row count.
+ * Infinite-scroll sentinel + status footer for the CivitAI feed. CivitAI
+ * doesn't return a total row count, so numbered pagination doesn't apply
+ * here — `sentinelRef` is wired to an IntersectionObserver that fires
+ * `onLoadMore` when this div scrolls into view.
  */
-function CivitaiLoadMore({ hasMore, loading, error, hasRows, onLoadMore }: CivitaiLoadMoreProps) {
+function CivitaiLoadMore({ hasMore, loading, error, hasRows, onLoadMore, sentinelRef }: CivitaiLoadMoreProps) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-center gap-3">
+    <div
+      ref={sentinelRef}
+      className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-center gap-3"
+    >
       {loading ? (
         <span className="text-xs text-slate-500 inline-flex items-center gap-2">
           <Spinner size="sm" />
@@ -651,9 +687,7 @@ function CivitaiLoadMore({ hasMore, loading, error, hasRows, onLoadMore }: Civit
           Retry
         </Button>
       ) : hasMore ? (
-        <Button type="button" onClick={onLoadMore} variant="secondary">
-          Load more
-        </Button>
+        <span className="text-xs text-slate-500">Scroll to load more</span>
       ) : hasRows ? (
         <span className="text-xs text-slate-500">No more results</span>
       ) : null}

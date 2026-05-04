@@ -25,6 +25,8 @@ export interface StudioMetadata {
   ms_to_first_token?: number | null;
   ms_total?: number | null;
   tokens_per_sec?: number | null;
+  /** Cold-load latency reported by Ollama on the final NDJSON frame. */
+  load_duration_ms?: number | null;
   model?: string | null;
   created_at?: number;
   conversationId?: string;
@@ -122,6 +124,7 @@ export function chatMessageToUIMessage(m: ChatMessage): StudioUIMessage {
       ms_to_first_token: m.ms_to_first_token,
       ms_total: m.ms_total,
       tokens_per_sec: m.tokens_per_sec,
+      load_duration_ms: m.load_duration_ms,
       model: m.model,
       created_at: m.created_at,
       conversationId: m.conversationId,

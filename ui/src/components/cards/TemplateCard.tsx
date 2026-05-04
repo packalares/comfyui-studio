@@ -17,16 +17,7 @@ import ApiExportModal from '../modals/ApiExportModal';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { Button } from '../ui/button';
 import { ButtonGroup } from '../ui/button-group';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogFooter,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogAction,
-  AlertDialogCancel,
-} from '../ui/alert-dialog';
+import ConfirmDialog from '../modals/ConfirmDialog';
 
 interface Props {
   template: Template;
@@ -434,33 +425,16 @@ function TemplateCardInner({ template, onDeleted }: Props) {
         />
       )}
 
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete template?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This removes the user-imported workflow{' '}
-              <span className="font-mono text-slate-700">{template.title}</span>{' '}
-              from your library. The underlying models on disk are kept.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirmDelete}
-              disabled={deleting}
-              className="!bg-red-600 hover:!bg-red-700"
-            >
-              {deleting ? (
-                <Spinner size="sm" />
-              ) : (
-                <Trash2 className="w-3.5 h-3.5" />
-              )}
-              {deleting ? 'Deleting…' : 'Delete'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        title="Delete template?"
+        description={`This removes the user-imported workflow "${template.title}" from your library. The underlying models on disk are kept.`}
+        confirmLabel={deleting ? 'Deleting…' : 'Delete'}
+        confirmTone="danger"
+        busy={deleting}
+        onConfirm={handleConfirmDelete}
+      />
     </>
   );
 }
@@ -595,7 +569,12 @@ function CivitaiTemplateCardInner({ item, onStagedImport }: CivitaiTemplateCardP
 
   return (
     <article className="card overflow-hidden flex flex-col h-full">
-      <div className="aspect-video shrink-0 relative flex items-center justify-center overflow-hidden bg-slate-100">
+      <button
+        type="button"
+        onClick={() => setDescOpen(true)}
+        aria-label={`Open ${item.name} description`}
+        className="aspect-video shrink-0 relative flex items-center justify-center overflow-hidden bg-slate-100 cursor-pointer group/thumb"
+      >
         {thumb ? (
           <img
             src={imgProxy(thumb, 320)}
@@ -604,7 +583,7 @@ function CivitaiTemplateCardInner({ item, onStagedImport }: CivitaiTemplateCardP
             height={180}
             loading="lazy"
             decoding="async"
-            className="w-full h-full object-cover"
+            className="w-full h-full object-cover transition-transform duration-200 group-hover/thumb:scale-[1.02]"
             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
           />
         ) : (
@@ -622,7 +601,7 @@ function CivitaiTemplateCardInner({ item, onStagedImport }: CivitaiTemplateCardP
             </span>
           )}
         </div>
-      </div>
+      </button>
       <div className="p-4 flex flex-col flex-1">
         <h3 className="font-semibold text-sm text-gray-900 mb-1 line-clamp-1" title={item.name}>
           {item.name}
@@ -648,9 +627,10 @@ function CivitaiTemplateCardInner({ item, onStagedImport }: CivitaiTemplateCardP
           )}
         </div>
       </div>
-      {/* Footer — icon-only button group, right-aligned. */}
+      {/* Footer — ButtonGroup matching the local TemplateCard footer pattern,
+          icon-only after the primary Import action, right-aligned. */}
       <div className="border-t border-slate-200 p-3 flex justify-end">
-        <div className="inline-flex">
+        <ButtonGroup size="sm">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -698,7 +678,7 @@ function CivitaiTemplateCardInner({ item, onStagedImport }: CivitaiTemplateCardP
             </TooltipTrigger>
             <TooltipContent>Open on civitai.com</TooltipContent>
           </Tooltip>
-        </div>
+        </ButtonGroup>
       </div>
       <DescriptionModal
         open={descOpen}

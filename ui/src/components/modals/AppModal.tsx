@@ -16,6 +16,14 @@ import { Card, CardContent, CardFooter, CardHeader } from '../ui/card';
 // Keep in sync if the class changes.
 const CLOSE_ANIMATION_MS = 150;
 
+// Refcount of currently-open AppModals. We only restore the original
+// `body.overflow` when the count returns to zero — important when a
+// dependency-modal layers on top of an import-review modal etc., so
+// closing the inner one doesn't prematurely unlock page scroll while
+// the outer one's still open.
+let openModalCount = 0;
+let savedBodyOverflow: string | null = null;
+
 export interface AppModalProps {
   open: boolean;
   onClose: () => void;
@@ -32,9 +40,16 @@ export interface AppModalProps {
   /**
    * Disable close gestures while an async op is in flight. Ignored on
    * explicit `onClose` calls — callers stay in control of the close flow
-   * from their buttons. Disables: backdrop click, Esc key, X button.
+   * from their buttons. Disables: Esc key, X button.
    */
   disableClose?: boolean;
+  /**
+   * Opt-in: dismiss the modal when the user clicks the dimmed backdrop
+   * outside the panel. OFF by default — the global house style is "the
+   * modal stays open until you press Esc or hit a button". Flip on for
+   * lightweight, low-stakes dialogs where backdrop-click feels natural.
+   */
+  closeOnBackdropClick?: boolean;
   /** Override header entirely (icon/title/subtitle ignored). Includes the X. */
   header?: ReactNode;
   /** Footer slot — typically a row of buttons. */
@@ -64,6 +79,7 @@ export default function AppModal(props: AppModalProps): JSX.Element | null {
     size = 'md',
     scrollBody = true,
     disableClose = false,
+    closeOnBackdropClick = false,
     header,
     footer,
     children,
@@ -83,28 +99,60 @@ export default function AppModal(props: AppModalProps): JSX.Element | null {
     return () => document.removeEventListener('keydown', onKey);
   }, [open, disableClose, onClose]);
 
-  // Two-phase mount so we can play an exit animation before React unmounts
-  // us. `mounted` controls DOM presence; `exiting` flips on while the fade-
-  // out runs. The upstream `open` prop is the source of truth — we follow
-  // it with a delayed unmount rather than overriding it.
+  // Body-scroll lock. Increments a global counter on open, decrements on
+  // close. Only the first modal to open snapshots the original overflow
+  // and only the last to close restores it — keeps layered modals
+  // (import-review → dependency) from each other unlocking page scroll
+  // out from under the outer modal.
+  useEffect(() => {
+    if (!open) return;
+    if (openModalCount === 0) {
+      savedBodyOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+    }
+    openModalCount++;
+    return () => {
+      openModalCount--;
+      if (openModalCount === 0) {
+        document.body.style.overflow = savedBodyOverflow ?? '';
+        savedBodyOverflow = null;
+      }
+    };
+  }, [open]);
+
+  // Three-state machine driving entrance + exit fade via CSS transitions
+  // (NOT keyframe animations — those re-triggered intermittently when
+  // classNames swapped mid-flight, especially under StrictMode).
+  //
+  //   `mounted` = is the modal in the DOM at all
+  //   `visible` = should we be at full opacity / scale-100
+  //
+  // Entrance:  mounted=true, visible=false  →  rAF tick  →  visible=true
+  //            (initial paint at opacity-0 so the transition has a "from"
+  //             state to interpolate from)
+  // Exit:      visible=false (transition starts immediately)  →  150ms  →
+  //            mounted=false (DOM removed)
   const [mounted, setMounted] = useState(open);
-  const [exiting, setExiting] = useState(false);
+  const [visible, setVisible] = useState(false);
+
   useEffect(() => {
     if (open) {
       setMounted(true);
-      setExiting(false);
-      return;
+      // Wait one frame so the DOM paints with opacity-0, then flip to
+      // opacity-100 — that's what kicks off the entrance transition.
+      const r = requestAnimationFrame(() => setVisible(true));
+      return () => cancelAnimationFrame(r);
     }
     if (!mounted) return;
-    setExiting(true);
-    const t = setTimeout(() => {
-      setMounted(false);
-      setExiting(false);
-    }, CLOSE_ANIMATION_MS);
+    setVisible(false);
+    const t = setTimeout(() => setMounted(false), CLOSE_ANIMATION_MS);
     return () => clearTimeout(t);
   }, [open, mounted]);
 
   if (!mounted) return null;
+  // `isExiting` here is just for the data-state attribute; the actual
+  // visual swap is driven by the `visible` flag below.
+  const isExiting = !visible;
 
   const sizeClass = SIZE_CLASS[size];
   // CardContent already supplies px-4 py-4, so we only add the layout
@@ -114,27 +162,30 @@ export default function AppModal(props: AppModalProps): JSX.Element | null {
     : 'flex-1';
   const maxHeight = scrollBody ? 'max-h-[90vh]' : '';
 
+  // CSS transitions (not keyframe animations) drive the open/close fade.
+  // Keyframes were causing intermittent flicker because swapping
+  // `animate-in` ↔ `animate-out` mid-flight could re-trigger the source
+  // animation in some browsers / under StrictMode's mount-unmount-remount.
+  // Transitions interpolate between two states with no restart logic.
+  const backdropOpacity = isExiting ? 'opacity-0' : 'opacity-100';
+  const cardOpacity = isExiting ? 'opacity-0 scale-95' : 'opacity-100 scale-100';
+
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label={title ?? ariaLabel}
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm ${
-        exiting
-          ? 'animate-out fade-out-0 duration-150'
-          : 'animate-in fade-in-0 duration-150'
-      }`}
+      data-state={isExiting ? 'closed' : 'open'}
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm transition-opacity duration-150 ${backdropOpacity}`}
       onClick={(e) => {
         if (disableClose) return;
+        if (!closeOnBackdropClick) return;
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <Card
-        className={`w-full ${sizeClass} ${maxHeight} flex flex-col ${
-          exiting
-            ? 'animate-out fade-out-0 zoom-out-95 duration-150'
-            : 'animate-in fade-in-0 zoom-in-95 duration-200'
-        } ${className ?? ''}`.trim()}
+        data-state={isExiting ? 'closed' : 'open'}
+        className={`w-full ${sizeClass} ${maxHeight} flex flex-col transition-all duration-150 ease-out ${cardOpacity} ${className ?? ''}`.trim()}
       >
         {header ?? (
           <CardHeader className="flex items-start justify-between gap-3">

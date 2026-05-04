@@ -3,7 +3,7 @@ import { Wrench, Save, Check, Globe, Database, HelpCircle } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { toast } from 'sonner';
 import { api, apiChatTools } from '../../services/comfyui';
-import type { Template } from '../../types';
+import type { TemplateSummary } from '../../types';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from '../ui/card';
 import InputField from '../forms/InputField';
@@ -33,7 +33,7 @@ const EMPTY_STATE: ToolsState = {
 
 export default function ToolsCard() {
   const [state, setState] = useState<ToolsState>(EMPTY_STATE);
-  const [imageTemplates, setImageTemplates] = useState<Template[]>([]);
+  const [imageTemplates, setImageTemplates] = useState<TemplateSummary[]>([]);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -51,7 +51,7 @@ export default function ToolsCard() {
       })
       .catch(() => { /* fall back to empty placeholders */ })
       .finally(() => setLoaded(true));
-    api.getTemplates()
+    api.getTemplatesList()
       .then(rows => {
         const imgs = rows.filter(t => t.studioCategory === 'image');
         setImageTemplates(imgs);

@@ -76,6 +76,11 @@ router.post('/chat/start', (req: Request, res: Response) => {
   } else {
     conversationId = makeId();
     const now = Date.now();
+    // Settings → Chat → "Default thinking mode" applies once at chat
+    // creation. 'auto' leaves think_mode NULL (column-level "no override");
+    // 'on' / 'off' light up the column so the user doesn't have to flip
+    // the popover for every new conversation.
+    const defaultThink = settings.getChatDefaultThinkMode();
     chatRepo.createConversation({
       id: conversationId,
       title: deriveTitle(messages),
@@ -84,6 +89,7 @@ router.post('/chat/start', (req: Request, res: Response) => {
       created_at: now,
       updated_at: now,
       context_strategy: settings.getDefaultContextStrategy(),
+      think_mode: defaultThink === 'auto' ? null : defaultThink,
     });
   }
 
@@ -184,12 +190,45 @@ router.patch('/chat/conversations/:id', (req: Request, res: Response) => {
     model?: unknown;
     system_prompt?: unknown;
     context_strategy?: unknown;
+    num_ctx?: unknown;
+    think_mode?: unknown;
+    temperature?: unknown;
+    format?: unknown;
   };
   const patch: chatRepo.UpdateConversationPatch = {};
   if (typeof body.title === 'string') patch.title = body.title;
   if (typeof body.model === 'string') patch.model = body.model;
   if (typeof body.system_prompt === 'string' || body.system_prompt === null) {
     patch.system_prompt = body.system_prompt as string | null;
+  }
+  // num_ctx accepts a positive integer or null. Anything else (string,
+  // negative, NaN) is treated as "no patch" so a typo in the body can't
+  // store junk on the row. The send path omits options.num_ctx when this
+  // is null so Ollama falls back to its own default.
+  if (body.num_ctx === null) {
+    patch.num_ctx = null;
+  } else if (typeof body.num_ctx === 'number' && Number.isFinite(body.num_ctx) && body.num_ctx > 0) {
+    patch.num_ctx = Math.round(body.num_ctx);
+  }
+  // think_mode accepts 'on' | 'off' | null. Anything else is ignored so a
+  // typo can't store junk in the column.
+  if (body.think_mode === null) {
+    patch.think_mode = null;
+  } else if (body.think_mode === 'on' || body.think_mode === 'off') {
+    patch.think_mode = body.think_mode;
+  }
+  // temperature: positive number or null. Clamp to a sane range so a
+  // typo can't pin the chat at temperature: 999 (gibberish output).
+  if (body.temperature === null) {
+    patch.temperature = null;
+  } else if (typeof body.temperature === 'number' && Number.isFinite(body.temperature)) {
+    patch.temperature = Math.max(0, Math.min(2, body.temperature));
+  }
+  // format: 'json' or null only — no other modes supported by Ollama yet.
+  if (body.format === null) {
+    patch.format = null;
+  } else if (body.format === 'json') {
+    patch.format = 'json';
   }
   // Apply context_strategy as a side update — it lives on the same row but
   // outside the `renameConversation` patch helper so existing callers stay

@@ -11,16 +11,7 @@ import { api } from '../../services/comfyui';
 import { usePersistedState } from '../../hooks/usePersistedState';
 import type { PythonPackage } from '../../types';
 import { Spinner } from '../ui/spinner';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogFooter,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogAction,
-  AlertDialogCancel,
-} from '../ui/alert-dialog';
+import ConfirmDialog from '../modals/ConfirmDialog';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader } from '../ui/card';
 
@@ -240,27 +231,15 @@ export default function PackagesPanel() {
         )}
       </CardContent>
 
-      <AlertDialog
+      <ConfirmDialog
         open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Uninstall package?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Runs <code className="font-mono">pip uninstall -y {deleteTarget?.name}</code> on the
-              ComfyUI Python environment. Plugins that depend on it may break.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleUninstall} className="!bg-red-600 hover:!bg-red-700">
-              <Trash2 className="w-3.5 h-3.5" />
-              Uninstall
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onClose={() => setDeleteTarget(null)}
+        title="Uninstall package?"
+        description={`Runs "pip uninstall -y ${deleteTarget?.name}" on the ComfyUI Python environment. Plugins that depend on it may break.`}
+        confirmLabel="Uninstall"
+        confirmTone="danger"
+        onConfirm={handleUninstall}
+      />
     </Card>
   );
 }

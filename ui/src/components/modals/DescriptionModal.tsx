@@ -86,7 +86,7 @@ export default function DescriptionModal(props: Props): JSX.Element | null {
       onClose={onClose}
       title={title}
       subtitle="Template details"
-      size="md"
+      size="lg"
     >
       <div className="space-y-4">
         {showTopDesc && (

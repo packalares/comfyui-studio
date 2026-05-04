@@ -224,7 +224,7 @@ export default function DependencyModal({
           <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
         </div>
       }
-      size="md"
+      size="lg"
       disableClose={isAnyActive}
       footer={
         <>

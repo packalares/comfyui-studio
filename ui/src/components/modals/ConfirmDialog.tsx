@@ -8,6 +8,7 @@
 // and we'll honour that instead.
 
 import { useCallback, useState, type ReactNode } from 'react';
+import { ArrowLeft, Check, Trash2 } from 'lucide-react';
 import AppModal from './AppModal';
 import { Button } from '../ui/button';
 import { Spinner } from '../ui/spinner';
@@ -25,6 +26,10 @@ export interface ConfirmDialogProps {
   busy?: boolean;
   /** Optional extra body content (error banner, list, etc.). */
   children?: ReactNode;
+  /** Override the default Cancel icon (back-arrow). */
+  cancelIcon?: ReactNode;
+  /** Override the default Confirm icon (Check for primary, Trash2 for danger). */
+  confirmIcon?: ReactNode;
 }
 
 export default function ConfirmDialog(props: ConfirmDialogProps): JSX.Element {
@@ -39,6 +44,8 @@ export default function ConfirmDialog(props: ConfirmDialogProps): JSX.Element {
     onConfirm,
     busy: busyProp,
     children,
+    cancelIcon,
+    confirmIcon,
   } = props;
 
   const [internalBusy, setInternalBusy] = useState(false);
@@ -56,6 +63,14 @@ export default function ConfirmDialog(props: ConfirmDialogProps): JSX.Element {
 
   // Danger uses the destructive button variant; primary stays default.
   const confirmVariant = confirmTone === 'danger' ? 'destructive' : 'default';
+  // Default icons: ArrowLeft on Cancel (reads as "back"); on Confirm we
+  // pick by tone — Trash2 for danger (most danger flows are deletes/clears),
+  // Check for primary. Callers can override either via props.
+  const resolvedCancelIcon = cancelIcon ?? <ArrowLeft className="h-3.5 w-3.5" />;
+  const resolvedConfirmIcon = confirmIcon
+    ?? (confirmTone === 'danger'
+      ? <Trash2 className="h-3.5 w-3.5" />
+      : <Check className="h-3.5 w-3.5" />);
 
   return (
     <AppModal
@@ -66,13 +81,15 @@ export default function ConfirmDialog(props: ConfirmDialogProps): JSX.Element {
       scrollBody={false}
       disableClose={busy}
       footer={
-        <div className="ml-auto flex items-center gap-2">
+        // Cancel pinned to the far left, Confirm to the far right.
+        <div className="flex w-full items-center justify-between">
           <Button
             type="button"
             variant="secondary"
             onClick={onClose}
             disabled={busy}
           >
+            {resolvedCancelIcon}
             {cancelLabel}
           </Button>
           <Button
@@ -81,7 +98,7 @@ export default function ConfirmDialog(props: ConfirmDialogProps): JSX.Element {
             onClick={() => void handleConfirm()}
             disabled={busy}
           >
-            {busy && <Spinner size="sm" />}
+            {busy ? <Spinner size="sm" /> : resolvedConfirmIcon}
             {confirmLabel}
           </Button>
         </div>

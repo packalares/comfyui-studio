@@ -1,5 +1,6 @@
 import type {
   Template,
+  TemplateSummary,
   SystemStats,
   QueueStatus,
   GalleryItem,
@@ -145,7 +146,16 @@ export const api = {
     uploadMaxBytes?: number;
   }>('/system'),
 
-  getTemplates: () => fetchJson<Template[]>('/templates'),
+  /** @deprecated `/api/templates` is now always paginated. Use
+   *  `getTemplatesList()` for the slim bootstrap, `getTemplatesPaged()` for
+   *  the Explore grid, or `getTemplateBundle(name)` for one full template. */
+  getTemplates: () => fetchJson<PageEnvelope<Template>>('/templates'),
+
+  /** Slim summaries — the AppContext bootstrap shape. Drops workflow JSON,
+   *  formInputs, io, models[]/plugins[], etc. The 8 fields it ships
+   *  (tags + category included) are enough for client-side aggregation in
+   *  Explore + the picker dropdowns. No separate stats endpoint needed. */
+  getTemplatesList: () => fetchJson<TemplateSummary[]>('/templates/list'),
 
   /** GET /templates?page=&pageSize=&category=&tags=&q=&source=&ready= — paginated templates. */
   getTemplatesPaged: (
@@ -330,6 +340,15 @@ export const api = {
 
   /** New unified catalog merged with disk scan. Prefer this for the Models page. */
   getModelsCatalog: () => fetchJson<CatalogModel[]>('/models/catalog'),
+
+  /** Sidebar aggregates — installed count, disk usage, distinct types. Drops
+   *  the need to fetch the full catalog client-side just for these numbers. */
+  getModelsStats: () => fetchJson<{
+    installedCount: number;
+    available: number;
+    totalDiskSize: number;
+    types: string[];
+  }>('/models/stats'),
 
   /** GET /models/catalog?page=&pageSize=&q=&type=&installed= — paginated catalog. */
   getModelsCatalogPaged: (
@@ -969,6 +988,7 @@ export const api = {
       defaultModel: string;
       keepAlive: string;
       defaultContextStrategy: ChatContextStrategy;
+      defaultThinkMode: 'on' | 'off' | 'auto';
       advanced: ChatAdvancedSettings;
     }>(
       '/settings/chat',
@@ -980,6 +1000,7 @@ export const api = {
     defaultModel: string;
     keepAlive: string;
     defaultContextStrategy: ChatContextStrategy;
+    defaultThinkMode: 'on' | 'off' | 'auto';
     advanced: Partial<ChatAdvancedSettings>;
   }>) =>
     fetchJson<{
@@ -987,6 +1008,7 @@ export const api = {
       defaultModel: string;
       keepAlive: string;
       defaultContextStrategy: ChatContextStrategy;
+      defaultThinkMode: 'on' | 'off' | 'auto';
       advanced: ChatAdvancedSettings;
     }>(
       '/settings/chat',
@@ -1096,8 +1118,31 @@ export const api = {
         { method: 'DELETE' },
       ),
 
-    listLibrary: () =>
-      fetchJson<{ items: OllamaLibraryModel[] }>('/chat/models/library'),
+    listLibrary: (opts?: { q?: string; page?: number; pageSize?: number }) => {
+      const params = new URLSearchParams();
+      if (opts?.q) params.set('q', opts.q);
+      if (opts?.page) params.set('page', String(opts.page));
+      if (opts?.pageSize) params.set('pageSize', String(opts.pageSize));
+      const qs = params.toString();
+      return fetchJson<{
+        items: OllamaLibraryModel[];
+        total: number;
+        page: number;
+        pageSize: number;
+        fetchedAt: number;
+      }>(`/chat/models/library${qs ? `?${qs}` : ''}`);
+    },
+
+    refreshLibrary: () =>
+      fetchJson<{ replaced: boolean; total: number }>(
+        '/chat/models/library/refresh',
+        { method: 'POST' },
+      ),
+
+    getLibraryTags: (name: string) =>
+      fetchJson<{ tags: OllamaTagEntry[] }>(
+        `/chat/models/library/${encodeURIComponent(name)}/tags`,
+      ),
 
     searchHf: (q: string) =>
       fetchJson<{ items: HfModelSummary[] }>(
@@ -1130,6 +1175,50 @@ export const api = {
           body: JSON.stringify({ context_strategy: strategy }),
         },
       ),
+
+    /** PATCH /chat/conversations/:id with `{ num_ctx }`. Pass `null` to
+     *  clear the override and let Ollama use its built-in default. */
+    setNumCtx: (conversationId: string, numCtx: number | null) =>
+      fetchJson<ChatConversation>(
+        `/chat/conversations/${encodeURIComponent(conversationId)}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ num_ctx: numCtx }),
+        },
+      ),
+
+    /** PATCH /chat/conversations/:id with `{ think_mode }`. `null` = let
+     *  the model decide; `'on'` / `'off'` force chain-of-thought on/off. */
+    setThinkMode: (conversationId: string, thinkMode: 'on' | 'off' | null) =>
+      fetchJson<ChatConversation>(
+        `/chat/conversations/${encodeURIComponent(conversationId)}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ think_mode: thinkMode }),
+        },
+      ),
+
+    /** PATCH /chat/conversations/:id with `{ temperature }`. `null` =
+     *  Ollama default; numeric values clamped server-side to [0, 2]. */
+    setTemperature: (conversationId: string, temperature: number | null) =>
+      fetchJson<ChatConversation>(
+        `/chat/conversations/${encodeURIComponent(conversationId)}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ temperature }),
+        },
+      ),
+
+    /** PATCH /chat/conversations/:id with `{ format }`. `null` = free
+     *  text; `'json'` forces Ollama to emit valid JSON. */
+    setFormat: (conversationId: string, format: 'json' | null) =>
+      fetchJson<ChatConversation>(
+        `/chat/conversations/${encodeURIComponent(conversationId)}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ format }),
+        },
+      ),
   },
 };
 
@@ -1154,20 +1243,21 @@ export interface ChatUIMessage {
   parts: ChatUIMessagePart[];
 }
 
-export type ChatContextStrategy = 'sliding' | 'summarize' | 'manual';
+export type ChatContextStrategy = 'sliding' | 'auto';
 
 /** Tunables exposed under `advanced` on the chat settings GET/PUT.
  *  Each is a positive number with a server-side validation step; a
  *  cleared/missing value falls back to a documented default. */
 export interface ChatAdvancedSettings {
   highWaterPercent: number;
-  slidingTargetPercent: number;
-  fallbackNumCtx: number;
   maxToolSteps: number;
   loadingHintMs: number;
   keepRecent: number;
   titleTimeoutMs: number;
   summaryTimeoutMs: number;
+  /** When true, fire a small post-turn LLM call to generate dynamic
+   *  follow-up suggestion pills. Off → static heuristic only. */
+  smartSuggestions: boolean;
 }
 
 export interface ChatConversation {
@@ -1183,12 +1273,25 @@ export interface ChatConversation {
 /** Mirrors `UsageState` returned by GET /chat/conversations/:id/usage. */
 export interface ChatUsageState {
   used: number;
-  budget: number;
+  /** `null` when on Auto AND the model isn't currently loaded — UI shows
+   *  an "Auto" placeholder until the next request lands. */
+  budget: number | null;
   percent: number;
   estimatedNext: number;
   warning: 'green' | 'yellow' | 'red';
   strategy: ChatContextStrategy;
   model: string;
+  /** Model's published architectural max context (e.g. 131072 for llama3.1).
+   *  `null` when /api/show is unreachable. Used as the slider upper bound. */
+  modelMaxCtx: number | null;
+  /** Per-conversation runtime override. `null` = use Ollama default. */
+  numCtx: number | null;
+  /** Per-conversation reasoning-mode override. `null` = auto. */
+  thinkMode: 'on' | 'off' | null;
+  /** Per-conversation sampling temperature. `null` = Ollama default. */
+  temperature: number | null;
+  /** Per-conversation output format. `null` = text; `'json'` = JSON. */
+  format: 'json' | null;
 }
 
 export interface ChatMessage {
@@ -1201,6 +1304,9 @@ export interface ChatMessage {
   ms_to_first_token: number | null;
   ms_total: number | null;
   tokens_per_sec: number | null;
+  /** Cold-load latency Ollama reported for this turn (ms). Nonzero only
+   *  when the model wasn't already in VRAM; near-zero otherwise. */
+  load_duration_ms: number | null;
   model: string | null;
   created_at: number;
 }
@@ -1265,6 +1371,16 @@ export interface OllamaLibraryModel {
   updated: string;
   sizes: string[];
   capabilities: string[];
+}
+
+export interface OllamaTagEntry {
+  /** The tag string (e.g. `8b`, `70b-instruct-q4_K_M`, `latest`). */
+  tag: string;
+  size: string;
+  contextLength: string;
+  input: string;
+  digest: string;
+  updated: string;
 }
 
 export interface HfModelSummary {

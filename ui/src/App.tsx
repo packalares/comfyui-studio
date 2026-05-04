@@ -10,7 +10,6 @@ const Gallery = lazy(() => import('./pages/Gallery'));
 const Models = lazy(() => import('./pages/Models'));
 const Plugins = lazy(() => import('./pages/Plugins'));
 const Chat = lazy(() => import('./pages/Chat'));
-const ChatModels = lazy(() => import('./pages/ChatModels'));
 const PluginsInstalled = lazy(() => import('./pages/plugins/Installed'));
 const PluginsHistory = lazy(() => import('./pages/plugins/History'));
 const PluginsPythonDependencies = lazy(() => import('./pages/plugins/python/Dependencies'));
@@ -37,7 +36,8 @@ function App() {
           <Route path="/gallery" element={<Gallery />} />
           <Route path="/models" element={<Models />} />
           <Route path="/chat" element={<Chat />} />
-          <Route path="/chat/models" element={<ChatModels />} />
+          {/* Legacy /chat/models — Ollama is now a Source filter on /models. */}
+          <Route path="/chat/models" element={<Navigate to="/models?source=ollama" replace />} />
           <Route path="/plugins" element={<Plugins />}>
             <Route index element={<Navigate to="/plugins/installed" replace />} />
             <Route path="installed" element={<PluginsInstalled />} />

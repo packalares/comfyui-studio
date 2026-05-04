@@ -31,24 +31,54 @@ function isSafeAssetPath(value: string): boolean {
   return true;
 }
 
-// Templates — always fetch fresh from ComfyUI.
-// When no Comfy Org API key is configured, hide API-node workflows entirely
-// so they don't appear anywhere in the UI (Explore, Studio, model-dep filters).
+/** Slim wire shape for `/templates/list` and `/templates/stats`-adjacent
+ *  consumers — drops the heavy fields (workflow, formInputs, io, models,
+ *  plugins) so app-boot and picker dropdowns aren't shipping per-template
+ *  workflow JSONs. Pages that need the full object call
+ *  `/template-bundle/:name` on demand. */
+function toTemplateSummary(t: ReturnType<typeof templates.getTemplates>[number]) {
+  return {
+    name: t.name,
+    title: t.title,
+    category: t.category,
+    studioCategory: t.studioCategory,
+    mediaType: t.mediaType,
+    tags: t.tags,
+    models: t.models,
+    openSource: t.openSource,
+  };
+}
+
+function visibleTemplates() {
+  const all = templates.getTemplates();
+  return settings.isApiKeyConfigured()
+    ? all
+    : all.filter(t => t.openSource !== false);
+}
+
+// Slim list — replaces the prior bare `/api/templates` bootstrap fetch. The
+// CatalogContext caches THIS shape and Studio fetches the canonical
+// per-template bundle when a name is picked.
+router.get('/templates/list', async (_req: Request, res: Response) => {
+  try { await templates.loadTemplatesFromComfyUI(COMFYUI_URL); } catch { /* serve stale */ }
+  // No `attachReady` — the slim shape doesn't ship `ready`, so skip the
+  // sqlite join. Pages that need readiness call the full paginated endpoint.
+  res.json(visibleTemplates().map(toTemplateSummary));
+});
+
+// Templates — always paginated. The unpaginated full-list path was removed;
+// every consumer uses either `/templates/list` (slim summaries) or
+// `/templates?page=…` (paginated full objects for the Explore grid).
+// When no Comfy Org API key is configured, API-node workflows are hidden
+// site-wide via `visibleTemplates()`.
 router.get('/templates', async (req: Request, res: Response) => {
   try {
     await templates.loadTemplatesFromComfyUI(COMFYUI_URL);
   } catch {
-    // will return cached or empty
+    // serve cached or empty
   }
-  const all = templates.getTemplates();
-  const result = settings.isApiKeyConfigured()
-    ? all
-    : all.filter(t => t.openSource !== false);
+  const result = visibleTemplates();
   const pq = parsePageQuery(req, { defaultPageSize: 50, maxPageSize: 200 });
-  if (!pq.isPaginated) {
-    res.json(attachReady(result));
-    return;
-  }
 
   // Apply category + search + tag + source + ready filters globally before
   // slicing so pagination is consistent with the sidebar state.

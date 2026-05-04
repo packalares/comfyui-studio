@@ -448,7 +448,8 @@ function ChatLlmCard() {
   const [savedOllamaUrl, setSavedOllamaUrl] = useState('');
   const [defaultModel, setDefaultModel] = useState('');
   const [keepAlive, setKeepAlive] = useState('');
-  const [defaultStrategy, setDefaultStrategy] = useState<'sliding' | 'summarize' | 'manual'>('sliding');
+  const [defaultStrategy, setDefaultStrategy] = useState<'sliding' | 'auto'>('sliding');
+  const [defaultThinkMode, setDefaultThinkMode] = useState<'on' | 'off' | 'auto'>('auto');
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -464,6 +465,7 @@ function ChatLlmCard() {
         setDefaultModel(s.defaultModel);
         setKeepAlive(s.keepAlive);
         if (s.defaultContextStrategy) setDefaultStrategy(s.defaultContextStrategy);
+        if (s.defaultThinkMode) setDefaultThinkMode(s.defaultThinkMode);
       })
       .catch(() => { /* fall back to placeholders */ })
       .finally(() => setLoaded(true));
@@ -475,12 +477,14 @@ function ChatLlmCard() {
       defaultModel: defaultModel.trim(),
       keepAlive: keepAlive.trim(),
       defaultContextStrategy: defaultStrategy,
+      defaultThinkMode,
     });
     setOllamaUrl(next.ollamaUrl);
     setSavedOllamaUrl(next.ollamaUrl);
     setDefaultModel(next.defaultModel);
     setKeepAlive(next.keepAlive);
     if (next.defaultContextStrategy) setDefaultStrategy(next.defaultContextStrategy);
+    if (next.defaultThinkMode) setDefaultThinkMode(next.defaultThinkMode);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -609,16 +613,48 @@ function ChatLlmCard() {
             </div>
             <SelectField
               value={defaultStrategy}
-              onValueChange={v => setDefaultStrategy(v as 'sliding' | 'summarize' | 'manual')}
+              onValueChange={v => setDefaultStrategy(v as 'sliding' | 'auto')}
               disabled={!loaded}
             >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Select a strategy" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="sliding">Sliding window — drop oldest turns when the budget hits 80%</SelectItem>
-                <SelectItem value="summarize">Summarize — replace older turns with a model-generated summary</SelectItem>
-                <SelectItem value="manual">Manual — warn only; user runs Compact when ready</SelectItem>
+                <SelectItem value="sliding">Sliding — drop oldest turns from the request only (DB untouched)</SelectItem>
+                <SelectItem value="auto">Auto — run Compact server-side (destructive: history is replaced with a summary)</SelectItem>
+              </SelectContent>
+            </SelectField>
+          </div>
+          <div>
+            <div className="mb-1 flex items-center gap-1.5">
+              <label className="field-label">Default thinking mode</label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="cursor-help text-slate-400 transition-colors hover:text-slate-600"
+                    aria-label="Default thinking mode info"
+                  >
+                    <HelpCircle className="h-3 w-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Initial value for the per-chat Thinking toggle. Off is the fast path on thinking-mode models (qwen3.5, gemma3) — disables the chain-of-thought trace which can be 30× the size of the answer.
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <SelectField
+              value={defaultThinkMode}
+              onValueChange={v => setDefaultThinkMode(v as 'on' | 'off' | 'auto')}
+              disabled={!loaded}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">Auto — model decides</SelectItem>
+                <SelectItem value="on">On — always emit chain-of-thought</SelectItem>
+                <SelectItem value="off">Off — suppress thinking (fast on qwen3.5 / gemma3)</SelectItem>
               </SelectContent>
             </SelectField>
           </div>
@@ -669,20 +705,6 @@ const CHAT_ADVANCED_FIELDS: AdvancedFieldDef[] = [
     helper: 'Strategy fires when estimated next-turn usage hits this percent of the context budget. 80 by default.',
   },
   {
-    key: 'slidingTargetPercent',
-    label: 'Sliding target (%)',
-    unit: '%',
-    icon: Percent,
-    helper: 'After the sliding strategy trims, target this percent of the budget so there is room for the new turn + reply. 70 by default.',
-  },
-  {
-    key: 'fallbackNumCtx',
-    label: 'Fallback context size (tokens)',
-    unit: 'tok',
-    icon: Hash,
-    helper: 'Used when /api/show fails to report num_ctx. 4096 by default. Lower if you run small CPU-only models.',
-  },
-  {
     key: 'maxToolSteps',
     label: 'Max tool-dispatch loops',
     icon: Repeat,
@@ -697,9 +719,9 @@ const CHAT_ADVANCED_FIELDS: AdvancedFieldDef[] = [
   },
   {
     key: 'keepRecent',
-    label: 'Summarize: keep last N turns',
+    label: 'Sliding: keep last N turns',
     icon: Hash,
-    helper: 'How many recent user/assistant turns the summarize strategy keeps verbatim. 4 by default.',
+    helper: 'When the Sliding strategy fires, keep this many recent user/assistant turns and drop everything older from the outgoing request. System messages are always kept. 4 by default.',
   },
   {
     key: 'titleTimeoutMs',
@@ -710,10 +732,10 @@ const CHAT_ADVANCED_FIELDS: AdvancedFieldDef[] = [
   },
   {
     key: 'summaryTimeoutMs',
-    label: 'Summary timeout (ms)',
+    label: 'Compact summary timeout (ms)',
     unit: 'ms',
     icon: Timer,
-    helper: 'Bound on the manual /compact + summarize-strategy LLM call. 60000 by default.',
+    helper: 'Bound on the summarizer call shared by the manual Compact-now button and the Auto strategy. 60000 by default.',
   },
 ];
 
@@ -779,6 +801,26 @@ function ChatAdvancedCard() {
               />
             );
           })}
+        </div>
+        {/* Boolean toggle — kept outside the numeric grid so the InputField
+            uniformity doesn't have to grow a "boolean" branch. */}
+        <div className="mt-4 flex items-start justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2.5">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-slate-900">Smart suggestions</div>
+            <p className="mt-0.5 text-xs leading-snug text-slate-500">
+              After each assistant turn, run one extra LLM call to propose
+              follow-up prompts the user might want to send next. Off →
+              static heuristic pills only (no extra round-trip).
+            </p>
+          </div>
+          <Switch
+            checked={!!advanced?.smartSuggestions}
+            disabled={!advanced}
+            onCheckedChange={(checked) => {
+              if (!advanced) return;
+              setAdvanced({ ...advanced, smartSuggestions: !!checked });
+            }}
+          />
         </div>
       </CardContent>
       <CardFooter>

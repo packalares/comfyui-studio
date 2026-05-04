@@ -13,7 +13,7 @@ export default function Layout({ children }: LayoutProps) {
       <Navbar />
       <main>{children}</main>
       <RunningTaskCard />
-      <Toaster position="top-right" richColors />
+      <Toaster position="top-center" />
     </div>
   );
 }

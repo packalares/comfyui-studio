@@ -4,6 +4,7 @@
 // run strategy enforcement (Phase F), stream chunks via the broadcaster,
 // then stamp telemetry on the row on `done`. Aborts cut the upstream
 // request by hitting the registered AbortController in `inFlight`.
+//
 
 import type { UIMessage } from 'ai';
 import { logger } from '../../lib/logger.js';
@@ -18,6 +19,8 @@ import {
   type OllamaFinalFrame,
 } from './ollamaChat.js';
 import { runOllamaStep } from './ollamaStep.js';
+import { generateSuggestions } from './suggestionGenerator.js';
+import { isModelLoaded } from './ollamaPs.js';
 import { getEnabledTools, filterEnabledTools } from './tools/index.js';
 import { toOllamaTools, executeOllamaToolCall } from './ollamaTools.js';
 import { runToolDispatch, type ToolPart } from './toolDispatch.js';
@@ -67,10 +70,14 @@ export function startStream(input: StreamChatInput): StreamChatStarted {
   const now = Date.now();
 
   const lastUser = [...messages].reverse().find(m => m.role === 'user');
+  // Capture the user msg id (when present) so the auto-compact path can
+  // preserve it through the destructive write. `null` for regenerate
+  // requests where the latest user turn is already in the DB.
+  let userMsgId: string | null = null;
   if (lastUser) {
-    const userId = makeId();
+    userMsgId = makeId();
     repo.appendMessage({
-      id: userId,
+      id: userMsgId,
       conversation_id: conversationId,
       role: 'user',
       parts: JSON.stringify(lastUser.parts ?? []),
@@ -94,7 +101,7 @@ export function startStream(input: StreamChatInput): StreamChatStarted {
   emitChatEvent({ type: 'chat:start', data: { conversationId, msgId, model } });
 
   void runStream({
-    msgId, conversationId, baseUrl, model, keepAlive,
+    msgId, userMsgId, conversationId, baseUrl, model, keepAlive,
     abort, messages, systemPrompt: systemPrompt ?? null,
     enabledToolFilter: toolFilter,
   });
@@ -104,6 +111,10 @@ export function startStream(input: StreamChatInput): StreamChatStarted {
 
 interface RunStreamArgs {
   msgId: string;
+  /** Id of the just-appended user message — null on regenerate paths
+   *  where the user turn was already in the DB. Forwarded to the
+   *  context-strategy enforcement so the 'auto' path preserves it. */
+  userMsgId: string | null;
   conversationId: string;
   baseUrl: string;
   model: string;
@@ -116,7 +127,7 @@ interface RunStreamArgs {
 
 async function runStream(args: RunStreamArgs): Promise<void> {
   const {
-    msgId, conversationId, baseUrl, model, keepAlive,
+    msgId, userMsgId, conversationId, baseUrl, model, keepAlive,
     abort, messages, systemPrompt, enabledToolFilter,
   } = args;
   const startedAt = Date.now();
@@ -140,11 +151,36 @@ async function runStream(args: RunStreamArgs): Promise<void> {
     },
   });
 
-  // If no chunk lands within LOADING_HINT_MS, surface a "loading model" hint
-  // so the UI explains the long pause on a cold-start. Cleared as soon as
-  // the first token arrives, or when the run errors / aborts.
+  // The cold-load hint is gated by two signals so we don't flash the
+  // "Loading model into VRAM…" banner on already-resident models:
+  //
+  //   1. /api/ps precheck — runs on every request. When the model is
+  //      already loaded, disarm the timer below so it can't fire later
+  //      even if the first token is slow. When it's NOT loaded, emit the
+  //      hint immediately (no need to wait 1.5s for the timer fallback).
+  //   2. Setup-timer fallback — only fires if the precheck is still
+  //      pending (network race) or returned `null` (api/ps failure).
+  //
+  // The flag is captured by the timer closure so a fast /api/ps response
+  // disarms a still-pending timer without needing a clearTimeout race.
+  let loadingHintArmed = true;
+  void isModelLoaded(baseUrl, model).then((loaded) => {
+    if (loaded === true) {
+      // Model is already in VRAM — no banner, regardless of first-token speed.
+      loadingHintArmed = false;
+    } else if (loaded === false && tracker.firstTokenAt === 0) {
+      emitChatEvent({
+        type: 'chat:status',
+        data: { msgId, code: 'loading_model' },
+      });
+      // Already emitted; let the timer be a no-op so we don't double-fire.
+      loadingHintArmed = false;
+    }
+    // `null` (api/ps unreachable) → leave armed; timer takes over.
+  });
+
   const loadingTimer = setTimeout(() => {
-    if (tracker.firstTokenAt === 0) {
+    if (loadingHintArmed && tracker.firstTokenAt === 0) {
       emitChatEvent({
         type: 'chat:status',
         // Status code, not literal — the UI maps `loading_model` to its
@@ -157,12 +193,30 @@ async function runStream(args: RunStreamArgs): Promise<void> {
 
   try {
     let ollamaMessages: OllamaChatMessage[] = convertToOllamaMessages(messages, systemPrompt);
+    // Preserve the just-appended user msg + assistant placeholder through
+    // any destructive auto-compact so the in-flight turn keeps working.
+    const preserveIds = new Set<string>([msgId]);
+    if (userMsgId) preserveIds.add(userMsgId);
     ollamaMessages = await enforceContextStrategy({
       conversationId, model, baseUrl,
       pendingUserText: lastUserText(messages),
       messages: ollamaMessages,
       msgId,
+      preserveIds,
     });
+    // Per-conversation `num_ctx`. Sent in `options.num_ctx` ONLY when the
+    // user has pinned a value via the meter slider. On Auto (NULL) we
+    // omit the field entirely so Ollama uses the model's native default
+    // — vital for vision models like glm-ocr where the modelfile sets a
+    // larger `num_ctx` (e.g. 32K) to fit image tokens; forcing 4K from
+    // Studio mismatches the vision tower's tensor shapes.
+    // The meter reads the actual allocation from `/api/ps` and uses
+    // that as the budget so the percentage stays honest on Auto.
+    const conv = repo.getConversation(conversationId);
+    const numCtx = conv?.num_ctx ?? undefined;
+    const thinkMode = conv?.think_mode ?? undefined;
+    const temperature = conv?.temperature ?? undefined;
+    const format = conv?.format ?? undefined;
     const enabledTools = filterEnabledTools(getEnabledTools(), enabledToolFilter);
     const ollamaTools = Object.keys(enabledTools).length > 0
       ? await toOllamaTools(enabledTools)
@@ -173,7 +227,7 @@ async function runStream(args: RunStreamArgs): Promise<void> {
       enabledTools,
       ollamaTools,
       runStep: (msgs) => runOllamaStep({
-        baseUrl, model, keepAlive,
+        baseUrl, model, keepAlive, numCtx, thinkMode, temperature, format,
         messages: msgs,
         tools: ollamaTools.length > 0 ? ollamaTools : undefined,
         abort,
@@ -183,6 +237,19 @@ async function runStream(args: RunStreamArgs): Promise<void> {
             clearTimeout(loadingTimer);
           }
           thinkParser.feed(delta);
+        },
+        // New-format thinking lives in `message.thinking` — already a clean
+        // reasoning stream, no inline tags to strip. Route straight to the
+        // sink that pushes `chat:reasoning` deltas. Mirrors the firstToken
+        // bookkeeping so the cold-load hint clears on the first thinking
+        // delta even when the visible content stream hasn't started yet.
+        onReasoningChunk: (delta) => {
+          if (tracker.firstTokenAt === 0) {
+            tracker.firstTokenAt = Date.now();
+            clearTimeout(loadingTimer);
+          }
+          reasoning += delta;
+          emitChatEvent({ type: 'chat:reasoning', data: { msgId, delta } });
         },
       }),
       executeToolCall: (call) => executeOllamaToolCall(enabledTools, call),
@@ -209,6 +276,13 @@ async function runStream(args: RunStreamArgs): Promise<void> {
       ms_total: totalMs,
       tokens_per_sec: stats?.tokens_per_sec ?? null,
       model,
+      // load_duration from the final NDJSON frame (ns → ms). Round so we
+      // don't store noise like 4123.876 ms; integer milliseconds are
+      // plenty for "Loaded in 4.1 s" UX. Zero when the model was already
+      // resident — Ollama still reports it but as a tiny value.
+      load_duration_ms: stats?.ms_load !== null && stats?.ms_load !== undefined
+        ? Math.round(stats.ms_load)
+        : null,
     };
     repo.updateMessageTelemetry(msgId, telemetry);
     repo.touchConversation(conversationId, Date.now());
@@ -238,6 +312,31 @@ async function runStream(args: RunStreamArgs): Promise<void> {
       userText: lastUserText(messages),
       assistantText: accumulated,
     });
+    // Smart suggestions — fire-and-forget. Asks the active model to propose
+    // 3 short follow-up prompts; broadcasts them via WS as
+    // `chat:suggestions`. Toggled off in Settings → Chat for users on
+    // small / metered models who don't want the extra round-trip.
+    if (settings.getChatSmartSuggestions()) {
+      // Re-resolve num_ctx — same logic as the main chat call. When the
+      // conversation is on Auto we omit `options.num_ctx` so Ollama
+      // keeps the same allocation it just used for the main reply
+      // (KV-cache stays warm; no model reload between turns).
+      const post = repo.getConversation(conversationId);
+      const postNumCtx = post?.num_ctx ?? undefined;
+      void generateSuggestions({ conversationId, model, baseUrl, numCtx: postNumCtx })
+        .then((suggestions) => {
+          if (suggestions.length === 0) return;
+          emitChatEvent({
+            type: 'chat:suggestions',
+            data: { conversationId, msgId, suggestions },
+          });
+        })
+        .catch((err) => {
+          logger.warn('suggestions: post-turn dispatch failed', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+    }
   }
 }
 

@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { ChevronDown } from 'lucide-react';
-import type { Template } from '../types';
+import type { TemplateSummary } from '../types';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import {
   Command,
@@ -12,7 +12,7 @@ import {
 } from './ui/command';
 
 interface Props {
-  templates: Template[];
+  templates: TemplateSummary[];
   selected: string;
   onSelect: (templateName: string) => void;
 }
@@ -21,7 +21,7 @@ function getInitial(name: string): string {
   return name.charAt(0).toUpperCase();
 }
 
-function getSubtitle(template: Template): string {
+function getSubtitle(template: TemplateSummary): string {
   if (template.tags.length > 0) return template.tags[0];
   return template.mediaType;
 }

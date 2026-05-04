@@ -164,6 +164,7 @@ export class StudioTransport implements ChatTransport<StudioUIMessage> {
               ms_to_first_token: stats.ms_to_first_token,
               ms_total: stats.ms_total,
               tokens_per_sec: stats.tokens_per_sec,
+              load_duration_ms: stats.load_duration_ms,
               model: stats.model,
               conversationId,
             },
