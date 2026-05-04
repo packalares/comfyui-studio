@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useRef } from 'react';
 import type { SystemStats, MonitorStats, LauncherStatus } from '../types';
+import type { NetworkConfigView } from '../services/comfyui';
 
 export interface SystemContextType {
   systemStats: SystemStats | null;
@@ -13,6 +14,7 @@ export interface SystemContextType {
   githubTokenConfigured: boolean;
   pexelsApiKeyConfigured: boolean;
   uploadMaxBytes: number;
+  network: NetworkConfigView | null;
   // Internal setters/refs exposed to sibling providers (Ws, façade).
   _setConnected: React.Dispatch<React.SetStateAction<boolean>>;
   _setMonitorStats: React.Dispatch<React.SetStateAction<MonitorStats | null>>;
@@ -25,6 +27,7 @@ export interface SystemContextType {
   _setGithubTokenConfigured: React.Dispatch<React.SetStateAction<boolean>>;
   _setPexelsApiKeyConfigured: React.Dispatch<React.SetStateAction<boolean>>;
   _setUploadMaxBytes: React.Dispatch<React.SetStateAction<number>>;
+  _setNetwork: React.Dispatch<React.SetStateAction<NetworkConfigView | null>>;
   _systemStatsRef: React.MutableRefObject<SystemStats | null>;
 }
 
@@ -43,6 +46,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
   const [pexelsApiKeyConfigured, setPexelsApiKeyConfigured] = useState(false);
   // Fallback matches the server's default until `/api/system` arrives.
   const [uploadMaxBytes, setUploadMaxBytes] = useState(500 * 1024 * 1024);
+  const [network, setNetwork] = useState<NetworkConfigView | null>(null);
   const systemStatsRef = useRef<SystemStats | null>(null);
 
   return (
@@ -59,6 +63,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
         githubTokenConfigured,
         pexelsApiKeyConfigured,
         uploadMaxBytes,
+        network,
         _setConnected: setConnected,
         _setMonitorStats: setMonitorStats,
         _setSystemStats: setSystemStats,
@@ -70,6 +75,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
         _setGithubTokenConfigured: setGithubTokenConfigured,
         _setPexelsApiKeyConfigured: setPexelsApiKeyConfigured,
         _setUploadMaxBytes: setUploadMaxBytes,
+        _setNetwork: setNetwork,
         _systemStatsRef: systemStatsRef,
       }}
     >

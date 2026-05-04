@@ -1314,14 +1314,17 @@ function NetworkRow({
 interface Reachability { url: string; accessible: boolean; latencyMs?: number }
 
 function NetworkCard() {
+  const app = useApp();
+  const cfg = app.network;
+  // Local edit buffers seed from the AppContext snapshot. Re-seed whenever
+  // the snapshot changes (e.g. after a save's `refreshSystem`) so unsaved
+  // text isn't clobbered mid-edit but a refresh does pick up server state.
   const [hfEndpoint, setHfEndpoint] = useState('');
   const [githubProxy, setGithubProxy] = useState('');
   const [pipSource, setPipSource] = useState('');
   const [trustedHosts, setTrustedHosts] = useState('');
   const [modelTrustedHosts, setModelTrustedHosts] = useState('');
   const [allowPrivateIp, setAllowPrivateIp] = useState(false);
-  const [reach, setReach] = useState<{ github?: Reachability; pip?: Reachability; huggingface?: Reachability }>({});
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingHf, setSavingHf] = useState(false);
   const [savedHf, setSavedHf] = useState(false);
@@ -1335,41 +1338,29 @@ function NetworkCard() {
   const [savedModelHosts, setSavedModelHosts] = useState(false);
   const [savingAllow, setSavingAllow] = useState(false);
 
-  const loadConfig = useCallback(async () => {
-    setLoading(true);
-    try {
-      const cfg = await api.getNetworkConfig();
-      const raw = cfg as Record<string, unknown>;
-      const unwrapped = (raw?.data && typeof raw.data === 'object' ? raw.data : raw) as Record<string, unknown>;
-      setHfEndpoint(String(unwrapped.huggingfaceEndpoint || unwrapped.hf_endpoint || ''));
-      setGithubProxy(String(unwrapped.githubProxy || unwrapped.github_proxy || ''));
-      setPipSource(String(unwrapped.pipSource || unwrapped.pip_source || ''));
-      const hosts = Array.isArray(unwrapped.pluginTrustedHosts) ? unwrapped.pluginTrustedHosts : [];
-      setTrustedHosts(hosts.join(', '));
-      const mhosts = Array.isArray(unwrapped.modelTrustedHosts) ? unwrapped.modelTrustedHosts : [];
-      setModelTrustedHosts(mhosts.join(', '));
-      setAllowPrivateIp(Boolean(unwrapped.allowPrivateIpMirrors));
-      const r = unwrapped.reachability as { github?: Reachability; pip?: Reachability; huggingface?: Reachability } | undefined;
-      setReach(r || {});
-      setError(null);
-    } catch (err) {
-      setError('Could not load network config');
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const loading = cfg === null;
+  const reach: { github?: Reachability; pip?: Reachability; huggingface?: Reachability } =
+    cfg?.reachability ?? {};
 
   useEffect(() => {
-    loadConfig();
-  }, [loadConfig]);
+    if (!cfg) return;
+    setHfEndpoint(cfg.huggingfaceEndpoint || '');
+    setGithubProxy(cfg.githubProxy || '');
+    setPipSource(cfg.pipSource || '');
+    setTrustedHosts((cfg.pluginTrustedHosts || []).join(', '));
+    setModelTrustedHosts((cfg.modelTrustedHosts || []).join(', '));
+    setAllowPrivateIp(Boolean(cfg.allowPrivateIpMirrors));
+  }, [cfg]);
+
+  const refreshNetwork = app.refreshSystem;
 
   const saveHf = async () => {
     setSavingHf(true);
     try {
-      await api.setHuggingFaceEndpoint(hfEndpoint);
+      await api.setSystemConfig('huggingface-endpoint', hfEndpoint);
       setSavedHf(true);
       setTimeout(() => setSavedHf(false), 2000);
+      void refreshNetwork();
     } catch {
       setError('Failed to save HuggingFace endpoint');
     } finally {
@@ -1379,9 +1370,10 @@ function NetworkCard() {
   const saveGh = async () => {
     setSavingGh(true);
     try {
-      await api.setGithubProxy(githubProxy);
+      await api.setSystemConfig('github-proxy', githubProxy);
       setSavedGh(true);
       setTimeout(() => setSavedGh(false), 2000);
+      void refreshNetwork();
     } catch {
       setError('Failed to save GitHub proxy');
     } finally {
@@ -1391,9 +1383,10 @@ function NetworkCard() {
   const savePip = async () => {
     setSavingPip(true);
     try {
-      await api.setPipSource(pipSource);
+      await api.setSystemConfig('pip-source', pipSource);
       setSavedPip(true);
       setTimeout(() => setSavedPip(false), 2000);
+      void refreshNetwork();
     } catch {
       setError('Failed to save pip source');
     } finally {
@@ -1404,9 +1397,10 @@ function NetworkCard() {
     setSavingHosts(true);
     try {
       const hosts = trustedHosts.split(',').map(s => s.trim()).filter(Boolean);
-      await api.setPluginTrustedHosts(hosts);
+      await api.setSystemConfig('plugin-trusted-hosts', hosts);
       setSavedHosts(true);
       setTimeout(() => setSavedHosts(false), 2000);
+      void refreshNetwork();
     } catch {
       setError('Failed to save plugin trusted hosts');
     } finally {
@@ -1417,9 +1411,10 @@ function NetworkCard() {
     setSavingModelHosts(true);
     try {
       const hosts = modelTrustedHosts.split(',').map(s => s.trim()).filter(Boolean);
-      await api.setModelTrustedHosts(hosts);
+      await api.setSystemConfig('model-trusted-hosts', hosts);
       setSavedModelHosts(true);
       setTimeout(() => setSavedModelHosts(false), 2000);
+      void refreshNetwork();
     } catch {
       setError('Failed to save model trusted hosts');
     } finally {
@@ -1431,7 +1426,8 @@ function NetworkCard() {
     const prev = allowPrivateIp;
     setAllowPrivateIp(next);
     try {
-      await api.setAllowPrivateIpMirrors(next);
+      await api.setSystemConfig('pip-allow-private-ip', next);
+      void refreshNetwork();
     } catch {
       setAllowPrivateIp(prev);
       setError('Failed to update private-IP mirror policy');
@@ -1448,7 +1444,7 @@ function NetworkCard() {
         description="Download sources and proxies."
         right={
           <Button
-            onClick={loadConfig}
+            onClick={() => { void refreshNetwork(); }}
             variant="ghost"
             size="icon"
             title="Refresh"

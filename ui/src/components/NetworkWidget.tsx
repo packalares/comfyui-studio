@@ -1,23 +1,8 @@
-import { useEffect, useState } from 'react';
 import { Globe } from 'lucide-react';
-import { api } from '../services/comfyui';
 import { Card } from './ui/card';
 import { Spinner } from './ui/spinner';
-
-/**
- * Mirror of the backend `NetworkConfigView` in
- * server/src/services/systemLauncher/system.service.ts. Kept locally because
- * `api.getNetworkConfig` still returns `Record<string, unknown>`.
- */
-interface Reachability { url: string; accessible: boolean; latencyMs?: number }
-interface NetworkConfigView {
-  huggingfaceEndpoint: string;
-  githubProxy: string;
-  pipSource: string;
-  pluginTrustedHosts: string[];
-  allowPrivateIpMirrors: boolean;
-  reachability: { github: Reachability; pip: Reachability; huggingface: Reachability };
-}
+import { useApp } from '../context/AppContext';
+import type { NetworkReachability } from '../services/comfyui';
 
 const ROWS = [
   { key: 'github', label: 'GitHub' },
@@ -25,35 +10,14 @@ const ROWS = [
   { key: 'pip', label: 'pip' },
 ] as const;
 
-const stateOf = (r?: Reachability): 'ok' | 'fail' | 'unknown' => {
+const stateOf = (r?: NetworkReachability): 'ok' | 'fail' | 'unknown' => {
   if (!r || (r.latencyMs == null && !r.accessible)) return 'unknown';
   return r.accessible ? 'ok' : 'fail';
 };
 
 export default function NetworkWidget() {
-  const [cfg, setCfg] = useState<NetworkConfigView | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    let retry: ReturnType<typeof setTimeout> | undefined;
-    const fetchOnce = async (isRetry: boolean) => {
-      try {
-        const raw = (await api.getNetworkConfig()) as Record<string, unknown>;
-        const data = (raw?.data && typeof raw.data === 'object' ? raw.data : raw) as NetworkConfigView;
-        if (cancelled) return;
-        setCfg(data);
-        setLoading(false);
-        const r = data?.reachability;
-        const neverChecked = !!r && [r.github, r.pip, r.huggingface].every(x => !x?.accessible && x?.latencyMs == null);
-        if (!isRetry && neverChecked) retry = setTimeout(() => fetchOnce(true), 3500);
-      } catch {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    fetchOnce(false);
-    return () => { cancelled = true; if (retry) clearTimeout(retry); };
-  }, []);
+  const { network: cfg } = useApp();
+  const loading = cfg === null;
 
   const states = ROWS.map(r => stateOf(cfg?.reachability?.[r.key]));
   const fails = states.filter(s => s === 'fail').length;

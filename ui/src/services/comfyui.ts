@@ -119,6 +119,30 @@ export type SecretName =
   | 'githubToken'
   | 'pexelsApiKey';
 
+/**
+ * Mirrors `NetworkConfigView` in
+ * `server/src/services/systemLauncher/system.service.ts`. Embedded in
+ * `GET /system` under the `network` key.
+ */
+export interface NetworkReachability {
+  url: string;
+  accessible: boolean;
+  latencyMs?: number;
+}
+export interface NetworkConfigView {
+  huggingfaceEndpoint: string;
+  githubProxy: string;
+  pipSource: string;
+  pluginTrustedHosts: string[];
+  modelTrustedHosts: string[];
+  allowPrivateIpMirrors: boolean;
+  reachability: {
+    github: NetworkReachability;
+    pip: NetworkReachability;
+    huggingface: NetworkReachability;
+  };
+}
+
 export const api = {
   // Unified secret store. Writes go to a single endpoint that accepts a
   // name→value map (one or many keys per call — UI sends only dirty fields).
@@ -138,6 +162,7 @@ export const api = {
   getSystemStats: () => fetchJson<SystemStats & {
     queue?: QueueStatus | null;
     comfyuiConnected?: boolean;
+    network?: NetworkConfigView | null;
     gallery?: { total: number; recent: GalleryItem[] };
     apiKeyConfigured?: boolean;
     hfTokenConfigured?: boolean;
@@ -512,44 +537,14 @@ export const api = {
       method: 'POST',
     }),
 
-  getNetworkConfig: () =>
-    fetchJson<Record<string, unknown>>('/system/network-config'),
-
-  setHuggingFaceEndpoint: (endpoint: string) =>
-    fetchJson<Record<string, unknown>>('/system/huggingface-endpoint', {
-      method: 'POST',
-      body: JSON.stringify({ endpoint }),
-    }),
-
-  setGithubProxy: (proxy: string) =>
-    fetchJson<Record<string, unknown>>('/system/github-proxy', {
-      method: 'POST',
-      body: JSON.stringify({ proxy }),
-    }),
-
-  setPipSource: (source: string) =>
-    fetchJson<Record<string, unknown>>('/system/pip-source', {
-      method: 'POST',
-      body: JSON.stringify({ source }),
-    }),
-
-  setPluginTrustedHosts: (hosts: string[]) =>
-    fetchJson<Record<string, unknown>>('/system/plugin-trusted-hosts', {
-      method: 'POST',
-      body: JSON.stringify({ hosts }),
-    }),
-
-  setModelTrustedHosts: (hosts: string[]) =>
-    fetchJson<Record<string, unknown>>('/system/model-trusted-hosts', {
-      method: 'POST',
-      body: JSON.stringify({ hosts }),
-    }),
-
-  setAllowPrivateIpMirrors: (allow: boolean) =>
-    fetchJson<Record<string, unknown>>('/system/pip-allow-private-ip', {
-      method: 'POST',
-      body: JSON.stringify({ allow }),
-    }),
+  // Single dispatch helper for every network-config write. The server's
+  // `POST /system/:key` route maps each key to a configurator setter; the
+  // UI just ships `{ value }` and the type matches the matching setter.
+  setSystemConfig: (key: string, value: unknown) =>
+    fetchJson<{ code: number; message: string; data: unknown }>(
+      `/system/${encodeURIComponent(key)}`,
+      { method: 'POST', body: JSON.stringify({ value }) },
+    ),
 
   // ---- Plugins (custom nodes) ----
   // See server/src/routes/plugins.routes.ts

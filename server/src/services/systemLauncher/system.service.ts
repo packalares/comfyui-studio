@@ -1,6 +1,7 @@
 // Facade for the launcher system controller. Provides the network-config
-// projection consumed by `GET /api/system/network-config`, combining live
-// URL settings, plugin trust policy, and the latest reachability snapshot.
+// projection consumed under the `network` key on `GET /api/system`,
+// combining live URL settings, plugin trust policy, and the latest
+// reachability snapshot.
 
 import * as liveSettings from './liveSettings.js';
 
@@ -26,9 +27,9 @@ export interface NetworkConfigView {
 type ReachabilityStatus = Record<string, { accessible: boolean; latencyMs?: number }>;
 
 /**
- * `/api/system/network-config` — combines live URL settings, plugin trust
- * policy, and the most recent network check so the frontend can render a
- * single, self-contained "Network" card without making multiple requests.
+ * `network` field on `/api/system` — combines live URL settings, plugin
+ * trust policy, and the most recent network check so the frontend can render
+ * a single, self-contained "Network" card without making multiple requests.
  *
  * The response is intentionally flat at the top level (`huggingfaceEndpoint`
  * etc.) because the current frontend NetworkCard reads those keys directly;

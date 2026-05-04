@@ -6,7 +6,7 @@
 // Why memory-backed instead of reading env directly at every call site?
 //
 // The launcher lets the operator change these three URLs over HTTP
-// (POST /api/system/huggingface-endpoint, etc.). If consumers read
+// (POST /api/system/:key with `huggingface-endpoint` etc.). If consumers read
 // `env.HF_ENDPOINT` at call time they would only pick up the change after a
 // process restart — defeating the feature. This module holds the current
 // value in memory, seeded from `env.*` at boot, and the configurator calls

@@ -6,6 +6,8 @@ import { Router, type Request, type Response } from 'express';
 import * as comfyui from '../services/comfyui.js';
 import * as gallery from '../services/gallery.service.js';
 import * as settings from '../services/settings.js';
+import * as systemFacade from '../services/systemLauncher/system.service.js';
+import * as networkChecker from '../services/systemLauncher/networkChecker/service.js';
 import { env } from '../config/env.js';
 
 const router = Router();
@@ -29,6 +31,20 @@ router.get('/system', async (_req: Request, res: Response) => {
     ? galleryResult.value
     : { items: [], total: 0 };
 
+  // Network config + cached reachability snapshot — used to live behind the
+  // standalone `GET /system/network-config` endpoint; folded in here so the
+  // dashboard does one trip. Kicks a background probe on first boot when the
+  // checker has never run, so subsequent calls surface real reachability.
+  const lastReach = networkChecker.getLastResult();
+  if (!lastReach) networkChecker.triggerCheck();
+  const network = systemFacade.getNetworkConfig(
+    lastReach
+      ? Object.fromEntries(
+          Object.entries(lastReach).map(([k, v]) => [k, { accessible: v.accessible, latencyMs: v.latencyMs }]),
+        )
+      : null,
+  );
+
   // Always 200, even when ComfyUI is unreachable — gallery / secrets /
   // uploadMaxBytes are independent of ComfyUI and useful on first paint
   // (e.g. so the Navbar pill can flip to "Start ComfyUI" without waiting
@@ -38,6 +54,7 @@ router.get('/system', async (_req: Request, res: Response) => {
     ...(stats as object || {}),
     queue,
     comfyuiConnected: stats !== null || queue !== null,
+    network,
     gallery: {
       total: galleryPage.total,
       recent: galleryPage.items,

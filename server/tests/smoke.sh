@@ -49,7 +49,6 @@ snap history-single               "/api/history/${PROMPT_ID}"
 snap gallery                      /api/gallery
 snap models-download-history      /api/models/download-history
 snap launch-options               /api/comfyui/launch-options
-snap network-config               /api/system/network-config
 snap comfyui-logs                 /api/comfyui/logs
 
 echo "Snapshots written to: $SNAP_DIR"

@@ -12,6 +12,7 @@ import type {
 } from '../types';
 import { toast } from 'sonner';
 import { api } from '../services/comfyui';
+import type { NetworkConfigView } from '../services/comfyui';
 import { chatEvents } from '../services/chatEvents';
 import type {
   ChatStartPayload, ChatChunkPayload, ChatDonePayload, ChatErrorPayload,
@@ -48,6 +49,7 @@ interface AppContextType {
   githubTokenConfigured: boolean;
   pexelsApiKeyConfigured: boolean;
   uploadMaxBytes: number;
+  network: NetworkConfigView | null;
   downloads: Record<string, DownloadState>;
   progress: LiveProgress | null;
   activePromptId: string | null;
@@ -93,6 +95,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setGithubTokenConfigured,
     _setPexelsApiKeyConfigured,
     _setUploadMaxBytes,
+    _setNetwork,
     _systemStatsRef,
   } = system;
   const { _setGalleryTotal, _setRecentGallery } = catalog;
@@ -113,6 +116,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       const {
         queue, gallery: galleryInfo,
         comfyuiConnected,
+        network,
         apiKeyConfigured, hfTokenConfigured, civitaiTokenConfigured,
         githubTokenConfigured,
         pexelsApiKeyConfigured,
@@ -141,6 +145,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       if (typeof uploadMaxBytes === 'number' && Number.isFinite(uploadMaxBytes)) {
         _setUploadMaxBytes(uploadMaxBytes);
       }
+      if (network) _setNetwork(network);
       // Older servers omit `comfyuiConnected`; default to true for back-compat.
       _setConnected(comfyuiConnected ?? true);
     } catch (err) {
@@ -158,6 +163,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setGithubTokenConfigured,
     _setPexelsApiKeyConfigured,
     _setUploadMaxBytes,
+    _setNetwork,
     _setConnected,
   ]);
 
@@ -514,6 +520,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       githubTokenConfigured: system.githubTokenConfigured,
       pexelsApiKeyConfigured: system.pexelsApiKeyConfigured,
       uploadMaxBytes: system.uploadMaxBytes,
+      network: system.network,
       downloads: jobs.downloads,
       progress: jobs.progress,
       activePromptId: jobs.activePromptId,
@@ -544,6 +551,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       system.githubTokenConfigured,
       system.pexelsApiKeyConfigured,
       system.uploadMaxBytes,
+      system.network,
       jobs.queueStatus,
       jobs.currentJob,
       jobs.downloads,
