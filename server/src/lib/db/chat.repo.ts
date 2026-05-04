@@ -145,6 +145,12 @@ export interface CreateConversationInput {
    *  `settings.getChatDefaultThinkMode()` and passes 'on' / 'off' here
    *  so a global default lights up new conversations automatically. */
   think_mode?: 'on' | 'off' | null;
+  /** Optional initial num_ctx pin. NULL/undefined = Auto (Ollama picks). */
+  num_ctx?: number | null;
+  /** Optional initial temperature override. NULL/undefined = Ollama default. */
+  temperature?: number | null;
+  /** Optional initial output format. NULL/undefined = free text. */
+  format?: 'json' | null;
 }
 
 export function createConversation(
@@ -153,13 +159,17 @@ export function createConversation(
 ): void {
   db.prepare(
     `INSERT INTO conversations
-       (id, title, model, system_prompt, created_at, updated_at, context_strategy, think_mode)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, title, model, system_prompt, created_at, updated_at,
+        context_strategy, think_mode, num_ctx, temperature, format)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     input.id, input.title, input.model,
     input.system_prompt ?? null, input.created_at, input.updated_at,
     input.context_strategy ?? 'sliding',
     input.think_mode ?? null,
+    input.num_ctx ?? null,
+    input.temperature ?? null,
+    input.format ?? null,
   );
 }
 

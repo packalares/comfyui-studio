@@ -9,9 +9,11 @@ import MessageThread from '../components/chat/MessageThread';
 import Composer from '../components/chat/Composer';
 import ContextMeter from '../components/chat/ContextMeter';
 import ChatSearch from '../components/chat/ChatSearch';
+import { Suggestion } from '../components/ai-elements/suggestion';
 import { Card } from '../components/ui/card';
 import {
   api, ApiError, type OllamaInstalledModel,
+  type ChatContextStrategy,
 } from '../services/comfyui';
 import { chatEvents } from '../services/chatEvents';
 import {
@@ -26,6 +28,18 @@ import {
   type StudioUIMessage,
 } from '../components/chat/studioMessages';
 import { EMPTY_STATE_PROMPTS } from '../config/chat-suggestions';
+
+// Pre-chat overrides — collected by the ContextMeter popover before any
+// conversation exists. Folded into `api.chat.start` on the first send
+// (server applies them to the freshly-created conversation row), then
+// cleared so subsequent sends use server-side state.
+export interface DraftOverrides {
+  contextStrategy?: ChatContextStrategy;
+  thinkMode?: 'on' | 'off' | null;
+  numCtx?: number | null;
+  temperature?: number | null;
+  format?: 'json' | null;
+}
 
 // `EMPTY_STATE_PROMPTS` is imported at the top of this file from
 // `../config/chat-suggestions` and renders as the empty-state hero pills.
@@ -95,6 +109,14 @@ export default function Chat() {
   }, [enabledTools]);
   const composerFocusRef = useRef<() => void>(() => {});
 
+  // Pre-chat overrides — written by the ContextMeter popover when no
+  // conversation exists yet, then folded into `api.chat.start` on the first
+  // send so the new conversation row inherits them. Cleared after the conv
+  // is minted (the user's choices now live on the server-side row).
+  const [draftOverrides, setDraftOverrides] = useState<DraftOverrides>({});
+  const draftOverridesRef = useRef<DraftOverrides>({});
+  useEffect(() => { draftOverridesRef.current = draftOverrides; }, [draftOverrides]);
+
   // Refs used by `StudioTransport` so the transport always reads the latest
   // conversationId / model without forcing a recreate on every change. The
   // page-state setters update the refs synchronously below.
@@ -111,6 +133,7 @@ export default function Chat() {
     conversationIdRef,
     modelRef,
     enabledToolsRef,
+    draftOverridesRef,
     onConversationStarted: (cid) => {
       // First send in a new conversation - server minted the id; surface it
       // up to the page state + sidebar refresh.
@@ -118,6 +141,11 @@ export default function Chat() {
         conversationIdRef.current = cid;
         setConversationId(cid);
         setListKey(k => k + 1);
+        // Drafts now live on the new server-side conversation row; clear
+        // local copies so subsequent meter writes go straight to the API.
+        if (Object.keys(draftOverridesRef.current).length > 0) {
+          setDraftOverrides({});
+        }
       }
     },
   }), []);
@@ -404,7 +432,12 @@ export default function Chat() {
                   </Link>
                 </div>
                 <div className="ml-auto">
-                  <ContextMeter conversationId={conversationId} model={model} />
+                  <ContextMeter
+                    conversationId={conversationId}
+                    model={model}
+                    draftOverrides={draftOverrides}
+                    onDraftOverrideChange={(patch) => setDraftOverrides(prev => ({ ...prev, ...patch }))}
+                  />
                 </div>
               </div>
               {hasConversation ? (
@@ -470,17 +503,14 @@ export default function Chat() {
                       onEnabledToolsChange={setEnabledTools}
                     />
                   </div>
-                  <div className="flex flex-wrap justify-center gap-2 max-w-4xl">
+                  <div className="flex max-w-4xl flex-wrap justify-center gap-2">
                     {EMPTY_STATE_PROMPTS.map(p => (
-                      <button
+                      <Suggestion
                         key={p}
-                        type="button"
-                        onClick={() => handleSuggestion(p)}
+                        suggestion={p}
+                        onClick={handleSuggestion}
                         disabled={busy || !model}
-                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {p}
-                      </button>
+                      />
                     ))}
                   </div>
                 </div>

@@ -41,6 +41,14 @@ router.post('/chat/start', (req: Request, res: Response) => {
     messages?: unknown;
     systemPrompt?: unknown;
     enabledTools?: unknown;
+    /** Pre-chat overrides set in the ContextMeter popover before any
+     *  conversation existed. Honored only when creating a fresh conv;
+     *  ignored when the request targets an existing conversationId. */
+    initialContextStrategy?: unknown;
+    initialThinkMode?: unknown;
+    initialNumCtx?: unknown;
+    initialTemperature?: unknown;
+    initialFormat?: unknown;
   };
   const messages = Array.isArray(body.messages) ? body.messages as UIMessage[] : [];
   if (messages.length === 0) {
@@ -81,6 +89,22 @@ router.post('/chat/start', (req: Request, res: Response) => {
     // 'on' / 'off' light up the column so the user doesn't have to flip
     // the popover for every new conversation.
     const defaultThink = settings.getChatDefaultThinkMode();
+    // Pre-chat overrides from the ContextMeter popover take precedence over
+    // global defaults, so values the user picked before sending the first
+    // message land on the new row directly (no extra PATCH round-trip).
+    const initStrategy = body.initialContextStrategy === 'sliding' || body.initialContextStrategy === 'auto'
+      ? body.initialContextStrategy
+      : settings.getDefaultContextStrategy();
+    const initThink: 'on' | 'off' | null = body.initialThinkMode === 'on' || body.initialThinkMode === 'off'
+      ? body.initialThinkMode
+      : (defaultThink === 'auto' ? null : defaultThink);
+    const initNumCtx = typeof body.initialNumCtx === 'number' && Number.isFinite(body.initialNumCtx)
+      ? Math.max(1, Math.floor(body.initialNumCtx))
+      : null;
+    const initTemp = typeof body.initialTemperature === 'number' && Number.isFinite(body.initialTemperature)
+      ? Math.max(0, Math.min(2, body.initialTemperature))
+      : null;
+    const initFormat: 'json' | null = body.initialFormat === 'json' ? 'json' : null;
     chatRepo.createConversation({
       id: conversationId,
       title: deriveTitle(messages),
@@ -88,8 +112,11 @@ router.post('/chat/start', (req: Request, res: Response) => {
       system_prompt: systemPrompt,
       created_at: now,
       updated_at: now,
-      context_strategy: settings.getDefaultContextStrategy(),
-      think_mode: defaultThink === 'auto' ? null : defaultThink,
+      context_strategy: initStrategy,
+      think_mode: initThink,
+      num_ctx: initNumCtx,
+      temperature: initTemp,
+      format: initFormat,
     });
   }
 

@@ -136,7 +136,7 @@ export default function ChatModelPickerModal({
               aria-label="Loading models"
               className="relative inline-block h-3.5 w-28 overflow-hidden rounded bg-slate-200"
             >
-              <span className="absolute inset-y-0 left-0 w-1/2 animate-shimmer bg-gradient-to-r from-transparent via-white/70 to-transparent" />
+              <span className="skeleton-shimmer" />
             </span>
           ) : (
             <>

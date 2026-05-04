@@ -34,6 +34,7 @@ import { api } from '../../services/comfyui';
 import { chatEvents } from '../../services/chatEvents';
 import { uiMessageToWire } from './studioMessages';
 import type { StudioUIMessage } from './studioMessages';
+import type { DraftOverrides } from '../../pages/Chat';
 
 interface TransportOptions {
   /** Mutable ref to the active conversation id so the transport always reads
@@ -45,6 +46,10 @@ interface TransportOptions {
   /** Mutable ref to the user's tools allow-list (composer Tools popover).
    *  `null` means "no filter — use every configured tool". */
   enabledToolsRef: { current: string[] | null };
+  /** Mutable ref to ContextMeter pre-chat drafts. Read on each `/chat/start`
+   *  call so the latest user choices are forwarded to the server, which only
+   *  honors them when minting a new conversation. */
+  draftOverridesRef: { current: DraftOverrides };
   /** Called whenever `/chat/start` returns a fresh `conversationId` so the
    *  page can update its state + sidebar. The server may either echo the
    *  caller-provided id or mint a new one (first send in a new chat). */
@@ -71,11 +76,19 @@ export class StudioTransport implements ChatTransport<StudioUIMessage> {
     void trigger;
 
     const wireMessages = messages.map(uiMessageToWire);
+    // Snapshot drafts at send-time. Server applies them only on new
+    // conversations; for existing convs the fields are silently ignored.
+    const drafts = this.opts.draftOverridesRef.current;
     const start = await api.chat.start({
       conversationId: this.opts.conversationIdRef.current ?? undefined,
       model: this.opts.modelRef.current,
       messages: wireMessages,
       enabledTools: this.opts.enabledToolsRef.current,
+      initialContextStrategy: drafts.contextStrategy,
+      initialThinkMode: drafts.thinkMode,
+      initialNumCtx: drafts.numCtx,
+      initialTemperature: drafts.temperature,
+      initialFormat: drafts.format,
     });
 
     const conversationId = start.conversationId;

@@ -50,7 +50,7 @@ export default function Actions({ text, onRegenerate, onDelete }: Props) {
 
   return (
     <>
-      <div className="mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-[.is-user]:justify-end">
+      <div className="chat-actions-row">
         {text.length > 0 && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -58,7 +58,7 @@ export default function Actions({ text, onRegenerate, onDelete }: Props) {
                 type="button"
                 onClick={onCopy}
                 aria-label={copied ? 'Copied' : 'Copy'}
-                className="inline-flex h-6 w-6 items-center justify-center rounded text-slate-300 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                className="chat-action-btn"
               >
                 {copied
                   ? <Check className="h-3.5 w-3.5 text-emerald-600" />
@@ -75,7 +75,7 @@ export default function Actions({ text, onRegenerate, onDelete }: Props) {
                 type="button"
                 onClick={onRegenerate}
                 aria-label="Regenerate"
-                className="inline-flex h-6 w-6 items-center justify-center rounded text-slate-300 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                className="chat-action-btn"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
               </button>
@@ -90,7 +90,7 @@ export default function Actions({ text, onRegenerate, onDelete }: Props) {
                 type="button"
                 onClick={() => setConfirmOpen(true)}
                 aria-label="Delete message"
-                className="inline-flex h-6 w-6 items-center justify-center rounded text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                className="chat-action-btn is-danger"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>

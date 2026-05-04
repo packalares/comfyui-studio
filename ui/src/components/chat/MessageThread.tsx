@@ -93,6 +93,17 @@ function partsToText(parts: StudioUIMessagePart[]): string {
   return parts.filter(p => p.type === 'text').map(p => p.text).join('');
 }
 
+// `buildUserUIMessageParts` (studioMessages.ts) inlines text-attachment
+// content into the user's text part — this is what the model needs but it
+// dumps the whole file into the bubble. Strip the `[Attached file: ...]
+// \n---\n<content>\n---` blocks so only the user's actual prompt renders.
+// The chip already conveys "I attached this file."
+const ATTACHED_FILE_BLOCK_RE = /\[Attached file: [^\]]+\]\n---\n[\s\S]*?\n---\n*/g;
+
+function userVisibleText(text: string): string {
+  return text.replace(ATTACHED_FILE_BLOCK_RE, '').trim();
+}
+
 function attachmentsOf(parts: StudioUIMessagePart[]): RenderedAttachment[] {
   const out: RenderedAttachment[] = [];
   for (const p of parts) {
@@ -290,7 +301,7 @@ export default function MessageThread({
             </Message>
           )}
           {streamError && status === 'ready' && (
-            <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+            <div className="alert-rose text-xs">
               <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <div>
                 <div className="font-medium">Stream failed</div>
@@ -408,9 +419,11 @@ function MessageRow({
                 ))}
               </div>
             )}
-            {text.length > 0 && (
-              <div className="whitespace-pre-wrap text-sm">{text}</div>
-            )}
+            {(() => {
+              const visible = userVisibleText(text);
+              if (visible.length === 0) return null;
+              return <div className="whitespace-pre-wrap text-sm">{visible}</div>;
+            })()}
           </>
         ) : (
           <>
@@ -576,7 +589,7 @@ function GeneratedImage({ refData, resolved, onZoom }: GeneratedImageProps) {
         {/* Diagonal "shine" band sweeping left-to-right — the classic
             content-skeleton affordance (Twitter / YouTube / shadcn). The
             keyframe is defined as `--animate-shimmer` in `index.css`. */}
-        <div className="absolute inset-y-0 left-0 w-1/2 animate-shimmer bg-gradient-to-r from-transparent via-white/70 to-transparent" />
+        <div className="skeleton-shimmer" />
         {/* Centered "Generating image" caption above the shimmer — text
             stays still while the band moves underneath, like a watermark
             on a polished surface. */}
@@ -722,7 +735,7 @@ function RenderedAttachmentChip({ att, onZoom }: ChipProps) {
       <button
         type="button"
         onClick={onZoom}
-        className="group inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-1 pr-2 text-xs text-slate-700 hover:bg-slate-100"
+        className="group chat-attachment-chip is-button"
         title={att.name}
       >
         <img
@@ -740,7 +753,7 @@ function RenderedAttachmentChip({ att, onZoom }: ChipProps) {
     );
   }
   return (
-    <div className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">
+    <div className="chat-attachment-chip">
       <FileText className="h-4 w-4 text-slate-400" />
       <div className="flex flex-col leading-tight">
         <span className="font-medium text-slate-800 max-w-[180px] truncate">{att.name}</span>

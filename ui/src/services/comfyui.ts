@@ -1034,6 +1034,15 @@ export const api = {
       /** Optional allow-list of tool names (e.g. ['web_search']). Omit to use
        *  every configured tool. Empty array disables tools for this turn. */
       enabledTools?: string[] | null;
+      /** Pre-chat overrides from the ContextMeter popover. Honored only when
+       *  creating a fresh conversation; ignored when targeting an existing
+       *  conversationId. Server falls back to global defaults for any field
+       *  left undefined here. */
+      initialContextStrategy?: ChatContextStrategy;
+      initialThinkMode?: 'on' | 'off' | null;
+      initialNumCtx?: number | null;
+      initialTemperature?: number | null;
+      initialFormat?: 'json' | null;
     }) =>
       fetchJson<{ conversationId: string; msgId: string }>('/chat/start', {
         method: 'POST',

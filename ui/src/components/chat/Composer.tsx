@@ -172,7 +172,7 @@ export default function Composer({
           >
             {/* Diagonal shine band — same effect we use on the generated-
                 image placeholder. Sits behind the silhouette blocks. */}
-            <div className="pointer-events-none absolute inset-y-0 left-0 w-1/2 animate-shimmer bg-gradient-to-r from-transparent via-white/70 to-transparent" />
+            <div className="skeleton-shimmer" />
             {/* Textarea silhouette */}
             <div className="relative space-y-2 px-4 pt-4">
               <div className="h-3 w-2/3 rounded bg-slate-200" />
@@ -328,7 +328,7 @@ export default function Composer({
 interface ChipProps { att: PendingAttachment; onRemove: () => void }
 function AttachmentChip({ att, onRemove }: ChipProps) {
   return (
-    <div className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">
+    <div className="chat-attachment-chip">
       {att.kind === 'image' && att.dataUrl ? (
         <img
           src={att.dataUrl}

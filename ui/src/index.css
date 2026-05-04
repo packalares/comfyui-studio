@@ -365,6 +365,80 @@
            bg-rose-50 px-3 py-2 text-rose-800;
   }
 
+  /* ===== Chat per-message action button =====
+     Small ghost-icon used by `Actions.tsx` (Copy / Regenerate / Delete) below
+     each message bubble. Default tone is muted-foreground; the destructive
+     variant `.is-danger` swaps hover to rose so deletion reads correctly.
+     Sized 24px so a row of three sits comfortably under the bubble without
+     reserving extra vertical space when hidden. */
+  .chat-action-btn {
+    @apply inline-flex h-6 w-6 cursor-pointer items-center justify-center
+           rounded text-foreground transition-colors hover:bg-muted;
+  }
+  .chat-action-btn.is-danger {
+    @apply hover:bg-rose-50;
+  }
+  /* Container row holding the chat-action-btn buttons. Reveals on row hover
+     (the ancestor `<Message>` adds `group`); right-aligns under user bubbles
+     (`<Message>` adds `is-user` to its wrapper for user turns). */
+  .chat-actions-row {
+    @apply mt-1 flex items-center gap-1 opacity-0 transition-opacity
+           group-hover:opacity-100 group-[.is-user]:justify-end;
+  }
+
+  /* ===== Chat attachment chip =====
+     Pill rendered in the composer header (pending uploads) and inside user
+     bubbles (rendered attachments). Same visual language for both call
+     sites — bordered slate-50 surface with avatar/icon + filename meta.
+     Image-button variant deepens on hover; static `<div>` variant uses the
+     base only. */
+  .chat-attachment-chip {
+    @apply inline-flex items-center gap-2 rounded-md border border-slate-200
+           bg-slate-50 px-2 py-1 text-xs text-slate-700;
+  }
+  /* Tailwind v4 forbids `@apply group`, so callers must add `group` directly
+     in JSX when they need group-hover descendants. */
+  .chat-attachment-chip.is-button {
+    @apply p-1 pr-2 hover:bg-slate-100;
+  }
+
+  /* ===== Skeleton shimmer band =====
+     Diagonal sheen sweeping left-to-right, used as a loading affordance on
+     the composer skeleton, model-picker pill skeleton, and generated-image
+     placeholder. `--animate-shimmer` keyframe is declared at the top of
+     this file. Caller positions the parent `relative` and sets a height. */
+  .skeleton-shimmer {
+    @apply pointer-events-none absolute inset-y-0 left-0 w-1/2
+           animate-shimmer bg-gradient-to-r from-transparent via-white/70
+           to-transparent;
+  }
+
+  /* ===== Context-meter popover sections =====
+     Each tweakable (num_ctx slider, thinking pills, temperature, format)
+     sits in a vertically-stacked block separated by a top border. The
+     header row pairs a label on the left with a mono current-value on the
+     right. Pulled out so adding a new tweakable is one wrapper change. */
+  .context-meter-section {
+    @apply border-t px-4 py-3.5;
+  }
+  .context-meter-section-head {
+    @apply flex items-center justify-between;
+  }
+
+  /* ===== Segmented "pill" choice (active vs idle) =====
+     Used by ContextMeter's Thinking + Output-format toggles — a horizontal
+     row of buttons inside a bordered group. `is-active` paints the teal
+     selection state; idle uses the base background tokens so dark mode
+     follows along. Brand teal is intentionally hardcoded here — it's the
+     Studio accent, not a neutral. */
+  .context-meter-pill {
+    @apply flex-1 px-2 py-1 text-xs transition-colors
+           bg-background text-foreground hover:bg-muted;
+  }
+  .context-meter-pill.is-active {
+    @apply bg-teal-50 font-medium text-teal-900 hover:bg-teal-50;
+  }
+
   /* ===== Panels =====
      Restored to mirror the shadcn `<Card>` slot tree. Use `.panel` for the
      surface, `.panel-header` / `.panel-body` / `.panel-footer` for the slots.

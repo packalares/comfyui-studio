@@ -9,7 +9,7 @@
 // wired into the polling path because the meter is a guidance tool, not a
 // per-keystroke counter.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Wand2, Database, AlertTriangle, SlidersHorizontal } from 'lucide-react';
 import {
@@ -24,10 +24,17 @@ import { chatEvents } from '../../services/chatEvents';
 import {
   api, type ChatContextStrategy, type ChatUsageState,
 } from '../../services/comfyui';
+import { useApp } from '../../context/AppContext';
+import type { DraftOverrides } from '../../pages/Chat';
 
 interface Props {
   conversationId: string | null;
   model: string;
+  /** Pre-chat overrides — when no conversation exists, the popover writes
+   *  here instead of calling the per-conv API endpoints. Folded into
+   *  `api.chat.start` on first send (see Chat.tsx + StudioTransport). */
+  draftOverrides: DraftOverrides;
+  onDraftOverrideChange: (patch: DraftOverrides) => void;
 }
 
 const STRATEGY_LABELS: Record<ChatContextStrategy, string> = {
@@ -80,20 +87,56 @@ function textColorFor(warning: ChatUsageState['warning'] | undefined): string {
   return 'text-emerald-700';
 }
 
-export default function ContextMeter({ conversationId, model }: Props) {
-  const [usage, setUsage] = useState<ChatUsageState | null>(null);
+export default function ContextMeter({
+  conversationId, model, draftOverrides, onDraftOverrideChange,
+}: Props) {
+  const [serverUsage, setServerUsage] = useState<ChatUsageState | null>(null);
   const [compacting, setCompacting] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const { chat: chatDefaults } = useApp();
 
   const refresh = useCallback(() => {
     if (!conversationId || !model) {
-      setUsage(null);
+      setServerUsage(null);
       return;
     }
     api.chat.getUsage(conversationId, model)
-      .then(setUsage)
+      .then(setServerUsage)
       .catch(() => { /* upstream may be transiently unreachable; meter hides */ });
   }, [conversationId, model]);
+
+  // When no conversation exists yet, synthesize a usage-shaped object from
+  // the popover drafts + global chat defaults. The user can then preview /
+  // configure strategy + sliders before sending the first message; choices
+  // are folded into `api.chat.start` (see StudioTransport) and persist as
+  // the new conversation's initial overrides. Stats fields (used / budget /
+  // estimatedNext) are zeroed because there's no conversation to measure.
+  const draftUsage: ChatUsageState | null = useMemo(() => {
+    if (!model) return null;
+    const defaultThink = chatDefaults?.defaultThinkMode ?? 'auto';
+    return {
+      used: 0,
+      budget: null,
+      percent: 0,
+      estimatedNext: 0,
+      warning: 'green',
+      strategy: draftOverrides.contextStrategy
+        ?? chatDefaults?.defaultContextStrategy
+        ?? 'sliding',
+      model,
+      modelMaxCtx: null,
+      numCtx: draftOverrides.numCtx ?? null,
+      thinkMode: draftOverrides.thinkMode
+        ?? (defaultThink === 'auto' ? null : defaultThink),
+      temperature: draftOverrides.temperature ?? null,
+      format: draftOverrides.format ?? null,
+    };
+  }, [model, draftOverrides, chatDefaults]);
+
+  // `usage` is the unified view — server-fetched for existing convs,
+  // synthesized from drafts otherwise. Existing JSX reads from this var
+  // unchanged.
+  const usage = conversationId ? serverUsage : draftUsage;
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -104,8 +147,10 @@ export default function ContextMeter({ conversationId, model }: Props) {
 
   // Always render — when no conversation / model / usage data we show 0%
   // (empty circle, slate text). Keeps the topbar layout stable so the search
-  // input + tabs don't shift when a conversation is selected.
-  const hasData = !!(conversationId && model && usage);
+  // input + tabs don't shift when a conversation is selected. With the
+  // drafts-mode synthesis above, `usage` is non-null whenever a model is
+  // selected, so the popover stays openable for pre-chat configuration.
+  const hasData = !!usage;
   // `budget === null` means the user is on Auto AND the model isn't
   // loaded yet — we don't know the budget, so we can't compute a real
   // percentage. The pill switches to a literal "Auto" label and the
@@ -122,7 +167,10 @@ export default function ContextMeter({ conversationId, model }: Props) {
   // the new budget immediately (otherwise the next chat:done would catch
   // up, which feels laggy for a tweak the user just made).
   const handleNumCtxChange = async (next: number | null) => {
-    if (!conversationId) return;
+    if (!conversationId) {
+      onDraftOverrideChange({ numCtx: next });
+      return;
+    }
     try {
       await api.chat.setNumCtx(conversationId, next);
       refresh();
@@ -137,7 +185,10 @@ export default function ContextMeter({ conversationId, model }: Props) {
   // step is 0.05 over [0, 1.5] which covers virtually every chat use case
   // — temperatures above 1.5 reliably produce gibberish on most models.
   const handleTemperatureChange = async (next: number | null) => {
-    if (!conversationId) return;
+    if (!conversationId) {
+      onDraftOverrideChange({ temperature: next });
+      return;
+    }
     try {
       await api.chat.setTemperature(conversationId, next);
       refresh();
@@ -151,7 +202,10 @@ export default function ContextMeter({ conversationId, model }: Props) {
   // Per-conversation output format. NULL = free text; 'json' tells Ollama
   // to constrain output to valid JSON via the top-level `format` field.
   const handleFormatChange = async (next: 'json' | null) => {
-    if (!conversationId) return;
+    if (!conversationId) {
+      onDraftOverrideChange({ format: next });
+      return;
+    }
     try {
       await api.chat.setFormat(conversationId, next);
       refresh();
@@ -166,7 +220,10 @@ export default function ContextMeter({ conversationId, model }: Props) {
   // 'auto' → null (model default), 'on' → 'on' (force think:true), 'off'
   // → 'off' (force think:false, ~30x fewer tokens on thinking models).
   const handleThinkModeChange = async (next: 'on' | 'off' | null) => {
-    if (!conversationId) return;
+    if (!conversationId) {
+      onDraftOverrideChange({ thinkMode: next });
+      return;
+    }
     try {
       await api.chat.setThinkMode(conversationId, next);
       refresh();
@@ -178,10 +235,13 @@ export default function ContextMeter({ conversationId, model }: Props) {
   };
 
   const handleStrategyChange = async (next: ChatContextStrategy) => {
-    if (!conversationId) return;
+    if (!conversationId) {
+      onDraftOverrideChange({ contextStrategy: next });
+      return;
+    }
     try {
       await api.chat.setStrategy(conversationId, next);
-      setUsage(prev => prev ? { ...prev, strategy: next } : prev);
+      setServerUsage(prev => prev ? { ...prev, strategy: next } : prev);
     } catch (err) {
       toast.error('Could not update strategy', {
         description: err instanceof Error ? err.message : String(err),
@@ -288,16 +348,18 @@ export default function ContextMeter({ conversationId, model }: Props) {
               <SlidersHorizontal className="h-3 w-3" />
               Context strategy
             </div>
-            <Button
-              onClick={handleCompact}
-              disabled={compacting}
-              variant="destructive"
-              size="sm"
-              className="h-7 gap-1.5 px-2 text-xs"
-            >
-              {compacting ? <Spinner size="xs" /> : <Wand2 className="h-3 w-3" />}
-              {compacting ? 'Compacting...' : 'Compact now'}
-            </Button>
+            {conversationId && (
+              <Button
+                onClick={handleCompact}
+                disabled={compacting}
+                variant="destructive"
+                size="sm"
+                className="h-7 gap-1.5 px-2 text-xs"
+              >
+                {compacting ? <Spinner size="xs" /> : <Wand2 className="h-3 w-3" />}
+                {compacting ? 'Compacting...' : 'Compact now'}
+              </Button>
+            )}
           </div>
           {/* Selectable cards — hide the native radio circle and let the
               row itself signal selection via teal ring + bg. The full row
@@ -364,8 +426,8 @@ export default function ContextMeter({ conversationId, model }: Props) {
               ? 'Auto'
               : formatCtxShort(usage.numCtx);
             return (
-              <div className="border-t px-4 py-3.5">
-                <div className="flex items-center justify-between">
+              <div className="context-meter-section">
+                <div className="context-meter-section-head">
                   <div className="text-xs font-semibold text-foreground">
                     Context window
                   </div>
@@ -412,8 +474,8 @@ export default function ContextMeter({ conversationId, model }: Props) {
             ];
             const currentKey = usage.thinkMode === 'on' ? 'on' : usage.thinkMode === 'off' ? 'off' : 'auto';
             return (
-              <div className="border-t px-4 py-3.5">
-                <div className="flex items-center justify-between">
+              <div className="context-meter-section">
+                <div className="context-meter-section-head">
                   <div className="text-xs font-semibold text-foreground">
                     Thinking
                   </div>
@@ -427,11 +489,7 @@ export default function ContextMeter({ conversationId, model }: Props) {
                         key={c.key}
                         type="button"
                         onClick={() => handleThinkModeChange(c.value)}
-                        className={`flex-1 px-2 py-1 text-xs transition-colors ${
-                          active
-                            ? 'bg-teal-50 font-medium text-teal-900'
-                            : 'bg-background text-foreground hover:bg-muted'
-                        }`}
+                        className={`context-meter-pill ${active ? 'is-active' : ''}`}
                       >
                         {c.label}
                       </button>
@@ -465,8 +523,8 @@ export default function ContextMeter({ conversationId, model }: Props) {
               ? 'Auto'
               : usage.temperature.toFixed(2);
             return (
-              <div className="border-t px-4 py-3.5">
-                <div className="flex items-center justify-between">
+              <div className="context-meter-section">
+                <div className="context-meter-section-head">
                   <div className="text-xs font-semibold text-foreground">
                     Temperature
                   </div>
@@ -503,8 +561,8 @@ export default function ContextMeter({ conversationId, model }: Props) {
           {(() => {
             const isJson = usage.format === 'json';
             return (
-              <div className="border-t px-4 py-3.5">
-                <div className="flex items-center justify-between">
+              <div className="context-meter-section">
+                <div className="context-meter-section-head">
                   <div className="text-xs font-semibold text-foreground">
                     Output format
                   </div>
@@ -514,18 +572,14 @@ export default function ContextMeter({ conversationId, model }: Props) {
                   <button
                     type="button"
                     onClick={() => handleFormatChange(null)}
-                    className={`flex-1 px-2 py-1 text-xs transition-colors ${
-                      !isJson ? 'bg-teal-50 font-medium text-teal-900' : 'bg-background text-foreground hover:bg-muted'
-                    }`}
+                    className={`context-meter-pill ${!isJson ? 'is-active' : ''}`}
                   >
                     Text
                   </button>
                   <button
                     type="button"
                     onClick={() => handleFormatChange('json')}
-                    className={`flex-1 px-2 py-1 text-xs transition-colors ${
-                      isJson ? 'bg-teal-50 font-medium text-teal-900' : 'bg-background text-foreground hover:bg-muted'
-                    }`}
+                    className={`context-meter-pill ${isJson ? 'is-active' : ''}`}
                   >
                     JSON
                   </button>
