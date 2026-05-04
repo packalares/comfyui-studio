@@ -6,6 +6,7 @@ import { Router, type Request, type Response } from 'express';
 import * as comfyui from '../services/comfyui.js';
 import * as gallery from '../services/gallery.service.js';
 import * as settings from '../services/settings.js';
+import * as toolsSettings from '../services/settings.tools.js';
 import * as systemFacade from '../services/systemLauncher/system.service.js';
 import * as networkChecker from '../services/systemLauncher/networkChecker/service.js';
 import { env } from '../config/env.js';
@@ -50,11 +51,39 @@ router.get('/system', async (_req: Request, res: Response) => {
   // (e.g. so the Navbar pill can flip to "Start ComfyUI" without waiting
   // for the WS launcher-status event). `comfyuiConnected` lets the UI
   // decide whether to trust the stats/queue fields below.
+  // Chat / tools settings folded in so the dashboard payload carries every
+  // user-facing config the Settings page needs. Mirrors the field lists from
+  // the former `GET /settings/chat` + `GET /settings/tools` handlers; tools
+  // sit under `chat.tools` since they're chat-LLM-only integrations.
+  const chat = {
+    ollamaUrl: settings.getOllamaUrl(),
+    defaultModel: settings.getChatDefaultModel() ?? '',
+    keepAlive: settings.getChatKeepAlive(),
+    defaultContextStrategy: settings.getDefaultContextStrategy(),
+    defaultThinkMode: settings.getChatDefaultThinkMode(),
+    advanced: {
+      highWaterPercent: settings.getChatHighWaterPercent(),
+      maxToolSteps: settings.getChatMaxToolSteps(),
+      loadingHintMs: settings.getChatLoadingHintMs(),
+      keepRecent: settings.getChatKeepRecent(),
+      titleTimeoutMs: settings.getChatTitleTimeoutMs(),
+      summaryTimeoutMs: settings.getChatSummaryTimeoutMs(),
+      smartSuggestions: settings.getChatSmartSuggestions(),
+    },
+    tools: {
+      searxngUrl: toolsSettings.getSearxngUrl() ?? '',
+      ragflowUrl: toolsSettings.getRagflowUrl() ?? '',
+      ragflowApiKeyConfigured: toolsSettings.isRagflowApiKeyConfigured(),
+      defaultImageTemplate: toolsSettings.getDefaultImageTemplate() ?? '',
+    },
+  };
+
   res.json({
     ...(stats as object || {}),
     queue,
     comfyuiConnected: stats !== null || queue !== null,
     network,
+    chat,
     gallery: {
       total: galleryPage.total,
       recent: galleryPage.items,

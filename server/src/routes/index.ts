@@ -4,7 +4,6 @@
 import { Router } from 'express';
 import health from './health.routes.js';
 import settings from './settings.routes.js';
-import settingsTools from './settings.tools.routes.js';
 import catalog from './catalog.routes.js';
 import system from './system.routes.js';
 import view from './view.routes.js';
@@ -33,7 +32,6 @@ const router = Router();
 
 router.use(health);
 router.use(settings);
-router.use(settingsTools);
 router.use(catalog);
 router.use(system);
 router.use(view);

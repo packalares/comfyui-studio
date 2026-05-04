@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Wrench, Save, Check, Globe, Database, HelpCircle } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { toast } from 'sonner';
-import { api, apiChatTools } from '../../services/comfyui';
+import { api } from '../../services/comfyui';
+import { useApp } from '../../context/AppContext';
 import type { TemplateSummary } from '../../types';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from '../ui/card';
@@ -32,25 +33,28 @@ const EMPTY_STATE: ToolsState = {
 };
 
 export default function ToolsCard() {
+  const app = useApp();
+  const live = app.chat?.tools ?? null;
+  const loaded = live !== null;
   const [state, setState] = useState<ToolsState>(EMPTY_STATE);
   const [imageTemplates, setImageTemplates] = useState<TemplateSummary[]>([]);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+
+  // Re-seed local edit buffers from the live AppContext snapshot — initial
+  // load and post-save refresh both flow through this effect.
+  useEffect(() => {
+    if (!live) return;
+    setState({
+      searxngUrl: live.searxngUrl,
+      ragflowUrl: live.ragflowUrl,
+      ragflowApiKey: '',
+      ragflowApiKeyConfigured: live.ragflowApiKeyConfigured,
+      defaultImageTemplate: live.defaultImageTemplate,
+    });
+  }, [live]);
 
   useEffect(() => {
-    apiChatTools.getSettings()
-      .then(s => {
-        setState({
-          searxngUrl: s.searxngUrl,
-          ragflowUrl: s.ragflowUrl,
-          ragflowApiKey: '',
-          ragflowApiKeyConfigured: s.ragflowApiKeyConfigured,
-          defaultImageTemplate: s.defaultImageTemplate,
-        });
-      })
-      .catch(() => { /* fall back to empty placeholders */ })
-      .finally(() => setLoaded(true));
     api.getTemplatesList()
       .then(rows => {
         const imgs = rows.filter(t => t.studioCategory === 'image');
@@ -62,7 +66,7 @@ export default function ToolsCard() {
   const handleSave = async () => {
     setBusy(true);
     try {
-      const next = await apiChatTools.setSettings({
+      await api.updateSettings('tools', {
         searxngUrl: state.searxngUrl.trim(),
         ragflowUrl: state.ragflowUrl.trim(),
         // Send the API key only when the user typed a value; an empty string
@@ -72,14 +76,7 @@ export default function ToolsCard() {
           : {}),
         defaultImageTemplate: state.defaultImageTemplate.trim(),
       });
-      setState(prev => ({
-        ...prev,
-        searxngUrl: next.searxngUrl,
-        ragflowUrl: next.ragflowUrl,
-        ragflowApiKey: '',
-        ragflowApiKeyConfigured: next.ragflowApiKeyConfigured,
-        defaultImageTemplate: next.defaultImageTemplate,
-      }));
+      await app.refreshSystem();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
@@ -94,12 +91,8 @@ export default function ToolsCard() {
   const handleClearKey = async () => {
     setBusy(true);
     try {
-      const next = await apiChatTools.setSettings({ ragflowApiKey: '' });
-      setState(prev => ({
-        ...prev,
-        ragflowApiKey: '',
-        ragflowApiKeyConfigured: next.ragflowApiKeyConfigured,
-      }));
+      await api.updateSettings('tools', { ragflowApiKey: '' });
+      await app.refreshSystem();
     } finally {
       setBusy(false);
     }
@@ -108,9 +101,9 @@ export default function ToolsCard() {
   const handleTestSearxng = async () => {
     const url = state.searxngUrl.trim();
     if (!url) { toast.error('Set a SearXNG URL first'); return; }
-    const result = await apiChatTools.testSearxng(url);
+    const result = await api.probe('searxng', url);
     if (result.ok) {
-      toast.success(`SearXNG OK — got ${result.resultCount} results`);
+      toast.success(`SearXNG OK — got ${result.count} results`);
     } else {
       toast.error('SearXNG probe failed', { description: result.error });
     }

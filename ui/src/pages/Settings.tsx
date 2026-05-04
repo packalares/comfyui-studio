@@ -323,7 +323,7 @@ function SecretsCard() {
     try {
       const payload: Partial<Record<SecretName, string>> = {};
       for (const name of dirty) payload[name] = values[name].trim();
-      await api.setSecrets(payload);
+      await api.updateSettings('secret', payload);
       // Comfy Org key is the only one that needs templates to re-evaluate
       // availability after save; refresh both when it's in the batch.
       const needsTemplates = SECRETS.some(d => d.refreshTemplates && dirty.includes(d.name));
@@ -350,7 +350,7 @@ function SecretsCard() {
   const handleClear = async (name: SecretName) => {
     setBusy(true);
     try {
-      await api.clearSecret(name);
+      await api.deleteSetting('secret', name);
       const def = SECRETS.find(d => d.name === name);
       await Promise.all([
         app.refreshSystem(),
@@ -444,6 +444,9 @@ function SecretsCard() {
    ================================================================= */
 
 function ChatLlmCard() {
+  const app = useApp();
+  const live = app.chat;
+  const loaded = live !== null;
   const [ollamaUrl, setOllamaUrl] = useState('');
   const [savedOllamaUrl, setSavedOllamaUrl] = useState('');
   const [defaultModel, setDefaultModel] = useState('');
@@ -452,39 +455,32 @@ function ChatLlmCard() {
   const [defaultThinkMode, setDefaultThinkMode] = useState<'on' | 'off' | 'auto'>('auto');
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [loaded, setLoaded] = useState(false);
   // Holds a failed-probe result so we can offer a "Save anyway" escape hatch
   // without losing the typed URL between clicks.
   const [probeFailedUrl, setProbeFailedUrl] = useState<string | null>(null);
 
+  // Re-seed local edit buffers from the live AppContext snapshot when it
+  // changes (initial load and post-save refresh). Same pattern NetworkCard
+  // uses for its fields.
   useEffect(() => {
-    api.getChatSettings()
-      .then(s => {
-        setOllamaUrl(s.ollamaUrl);
-        setSavedOllamaUrl(s.ollamaUrl);
-        setDefaultModel(s.defaultModel);
-        setKeepAlive(s.keepAlive);
-        if (s.defaultContextStrategy) setDefaultStrategy(s.defaultContextStrategy);
-        if (s.defaultThinkMode) setDefaultThinkMode(s.defaultThinkMode);
-      })
-      .catch(() => { /* fall back to placeholders */ })
-      .finally(() => setLoaded(true));
-  }, []);
+    if (!live) return;
+    setOllamaUrl(live.ollamaUrl);
+    setSavedOllamaUrl(live.ollamaUrl);
+    setDefaultModel(live.defaultModel);
+    setKeepAlive(live.keepAlive);
+    if (live.defaultContextStrategy) setDefaultStrategy(live.defaultContextStrategy);
+    if (live.defaultThinkMode) setDefaultThinkMode(live.defaultThinkMode);
+  }, [live]);
 
   const persist = async () => {
-    const next = await api.setChatSettings({
+    await api.updateSettings('chat', {
       ollamaUrl: ollamaUrl.trim(),
       defaultModel: defaultModel.trim(),
       keepAlive: keepAlive.trim(),
       defaultContextStrategy: defaultStrategy,
       defaultThinkMode,
     });
-    setOllamaUrl(next.ollamaUrl);
-    setSavedOllamaUrl(next.ollamaUrl);
-    setDefaultModel(next.defaultModel);
-    setKeepAlive(next.keepAlive);
-    if (next.defaultContextStrategy) setDefaultStrategy(next.defaultContextStrategy);
-    if (next.defaultThinkMode) setDefaultThinkMode(next.defaultThinkMode);
+    await app.refreshSystem();
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -497,7 +493,7 @@ function ChatLlmCard() {
       // Only probe when the URL changed — keep model / keepAlive saves cheap.
       const urlChanged = trimmed !== savedOllamaUrl.trim();
       if (urlChanged && trimmed) {
-        const probe = await api.probeChatOllama(trimmed);
+        const probe = await api.probe('ollama', trimmed);
         if (!probe.ok) {
           toast.error(`Could not reach Ollama at ${trimmed}`, {
             description: probe.error,
@@ -505,7 +501,7 @@ function ChatLlmCard() {
           setProbeFailedUrl(trimmed);
           return;
         }
-        toast.success(`Connected, found ${probe.modelCount} models`);
+        toast.success(`Connected, found ${probe.count} models`);
       }
       await persist();
     } catch (err) {
@@ -740,15 +736,15 @@ const CHAT_ADVANCED_FIELDS: AdvancedFieldDef[] = [
 ];
 
 function ChatAdvancedCard() {
+  const app = useApp();
+  const liveAdvanced = app.chat?.advanced ?? null;
   const [advanced, setAdvanced] = useState<ChatAdvancedSettings | null>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    api.getChatSettings()
-      .then(s => { setAdvanced(s.advanced); })
-      .catch(() => { /* card stays disabled until reachable */ });
-  }, []);
+    if (liveAdvanced) setAdvanced(liveAdvanced);
+  }, [liveAdvanced]);
 
   const updateField = (key: keyof ChatAdvancedSettings, raw: string) => {
     if (!advanced) return;
@@ -763,8 +759,8 @@ function ChatAdvancedCard() {
     if (!advanced) return;
     setBusy(true);
     try {
-      const next = await api.setChatSettings({ advanced });
-      setAdvanced(next.advanced);
+      await api.updateSettings('chat', { advanced });
+      await app.refreshSystem();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {

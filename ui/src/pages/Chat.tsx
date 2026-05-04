@@ -138,8 +138,8 @@ export default function Chat() {
   });
 
   useEffect(() => {
-    api.getChatSettings()
-      .then(s => { if (s.defaultModel) setModel(s.defaultModel); })
+    api.getSystemStats()
+      .then(s => { if (s.chat?.defaultModel) setModel(s.chat.defaultModel); })
       .catch(() => { /* picker shows installed list */ });
   }, []);
 

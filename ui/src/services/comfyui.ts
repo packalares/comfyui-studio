@@ -143,26 +143,79 @@ export interface NetworkConfigView {
   };
 }
 
+/** Folded into `GET /system.chat`. The `tools` sub-field replaces the
+ *  former `GET /settings/tools` endpoint. */
+export interface ChatSettingsView {
+  ollamaUrl: string;
+  defaultModel: string;
+  keepAlive: string;
+  defaultContextStrategy: ChatContextStrategy;
+  defaultThinkMode: 'on' | 'off' | 'auto';
+  advanced: ChatAdvancedSettings;
+  tools: ChatToolsSettings;
+}
+
+/** Per-key body shapes for the consolidated `PUT /settings/:key` endpoint. */
+export interface SettingsPatchByKey {
+  secret: Partial<Record<SecretName, string>>;
+  chat: Partial<{
+    ollamaUrl: string;
+    defaultModel: string;
+    keepAlive: string;
+    defaultContextStrategy: ChatContextStrategy;
+    defaultThinkMode: 'on' | 'off' | 'auto';
+    advanced: Partial<ChatAdvancedSettings>;
+  }>;
+  tools: ChatToolsSettingsInput;
+}
+
+/** Per-key response shapes returned by the consolidated PUT. */
+export interface SettingsResponseByKey {
+  secret: { written: SecretName[] };
+  chat: Omit<ChatSettingsView, 'tools'>;
+  tools: ChatToolsSettings;
+}
+
+export type ProbeType = 'ollama' | 'searxng';
+export type ProbeResult =
+  | { ok: true; count: number }
+  | { ok: false; error: string };
+
 export const api = {
-  // Unified secret store. Writes go to a single endpoint that accepts a
-  // name→value map (one or many keys per call — UI sends only dirty fields).
-  // Clears are per-name. Status flags still ride on `GET /system`; secret
-  // values are never returned by the server.
-  setSecrets: (values: Partial<Record<SecretName, string>>) =>
-    fetchJson<{ written: SecretName[] }>('/settings/secret', {
+  // Unified settings writer. The `key` segment (`secret` | `chat` | `tools`)
+  // selects the body shape and the server-side dispatcher. Reads for chat +
+  // tools live on `GET /system`; secret values never leave the server.
+  updateSettings: <K extends keyof SettingsPatchByKey>(
+    key: K,
+    patch: SettingsPatchByKey[K],
+  ) =>
+    fetchJson<SettingsResponseByKey[K]>(`/settings/${key}`, {
       method: 'PUT',
-      body: JSON.stringify(values),
+      body: JSON.stringify(patch),
     }),
-  clearSecret: (name: SecretName) =>
+
+  // DELETE only supports `secret` today (other keys → 405). `name` selects
+  // which secret to clear; status flags refresh via the next `GET /system`.
+  deleteSetting: (key: 'secret', name: SecretName) =>
     fetchJson<{ configured: boolean }>(
-      `/settings/secret?name=${encodeURIComponent(name)}`,
+      `/settings/${key}?name=${encodeURIComponent(name)}`,
       { method: 'DELETE' },
     ),
+
+  // Validate an Ollama or SearXNG URL without persisting it. Both probe
+  // shapes share `{ ok, count?, error? }` so the Settings cards can render
+  // the result with a single helper.
+  probe: (type: ProbeType, url: string) =>
+    fetchJson<ProbeResult>('/settings/probe', {
+      method: 'POST',
+      body: JSON.stringify({ type, url }),
+    }),
 
   getSystemStats: () => fetchJson<SystemStats & {
     queue?: QueueStatus | null;
     comfyuiConnected?: boolean;
     network?: NetworkConfigView | null;
+    chat?: ChatSettingsView;
     gallery?: { total: number; recent: GalleryItem[] };
     apiKeyConfigured?: boolean;
     hfTokenConfigured?: boolean;
@@ -971,47 +1024,6 @@ export const api = {
 
   // ---- Chat / LLM (Ollama) ----
 
-  /** GET /settings/chat — current Ollama URL + default model + keep_alive. */
-  getChatSettings: () =>
-    fetchJson<{
-      ollamaUrl: string;
-      defaultModel: string;
-      keepAlive: string;
-      defaultContextStrategy: ChatContextStrategy;
-      defaultThinkMode: 'on' | 'off' | 'auto';
-      advanced: ChatAdvancedSettings;
-    }>(
-      '/settings/chat',
-    ),
-
-  /** PUT /settings/chat — save any subset of the chat config fields. */
-  setChatSettings: (patch: Partial<{
-    ollamaUrl: string;
-    defaultModel: string;
-    keepAlive: string;
-    defaultContextStrategy: ChatContextStrategy;
-    defaultThinkMode: 'on' | 'off' | 'auto';
-    advanced: Partial<ChatAdvancedSettings>;
-  }>) =>
-    fetchJson<{
-      ollamaUrl: string;
-      defaultModel: string;
-      keepAlive: string;
-      defaultContextStrategy: ChatContextStrategy;
-      defaultThinkMode: 'on' | 'off' | 'auto';
-      advanced: ChatAdvancedSettings;
-    }>(
-      '/settings/chat',
-      { method: 'PUT', body: JSON.stringify(patch) },
-    ),
-
-  /** POST /settings/chat/probe — validate an Ollama URL without saving it. */
-  probeChatOllama: (ollamaUrl: string) =>
-    fetchJson<{ ok: true; modelCount: number } | { ok: false; error: string }>(
-      '/settings/chat/probe',
-      { method: 'POST', body: JSON.stringify({ ollamaUrl }) },
-    ),
-
   chat: {
     /** Kick off a streaming chat completion. Returns conversationId + msgId. */
     start: (payload: {
@@ -1319,29 +1331,6 @@ export interface ChatToolsSettingsInput {
   ragflowApiKey?: string;
   defaultImageTemplate?: string;
 }
-
-export type SearxngProbeResult =
-  | { ok: true; resultCount: number }
-  | { ok: false; error: string };
-
-// Exposed as a sibling of `api.chat.*` rather than mutating the existing
-// literal type, so the original `api.chat` shape stays intact (per the phase-2
-// constraint that says "don't touch existing api.chat.* functions"). The
-// runtime cast attaches the same handle on `api.chat.tools` for callers that
-// already use that path; consumers can pick either form.
-export const apiChatTools = {
-  getSettings: () => fetchJson<ChatToolsSettings>('/settings/tools'),
-  setSettings: (body: ChatToolsSettingsInput) =>
-    fetchJson<ChatToolsSettings>('/settings/tools', {
-      method: 'PUT',
-      body: JSON.stringify(body),
-    }),
-  testSearxng: (url: string) =>
-    fetchJson<SearxngProbeResult>(
-      `/settings/tools/probe-searxng?url=${encodeURIComponent(url)}`,
-    ),
-};
-(api.chat as typeof api.chat & { tools: typeof apiChatTools }).tools = apiChatTools;
 
 
 export interface OllamaInstalledModel {

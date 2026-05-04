@@ -12,7 +12,7 @@ import type {
 } from '../types';
 import { toast } from 'sonner';
 import { api } from '../services/comfyui';
-import type { NetworkConfigView } from '../services/comfyui';
+import type { NetworkConfigView, ChatSettingsView } from '../services/comfyui';
 import { chatEvents } from '../services/chatEvents';
 import type {
   ChatStartPayload, ChatChunkPayload, ChatDonePayload, ChatErrorPayload,
@@ -50,6 +50,7 @@ interface AppContextType {
   pexelsApiKeyConfigured: boolean;
   uploadMaxBytes: number;
   network: NetworkConfigView | null;
+  chat: ChatSettingsView | null;
   downloads: Record<string, DownloadState>;
   progress: LiveProgress | null;
   activePromptId: string | null;
@@ -96,6 +97,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setPexelsApiKeyConfigured,
     _setUploadMaxBytes,
     _setNetwork,
+    _setChat,
     _systemStatsRef,
   } = system;
   const { _setGalleryTotal, _setRecentGallery } = catalog;
@@ -117,6 +119,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
         queue, gallery: galleryInfo,
         comfyuiConnected,
         network,
+        chat,
         apiKeyConfigured, hfTokenConfigured, civitaiTokenConfigured,
         githubTokenConfigured,
         pexelsApiKeyConfigured,
@@ -146,6 +149,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
         _setUploadMaxBytes(uploadMaxBytes);
       }
       if (network) _setNetwork(network);
+      if (chat) _setChat(chat);
       // Older servers omit `comfyuiConnected`; default to true for back-compat.
       _setConnected(comfyuiConnected ?? true);
     } catch (err) {
@@ -164,6 +168,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setPexelsApiKeyConfigured,
     _setUploadMaxBytes,
     _setNetwork,
+    _setChat,
     _setConnected,
   ]);
 
@@ -521,6 +526,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       pexelsApiKeyConfigured: system.pexelsApiKeyConfigured,
       uploadMaxBytes: system.uploadMaxBytes,
       network: system.network,
+      chat: system.chat,
       downloads: jobs.downloads,
       progress: jobs.progress,
       activePromptId: jobs.activePromptId,
@@ -552,6 +558,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       system.pexelsApiKeyConfigured,
       system.uploadMaxBytes,
       system.network,
+      system.chat,
       jobs.queueStatus,
       jobs.currentJob,
       jobs.downloads,

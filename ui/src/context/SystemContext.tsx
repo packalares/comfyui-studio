@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useRef } from 'react';
 import type { SystemStats, MonitorStats, LauncherStatus } from '../types';
-import type { NetworkConfigView } from '../services/comfyui';
+import type { NetworkConfigView, ChatSettingsView } from '../services/comfyui';
 
 export interface SystemContextType {
   systemStats: SystemStats | null;
@@ -15,6 +15,7 @@ export interface SystemContextType {
   pexelsApiKeyConfigured: boolean;
   uploadMaxBytes: number;
   network: NetworkConfigView | null;
+  chat: ChatSettingsView | null;
   // Internal setters/refs exposed to sibling providers (Ws, façade).
   _setConnected: React.Dispatch<React.SetStateAction<boolean>>;
   _setMonitorStats: React.Dispatch<React.SetStateAction<MonitorStats | null>>;
@@ -28,6 +29,7 @@ export interface SystemContextType {
   _setPexelsApiKeyConfigured: React.Dispatch<React.SetStateAction<boolean>>;
   _setUploadMaxBytes: React.Dispatch<React.SetStateAction<number>>;
   _setNetwork: React.Dispatch<React.SetStateAction<NetworkConfigView | null>>;
+  _setChat: React.Dispatch<React.SetStateAction<ChatSettingsView | null>>;
   _systemStatsRef: React.MutableRefObject<SystemStats | null>;
 }
 
@@ -47,6 +49,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
   // Fallback matches the server's default until `/api/system` arrives.
   const [uploadMaxBytes, setUploadMaxBytes] = useState(500 * 1024 * 1024);
   const [network, setNetwork] = useState<NetworkConfigView | null>(null);
+  const [chat, setChat] = useState<ChatSettingsView | null>(null);
   const systemStatsRef = useRef<SystemStats | null>(null);
 
   return (
@@ -64,6 +67,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
         pexelsApiKeyConfigured,
         uploadMaxBytes,
         network,
+        chat,
         _setConnected: setConnected,
         _setMonitorStats: setMonitorStats,
         _setSystemStats: setSystemStats,
@@ -76,6 +80,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
         _setPexelsApiKeyConfigured: setPexelsApiKeyConfigured,
         _setUploadMaxBytes: setUploadMaxBytes,
         _setNetwork: setNetwork,
+        _setChat: setChat,
         _systemStatsRef: systemStatsRef,
       }}
     >

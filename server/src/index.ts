@@ -22,6 +22,7 @@ import { env } from './config/env.js';
 import { migrateLegacyPaths } from './config/migrateLegacyPaths.js';
 import { requestLogger } from './middleware/logging.js';
 import { errorHandler } from './middleware/errors.js';
+import { pickNotFoundMessage } from './lib/notFoundMessages.js';
 import { logger } from './lib/logger.js';
 
 // Phase-6 path consolidation: move runtime-written JSON out of the bundled
@@ -42,6 +43,14 @@ app.use(express.json({ limit: '50mb' }));
 app.use(requestLogger());
 
 app.use('/api', apiRouter);
+
+// 404 fallback for unknown /api routes. Returns JSON (matches the rest of
+// the API) with a randomly-picked message from `lib/notFoundMessages` —
+// no path echo, so responses don't enumerate which routes exist for anyone
+// probing the surface.
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: pickNotFoundMessage() });
+});
 
 import path from 'path';
 import { fileURLToPath } from 'url';
