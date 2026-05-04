@@ -29,14 +29,15 @@ router.get('/system', async (_req: Request, res: Response) => {
     ? galleryResult.value
     : { items: [], total: 0 };
 
-  if (!stats && !queue) {
-    res.status(502).json({ error: 'Cannot reach ComfyUI' });
-    return;
-  }
-
+  // Always 200, even when ComfyUI is unreachable — gallery / secrets /
+  // uploadMaxBytes are independent of ComfyUI and useful on first paint
+  // (e.g. so the Navbar pill can flip to "Start ComfyUI" without waiting
+  // for the WS launcher-status event). `comfyuiConnected` lets the UI
+  // decide whether to trust the stats/queue fields below.
   res.json({
     ...(stats as object || {}),
     queue,
+    comfyuiConnected: stats !== null || queue !== null,
     gallery: {
       total: galleryPage.total,
       recent: galleryPage.items,

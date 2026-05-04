@@ -137,6 +137,7 @@ export const api = {
 
   getSystemStats: () => fetchJson<SystemStats & {
     queue?: QueueStatus | null;
+    comfyuiConnected?: boolean;
     gallery?: { total: number; recent: GalleryItem[] };
     apiKeyConfigured?: boolean;
     hfTokenConfigured?: boolean;

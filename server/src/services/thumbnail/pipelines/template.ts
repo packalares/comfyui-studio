@@ -80,21 +80,19 @@ export async function thumbnailForTemplateAsset(
   let res: Response;
   try {
     res = await fetch(url, { signal: controller.signal });
-  } catch (err) {
+  } catch {
+    // Network-level failure (ComfyUI down, DNS, abort, etc.) — caller wants a
+    // placeholder the browser doesn't cache, so the real asset shows up once
+    // ComfyUI comes back. Same end-state as `res.status === 404` below.
     clearTimeout(timer);
-    throw {
-      code: 'UPSTREAM_FAILED',
-      detail: err instanceof Error ? err.message : String(err),
-    } satisfies ThumbError;
+    return thumbnailPlaceholder();
   }
   clearTimeout(timer);
 
-  // Source missing: caller wants a placeholder that the browser doesn't
-  // cache so the real asset shows up on the next render once it lands.
-  if (res.status === 404) return thumbnailPlaceholder();
-  if (!res.ok) {
-    throw { code: 'UPSTREAM_FAILED', status: res.status } satisfies ThumbError;
-  }
+  // Upstream missing the asset (or any non-2xx) → placeholder. Mirrors
+  // URL-mode and gallery-DB-mode wrappers: any "we tried but couldn't get a
+  // real image" outcome falls back to the same shared placeholder.
+  if (!res.ok) return thumbnailPlaceholder();
 
   const declared = parseInt(res.headers.get('content-length') || '', 10);
   if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) {

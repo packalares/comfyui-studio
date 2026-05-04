@@ -22,10 +22,34 @@ const MUSIC_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" w
 // `transient` flag carries through to the route layer so the response is
 // `Cache-Control: no-store` — the browser will refetch the real bytes on
 // the next render once the upstream file appears.
-const PLACEHOLDER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="320" height="240" preserveAspectRatio="xMidYMid meet" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="background:linear-gradient(135deg,#f1f5f9,#cbd5e1);color:#94a3b8">
-  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-  <circle cx="8.5" cy="9" r="1.5"/>
-  <polyline points="21 15 16 10 5 21"/>
+// Card-sized placeholder: 320x180 (16:9) so it never gets cropped by
+// `object-cover`. Dark zinc theme matching the studio's card surface.
+// Includes a SMIL shimmer overlay (works inside <img src=…> SVGs in all
+// modern browsers; CSS animations would not run in that mode).
+const PLACEHOLDER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" width="320" height="180" preserveAspectRatio="xMidYMid meet">
+  <defs>
+    <linearGradient id="ph-shimmer" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#71717a" stop-opacity="0">
+        <animate attributeName="offset" values="-0.5;1.0" dur="2.2s" repeatCount="indefinite"/>
+      </stop>
+      <stop offset="50%" stop-color="#a1a1aa" stop-opacity="0.16">
+        <animate attributeName="offset" values="-0.25;1.25" dur="2.2s" repeatCount="indefinite"/>
+      </stop>
+      <stop offset="100%" stop-color="#71717a" stop-opacity="0">
+        <animate attributeName="offset" values="0;1.5" dur="2.2s" repeatCount="indefinite"/>
+      </stop>
+    </linearGradient>
+  </defs>
+  <rect width="320" height="180" fill="#27272a"/>
+  <rect width="320" height="180" fill="url(#ph-shimmer)"/>
+  <rect x="136" y="56" width="48" height="48" rx="12" fill="#3f3f46"/>
+  <g transform="translate(148 68)" fill="none" stroke="#71717a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5Z"/>
+    <path d="m4 16 4.5-4.5a2 2 0 0 1 2.8 0L20 20"/>
+    <path d="m14 14 1.5-1.5a2 2 0 0 1 2.8 0L20 14"/>
+    <circle cx="9" cy="8" r="1.5"/>
+  </g>
+  <text x="160" y="132" text-anchor="middle" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="13" fill="#71717a">Image unavailable</text>
 </svg>`;
 
 export function inlineBoxSvg(): ThumbInlineResult {

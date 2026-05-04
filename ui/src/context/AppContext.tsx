@@ -112,14 +112,22 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       const data = await api.getSystemStats();
       const {
         queue, gallery: galleryInfo,
+        comfyuiConnected,
         apiKeyConfigured, hfTokenConfigured, civitaiTokenConfigured,
         githubTokenConfigured,
         pexelsApiKeyConfigured,
         uploadMaxBytes,
         ...stats
       } = data;
-      _setSystemStats(stats);
-      _systemStatsRef.current = stats;
+      // When ComfyUI is unreachable the server omits the stats spread, so
+      // `stats` is an empty object — don't overwrite `systemStats` with `{}`
+      // (consumers like Dashboard read `systemStats.devices` directly and
+      // would crash). Keep the previous value; WS will refresh once ComfyUI
+      // comes back.
+      if (comfyuiConnected !== false && Object.keys(stats).length > 0) {
+        _setSystemStats(stats);
+        _systemStatsRef.current = stats;
+      }
       if (queue) _setQueueStatus(queue);
       if (galleryInfo) {
         _setGalleryTotal(galleryInfo.total);
@@ -133,7 +141,8 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       if (typeof uploadMaxBytes === 'number' && Number.isFinite(uploadMaxBytes)) {
         _setUploadMaxBytes(uploadMaxBytes);
       }
-      _setConnected(true);
+      // Older servers omit `comfyuiConnected`; default to true for back-compat.
+      _setConnected(comfyuiConnected ?? true);
     } catch (err) {
       console.error('Failed to fetch system stats:', err);
     }
