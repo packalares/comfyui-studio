@@ -1,6 +1,8 @@
-// Template listing + single-template fetch + template asset proxy + raw
-// workflow-JSON proxy. All driven by ComfyUI's /templates/* endpoint on the
-// upstream; we simply add caching, API-key gating, and path sanitization.
+// Template listing + single-template fetch + raw workflow-JSON proxy. Driven
+// by ComfyUI's /templates/* endpoint on the upstream; we add caching and
+// API-key gating. Template thumbnails are served by the unified thumbnail
+// service at `/api/thumbnail/template/*` (see thumbnail.routes.ts) — this
+// file no longer hosts a `/template-asset/*` proxy.
 //
 // Phase 10: per-template readiness (`ready: boolean`) is sourced from the
 // sqlite `templates.installed` column and attached to every returned item.
@@ -19,17 +21,6 @@ import { handleImportCivitai, handleDeleteTemplate } from './templates.importCiv
 const COMFYUI_URL = env.COMFYUI_URL;
 
 const router = Router();
-
-// Reject any asset path segment containing '..' so a crafted request can't
-// traverse outside of ComfyUI's templates directory even if the upstream's
-// own guard is absent.
-function isSafeAssetPath(value: string): boolean {
-  if (!value) return false;
-  if (value.includes('\0')) return false;
-  if (value.includes('..')) return false;
-  if (value.startsWith('/')) return false;
-  return true;
-}
 
 /** Slim wire shape for `/templates/list` and `/templates/stats`-adjacent
  *  consumers — drops the heavy fields (workflow, formInputs, io, models,
@@ -138,74 +129,12 @@ const handleRefresh = async (_req: Request, res: Response): Promise<void> => {
   }
 };
 router.post('/templates/refresh', handleRefresh);
-router.post('/launcher/templates/refresh', handleRefresh);
-
-router.get('/templates/:name', async (req: Request, res: Response) => {
-  const name = req.params.name as string;
-  const t = templates.getTemplate(name);
-  if (!t) {
-    res.status(404).json({ error: 'Template not found' });
-    return;
-  }
-  // For user-imported workflows, re-compute `formInputs` against live
-  // objectInfo so prompt textareas from custom-node classes that only
-  // registered AFTER initial import (IndexTTS2 etc., which need weights
-  // present before their __init__.py succeeds) become visible without
-  // requiring a re-import.
-  if (templates.isUserWorkflow(name)) {
-    try {
-      const { generateFormInputs } = await import('../services/templates/templates.formInputs.js');
-      const { getObjectInfo } = await import('../services/workflow/index.js');
-      const wf = templates.getUserWorkflowJson(name);
-      if (wf) {
-        const objectInfo = await getObjectInfo();
-        const freshInputs = generateFormInputs(
-          { name: t.name, title: t.title, description: t.description,
-            mediaType: t.mediaType, tags: t.tags, models: t.models, io: t.io },
-          wf,
-          objectInfo,
-        );
-        res.json({ ...t, formInputs: freshInputs });
-        return;
-      }
-    } catch {
-      // Non-fatal: fall through to cached.
-    }
-  }
-  res.json(t);
-});
-
-// Proxy template assets (thumbnails, input/output images) from ComfyUI.
-router.get('/template-asset/*', async (req: Request, res: Response) => {
-  try {
-    const assetPath = req.params[0] as string;
-    if (!isSafeAssetPath(assetPath)) {
-      res.status(400).end();
-      return;
-    }
-    const url = `${COMFYUI_URL}/templates/${assetPath}`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      res.status(response.status).end();
-      return;
-    }
-    const contentType = response.headers.get('content-type');
-    if (contentType) res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    const buffer = Buffer.from(await response.arrayBuffer());
-    res.send(buffer);
-  } catch {
-    res.status(502).end();
-  }
-});
 
 // Import a CivitAI workflow version as a user template; plus DELETE on
 // user-imported templates. Handlers live in `templates.importCivitai.ts`
 // to keep this file under the structure line cap.
 router.post('/templates/import-civitai', handleImportCivitai);
-router.post('/launcher/templates/import-civitai', handleImportCivitai);
 router.delete('/templates/:name', handleDeleteTemplate);
-router.delete('/launcher/templates/:name', handleDeleteTemplate);
 
 // Queue installs for every plugin the template requires that isn't already
 // on disk. Returns the task ids so the UI can subscribe to
@@ -226,36 +155,5 @@ const handleInstallMissingPlugins = async (req: Request, res: Response): Promise
   }
 };
 router.post('/templates/:name/install-missing-plugins', handleInstallMissingPlugins);
-router.post('/launcher/templates/:name/install-missing-plugins', handleInstallMissingPlugins);
-
-// Raw workflow JSON proxy for clients that want to inspect the template's
-// underlying LiteGraph document. User-imported workflows are served from
-// the in-memory cache (their `workflow` field); upstream ones are proxied
-// through ComfyUI's own `/templates/:name.json`.
-router.get('/workflow/:name', async (req: Request, res: Response) => {
-  try {
-    const name = req.params.name as string;
-    if (templates.isUserWorkflow(name)) {
-      const t = templates.getTemplate(name);
-      if (t?.workflow) {
-        res.json(t.workflow);
-        return;
-      }
-      res.status(404).json({ error: `Workflow not found: ${name}` });
-      return;
-    }
-    const upstream = await fetch(
-      `${COMFYUI_URL}/templates/${encodeURIComponent(name)}.json`
-    );
-    if (!upstream.ok) {
-      res.status(upstream.status).json({ error: `Workflow not found: ${name}` });
-      return;
-    }
-    const data = await upstream.json();
-    res.json(data);
-  } catch (err) {
-    sendError(res, err, 502, 'Cannot fetch workflow');
-  }
-});
 
 export default router;

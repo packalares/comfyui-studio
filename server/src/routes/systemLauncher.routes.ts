@@ -1,47 +1,28 @@
-// System-controller HTTP routes. Exposes 9 endpoints under `/api/system/*`.
-// Each path is dual-mounted (`/system/...` + `/launcher/system/...`) so
-// pre-cutover frontend calls keep working alongside the canonical prefix.
+// System-controller HTTP routes. Exposes config-write endpoints under
+// `/api/system/*` plus a single `GET /system/network-config` aggregator the
+// settings UI uses to render the Network card.
 //
 // Rate limiting:
-//   - POST /network-status   : 3 / minute — curl burst guard.
-//   - POST /pip-source       : 10 / minute — config writes are cheap.
+//   - POST /pip-source           : 10 / minute — config writes are cheap.
 //   - POST /huggingface-endpoint : 10 / minute.
-//   - POST /github-proxy     : 10 / minute.
+//   - POST /github-proxy         : 10 / minute.
+//   - POST /plugin-trusted-hosts : 10 / minute.
+//   - POST /model-trusted-hosts  : 10 / minute.
+//   - POST /pip-allow-private-ip : 10 / minute.
 //
-// Reads (`GET /network-config`, `GET /network-status`, log fetch) are
-// uncapped because they are polled by the settings UI.
+// `GET /network-config` is uncapped because it is polled by the settings UI.
 
 import { Router, type Request, type RequestHandler } from 'express';
 import { rateLimit } from '../middleware/rateLimit.js';
-import { sendError } from '../middleware/errors.js';
 import * as system from '../services/systemLauncher/system.service.js';
 import * as configurator from '../services/systemLauncher/configurator.service.js';
 import * as networkChecker from '../services/systemLauncher/networkChecker/service.js';
-import { isValidId } from '../services/systemLauncher/networkChecker/logs.js';
 
 const router = Router();
 
-const checkLimiter = rateLimit({ windowMs: 60_000, max: 3 });
 const configLimiter = rateLimit({ windowMs: 60_000, max: 10 });
 
 // ---- GET handlers ----
-
-const handleOpenPath: RequestHandler = async (req, res) => {
-  const pathParam = typeof req.query.path === 'string' ? req.query.path : '';
-  try {
-    const r = await system.openPath(pathParam);
-    res.status(r.code).json(r);
-  } catch (err) { sendError(res, err, 500, 'open-path failed'); }
-};
-
-const handleFilesBasePath: RequestHandler = (_req, res) => {
-  res.json(system.getFilesBasePath());
-};
-
-const handleNetworkStatusGet: RequestHandler = (_req, res) => {
-  const last = networkChecker.getLastResult();
-  res.json({ code: 200, message: 'ok', data: last });
-};
 
 const handleNetworkConfig: RequestHandler = (_req, res) => {
   const last = networkChecker.getLastResult();
@@ -59,20 +40,7 @@ const handleNetworkConfig: RequestHandler = (_req, res) => {
   res.json({ code: 200, message: 'ok', data });
 };
 
-const handleNetworkCheckLog: RequestHandler = (req, res) => {
-  const id = String(req.params.id ?? '');
-  if (!isValidId(id)) { res.status(400).json({ code: 400, message: 'invalid id', data: null }); return; }
-  const log = networkChecker.getLog(id);
-  if (!log) { res.status(404).json({ code: 404, message: 'log not found', data: null }); return; }
-  res.json({ code: 200, message: 'ok', data: { log, currentNetworkStatus: networkChecker.getLastResult() } });
-};
-
 // ---- POST handlers ----
-
-const handleNetworkStatusPost: RequestHandler = (_req, res) => {
-  const result = networkChecker.triggerCheck();
-  res.json({ code: 200, message: 'network check started', data: result });
-};
 
 // Accept several field names per endpoint so legacy launcher callers AND
 // the studio frontend (which uses shorter keys) both work without changes.
@@ -166,21 +134,16 @@ const handleAllowPrivateIp: RequestHandler = (req, res) => {
   });
 };
 
-// ---- Dual-mounted routes ----
+// ---- Routes ----
 
-router.get(['/system/open-path', '/launcher/system/open-path'], handleOpenPath);
-router.get(['/system/files-base-path', '/launcher/system/files-base-path'], handleFilesBasePath);
-router.get(['/system/network-status', '/launcher/system/network-status'], handleNetworkStatusGet);
-router.get(['/system/network-config', '/launcher/system/network-config'], handleNetworkConfig);
-router.get(['/system/network-check-log/:id', '/launcher/system/network-check-log/:id'], handleNetworkCheckLog);
+router.get('/system/network-config', handleNetworkConfig);
 
-router.post(['/system/network-status', '/launcher/system/network-status'], checkLimiter, handleNetworkStatusPost);
-router.post(['/system/pip-source', '/launcher/system/pip-source'], configLimiter, handlePipSource);
-router.post(['/system/huggingface-endpoint', '/launcher/system/huggingface-endpoint'], configLimiter, handleHfEndpoint);
-router.post(['/system/github-proxy', '/launcher/system/github-proxy'], configLimiter, handleGithubProxy);
-router.post(['/system/plugin-trusted-hosts', '/launcher/system/plugin-trusted-hosts'], configLimiter, handlePluginTrustedHosts);
-router.post(['/system/model-trusted-hosts', '/launcher/system/model-trusted-hosts'], configLimiter, handleModelTrustedHosts);
-router.post(['/system/pip-allow-private-ip', '/launcher/system/pip-allow-private-ip'], configLimiter, handleAllowPrivateIp);
+router.post('/system/pip-source', configLimiter, handlePipSource);
+router.post('/system/huggingface-endpoint', configLimiter, handleHfEndpoint);
+router.post('/system/github-proxy', configLimiter, handleGithubProxy);
+router.post('/system/plugin-trusted-hosts', configLimiter, handlePluginTrustedHosts);
+router.post('/system/model-trusted-hosts', configLimiter, handleModelTrustedHosts);
+router.post('/system/pip-allow-private-ip', configLimiter, handleAllowPrivateIp);
 
 // Load persisted values once at import time so `liveSettings` reflects the
 // most recent configurator state before any consumer reads it.

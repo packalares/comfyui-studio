@@ -43,21 +43,13 @@ snap settings-hf-token            /api/settings/hf-token
 snap models-catalog               /api/models/catalog
 snap system                       /api/system
 snap templates                    /api/templates
-snap template-single              "/api/templates/${TEMPLATE_NAME}"
 snap workflow-settings            "/api/workflow-settings/${TEMPLATE_NAME}"
 snap template-widgets             "/api/template-widgets/${TEMPLATE_NAME}"
-snap queue                        /api/queue
-snap history                      /api/history
 snap history-single               "/api/history/${PROMPT_ID}"
-snap models                       /api/models
 snap gallery                      /api/gallery
-snap launcher-status              /api/launcher/status
-snap launcher-models              /api/launcher/models
-snap launcher-download-history    /api/launcher/models/download-history
-snap launcher-launch-options      /api/launcher/comfyui/launch-options
-snap launcher-network-config      /api/launcher/system/network-config
-snap launcher-comfyui-logs        /api/launcher/comfyui/logs
-snap downloads                    /api/downloads
-snap workflow-by-name             "/api/workflow/${TEMPLATE_NAME}"
+snap models-download-history      /api/models/download-history
+snap launch-options               /api/comfyui/launch-options
+snap network-config               /api/system/network-config
+snap comfyui-logs                 /api/comfyui/logs
 
 echo "Snapshots written to: $SNAP_DIR"

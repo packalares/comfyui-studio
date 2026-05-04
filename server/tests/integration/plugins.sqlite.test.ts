@@ -1,7 +1,6 @@
-// Integration test — hit `GET /plugins` and `POST /plugins/update-cache`
-// against a seeded sqlite DB. No ComfyUI install state is present (PLUGIN_PATH
-// is unset in the vitest env) so the overlay is a no-op and the rows come
-// straight from the repo.
+// Integration test — hit `GET /plugins` against a seeded sqlite DB. No
+// ComfyUI install state is present (PLUGIN_PATH is unset in the vitest env)
+// so the overlay is a no-op and the rows come straight from the repo.
 
 import { describe, expect, it, beforeEach } from 'vitest';
 import express from 'express';
@@ -26,7 +25,7 @@ function startApp(): Promise<{ url: string; close: () => Promise<void> }> {
   });
 }
 
-describe('GET /plugins + POST /plugins/update-cache (sqlite-backed)', () => {
+describe('GET /plugins (sqlite-backed)', () => {
   useFreshDb();
 
   beforeEach(() => {
@@ -80,29 +79,4 @@ describe('GET /plugins + POST /plugins/update-cache (sqlite-backed)', () => {
     } finally { await app.close(); }
   });
 
-  it('POST /plugins/update-cache (alias for combined refresh) refreshes sqlite from mirror', async () => {
-    const app = await startApp();
-    try {
-      // update-cache is now an alias for the combined refresh handler. It
-      // tries upstream first, but in the vitest sandbox there's no network,
-      // so it degrades to reseeding from the bundled mirror JSON. The
-      // mirror file in `server/data/` has thousands of rows so the count
-      // should be well above our 3 test rows either way.
-      const res = await fetch(`${app.url}/plugins/update-cache`, { method: 'POST' });
-      expect(res.status).toBe(200);
-      const body = await res.json() as {
-        success: boolean;
-        catalogUpdated: boolean;
-        upstreamError?: string;
-        pluginsCount: number;
-        installedCount: number;
-      };
-      expect(body.success).toBe(true);
-      expect(typeof body.pluginsCount).toBe('number');
-      // Whether or not upstream succeeded, sqlite should now reflect the
-      // bundled mirror (~2800 nodes), wiping our 3-row seed.
-      expect(body.pluginsCount).toBeGreaterThan(100);
-      expect(repo.count()).toBeGreaterThan(100);
-    } finally { await app.close(); }
-  });
 });

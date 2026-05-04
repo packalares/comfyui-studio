@@ -1,17 +1,16 @@
 // Unified thumbnail endpoints.
 //
-//   GET    /api/thumbnail/stats          — cache stats JSON
-//   DELETE /api/thumbnail/cache          — admin wipe
-//   GET    /api/thumbnail?url=...&w=...  — remote URL thumbnail
-//   GET    /api/thumbnail/:galleryId     — DB row thumbnail (sqlite lookup)
-//
-// Dual-mounted under `/launcher/thumbnail` per the project convention.
+//   GET    /api/thumbnail/stats             — cache stats JSON
+//   DELETE /api/thumbnail/cache             — admin wipe
+//   GET    /api/thumbnail?url=...&w=...     — remote URL thumbnail
+//   GET    /api/thumbnail/template/<path>   — ComfyUI templates/<path>
+//   GET    /api/thumbnail/:galleryId        — DB row thumbnail (sqlite lookup)
 
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import { createReadStream } from 'fs';
 import { logger } from '../lib/logger.js';
 import {
-  thumbnailForGalleryItem, thumbnailForUrl,
+  thumbnailForGalleryItem, thumbnailForTemplateAsset, thumbnailForUrl,
 } from '../services/thumbnail/service.js';
 import { collectStats, clearCache, scheduleSweeps } from '../services/thumbnail/sweep.js';
 import { isThumbError, type ThumbResult } from '../services/thumbnail/types.js';
@@ -38,9 +37,14 @@ function parseWidth(raw: unknown): number | { error: string } {
 function sendThumb(res: Response, result: ThumbResult): void {
   res.setHeader('Content-Type', result.contentType);
   if (result.kind === 'inline') {
-    // SVG fallbacks are deterministic — short cache + no immutable hint so
-    // a future change (icon tweak) rolls through quickly.
-    res.setHeader('Cache-Control', 'public, max-age=300');
+    // Transient placeholders (returned when an upstream is missing) must
+    // not be cached — once the real source appears the next render must
+    // see it. Permanent inline SVGs (Box / Music) keep the short cache.
+    if (result.transient === true) {
+      res.setHeader('Cache-Control', 'no-store');
+    } else {
+      res.setHeader('Cache-Control', 'public, max-age=300');
+    }
     res.send(result.body);
     return;
   }
@@ -50,7 +54,12 @@ function sendThumb(res: Response, result: ThumbResult): void {
 
 function mapError(res: Response, err: unknown, context: Record<string, unknown>): void {
   if (isThumbError(err)) {
-    if (err.code === 'INVALID_WIDTH' || err.code === 'HOST_NOT_ALLOWED') {
+    if (
+      err.code === 'INVALID_WIDTH'
+      || err.code === 'HOST_NOT_ALLOWED'
+      || err.code === 'INVALID_PATH'
+      || err.code === 'INVALID_URL'
+    ) {
       res.status(400).json({ error: err.code });
       return;
     }
@@ -124,12 +133,29 @@ const handleIdMode: RequestHandler = async (req: Request, res: Response) => {
   }
 };
 
-// Mount order: literal `/thumbnail/stats` and `/thumbnail/cache` are
-// registered BEFORE the `:galleryId` param handler so the param doesn't
-// capture them.
-router.get(['/thumbnail/stats', '/launcher/thumbnail/stats'], handleStats);
-router.delete(['/thumbnail/cache', '/launcher/thumbnail/cache'], handleClear);
-router.get(['/thumbnail', '/launcher/thumbnail'], handleUrlMode);
-router.get(['/thumbnail/:galleryId', '/launcher/thumbnail/:galleryId'], handleIdMode);
+const handleTemplateMode: RequestHandler = async (req: Request, res: Response) => {
+  // `*` glob captures the rest of the path including nested segments — the
+  // matched value lives at `req.params[0]` per Express 4 wildcard semantics.
+  const rawPath = (req.params as Record<string, unknown>)[0];
+  const assetPath = typeof rawPath === 'string' ? rawPath : '';
+  if (!assetPath) { res.status(400).json({ error: 'assetPath required' }); return; }
+  const width = parseWidth(req.query.w);
+  if (typeof width !== 'number') { res.status(400).json({ error: width.error }); return; }
+  try {
+    const result = await thumbnailForTemplateAsset({ assetPath, width });
+    sendThumb(res, result);
+  } catch (err) {
+    mapError(res, err, { assetPath });
+  }
+};
+
+// Mount order: literal `/thumbnail/stats`, `/thumbnail/cache`, and the
+// `/thumbnail/template/*` glob are registered BEFORE the `:galleryId`
+// param handler so the param doesn't swallow them.
+router.get('/thumbnail/stats', handleStats);
+router.delete('/thumbnail/cache', handleClear);
+router.get('/thumbnail', handleUrlMode);
+router.get('/thumbnail/template/*', handleTemplateMode);
+router.get('/thumbnail/:galleryId', handleIdMode);
 
 export default router;

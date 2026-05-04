@@ -179,7 +179,7 @@ function TemplateCardInner({ template, onDeleted }: Props) {
             const saved = template.thumbnail?.[0];
             const src = saved && /^https?:\/\//i.test(saved)
               ? (imgProxy(saved, 320) ?? saved)
-              : `/api/template-asset/${template.name}-1.webp`;
+              : `/api/thumbnail/template/${template.name}-1.webp?w=320`;
             return (
               <img
                 src={src}

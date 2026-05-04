@@ -63,7 +63,7 @@ const handleImportCivitaiByUrl: RequestHandler = async (req, res) => {
 
 const router = Router();
 router.post(
-  ['/templates/import/civitai', '/launcher/templates/import/civitai'],
+  '/templates/import/civitai',
   civitaiImportLimiter,
   handleImportCivitaiByUrl,
 );

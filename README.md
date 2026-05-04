@@ -303,8 +303,7 @@ references; the pod restarts and picks up the new prod image.
 
 ## API surface
 
-All routes mount under `/api`. Every group also exposes a legacy
-`/api/launcher/...` alias used by the pre-cutover frontend.
+All routes mount under `/api`.
 
 ### `health.routes` — health
 

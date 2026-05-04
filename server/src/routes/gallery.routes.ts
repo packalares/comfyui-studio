@@ -11,8 +11,7 @@
 // Import + regenerate endpoints (Wave F):
 //   POST /api/gallery/import-from-comfyui → one-shot pull from /api/history.
 //   POST /api/gallery/:id/regenerate      → re-submit the captured workflow.
-// All routes are dual-mounted under `/launcher/gallery/...` per the existing
-// alias pattern. Successful mutations trigger a `gallery` WS broadcast via
+// Successful mutations trigger a `gallery` WS broadcast via
 // `setGalleryBroadcaster` in `services/gallery.service.ts`.
 
 import { Router, type Request, type Response } from 'express';
@@ -25,7 +24,7 @@ import { logger } from '../lib/logger.js';
 
 const router = Router();
 
-router.get(['/gallery', '/launcher/gallery'], async (req: Request, res: Response) => {
+router.get('/gallery', async (req: Request, res: Response) => {
   const pq = parsePageQuery(req, { defaultPageSize: 50, maxPageSize: 200 });
 
   if (!pq.isPaginated) {
@@ -73,7 +72,7 @@ router.get(['/gallery', '/launcher/gallery'], async (req: Request, res: Response
  * query param; returns the slim list rows that match. Empty / missing
  * `ids` returns an empty list (avoids accidentally fetching everything).
  */
-router.get(['/gallery/by-prompt-ids', '/launcher/gallery/by-prompt-ids'], (req: Request, res: Response) => {
+router.get('/gallery/by-prompt-ids', (req: Request, res: Response) => {
   const raw = typeof req.query.ids === 'string' ? req.query.ids : '';
   const ids = raw.split(',').map(s => s.trim()).filter(s => s.length > 0);
   if (ids.length === 0) { res.json({ items: [] }); return; }
@@ -84,7 +83,7 @@ router.get(['/gallery/by-prompt-ids', '/launcher/gallery/by-prompt-ids'], (req: 
   }
 });
 
-router.get(['/gallery/:id', '/launcher/gallery/:id'], (req: Request, res: Response) => {
+router.get('/gallery/:id', (req: Request, res: Response) => {
   const id = req.params.id;
   if (typeof id !== 'string' || id.length === 0) {
     res.status(400).json({ error: 'id required' });
@@ -101,7 +100,7 @@ router.get(['/gallery/:id', '/launcher/gallery/:id'], (req: Request, res: Respon
 // Bulk delete. Mounted BEFORE the `:id` route so Express matches the bare
 // collection path first. Body: `{ ids: string[] }`. Returns per-id results so
 // the client can show partial-success state.
-router.delete(['/gallery', '/launcher/gallery'], (req: Request, res: Response) => {
+router.delete('/gallery', (req: Request, res: Response) => {
   const raw = (req.body ?? {}) as { ids?: unknown };
   if (!Array.isArray(raw.ids) || raw.ids.length === 0) {
     res.status(400).json({ error: 'ids required (non-empty string[])' });
@@ -124,7 +123,7 @@ router.delete(['/gallery', '/launcher/gallery'], (req: Request, res: Response) =
   });
 });
 
-router.delete(['/gallery/:id', '/launcher/gallery/:id'], (req: Request, res: Response) => {
+router.delete('/gallery/:id', (req: Request, res: Response) => {
   const id = req.params.id;
   if (typeof id !== 'string' || id.length === 0) {
     res.status(400).json({ error: 'id required' });
@@ -148,7 +147,7 @@ const IMPORT_COOLDOWN_MS = 10_000;
 let lastImportAt = 0;
 
 router.post(
-  ['/gallery/import-from-comfyui', '/launcher/gallery/import-from-comfyui'],
+  '/gallery/import-from-comfyui',
   async (_req: Request, res: Response) => {
     const now = Date.now();
     const remaining = lastImportAt + IMPORT_COOLDOWN_MS - now;
@@ -174,7 +173,7 @@ router.post(
 );
 
 router.post(
-  ['/gallery/:id/regenerate', '/launcher/gallery/:id/regenerate'],
+  '/gallery/:id/regenerate',
   async (req: Request, res: Response) => {
     const id = req.params.id;
     if (typeof id !== 'string' || id.length === 0) {

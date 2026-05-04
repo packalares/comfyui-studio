@@ -1,9 +1,8 @@
 // Import routes (Phase 1 MVP):
 //   POST   /templates/import/upload           (multipart .json | .zip)
-//   GET    /templates/import/staging/:id
 //   POST   /templates/import/staging/:id/commit
+//   POST   /templates/import/staging/:id/resolve-model
 //   DELETE /templates/import/staging/:id
-// Dual-mounted at /launcher/... — see `templates.routes.ts` for mount wiring.
 
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import multer from 'multer';
@@ -110,16 +109,6 @@ const handleUpload: RequestHandler = async (req, res) => {
   }
 };
 
-const handleGetStaging: RequestHandler = (req, res) => {
-  const id = String(req.params.id ?? '');
-  const staged = templates.getStaging(id);
-  if (!staged) {
-    res.status(404).json({ error: 'Staging not found or expired' });
-    return;
-  }
-  res.json(templates.toManifest(staged));
-};
-
 const handleCommit: RequestHandler = async (req, res) => {
   try {
     const id = String(req.params.id ?? '');
@@ -218,26 +207,9 @@ const handleAbort: RequestHandler = (req, res) => {
   res.json({ aborted: true, id });
 };
 
-router.post(
-  ['/templates/import/upload', '/launcher/templates/import/upload'],
-  upload.single('file'),
-  handleUpload,
-);
-router.get(
-  ['/templates/import/staging/:id', '/launcher/templates/import/staging/:id'],
-  handleGetStaging,
-);
-router.post(
-  ['/templates/import/staging/:id/commit', '/launcher/templates/import/staging/:id/commit'],
-  handleCommit,
-);
-router.post(
-  ['/templates/import/staging/:id/resolve-model', '/launcher/templates/import/staging/:id/resolve-model'],
-  handleResolveModel,
-);
-router.delete(
-  ['/templates/import/staging/:id', '/launcher/templates/import/staging/:id'],
-  handleAbort,
-);
+router.post('/templates/import/upload', upload.single('file'), handleUpload);
+router.post('/templates/import/staging/:id/commit', handleCommit);
+router.post('/templates/import/staging/:id/resolve-model', handleResolveModel);
+router.delete('/templates/import/staging/:id', handleAbort);
 
 export default router;

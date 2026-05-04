@@ -1,13 +1,13 @@
 // Image pipeline: sharp-based resize for local files or fetched remote
 // bytes. The local-file path is new for the unified service (the legacy
-// `imgProxy.service` only handled URLs); the remote path preserves the
-// allow-list + size-cap behaviour of `imgProxy.service` so civitai /
-// huggingface URLs keep working under /api/thumbnail?url=...
+// image-proxy only handled URLs); the remote path preserves its allow-list
+// + size-cap behaviour so civitai / huggingface URLs keep working under
+// /api/thumbnail?url=...
 
 import { createWriteStream, createReadStream, unlinkSync } from 'fs';
 import sharp from 'sharp';
 import { env } from '../../../config/env.js';
-import { hostIsAllowed } from '../../imgProxy/imgProxy.service.js';
+import { hostIsAllowed } from '../../../lib/security.js';
 import {
   cachePathForKey, localFileKey, peekCached, publishTmp, remoteUrlKey,
 } from '../cache.js';
@@ -23,7 +23,7 @@ async function pipeSharpToFile(
   tmpPath: string,
   finalPath: string,
 ): Promise<void> {
-  // Bounded webp quality — matches the legacy imgProxy service so a cutover
+  // Bounded webp quality — matches the legacy image-proxy service so a cutover
   // doesn't regress visible thumbnail quality.
   const pipeline = sharp().resize({ width, withoutEnlargement: true }).webp({ quality: 82 });
   const out = createWriteStream(tmpPath);

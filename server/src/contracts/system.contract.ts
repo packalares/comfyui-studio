@@ -12,7 +12,7 @@ export interface SystemInfo {
   [key: string]: unknown;
 }
 
-/** What `/api/launcher/status` returns to the frontend. */
+/** What `/api/status` returns to the frontend. */
 export interface LauncherStatus {
   reachable?: boolean;
   status?: number | string;

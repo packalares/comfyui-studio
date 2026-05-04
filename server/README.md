@@ -79,19 +79,6 @@ entrypoint script (path from `COMFYUI_ENTRYPOINT`) with CLI args assembled
 from `launchOptions.service.ts`. A reverse proxy on `COMFYUI_PROXY_PORT`
 keeps the native ComfyUI frontend reachable across restarts.
 
-## Legacy `/launcher/*` path aliases
-
-67 of the 93 handlers are dual-mounted: the canonical path plus a
-`/launcher/<same>` alias that serves the same local handler, so the
-frontend's pre-cutover calls keep working. The remaining 26 are
-studio-native (health, catalog, settings, system, view, upload, history,
-gallery, templates, template-widgets, generate, check-dependencies, queue,
-downloads). No generic catch-all exists — unknown `/launcher/...` paths 404.
-
-Studio makes **zero HTTP calls to `launcher-backend`**. The `launcher-backend/`
-directory is still on disk for historical reference but is not imported,
-not contacted, and does not need to be running.
-
 ## Environment
 
 | Variable                       | Default                                            | Purpose |

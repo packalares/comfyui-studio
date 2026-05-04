@@ -1,6 +1,4 @@
 // Plugin routes. Endpoint list preserved 1:1 from the launcher catch-all.
-// All paths dual-mount canonical + `/launcher/...` alias so the frontend's
-// existing URLs keep working.
 //
 // Rate-limited writes (install, uninstall, disable, enable, custom install,
 // switch-version) share a single middleware. Cache read + progress poll are
@@ -207,22 +205,18 @@ const handleHistoryDelete: RequestHandler = async (req, res) => {
   res.json({ success: true, message: `History item deleted: ${removed.pluginId}` });
 };
 
-// ---- Mount canonical + legacy aliases ----
-
-router.get(['/plugins', '/launcher/plugins'], handleGetAll);
-router.post(['/plugins/install', '/launcher/plugins/install'], writeLimiter, handleInstall);
-router.post(['/plugins/uninstall', '/launcher/plugins/uninstall'], writeLimiter, handleUninstall);
-router.get(['/plugins/progress/:taskId', '/launcher/plugins/progress/:taskId'], handleProgress);
-router.post(['/plugins/disable', '/launcher/plugins/disable'], writeLimiter, handleDisable);
-router.post(['/plugins/enable', '/launcher/plugins/enable'], writeLimiter, handleEnable);
-router.get(['/plugins/refresh', '/launcher/plugins/refresh'], handleRefresh);
-router.post(['/plugins/install-custom', '/launcher/plugins/install-custom'], writeLimiter, handleCustomInstall);
-router.post(['/plugins/switch-version', '/launcher/plugins/switch-version'], writeLimiter, handleSwitchVersion);
-// /plugins/update-cache is now an alias for the combined refresh handler.
-router.post(['/plugins/update-cache', '/launcher/plugins/update-cache'], handleRefresh);
-router.get(['/plugins/history', '/launcher/plugins/history'], handleHistory);
-router.get(['/plugins/logs/:taskId', '/launcher/plugins/logs/:taskId'], handleLogs);
-router.post(['/plugins/history/clear', '/launcher/plugins/history/clear'], handleHistoryClear);
-router.post(['/plugins/history/delete', '/launcher/plugins/history/delete'], handleHistoryDelete);
+router.get('/plugins', handleGetAll);
+router.post('/plugins/install', writeLimiter, handleInstall);
+router.post('/plugins/uninstall', writeLimiter, handleUninstall);
+router.get('/plugins/progress/:taskId', handleProgress);
+router.post('/plugins/disable', writeLimiter, handleDisable);
+router.post('/plugins/enable', writeLimiter, handleEnable);
+router.get('/plugins/refresh', handleRefresh);
+router.post('/plugins/install-custom', writeLimiter, handleCustomInstall);
+router.post('/plugins/switch-version', writeLimiter, handleSwitchVersion);
+router.get('/plugins/history', handleHistory);
+router.get('/plugins/logs/:taskId', handleLogs);
+router.post('/plugins/history/clear', handleHistoryClear);
+router.post('/plugins/history/delete', handleHistoryDelete);
 
 export default router;

@@ -4,11 +4,11 @@
 //   POST /templates/import/paste   -> body { json, title? }
 //
 // Split from `templates.import.ts` so that file stays under the structure
-// line cap. Dual-mounted under `/launcher/...` by the main router.
+// line cap.
 
 import { Router, type RequestHandler } from 'express';
 import * as templates from '../services/templates/index.js';
-import { hostIsPrivate } from './models.validation.js';
+import { hostIsPrivate } from '../lib/security.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { sendError } from '../middleware/errors.js';
 import { logger } from '../lib/logger.js';
@@ -86,15 +86,7 @@ const handlePaste: RequestHandler = async (req, res) => {
 
 const router = Router();
 
-router.post(
-  ['/templates/import/github', '/launcher/templates/import/github'],
-  githubImportLimiter,
-  handleGithub,
-);
-router.post(
-  ['/templates/import/paste', '/launcher/templates/import/paste'],
-  pasteImportLimiter,
-  handlePaste,
-);
+router.post('/templates/import/github', githubImportLimiter, handleGithub);
+router.post('/templates/import/paste', pasteImportLimiter, handlePaste);
 
 export default router;

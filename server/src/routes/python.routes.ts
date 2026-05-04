@@ -7,8 +7,7 @@
 //   GET  /python/plugins/dependencies
 //   POST /python/plugins/fix-dependencies
 //
-// Dual-mounted with legacy `/launcher/python/...` aliases. All rate-limited
-// write endpoints use the shared `rateLimit` middleware.
+// All rate-limited write endpoints use the shared `rateLimit` middleware.
 
 import { Router, type RequestHandler } from 'express';
 import * as pipSource from '../services/python/pipSource.service.js';
@@ -93,12 +92,12 @@ const handleFixDeps: RequestHandler = async (req, res) => {
 
 // ---- Mount canonical + legacy aliases ----
 
-router.get(['/python/pip-source', '/launcher/python/pip-source'], handleGetPipSource);
-router.post(['/python/pip-source', '/launcher/python/pip-source'], handleSetPipSource);
-router.get(['/python/packages', '/launcher/python/packages'], handleListPackages);
-router.post(['/python/packages/install', '/launcher/python/packages/install'], pkgLimiter, handleInstallPackage);
-router.post(['/python/packages/uninstall', '/launcher/python/packages/uninstall'], pkgLimiter, handleUninstallPackage);
-router.get(['/python/plugins/dependencies', '/launcher/python/plugins/dependencies'], handlePluginDeps);
-router.post(['/python/plugins/fix-dependencies', '/launcher/python/plugins/fix-dependencies'], pkgLimiter, handleFixDeps);
+router.get('/python/pip-source', handleGetPipSource);
+router.post('/python/pip-source', handleSetPipSource);
+router.get('/python/packages', handleListPackages);
+router.post('/python/packages/install', pkgLimiter, handleInstallPackage);
+router.post('/python/packages/uninstall', pkgLimiter, handleUninstallPackage);
+router.get('/python/plugins/dependencies', handlePluginDeps);
+router.post('/python/plugins/fix-dependencies', pkgLimiter, handleFixDeps);
 
 export default router;

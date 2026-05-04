@@ -15,9 +15,6 @@
 // `total` is a LOWER BOUND because civitai does not expose a total-count
 // field on its list responses (see services/civitai/models.ts header for
 // details). Consumers should rely on `hasMore` for pagination.
-//
-// Dual-mounted with the legacy `/launcher/civitai/...` aliases so the
-// catch-all proxy never sees this traffic.
 
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import * as civitai from '../services/civitai/civitai.service.js';
@@ -203,19 +200,15 @@ const handleSearchWorkflows: RequestHandler = async (req, res) => {
   }
 };
 
-// ---- Mount canonical + legacy aliases ----
 // Literal paths are listed BEFORE `/models/:id` so Express matches them first.
-router.get(['/civitai/models/by-url', '/launcher/civitai/models/by-url'], byUrlLimiter, handleByUrl);
-router.get(['/civitai/models/search', '/launcher/civitai/models/search'], handleSearchModels);
-router.get(['/civitai/models/latest', '/launcher/civitai/models/latest'], handleLatestModels);
-router.get(['/civitai/models/hot', '/launcher/civitai/models/hot'], handleHotModels);
-router.get(['/civitai/models/:id', '/launcher/civitai/models/:id'], handleModelDetails);
-router.get(
-  ['/civitai/download/models/:versionId', '/launcher/civitai/download/models/:versionId'],
-  handleDownloadModelInfo,
-);
-router.get(['/civitai/latest-workflows', '/launcher/civitai/latest-workflows'], handleLatestWorkflows);
-router.get(['/civitai/hot-workflows', '/launcher/civitai/hot-workflows'], handleHotWorkflows);
-router.get(['/civitai/search-workflows', '/launcher/civitai/search-workflows'], handleSearchWorkflows);
+router.get('/civitai/models/by-url', byUrlLimiter, handleByUrl);
+router.get('/civitai/models/search', handleSearchModels);
+router.get('/civitai/models/latest', handleLatestModels);
+router.get('/civitai/models/hot', handleHotModels);
+router.get('/civitai/models/:id', handleModelDetails);
+router.get('/civitai/download/models/:versionId', handleDownloadModelInfo);
+router.get('/civitai/latest-workflows', handleLatestWorkflows);
+router.get('/civitai/hot-workflows', handleHotWorkflows);
+router.get('/civitai/search-workflows', handleSearchWorkflows);
 
 export default router;

@@ -365,7 +365,7 @@ export const api = {
   },
 
   scanModels: () =>
-    fetchJson<{ success: boolean; count: number }>('/launcher/models/scan', { method: 'POST' }),
+    fetchJson<{ success: boolean; count: number }>('/models/scan', { method: 'POST' }),
 
   rescanModelIndex: () =>
     fetchJson<{ added: number; removed: number; total: number }>('/models/rescan', { method: 'POST' }),
@@ -374,18 +374,18 @@ export const api = {
     fetchJson<string[]>('/models/folders'),
 
   installModel: (modelName: string) =>
-    fetchJson<{ success: boolean; taskId: string; message?: string }>(`/launcher/models/install/${encodeURIComponent(modelName)}`, {
+    fetchJson<{ success: boolean; taskId: string; message?: string }>(`/models/install/${encodeURIComponent(modelName)}`, {
       method: 'POST',
     }),
 
   cancelDownload: (taskId: string) =>
-    fetchJson<void>('/launcher/models/cancel-download', {
+    fetchJson<void>('/models/cancel-download', {
       method: 'POST',
       body: JSON.stringify({ taskId }),
     }),
 
   deleteModel: (body: Record<string, unknown>) =>
-    fetchJson<void>('/launcher/models/delete', {
+    fetchJson<void>('/models/delete', {
       method: 'POST',
       body: JSON.stringify(body),
     }),
@@ -429,7 +429,7 @@ export const api = {
       };
     },
   ) =>
-    fetchJson<{ success: boolean; taskId?: string; alreadyActive?: boolean; message?: string }>('/launcher/models/download-custom', {
+    fetchJson<{ success: boolean; taskId?: string; alreadyActive?: boolean; message?: string }>('/models/download-custom', {
       method: 'POST',
       body: JSON.stringify({
         hfUrl,
@@ -440,32 +440,32 @@ export const api = {
       }),
     }),
 
-  /** GET /launcher/models/download-history?page=&pageSize= — paginated download history. */
+  /** GET /models/download-history?page=&pageSize= — paginated download history. */
   getDownloadHistoryPaged: (page: number, pageSize: number) =>
     fetchJson<PageEnvelope<Record<string, unknown>> & { success: boolean; count: number }>(
-      `/launcher/models/download-history?${buildPagedQuery({ page, pageSize })}`,
+      `/models/download-history?${buildPagedQuery({ page, pageSize })}`,
     ),
 
   clearDownloadHistory: () =>
-    fetchJson<Record<string, unknown>>('/launcher/models/download-history/clear', {
+    fetchJson<Record<string, unknown>>('/models/download-history/clear', {
       method: 'POST',
     }),
 
   deleteDownloadHistoryEntry: (id: string) =>
-    fetchJson<Record<string, unknown>>('/launcher/models/download-history/delete', {
+    fetchJson<Record<string, unknown>>('/models/download-history/delete', {
       method: 'POST',
       body: JSON.stringify({ id }),
     }),
 
   // ---- Launcher process control ----
 
-  startComfyUI: () => fetchJson<{ status: string }>('/launcher/start', { method: 'POST' }),
+  startComfyUI: () => fetchJson<{ status: string }>('/start', { method: 'POST' }),
 
-  stopComfyUI: () => fetchJson<{ status: string }>('/launcher/stop', { method: 'POST' }),
+  stopComfyUI: () => fetchJson<{ status: string }>('/stop', { method: 'POST' }),
 
-  restartComfyUI: () => fetchJson<{ status: string }>('/launcher/restart', { method: 'POST' }),
+  restartComfyUI: () => fetchJson<{ status: string }>('/restart', { method: 'POST' }),
 
-  getComfyUILogs: () => fetchJson<{ logs: string }>('/launcher/comfyui/logs'),
+  getComfyUILogs: () => fetchJson<{ logs: string }>('/comfyui/logs'),
 
   /**
    * POST /comfyui/interrupt — stop the currently-executing prompt. Proxies
@@ -487,65 +487,65 @@ export const api = {
     }),
 
   resetComfyUI: (mode: 'normal' | 'hard' = 'normal') =>
-    fetchJson<{ success: boolean; message: string; logs?: string[] }>('/launcher/comfyui/reset', {
+    fetchJson<{ success: boolean; message: string; logs?: string[] }>('/comfyui/reset', {
       method: 'POST',
       body: JSON.stringify({ mode }),
     }),
 
   getResetLogs: () =>
-    fetchJson<{ logs: string[]; message?: string }>('/launcher/comfyui/reset-logs'),
+    fetchJson<{ logs: string[]; message?: string }>('/comfyui/reset-logs'),
 
   // ---- Settings endpoints ----
 
   getLaunchOptions: () =>
-    fetchJson<Record<string, unknown>>('/launcher/comfyui/launch-options'),
+    fetchJson<Record<string, unknown>>('/comfyui/launch-options'),
 
   updateLaunchOptions: (options: Record<string, unknown>) =>
-    fetchJson<Record<string, unknown>>('/launcher/comfyui/launch-options', {
+    fetchJson<Record<string, unknown>>('/comfyui/launch-options', {
       method: 'PUT',
       body: JSON.stringify(options),
     }),
 
   resetLaunchOptions: () =>
-    fetchJson<Record<string, unknown>>('/launcher/comfyui/launch-options/reset', {
+    fetchJson<Record<string, unknown>>('/comfyui/launch-options/reset', {
       method: 'POST',
     }),
 
   getNetworkConfig: () =>
-    fetchJson<Record<string, unknown>>('/launcher/system/network-config'),
+    fetchJson<Record<string, unknown>>('/system/network-config'),
 
   setHuggingFaceEndpoint: (endpoint: string) =>
-    fetchJson<Record<string, unknown>>('/launcher/system/huggingface-endpoint', {
+    fetchJson<Record<string, unknown>>('/system/huggingface-endpoint', {
       method: 'POST',
       body: JSON.stringify({ endpoint }),
     }),
 
   setGithubProxy: (proxy: string) =>
-    fetchJson<Record<string, unknown>>('/launcher/system/github-proxy', {
+    fetchJson<Record<string, unknown>>('/system/github-proxy', {
       method: 'POST',
       body: JSON.stringify({ proxy }),
     }),
 
   setPipSource: (source: string) =>
-    fetchJson<Record<string, unknown>>('/launcher/system/pip-source', {
+    fetchJson<Record<string, unknown>>('/system/pip-source', {
       method: 'POST',
       body: JSON.stringify({ source }),
     }),
 
   setPluginTrustedHosts: (hosts: string[]) =>
-    fetchJson<Record<string, unknown>>('/launcher/system/plugin-trusted-hosts', {
+    fetchJson<Record<string, unknown>>('/system/plugin-trusted-hosts', {
       method: 'POST',
       body: JSON.stringify({ hosts }),
     }),
 
   setModelTrustedHosts: (hosts: string[]) =>
-    fetchJson<Record<string, unknown>>('/launcher/system/model-trusted-hosts', {
+    fetchJson<Record<string, unknown>>('/system/model-trusted-hosts', {
       method: 'POST',
       body: JSON.stringify({ hosts }),
     }),
 
   setAllowPrivateIpMirrors: (allow: boolean) =>
-    fetchJson<Record<string, unknown>>('/launcher/system/pip-allow-private-ip', {
+    fetchJson<Record<string, unknown>>('/system/pip-allow-private-ip', {
       method: 'POST',
       body: JSON.stringify({ allow }),
     }),
@@ -883,12 +883,6 @@ export const api = {
     }
     return res.json();
   },
-
-  /** GET /templates/import/staging/:id — fetch an active staging manifest. */
-  getImportStaging: (id: string) =>
-    fetchJson<StagedImportManifest>(
-      `/templates/import/staging/${encodeURIComponent(id)}`,
-    ),
 
   /**
    * POST /templates/import/staging/:id/commit — write the chosen workflows +

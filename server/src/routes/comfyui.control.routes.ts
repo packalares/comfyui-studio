@@ -5,11 +5,9 @@
 //   POST /queue                — body `{ delete: [promptId] }` removes a
 //                                pending entry from the queue.
 //
-// Both are dual-mounted under `/api/launcher/...` to match the existing
-// alias convention in routes/comfyui.routes.ts. Successful upstream 2xx
-// surfaces as `{ ok: true }`; non-2xx (or network errors) fail with 502 so
-// the UI can distinguish "the user's intent was valid, ComfyUI misbehaved"
-// from a client-side 4xx.
+// Successful upstream 2xx surfaces as `{ ok: true }`; non-2xx (or network
+// errors) fail with 502 so the UI can distinguish "the user's intent was
+// valid, ComfyUI misbehaved" from a client-side 4xx.
 
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import { getComfyUIUrl } from '../services/comfyui.js';
@@ -80,13 +78,7 @@ const handleQueueDelete: RequestHandler = async (req: Request, res: Response) =>
   });
 };
 
-router.post(
-  ['/comfyui/interrupt', '/launcher/comfyui/interrupt'],
-  handleInterrupt,
-);
-router.post(
-  ['/comfyui/queue/delete', '/launcher/comfyui/queue/delete'],
-  handleQueueDelete,
-);
+router.post('/comfyui/interrupt', handleInterrupt);
+router.post('/comfyui/queue/delete', handleQueueDelete);
 
 export default router;

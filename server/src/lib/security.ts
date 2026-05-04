@@ -1,5 +1,7 @@
-// URL validators extracted from models.routes.ts so the route file stays
-// focused on handler wiring.
+// Shared URL / host security helpers used by the model-download, plugin-install,
+// template-import, and thumbnail pipelines. Consolidated here so every path that
+// fetches user-supplied URLs goes through the same SSRF + scheme + allow-list
+// checks.
 
 // Reject non-HTTP(S) URLs for download-custom: the downloader fetches the URL
 // directly, so any schema we let through (data:, file:, gopher:, ...) would
@@ -31,4 +33,24 @@ export function hostIsPrivate(urlStr: string): boolean {
   } catch {
     return true;
   }
+}
+
+/**
+ * Returns true when `hostname` matches any entry in the allow-list.
+ * Entry semantics:
+ *   - `example.com`    -> exact match
+ *   - `.example.com`   -> suffix match (matches `foo.example.com`, not `example.com`)
+ */
+export function hostIsAllowed(hostname: string, allowed: readonly string[]): boolean {
+  const h = hostname.toLowerCase();
+  for (const raw of allowed) {
+    const entry = raw.toLowerCase();
+    if (!entry) continue;
+    if (entry.startsWith('.')) {
+      if (h.endsWith(entry)) return true;
+    } else if (h === entry) {
+      return true;
+    }
+  }
+  return false;
 }

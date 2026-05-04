@@ -46,15 +46,6 @@ function flattenOutputs(
   return out;
 }
 
-router.get('/history', async (_req: Request, res: Response) => {
-  try {
-    const history = await comfyui.getHistory();
-    res.json(history);
-  } catch {
-    res.json({});
-  }
-});
-
 router.get('/history/:promptId', async (req: Request, res: Response) => {
   try {
     const promptId = req.params.promptId as string;

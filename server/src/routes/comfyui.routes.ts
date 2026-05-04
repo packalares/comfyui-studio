@@ -1,13 +1,7 @@
-// Local ComfyUI lifecycle routes. Replaces the launcher-proxied variants for
-// status / start / stop / restart / logs / reset / launch-options. Both the
-// canonical paths and the legacy `/launcher/...` aliases are mounted so the
-// existing frontend keeps working.
-//
-// The generic catch-all in `launcher.routes.ts` runs AFTER this router (per
-// routes/index.ts mount order), so aliases here always win.
+// Local ComfyUI lifecycle routes: status / start / stop / restart / logs /
+// reset / launch-options.
 
 import { Router, type Request, type Response, type RequestHandler } from 'express';
-import { getStatus } from '../services/comfyui/status.service.js';
 import { getProcessService } from '../services/comfyui/singleton.js';
 import {
   getLaunchCommandView,
@@ -18,15 +12,6 @@ import {
 import { sendError } from '../middleware/errors.js';
 
 const router = Router();
-
-// ---- Status ----
-
-const handleStatus: RequestHandler = async (_req, res) => {
-  try {
-    const status = await getStatus();
-    res.json(status);
-  } catch (err) { sendError(res, err, 500, 'Failed to get status'); }
-};
 
 // ---- Lifecycle ----
 
@@ -110,20 +95,14 @@ const handleResetLaunchOptions: RequestHandler = async (_req, res) => {
   } catch (err) { sendError(res, err, 500, 'Failed to reset launch options'); }
 };
 
-// ---- Mount canonical + legacy /launcher/... aliases ----
-
-router.get(['/status', '/launcher/status'], handleStatus);
-router.post(['/start', '/launcher/start'], handleStart);
-router.post(['/stop', '/launcher/stop'], handleStop);
-router.post(['/restart', '/launcher/restart'], handleRestart);
-router.get(['/comfyui/logs', '/launcher/comfyui/logs'], handleLogs);
-router.post(['/comfyui/reset', '/launcher/comfyui/reset'], handleReset);
-router.get(['/comfyui/reset-logs', '/launcher/comfyui/reset-logs'], handleResetLogs);
-router.get(['/comfyui/launch-options', '/launcher/comfyui/launch-options'], handleGetLaunchOptions);
-router.put(['/comfyui/launch-options', '/launcher/comfyui/launch-options'], handlePutLaunchOptions);
-router.post(
-  ['/comfyui/launch-options/reset', '/launcher/comfyui/launch-options/reset'],
-  handleResetLaunchOptions,
-);
+router.post('/start', handleStart);
+router.post('/stop', handleStop);
+router.post('/restart', handleRestart);
+router.get('/comfyui/logs', handleLogs);
+router.post('/comfyui/reset', handleReset);
+router.get('/comfyui/reset-logs', handleResetLogs);
+router.get('/comfyui/launch-options', handleGetLaunchOptions);
+router.put('/comfyui/launch-options', handlePutLaunchOptions);
+router.post('/comfyui/launch-options/reset', handleResetLaunchOptions);
 
 export default router;

@@ -13,7 +13,7 @@
 //   - github.com/<o>/<r>                   -> repoWalk (ref="" -> default branch)
 //   - anything else                        -> reject
 
-import { hostIsPrivate } from '../../routes/models.validation.js';
+import { hostIsPrivate } from '../../lib/security.js';
 
 export const HOST_ALLOW = new Set<string>([
   'github.com',

@@ -91,12 +91,14 @@ describe('/thumbnail route', () => {
     } finally { await app.close(); }
   });
 
-  it('URL mode: 404 on unknown extension', async () => {
+  it('URL mode: placeholder + no-store on unknown extension', async () => {
     const app = await startApp();
     try {
       const target = encodeURIComponent('https://civitai.com/a.xyz');
       const res = await originalFetch(`${app.url}/thumbnail?url=${target}&w=320`);
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')?.startsWith('image/svg+xml')).toBe(true);
+      expect(res.headers.get('cache-control')).toBe('no-store');
     } finally { await app.close(); }
   });
 
@@ -111,11 +113,31 @@ describe('/thumbnail route', () => {
     } finally { await app.close(); }
   });
 
-  it('ID mode: 404 when gallery id is unknown', async () => {
+  it('ID mode: placeholder + no-store when gallery id is unknown', async () => {
     const app = await startApp();
     try {
       const res = await originalFetch(`${app.url}/thumbnail/nonexistent?w=320`);
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')?.startsWith('image/svg+xml')).toBe(true);
+      expect(res.headers.get('cache-control')).toBe('no-store');
+    } finally { await app.close(); }
+  });
+
+  it('template mode: placeholder + no-store on upstream 404', async () => {
+    const app = await startApp();
+    // Mock fetch AFTER the app is listening so internal traffic to the
+    // ephemeral Express port still resolves through the real fetch.
+    const real = originalFetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const u = typeof input === 'string' ? input : input.toString();
+      if (u.startsWith(app.url)) return real(input as RequestInfo, init);
+      return new Response('not found', { status: 404 });
+    }) as typeof fetch;
+    try {
+      const res = await originalFetch(`${app.url}/thumbnail/template/missing-1.webp?w=320`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')?.startsWith('image/svg+xml')).toBe(true);
+      expect(res.headers.get('cache-control')).toBe('no-store');
     } finally { await app.close(); }
   });
 

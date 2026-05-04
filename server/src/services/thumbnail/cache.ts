@@ -19,8 +19,8 @@ export function cacheRoot(): string {
 }
 
 export function legacyFlatDir(): string {
-  // Original `imgProxy.service` flat cache; the sweep keeps it tidy but
-  // writes go to the bucketed tree.
+  // Original flat cache from the legacy image-proxy service; the sweep keeps
+  // it tidy but writes go to the bucketed tree.
   return cacheRoot();
 }
 

@@ -5,7 +5,7 @@
 // `liveSettings.getModelTrustedHosts()` so an operator can extend the
 // allow-list at runtime via the Settings UI without redeploying.
 
-import { hostIsPrivate, isHttpUrl } from '../../routes/models.validation.js';
+import { hostIsPrivate, isHttpUrl } from '../../lib/security.js';
 import { getModelTrustedHosts } from '../systemLauncher/liveSettings.js';
 
 const BUILTIN_DOWNLOAD_HOSTS: ReadonlySet<string> = new Set([

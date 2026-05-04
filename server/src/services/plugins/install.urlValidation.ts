@@ -8,7 +8,7 @@
 // Reads from liveSettings (not env) so operator additions via the
 // POST /api/system/plugin-trusted-hosts endpoint take effect immediately.
 
-import { hostIsPrivate } from '../../routes/models.validation.js';
+import { hostIsPrivate } from '../../lib/security.js';
 import { getPluginTrustedHosts } from '../systemLauncher/liveSettings.js';
 
 const BUILTIN_HOSTS = new Set(['github.com', 'gitlab.com', 'huggingface.co', 'www.github.com', 'www.gitlab.com']);

@@ -1,7 +1,5 @@
 // Model management routes. Backed by local services (ported from launcher's
-// models + download + essential-models controllers). The /launcher/... aliases
-// are preserved for studio's existing frontend; new canonical paths live at
-// /api/models/... via the handlers below.
+// models + download + essential-models controllers).
 //
 // NOTE on /models/download-custom (unified downloader):
 //   The `hfUrl` request-body field is historical; it now accepts both
@@ -29,16 +27,12 @@ import {
 import { rateLimit } from '../middleware/rateLimit.js';
 import { sendError } from '../middleware/errors.js';
 import { handleFolders } from './models.folders.js';
-import { hostIsPrivate } from './models.validation.js';
 import {
   validateAllowedUrl, urlEncodesFilename,
 } from '../services/models/downloadAllowlist.js';
 import { parsePageQuery, paginate } from '../lib/pagination.js';
 import { prepopulateCatalog, type DownloadCustomMeta } from './models.prepopulate.js';
 import { markDownloadFailed } from '../services/catalog.js';
-
-// Re-export for tests and backward-compat callers.
-export { hostIsPrivate };
 
 const router = Router();
 
@@ -47,13 +41,6 @@ const router = Router();
 const downloadCustomLimiter = rateLimit({ windowMs: 60_000, max: 30 });
 
 // ---- Handlers ----
-
-const handleGetModels: RequestHandler = async (_req, res) => {
-  try {
-    const list = await models.scanAndRefresh();
-    res.json(list.map(toWireEntry));
-  } catch (err) { sendError(res, err, 500, 'Failed to read model list'); }
-};
 
 const handleScan: RequestHandler = async (_req, res) => {
   try {
@@ -98,31 +85,6 @@ const handleInstall: RequestHandler = async (req, res) => {
     if (err instanceof NoDownloadSourceError) { res.status(400).json({ success: false, error: err.message, code: 'NO_DOWNLOAD_SOURCE' }); return; }
     sendError(res, err, 500, 'Install failed');
   }
-};
-
-const handleProgress: RequestHandler = async (req, res) => {
-  const id = req.params.id as string;
-  const p = models.getProgress(id);
-  if (!p) {
-    res.status(404).json({
-      error: `Progress not found for id ${id}`,
-      overallProgress: 0, status: 'unknown', completed: false,
-      totalBytes: 0, downloadedBytes: 0, speed: 0,
-    });
-    return;
-  }
-  res.json({
-    overallProgress: p.overallProgress || 0,
-    currentModelIndex: p.currentModelIndex || 0,
-    currentModelProgress: p.currentModelProgress || 0,
-    currentModel: p.currentModel ? { ...p.currentModel } : null,
-    completed: p.completed || false,
-    error: p.error || null,
-    totalBytes: p.totalBytes || 0,
-    downloadedBytes: p.downloadedBytes || 0,
-    speed: p.speed || 0,
-    status: p.status || 'downloading',
-  });
 };
 
 const handleHistory: RequestHandler = async (req, res) => {
@@ -229,22 +191,16 @@ const handleRescan: RequestHandler = async (_req, res) => {
   } catch (err) { sendError(res, err, 500, 'Rescan failed'); }
 };
 
-router.get(['/models', '/launcher/models'], handleGetModels);
-router.get(['/models/folders', '/launcher/models/folders'], handleFolders);
-router.post(['/models/rescan', '/launcher/models/rescan'], handleRescan);
-router.post(['/models/scan', '/launcher/models/scan'], handleScan);
-router.post(['/models/delete', '/launcher/models/delete'], handleDelete);
-router.post(['/models/cancel-download', '/launcher/models/cancel-download'], handleCancel);
-router.post(['/models/install/:modelName', '/launcher/models/install/:modelName'], handleInstall);
-router.get(['/models/progress/:id', '/launcher/models/progress/:id'], handleProgress);
-router.get(['/models/download-history', '/launcher/models/download-history'], handleHistory);
-router.post(['/models/download-history/clear', '/launcher/models/download-history/clear'], handleHistoryClear);
-router.post(['/models/download-history/delete', '/launcher/models/download-history/delete'], handleHistoryDelete);
-router.post(['/models/download-custom', '/launcher/models/download-custom'], downloadCustomLimiter, handleDownloadCustom);
-
-router.post(
-  ['/models/download-hf-repo', '/launcher/models/download-hf-repo'],
-  downloadCustomLimiter, handleDownloadHfRepo,
-);
+router.get('/models/folders', handleFolders);
+router.post('/models/rescan', handleRescan);
+router.post('/models/scan', handleScan);
+router.post('/models/delete', handleDelete);
+router.post('/models/cancel-download', handleCancel);
+router.post('/models/install/:modelName', handleInstall);
+router.get('/models/download-history', handleHistory);
+router.post('/models/download-history/clear', handleHistoryClear);
+router.post('/models/download-history/delete', handleHistoryDelete);
+router.post('/models/download-custom', downloadCustomLimiter, handleDownloadCustom);
+router.post('/models/download-hf-repo', downloadCustomLimiter, handleDownloadHfRepo);
 
 export default router;

@@ -77,7 +77,7 @@ describe('GET /gallery/:id', () => {
     } finally { await app.close(); }
   });
 
-  it('launcher alias also responds', async () => {
+  it('responds on the canonical path', async () => {
     repo.insert({
       id: 'alias-1', filename: 'a.png', subfolder: '', type: 'output',
       mediaType: 'image', url: '/api/view?filename=a.png', promptId: 'p',
@@ -85,7 +85,7 @@ describe('GET /gallery/:id', () => {
     });
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/launcher/gallery/alias-1`);
+      const res = await fetch(`${app.url}/gallery/alias-1`);
       expect(res.status).toBe(200);
       const body = await res.json() as { id: string };
       expect(body.id).toBe('alias-1');

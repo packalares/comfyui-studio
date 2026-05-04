@@ -23,7 +23,7 @@ import {
 } from './download.service.js';
 import type { CatalogModelEntry } from './download.service.js';
 import {
-  createDownloadTask, getTaskProgress, cancelTask,
+  createDownloadTask, cancelTask,
 } from '../downloadController/downloadController.service.js';
 import { walkAndDownload } from '../downloadController/walker.js';
 import type { UrlSource } from '../../contracts/catalog.contract.js';
@@ -218,16 +218,6 @@ export function cancelDownload(opts: { taskId?: string; modelName?: string }): {
       : { success: false, message: `Cancel failed for ${opts.modelName}` };
   }
   return { success: false, message: 'Missing model name or task ID' };
-}
-
-/** Fetch progress snapshot by taskId (or modelName). Returns null if unknown. */
-export function getProgress(
-  id: string,
-): import('../../contracts/models.contract.js').DownloadProgress | null {
-  const byName = getModelTaskId(id);
-  const task = byName || id;
-  const p = getTaskProgress(task);
-  return p || null;
 }
 
 export { scanInstalledModels };

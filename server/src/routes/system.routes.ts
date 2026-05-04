@@ -1,5 +1,3 @@
-// System + queue + active-downloads snapshot.
-//
 // `/system` is the dashboard aggregator: device stats, queue counters, and the
 // most recent gallery rows. Each source is fetched independently so a partial
 // outage still returns whatever is available.
@@ -8,7 +6,6 @@ import { Router, type Request, type Response } from 'express';
 import * as comfyui from '../services/comfyui.js';
 import * as gallery from '../services/gallery.service.js';
 import * as settings from '../services/settings.js';
-import { getAllDownloads } from '../services/downloads.js';
 import { env } from '../config/env.js';
 
 const router = Router();
@@ -51,21 +48,6 @@ router.get('/system', async (_req: Request, res: Response) => {
     pexelsApiKeyConfigured: settings.isPexelsApiKeyConfigured(),
     uploadMaxBytes: env.UPLOAD_MAX_BYTES,
   });
-});
-
-// Queue status — resilient: returns zeros if ComfyUI is unreachable.
-router.get('/queue', async (_req: Request, res: Response) => {
-  try {
-    const queue = await comfyui.getQueue();
-    res.json(queue);
-  } catch {
-    res.json({ queue_running: 0, queue_pending: 0 });
-  }
-});
-
-// Current in-progress downloads (fallback; WS snapshot on connect is primary).
-router.get('/downloads', (_req: Request, res: Response) => {
-  res.json(getAllDownloads());
 });
 
 export default router;

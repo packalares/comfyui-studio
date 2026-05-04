@@ -74,10 +74,6 @@ export async function getQueuePromptIds(): Promise<Set<string>> {
   return ids;
 }
 
-export async function getHistory(maxItems = 50) {
-  return fetchComfyUI(`/api/history?max_items=${maxItems}`);
-}
-
 /**
  * Fetch one entry from `/api/history/:promptId`. ComfyUI returns a
  * `{ [promptId]: { prompt, outputs, status, ... } }` shape even for the

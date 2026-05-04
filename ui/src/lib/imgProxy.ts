@@ -7,8 +7,8 @@
 //
 // Usage in components: `<img src={imgProxy(imageUrl, 320)}>`. Same-origin
 // paths (anything that starts with `/`) are returned unchanged so locally-
-// served assets like `/api/view` or `/api/template-asset/*` keep working
-// with no round-trip.
+// served assets like `/api/view` or `/api/thumbnail/template/*` keep
+// working with no round-trip.
 
 /**
  * Convert an external image URL into a same-origin thumbnail URL that goes

@@ -1,7 +1,7 @@
-// Tests for the SSRF host-guard used by /launcher/models/download-custom.
+// Tests for the SSRF host-guard used by /models/download-custom.
 
 import { describe, expect, it } from 'vitest';
-import { hostIsPrivate } from '../../src/routes/models.routes.js';
+import { hostIsPrivate } from '../../src/lib/security.js';
 
 describe('hostIsPrivate', () => {
   it('rejects localhost', () => {

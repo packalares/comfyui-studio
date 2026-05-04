@@ -18,6 +18,14 @@ export interface ThumbInlineResult {
   kind: 'inline';
   body: string | Buffer;
   contentType: string;
+  /**
+   * When true, the route layer must serve `Cache-Control: no-store` so a
+   * future fetch sees the real upstream once it appears. Set on placeholder
+   * responses produced when a real source is missing (404, deleted DB row,
+   * absent on-disk file). Permanent inline results (3D Box / audio Music
+   * SVGs) leave this unset and use the standard short cache.
+   */
+  transient?: boolean;
 }
 
 export type ThumbResult = ThumbFileResult | ThumbInlineResult;
@@ -25,6 +33,8 @@ export type ThumbResult = ThumbFileResult | ThumbInlineResult;
 export interface ThumbError {
   code:
     | 'INVALID_WIDTH'
+    | 'INVALID_PATH'
+    | 'INVALID_URL'
     | 'NOT_FOUND'
     | 'HOST_NOT_ALLOWED'
     | 'UPSTREAM_FAILED'
@@ -41,6 +51,8 @@ export function isThumbError(err: unknown): err is ThumbError {
   const code = (err as { code?: unknown }).code;
   return typeof code === 'string' && [
     'INVALID_WIDTH',
+    'INVALID_PATH',
+    'INVALID_URL',
     'NOT_FOUND',
     'HOST_NOT_ALLOWED',
     'UPSTREAM_FAILED',

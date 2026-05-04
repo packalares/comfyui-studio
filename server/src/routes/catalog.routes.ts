@@ -66,25 +66,4 @@ router.get('/models/stats', async (_req: Request, res: Response) => {
   });
 });
 
-// Force-refresh size info for a specific model (or many). Used when the user
-// clicks Download so the size is fresh before the progress bar appears.
-router.post('/models/catalog/refresh-size', async (req: Request, res: Response) => {
-  const { filename, filenames } = (req.body || {}) as {
-    filename?: string;
-    filenames?: string[];
-  };
-  await catalog.seedFromComfyUI();
-  if (filename) {
-    const m = await catalog.refreshSize(filename, { force: true });
-    res.json(m);
-    return;
-  }
-  if (Array.isArray(filenames)) {
-    await catalog.refreshMany(filenames, { force: true, concurrency: 8 });
-    res.json({ ok: true });
-    return;
-  }
-  res.status(400).json({ error: 'provide `filename` or `filenames`' });
-});
-
 export default router;

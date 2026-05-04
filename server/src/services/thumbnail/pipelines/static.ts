@@ -17,10 +17,36 @@ const MUSIC_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" w
   <circle cx="18" cy="16" r="3"/>
 </svg>`;
 
+// Generic "no preview" placeholder. Served by every /thumbnail mode when the
+// source is missing (URL 404, DB row gone, template asset absent). The
+// `transient` flag carries through to the route layer so the response is
+// `Cache-Control: no-store` — the browser will refetch the real bytes on
+// the next render once the upstream file appears.
+const PLACEHOLDER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="320" height="240" preserveAspectRatio="xMidYMid meet" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="background:linear-gradient(135deg,#f1f5f9,#cbd5e1);color:#94a3b8">
+  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+  <circle cx="8.5" cy="9" r="1.5"/>
+  <polyline points="21 15 16 10 5 21"/>
+</svg>`;
+
 export function inlineBoxSvg(): ThumbInlineResult {
   return { kind: 'inline', body: BOX_SVG, contentType: 'image/svg+xml' };
 }
 
 export function inlineMusicSvg(): ThumbInlineResult {
   return { kind: 'inline', body: MUSIC_SVG, contentType: 'image/svg+xml' };
+}
+
+/**
+ * Single source of truth for the "missing source" placeholder consumed by
+ * URL mode, gallery DB mode, and template mode. `transient: true` makes the
+ * route emit `Cache-Control: no-store` so the placeholder isn't cached past
+ * the upstream becoming available.
+ */
+export function thumbnailPlaceholder(): ThumbInlineResult {
+  return {
+    kind: 'inline',
+    body: PLACEHOLDER_SVG,
+    contentType: 'image/svg+xml',
+    transient: true,
+  };
 }
