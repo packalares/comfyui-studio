@@ -8,8 +8,8 @@
 // NOT block waiting for the image URL. Per the phase-2 task, the chat UI
 // can subscribe to gallery events to inject the finished asset later.
 
-import { tool } from 'ai';
 import { z } from 'zod';
+import { defineTool } from './defineTool.js';
 import * as comfyui from '../../comfyui.js';
 import * as templates from '../../templates/index.js';
 import type { FormInputData, RawTemplate } from '../../templates/types.js';
@@ -128,9 +128,13 @@ export interface GenerateImageEnvelope {
 export type GenerateImageOutput = string | GenerateImageEnvelope;
 
 export function generateImageTool(config: GenerateImageConfig) {
-  return tool({
+  return defineTool({
     description: TOOL_DESCRIPTION_GENERATE_IMAGE,
     inputSchema,
+    // Opts the tool into the GPU orchestrator (see services/chat/gpuOrchestrator.ts):
+    // ComfyUI workflows fight Ollama for VRAM on co-located GPUs, so we unload
+    // the LLM before submitting the prompt. Reload happens lazily on the next turn.
+    unloadGpuOnUse: true,
     execute: async ({ prompt }): Promise<GenerateImageOutput> => {
       // Always use the user's configured default. The model has no say —
       // see the inputSchema comment above for context.

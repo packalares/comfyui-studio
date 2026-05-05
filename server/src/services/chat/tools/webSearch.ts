@@ -13,8 +13,8 @@
 // numbered list it has always consumed (the model never reads the side
 // channel — only the `text` round-trips back into the prompt context).
 
-import { tool } from 'ai';
 import { z } from 'zod';
+import { defineTool } from './defineTool.js';
 import { TOOL_DESCRIPTION_WEB_SEARCH } from '../prompts.js';
 
 export interface WebSearchConfig {
@@ -111,7 +111,7 @@ export function _toSources(results: SearxngResult[]): WebSearchSource[] {
 }
 
 export function webSearchTool(config: WebSearchConfig) {
-  return tool({
+  return defineTool({
     description: TOOL_DESCRIPTION_WEB_SEARCH,
     inputSchema,
     execute: async ({ query, max }): Promise<WebSearchOutput> => {

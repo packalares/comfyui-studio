@@ -14,8 +14,8 @@
 // (toolDispatch.toContentString unwraps it), keeping the existing tool-message
 // shape unchanged.
 
-import { tool } from 'ai';
 import { z } from 'zod';
+import { defineTool } from './defineTool.js';
 import { TOOL_DESCRIPTION_RAG_SEARCH, RAG_SEARCH_NO_KB_ERROR } from '../prompts.js';
 
 export interface RagSearchConfig {
@@ -151,7 +151,7 @@ export function formatChunks(chunks: RagflowChunk[], topK: number): string {
 }
 
 export function ragSearchTool(config: RagSearchConfig) {
-  return tool({
+  return defineTool({
     description: TOOL_DESCRIPTION_RAG_SEARCH,
     inputSchema,
     execute: async ({ query, knowledge_base_id, top_k }): Promise<RagSearchOutput> => {

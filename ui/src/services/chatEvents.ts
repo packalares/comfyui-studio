@@ -33,7 +33,7 @@ export interface ChatErrorPayload { msgId: string; error: string }
 // `code` is the canonical tag the UI maps to a localized string;
 // `message` is kept for backwards-compat with anything still emitting a
 // literal. New emit sites should set `code` and leave `message` empty.
-export type ChatStatusCode = 'loading_model' | 'compacting' | 'unknown';
+export type ChatStatusCode = 'loading_model' | 'compacting' | 'freeing_gpu' | 'unknown';
 export interface ChatStatusPayload {
   msgId: string;
   code?: ChatStatusCode;

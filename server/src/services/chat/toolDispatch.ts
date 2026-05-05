@@ -39,6 +39,11 @@ export interface ToolDispatchInput {
   }>;
   executeToolCall: (call: OllamaToolCall)
     => Promise<{ ok: true; output: unknown } | { ok: false; error: string }>;
+  /** GPU-orchestrator hook. Awaited BEFORE each tool dispatch so the unload
+   *  completes before ComfyUI starts grabbing VRAM. Awaiting also means a
+   *  tool that doesn't opt-in pays nothing — the hook short-circuits to a
+   *  resolved Promise. */
+  onBeforeTool?: (toolName: string) => Promise<void>;
   onToolPart: (part: ToolPart) => void;
 }
 
@@ -87,6 +92,12 @@ export async function runToolDispatch(input: ToolDispatchInput): Promise<ToolDis
 
     for (const call of stepResult.toolCalls) {
       const callId = nextCallId();
+      // GPU orchestrator gate — fires only if the named tool is registered
+      // with `unloadGpuOnUse: true` AND the orchestrator's runtime gates
+      // pass (co-located + model loaded). See `gpuOrchestrator.beforeTool`.
+      if (input.onBeforeTool) {
+        await input.onBeforeTool(call.function.name);
+      }
       const exec = await input.executeToolCall(call);
       if (exec.ok) {
         const part: ToolPart = {

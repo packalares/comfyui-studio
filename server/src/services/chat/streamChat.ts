@@ -21,11 +21,12 @@ import {
 import { runOllamaStep } from './ollamaStep.js';
 import { generateSuggestions } from './suggestionGenerator.js';
 import { isModelLoaded } from './ollamaPs.js';
-import { getEnabledTools, filterEnabledTools } from './tools/index.js';
+import { getEnabledTools, filterEnabledTools, toAiSdkToolMap } from './tools/index.js';
 import { toOllamaTools, executeOllamaToolCall } from './ollamaTools.js';
 import { runToolDispatch, type ToolPart } from './toolDispatch.js';
 import { ThinkParser } from './thinkParser.js';
 import { enforceContextStrategy } from './contextEnforce.js';
+import { beforeTool as gpuBeforeTool } from './gpuOrchestrator.js';
 
 // `LOADING_HINT_MS` and `MAX_TOOL_STEPS` are now `settings.chatLoadingHintMs`
 // and `settings.chatMaxToolSteps`. Resolved at call sites below.
@@ -218,13 +219,17 @@ async function runStream(args: RunStreamArgs): Promise<void> {
     const temperature = conv?.temperature ?? undefined;
     const format = conv?.format ?? undefined;
     const enabledTools = filterEnabledTools(getEnabledTools(), enabledToolFilter);
-    const ollamaTools = Object.keys(enabledTools).length > 0
-      ? await toOllamaTools(enabledTools)
+    // Derive an AI-SDK tool map for `toOllamaTools` / `executeOllamaToolCall`
+    // — those helpers consume the bare AI-SDK shape, while `enabledTools`
+    // also carries the Studio metadata the GPU orchestrator needs.
+    const aiSdkTools = toAiSdkToolMap(enabledTools);
+    const ollamaTools = Object.keys(aiSdkTools).length > 0
+      ? await toOllamaTools(aiSdkTools)
       : [];
 
     const dispatch = await runToolDispatch({
       maxSteps: settings.getChatMaxToolSteps(),
-      enabledTools,
+      enabledTools: aiSdkTools,
       ollamaTools,
       runStep: (msgs) => runOllamaStep({
         baseUrl, model, keepAlive, numCtx, thinkMode, temperature, format,
@@ -252,7 +257,19 @@ async function runStream(args: RunStreamArgs): Promise<void> {
           emitChatEvent({ type: 'chat:reasoning', data: { msgId, delta } });
         },
       }),
-      executeToolCall: (call) => executeOllamaToolCall(enabledTools, call),
+      executeToolCall: (call) => executeOllamaToolCall(aiSdkTools, call),
+      onBeforeTool: async (toolName) => {
+        const studioTool = enabledTools[toolName];
+        if (!studioTool) return;
+        await gpuBeforeTool(studioTool, model, {
+          emitStatus: (code, message) => {
+            emitChatEvent({
+              type: 'chat:status',
+              data: { msgId, code, message },
+            });
+          },
+        });
+      },
       onToolPart: (part) => {
         toolParts.push(part);
         emitChatEvent({ type: 'chat:tool', data: { msgId, part } });

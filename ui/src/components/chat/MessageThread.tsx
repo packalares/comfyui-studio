@@ -714,6 +714,10 @@ const STATUS_CODE_LABELS: Record<string, string> = {
   // explains the 2–6s pause; cleared when the first chunk of the
   // assistant reply arrives or the `chat:compacted` event lands.
   compacting: 'Compacting conversation…',
+  // Emitted by the server-side GPU orchestrator just before a GPU-heavy
+  // tool dispatch (e.g. `generate_image`) when Ollama is co-located and
+  // currently loaded. Cleared when the next assistant chunk arrives.
+  freeing_gpu: 'Freeing GPU for tool…',
 };
 
 function ColdLoadLoader() {

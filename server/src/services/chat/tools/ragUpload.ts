@@ -7,8 +7,8 @@
 // drag-and-drop uploads — the LLM's job here is to grab a URL the user
 // already mentioned in conversation and stash it in the KB.
 
-import { tool } from 'ai';
 import { z } from 'zod';
+import { defineTool } from './defineTool.js';
 import { TOOL_DESCRIPTION_RAG_UPLOAD } from '../prompts.js';
 
 export interface RagUploadConfig {
@@ -85,7 +85,7 @@ async function uploadFromUrl(args: UploadArgs): Promise<string> {
 }
 
 export function ragUploadTool(config: RagUploadConfig) {
-  return tool({
+  return defineTool({
     description: TOOL_DESCRIPTION_RAG_UPLOAD,
     inputSchema,
     execute: async ({ file_url, knowledge_base_id }) => {

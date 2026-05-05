@@ -13,17 +13,19 @@ import { ragSearchTool } from './ragSearch.js';
 import { ragUploadTool } from './ragUpload.js';
 import { generateImageTool } from './generateImage.js';
 import { TOOL_LABELS, TOOL_LABEL_DESCRIPTIONS } from '../prompts.js';
+import type { StudioTool } from './defineTool.js';
 
 export type ToolName = 'web_search' | 'rag_search' | 'rag_upload' | 'generate_image';
 
-// Use `unknown` here so the consumer (streamText) widens its TOOLS generic
-// based on whatever subset is configured at call time. Returning a typed
-// union would force the caller to handle every tool's input schema even
-// when only one is present.
-export type EnabledToolMap = Record<string, unknown>;
+// Each entry pairs the AI-SDK tool descriptor (consumed by `streamText` /
+// `toOllamaTools`) with Studio-specific metadata (currently just
+// `unloadGpuOnUse` for the GPU orchestrator). Use `unknown` generics here
+// so callers don't need to handle every tool's input/output shape — the
+// concrete typing lives on each `defineTool()` call site.
+export type EnabledToolMap = Record<string, StudioTool>;
 
 export function getEnabledTools(): EnabledToolMap {
-  const out: Record<string, unknown> = {};
+  const out: EnabledToolMap = {};
   const searx = toolsSettings.getSearxngUrl();
   if (searx) {
     out.web_search = webSearchTool({ baseUrl: searx });
@@ -37,6 +39,17 @@ export function getEnabledTools(): EnabledToolMap {
   const defaultImageTemplate = toolsSettings.getDefaultImageTemplate();
   if (defaultImageTemplate) {
     out.generate_image = generateImageTool({ defaultTemplate: defaultImageTemplate });
+  }
+  return out;
+}
+
+/** Extract the AI-SDK tool records from a StudioTool map. The downstream
+ *  `toOllamaTools` / `executeOllamaToolCall` helpers only consume the AI-SDK
+ *  shape; the orchestrator metadata stays on the StudioTool wrapper. */
+export function toAiSdkToolMap(map: EnabledToolMap): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [name, entry] of Object.entries(map)) {
+    out[name] = entry.tool;
   }
   return out;
 }

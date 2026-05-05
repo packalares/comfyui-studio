@@ -68,7 +68,7 @@ describe('ragSearchTool', () => {
     const t = ragSearchTool({
       baseUrl: 'https://ragflow.example',
       apiKey: 'test-key',
-    }) as { execute: (input: { query: string; knowledge_base_id?: string; top_k?: number }, opts: unknown) => Promise<unknown> };
+    }).tool as unknown as { execute: (input: { query: string; knowledge_base_id?: string; top_k?: number }, opts: unknown) => Promise<unknown> };
     const out = await t.execute({
       query: 'how does olares one ship?',
       knowledge_base_id: 'ds_001',
@@ -95,7 +95,7 @@ describe('ragSearchTool', () => {
     const t = ragSearchTool({
       baseUrl: 'https://ragflow.example',
       apiKey: 'test-key',
-    }) as { execute: (input: { query: string }, opts: unknown) => Promise<unknown> };
+    }).tool as unknown as { execute: (input: { query: string }, opts: unknown) => Promise<unknown> };
     const out = await t.execute({ query: 'no kb provided' }, {});
     const text = envelopeText(out);
     expect(text).toMatch(/knowledge_base_id is required/);
@@ -112,7 +112,7 @@ describe('ragSearchTool', () => {
     const t = ragSearchTool({
       baseUrl: 'https://ragflow.example',
       apiKey: 'test-key',
-    }) as { execute: (input: { query: string; knowledge_base_id: string }, opts: unknown) => Promise<unknown> };
+    }).tool as unknown as { execute: (input: { query: string; knowledge_base_id: string }, opts: unknown) => Promise<unknown> };
     const out = await t.execute({ query: 'x', knowledge_base_id: 'missing' }, {});
     const text = envelopeText(out);
     expect(text).toContain('rag_search failed');

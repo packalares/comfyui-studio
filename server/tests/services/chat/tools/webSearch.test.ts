@@ -68,7 +68,7 @@ describe('webSearchTool', () => {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     }));
-    const t = webSearchTool({ baseUrl: 'https://searx.example' }) as
+    const t = webSearchTool({ baseUrl: 'https://searx.example' }).tool as unknown as
       { execute: (input: { query: string; max?: number }, opts: unknown) => Promise<unknown> };
     const out = await t.execute({ query: 'olares one ai', max: 2 }, {});
     const text = envelopeText(out);
@@ -92,7 +92,7 @@ describe('webSearchTool', () => {
       status: 200,
       headers: { 'Content-Type': 'text/html' },
     }));
-    const t = webSearchTool({ baseUrl: 'https://searx.example' }) as
+    const t = webSearchTool({ baseUrl: 'https://searx.example' }).tool as unknown as
       { execute: (input: { query: string }, opts: unknown) => Promise<unknown> };
     const out = await t.execute({ query: 'hello' }, {});
     const text = envelopeText(out);
@@ -103,7 +103,7 @@ describe('webSearchTool', () => {
   it('returns a structured failure when SearXNG is unreachable', async () => {
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
     fetchMock.mockRejectedValueOnce(new Error('connect ECONNREFUSED'));
-    const t = webSearchTool({ baseUrl: 'https://searx.example' }) as
+    const t = webSearchTool({ baseUrl: 'https://searx.example' }).tool as unknown as
       { execute: (input: { query: string }, opts: unknown) => Promise<unknown> };
     const out = await t.execute({ query: 'hello' }, {});
     const text = envelopeText(out);
@@ -117,7 +117,7 @@ describe('webSearchTool', () => {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     }));
-    const t = webSearchTool({ baseUrl: 'https://searx.example' }) as
+    const t = webSearchTool({ baseUrl: 'https://searx.example' }).tool as unknown as
       { execute: (input: { query: string }, opts: unknown) => Promise<unknown> };
     const out = await t.execute({ query: 'nothing here' }, {});
     const text = envelopeText(out);
