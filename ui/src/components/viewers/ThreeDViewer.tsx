@@ -37,13 +37,13 @@ export default function ThreeDViewer({ src, alt, className, autoRotate = true }:
 
   if (err) {
     return (
-      <div className={`flex flex-col items-center justify-center gap-2 bg-slate-100 text-slate-500 ${className ?? ''}`}>
+      <div className={`flex flex-col items-center justify-center gap-2 bg-muted text-muted-foreground ${className ?? ''}`}>
         <Box className="w-10 h-10 opacity-40" />
         <p className="text-xs">3D viewer failed to load</p>
         <a
           href={src}
           download
-          className="text-xs text-teal-600 underline"
+          className="text-xs text-brand underline"
         >Download .glb</a>
       </div>
     );
@@ -51,8 +51,8 @@ export default function ThreeDViewer({ src, alt, className, autoRotate = true }:
 
   if (!ready) {
     return (
-      <div className={`flex items-center justify-center bg-slate-50 ${className ?? ''}`}>
-        <Box className="w-10 h-10 text-slate-300 animate-pulse" />
+      <div className={`flex items-center justify-center bg-muted ${className ?? ''}`}>
+        <Box className="w-10 h-10 text-muted-foreground animate-pulse" />
       </div>
     );
   }
@@ -73,7 +73,7 @@ export default function ThreeDViewer({ src, alt, className, autoRotate = true }:
       exposure="1.0"
       shadow-intensity="0.6"
       shadow-softness="0.8"
-      style={{ width: '100%', height: '100%', background: '#f8fafc' }}
+      style={{ width: '100%', height: '100%', background: 'var(--muted)' }}
       className={className}
     />
   );

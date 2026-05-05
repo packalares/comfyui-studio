@@ -75,7 +75,7 @@ export default function ChatToolsPopover({ enabled, onChange }: Props) {
         <button
           type="button"
           aria-label="Tools"
-          className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40 transition"
+          className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 transition"
         >
           <Wrench className="h-3.5 w-3.5" />
           <span>Tools</span>
@@ -85,18 +85,18 @@ export default function ChatToolsPopover({ enabled, onChange }: Props) {
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 p-2">
-        <div className="mb-2 flex items-center justify-between px-1 text-[11px] uppercase tracking-wide text-slate-500">
+        <div className="mb-2 flex items-center justify-between px-1 text-[11px] uppercase tracking-wide text-muted-foreground">
           <span>Tools the model can call</span>
           <div className="flex items-center gap-1 normal-case">
             <button
               type="button"
-              className="text-teal-700 hover:underline"
+              className="text-brand hover:underline"
               onClick={selectAll}
             >All</button>
-            <span className="text-slate-300">|</span>
+            <span className="text-muted-foreground">|</span>
             <button
               type="button"
-              className="text-slate-600 hover:underline"
+              className="text-foreground hover:underline"
               onClick={clearAll}
             >None</button>
           </div>
@@ -111,21 +111,21 @@ export default function ChatToolsPopover({ enabled, onChange }: Props) {
                   type="button"
                   onClick={() => toggle(t.name)}
                   className={`flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
-                    on ? 'bg-teal-50 hover:bg-teal-100' : 'hover:bg-slate-50'
+                    on ? 'bg-brand/10 hover:bg-brand/20' : 'hover:bg-muted'
                   }`}
                 >
-                  <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${on ? 'text-teal-700' : 'text-slate-500'}`} />
+                  <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${on ? 'text-brand' : 'text-muted-foreground'}`} />
                   <div className="flex-1 min-w-0">
-                    <div className={`text-xs font-medium ${on ? 'text-teal-900' : 'text-slate-800'}`}>
+                    <div className={`text-xs font-medium ${on ? 'text-brand' : 'text-foreground'}`}>
                       {t.label}
                     </div>
-                    <div className="text-[11px] leading-snug text-slate-500">
+                    <div className="text-[11px] leading-snug text-muted-foreground">
                       {t.description}
                     </div>
                   </div>
                   <span
                     aria-hidden
-                    className={`mt-1 h-2 w-2 shrink-0 rounded-full ${on ? 'bg-teal-500' : 'bg-slate-300'}`}
+                    className={`mt-1 h-2 w-2 shrink-0 rounded-full ${on ? 'bg-brand' : 'bg-muted-foreground'}`}
                   />
                 </button>
               </li>

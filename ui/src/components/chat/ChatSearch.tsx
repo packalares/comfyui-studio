@@ -76,7 +76,7 @@ export default function ChatSearch({ onSelect }: Props) {
     <Popover open={dropdownOpen} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <div className="relative flex-1 max-w-xs">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
           <input
             type="text"
             placeholder="Search conversations..."
@@ -91,7 +91,7 @@ export default function ChatSearch({ onSelect }: Props) {
             <button
               type="button"
               onClick={() => { setQuery(''); setOpen(false); }}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
               aria-label="Clear search"
             >
               <X className="w-3.5 h-3.5" />
@@ -109,10 +109,10 @@ export default function ChatSearch({ onSelect }: Props) {
       >
         {loading && results.length === 0 ? (
           <div className="flex items-center justify-center py-4">
-            <Spinner size="sm" className="text-slate-400" />
+            <Spinner size="sm" className="text-muted-foreground" />
           </div>
         ) : results.length === 0 ? (
-          <div className="px-3 py-3 text-xs text-slate-500 text-center">
+          <div className="px-3 py-3 text-xs text-muted-foreground text-center">
             No conversations match "{trimmed}".
           </div>
         ) : (
@@ -128,7 +128,7 @@ export default function ChatSearch({ onSelect }: Props) {
                     <div className="chat-list-item-title">{c.title || 'Untitled'}</div>
                     <div className="chat-list-item-meta">
                       <span className="font-mono">{c.model}</span>
-                      <span className="text-slate-300 px-1">·</span>
+                      <span className="text-muted-foreground px-1">·</span>
                       <span>{formatRelative(c.updated_at)}</span>
                     </div>
                   </div>

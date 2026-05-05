@@ -68,7 +68,7 @@ export default function Navbar() {
       return (
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className={`${PILL_BASE} rounded-full bg-slate-50 text-slate-500 border border-slate-200`}>
+            <div className={`${PILL_BASE} rounded-full bg-muted text-muted-foreground border`}>
               <Spinner size="xs" />
               Checking…
             </div>
@@ -81,7 +81,7 @@ export default function Navbar() {
       return (
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className={`${PILL_BASE} rounded-full bg-amber-50 text-amber-700 border border-amber-200`}>
+            <div className={`${PILL_BASE} rounded-full bg-warning/10 text-warning border border-warning/30`}>
               <Spinner size="xs" />
               Starting…
             </div>
@@ -101,7 +101,7 @@ export default function Navbar() {
               href={editorHref()}
               target="_blank"
               rel="noopener noreferrer"
-              className={`${PILL_BASE} rounded-l-full rounded-r-none bg-green-50 text-green-700 border border-green-200 border-r-0 hover:bg-green-100`}
+              className={`${PILL_BASE} rounded-l-full rounded-r-none bg-success/10 text-success border border-success/30 border-r-0 hover:bg-success/20`}
             >
               <Wifi className="w-3 h-3" />
               Connected
@@ -117,7 +117,7 @@ export default function Navbar() {
         <TooltipTrigger asChild>
           <button
             onClick={handleStart}
-            className={`${PILL_BASE} rounded-full bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 cursor-pointer`}
+            className={`${PILL_BASE} rounded-full bg-destructive/10 text-destructive border border-destructive/30 hover:bg-destructive/20 cursor-pointer`}
           >
             <WifiOff className="w-3 h-3" />
             Start ComfyUI
@@ -129,12 +129,12 @@ export default function Navbar() {
   })();
 
   return (
-    <nav className="sticky top-0 z-50 bg-white border-b border-gray-200">
+    <nav className="sticky top-0 z-50 bg-card border-b">
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6">
         <div className="flex items-center justify-between h-14">
           <div className="flex items-center gap-8">
-            <NavLink to="/" className="flex items-center gap-2 font-semibold text-lg text-gray-900">
-              <Wand2 className="w-5 h-5 text-blue-600" />
+            <NavLink to="/" className="flex items-center gap-2 font-semibold text-lg text-foreground">
+              <Wand2 className="w-5 h-5 text-brand" />
               <span>ComfyUI Studio</span>
             </NavLink>
             <div className="hidden md:flex items-center gap-1">
@@ -146,8 +146,8 @@ export default function Navbar() {
                   className={({ isActive }) =>
                     `flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                       isActive
-                        ? 'bg-blue-50 text-blue-700'
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                        ? 'bg-brand/10 text-brand'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                     }`
                   }
                 >
@@ -181,12 +181,12 @@ export default function Navbar() {
 
       {/* Mobile drawer — overlays content, fades in */}
       <div
-        className={`md:hidden absolute left-0 right-0 top-full border-t border-gray-100 bg-white shadow-lg transition-all duration-200 ${
+        className={`md:hidden absolute left-0 right-0 top-full border-t bg-card shadow-lg transition-all duration-200 ${
           menuOpen ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 -translate-y-2 pointer-events-none'
         }`}
       >
-        <div className="px-3 py-3 border-b border-gray-100 flex items-center justify-between">
-          <span className="text-xs font-medium text-gray-500">Status</span>
+        <div className="px-3 py-3 border-b flex items-center justify-between">
+          <span className="text-xs font-medium text-muted-foreground">Status</span>
           {statusPill}
         </div>
         <div className="px-2 py-2 space-y-1">
@@ -199,8 +199,8 @@ export default function Navbar() {
               className={({ isActive }) =>
                 `flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                   isActive
-                    ? 'bg-blue-50 text-blue-700'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                    ? 'bg-brand/10 text-brand'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                 }`
               }
             >

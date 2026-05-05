@@ -53,11 +53,11 @@ export function Combobox({
           aria-expanded={open}
           disabled={disabled}
           className={cn(
-            'flex h-9 w-full items-center justify-between rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-[12px] text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:opacity-50',
+            'flex h-9 w-full items-center justify-between rounded-md border border-input bg-card px-2.5 py-1.5 text-[12px] text-foreground transition-colors hover:bg-muted focus:outline-none focus:border-brand disabled:cursor-not-allowed disabled:opacity-50',
             className,
           )}
         >
-          <span className={cn('truncate', !selected && 'text-slate-400')}>
+          <span className={cn('truncate', !selected && 'text-muted-foreground')}>
             {selected ? selected.label : placeholder}
           </span>
           <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
@@ -80,7 +80,7 @@ export function Combobox({
                 >
                   <Check
                     className={cn(
-                      'mr-2 h-4 w-4 text-teal-600',
+                      'mr-2 h-4 w-4 text-brand',
                       opt.value === value ? 'opacity-100' : 'opacity-0',
                     )}
                   />

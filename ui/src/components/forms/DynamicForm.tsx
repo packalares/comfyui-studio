@@ -39,7 +39,7 @@ export default function DynamicForm({ inputs, values, onChange }: Props) {
 
   if (inputs.length === 0) {
     return (
-      <p className="text-sm text-slate-400 py-4">No parameters for this template.</p>
+      <p className="text-sm text-muted-foreground py-4">No parameters for this template.</p>
     );
   }
 
@@ -66,7 +66,7 @@ export default function DynamicForm({ inputs, values, onChange }: Props) {
         </div>
       )}
       {buckets.toggle.length > 0 && (
-        <div className="space-y-2 pt-2 border-t border-slate-100">
+        <div className="space-y-2 pt-2 border-t">
           {buckets.toggle.map(renderField)}
         </div>
       )}

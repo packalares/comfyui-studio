@@ -26,21 +26,11 @@ function getSubtitle(template: TemplateSummary): string {
   return template.mediaType;
 }
 
-function getInitialColor(name: string): string {
-  const colors = [
-    'bg-blue-100 text-blue-700',
-    'bg-teal-100 text-teal-700',
-    'bg-purple-100 text-purple-700',
-    'bg-orange-100 text-orange-700',
-    'bg-pink-100 text-pink-700',
-    'bg-green-100 text-green-700',
-    'bg-indigo-100 text-indigo-700',
-  ];
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return colors[Math.abs(hash) % colors.length];
+// Avatar palette collapsed to neutral chrome: the model NAME differentiates
+// rows; the avatar tile is just a recognizable initial. Selected row gets
+// the brand accent so the active state still pops.
+function getAvatarClass(isSelected: boolean): string {
+  return isSelected ? 'bg-brand/10 text-brand' : 'bg-muted text-muted-foreground';
 }
 
 /**
@@ -59,7 +49,7 @@ export default function ModelDropdown({ templates, selected, onSelect }: Props) 
   );
 
   const selectedInitialColor = useMemo(
-    () => (selectedTemplate ? getInitialColor(selectedTemplate.title) : ''),
+    () => (selectedTemplate ? getAvatarClass(true) : ''),
     [selectedTemplate],
   );
 
@@ -73,7 +63,7 @@ export default function ModelDropdown({ templates, selected, onSelect }: Props) 
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="w-full flex items-center gap-2.5 px-3 py-2.5 bg-white border border-gray-300 rounded-lg hover:border-gray-400 transition-colors text-left"
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 bg-card border border-input rounded-lg hover:border-input transition-colors text-left"
         >
           {selectedTemplate ? (
             <>
@@ -81,14 +71,14 @@ export default function ModelDropdown({ templates, selected, onSelect }: Props) 
                 {getInitial(selectedTemplate.title)}
               </span>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">{selectedTemplate.title}</p>
-                <p className="text-[11px] text-gray-500 truncate">{getSubtitle(selectedTemplate)}</p>
+                <p className="text-sm font-medium text-foreground truncate">{selectedTemplate.title}</p>
+                <p className="text-[11px] text-muted-foreground truncate">{getSubtitle(selectedTemplate)}</p>
               </div>
             </>
           ) : (
-            <span className="text-sm text-gray-400 flex-1">Select a model...</span>
+            <span className="text-sm text-muted-foreground flex-1">Select a model...</span>
           )}
-          <ChevronDown className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+          <ChevronDown className={`w-4 h-4 text-muted-foreground flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -110,25 +100,25 @@ export default function ModelDropdown({ templates, selected, onSelect }: Props) 
             <CommandEmpty>No models found</CommandEmpty>
             <CommandGroup>
               {templates.map(t => {
-                const color = getInitialColor(t.title);
                 const searchCorpus = `${t.title} ${t.models.join(' ')}`;
                 const isSelected = t.name === selected;
+                const color = getAvatarClass(isSelected);
                 return (
                   <CommandItem
                     key={t.name}
                     value={searchCorpus}
                     onSelect={() => handleSelect(t.name)}
-                    className={`flex items-center gap-2.5 px-3 py-2.5 ${isSelected ? 'bg-teal-50' : ''}`}
+                    className={`flex items-center gap-2.5 px-3 py-2.5 ${isSelected ? 'bg-brand/10' : ''}`}
                   >
                     <span className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${color}`}>
                       {getInitial(t.title)}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{t.title}</p>
-                      <p className="text-[11px] text-gray-500 truncate">{getSubtitle(t)}</p>
+                      <p className="text-sm font-medium text-foreground truncate">{t.title}</p>
+                      <p className="text-[11px] text-muted-foreground truncate">{getSubtitle(t)}</p>
                     </div>
                     {t.models.length > 0 && (
-                      <span className="text-[10px] font-medium text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded flex-shrink-0">
+                      <span className="text-[10px] font-medium text-brand bg-brand/10 px-1.5 py-0.5 rounded flex-shrink-0">
                         {t.models[0]}
                       </span>
                     )}

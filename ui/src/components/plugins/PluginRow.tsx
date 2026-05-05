@@ -57,13 +57,13 @@ function PluginRowInner({
   const repoUrl = plugin.repository || plugin.github || '';
 
   return (
-    <div className="border-b border-slate-100 last:border-b-0">
+    <div className="border-b last:border-b-0">
       <div
-        className="flex items-start gap-3 px-3 py-2.5 hover:bg-slate-50 transition-colors cursor-pointer"
+        className="flex items-start gap-3 px-3 py-2.5 hover:bg-muted transition-colors cursor-pointer"
         onClick={() => setExpanded((e) => !e)}
       >
         <button
-          className="mt-0.5 text-slate-400 hover:text-slate-700 shrink-0"
+          className="mt-0.5 text-muted-foreground hover:text-foreground shrink-0"
           aria-label={expanded ? 'Collapse' : 'Expand'}
           onClick={(e) => {
             e.stopPropagation();
@@ -74,17 +74,17 @@ function PluginRowInner({
         </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-sm font-semibold text-slate-900 truncate" title={plugin.name}>
+            <p className="text-sm font-semibold text-foreground truncate" title={plugin.name}>
               {plugin.name || plugin.id}
             </p>
-            <span className="text-[11px] text-slate-500 font-mono">{plugin.version}</span>
+            <span className="text-[11px] text-muted-foreground font-mono">{plugin.version}</span>
             {statusBadge(plugin)}
             {plugin.github_stars ? (
-              <span className="text-[11px] text-slate-400">★ {plugin.github_stars}</span>
+              <span className="text-[11px] text-muted-foreground">★ {plugin.github_stars}</span>
             ) : null}
           </div>
           {plugin.author && (
-            <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+            <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
               by {plugin.author}
             </p>
           )}
@@ -92,7 +92,7 @@ function PluginRowInner({
         <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
           {plugin.installed ? (
             <>
-              <label className="flex items-center gap-1.5 text-[11px] text-slate-500">
+              <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                 <Switch
                   checked={!plugin.disabled}
                   onCheckedChange={(checked) => onToggle(plugin, checked)}
@@ -119,7 +119,7 @@ function PluginRowInner({
                     />
                     <div
                       role="menu"
-                      className="absolute right-0 top-full mt-1 z-30 w-48 rounded-md border border-slate-200 bg-white shadow-lg py-1"
+                      className="absolute right-0 top-full mt-1 z-30 w-48 rounded-md border bg-popover shadow-lg py-1"
                     >
                       <button
                         role="menuitem"
@@ -128,7 +128,7 @@ function PluginRowInner({
                           onSwitchVersion(plugin);
                         }}
                         disabled={!plugin.versions || plugin.versions.length === 0}
-                        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <GitBranch className="w-3.5 h-3.5" />
                         Switch version
@@ -139,7 +139,7 @@ function PluginRowInner({
                           setMenuOpen(false);
                           onUninstall(plugin);
                         }}
-                        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50"
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                         Uninstall
@@ -164,15 +164,15 @@ function PluginRowInner({
       {expanded && (
         <div className="px-8 pb-3 pt-0 space-y-2">
           {plugin.description && (
-            <p className="text-[12px] text-slate-600 whitespace-pre-line">{plugin.description}</p>
+            <p className="text-[12px] text-foreground whitespace-pre-line">{plugin.description}</p>
           )}
-          <div className="flex items-center gap-3 flex-wrap text-[11px] text-slate-500">
+          <div className="flex items-center gap-3 flex-wrap text-[11px] text-muted-foreground">
             {repoUrl && (
               <a
                 href={repoUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-teal-600 hover:text-teal-700 hover:underline font-mono truncate"
+                className="inline-flex items-center gap-1 text-brand hover:text-brand/90 hover:underline font-mono truncate"
               >
                 <ExternalLink className="w-3 h-3" />
                 {repoUrl.replace(/^https?:\/\//, '')}

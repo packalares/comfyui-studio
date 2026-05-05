@@ -45,9 +45,9 @@ export default function Pagination({
 
   return (
     <div
-      className={`flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-2 ${className}`}
+      className={`flex flex-wrap items-center justify-between gap-3 border-t bg-muted px-4 py-2 ${className}`}
     >
-      <div className="flex items-center gap-2 text-xs text-slate-600">
+      <div className="flex items-center gap-2 text-xs text-foreground">
         <span>Rows per page</span>
         <SelectField
           value={String(pageSize)}
@@ -66,12 +66,12 @@ export default function Pagination({
         </SelectField>
       </div>
 
-      <div className="flex items-center gap-3 text-xs text-slate-600">
+      <div className="flex items-center gap-3 text-xs text-foreground">
         <span aria-live="polite">
-          Page <span className="font-semibold text-slate-900">{safePage}</span> of{' '}
-          <span className="font-semibold text-slate-900">{totalPages}</span>
+          Page <span className="font-semibold text-foreground">{safePage}</span> of{' '}
+          <span className="font-semibold text-foreground">{totalPages}</span>
           {total > 0 && (
-            <span className="text-slate-400"> · {total.toLocaleString()} total</span>
+            <span className="text-muted-foreground"> · {total.toLocaleString()} total</span>
           )}
         </span>
         <div className="flex items-center gap-1">

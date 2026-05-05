@@ -61,7 +61,7 @@ export default function Actions({ text, onRegenerate, onDelete }: Props) {
                 className="chat-action-btn"
               >
                 {copied
-                  ? <Check className="h-3.5 w-3.5 text-emerald-600" />
+                  ? <Check className="h-3.5 w-3.5 text-success" />
                   : <Copy className="h-3.5 w-3.5" />}
               </button>
             </TooltipTrigger>

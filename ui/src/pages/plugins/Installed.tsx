@@ -152,7 +152,7 @@ export default function Installed() {
       <Card>
         <div className="flex flex-col md:flex-row md:items-center gap-2 p-3">
           <div className="flex-1 field-wrap">
-            <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
             <input
               type="text"
               placeholder="Search plugins by name, author, or tag…"
@@ -199,7 +199,7 @@ export default function Installed() {
       </Card>
 
       {error && (
-        <div className="rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 flex items-center gap-2 text-xs text-rose-700">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 flex items-center gap-2 text-xs text-destructive">
           <AlertTriangle className="h-3.5 w-3.5" />
           {error}
         </div>
@@ -209,18 +209,18 @@ export default function Installed() {
       <Card>
         <CardHeader className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <PackageIcon className="w-3.5 h-3.5 text-slate-400" />
-            <h2 className="text-sm font-semibold text-slate-900">
+            <PackageIcon className="w-3.5 h-3.5 text-muted-foreground" />
+            <h2 className="text-sm font-semibold text-foreground">
               Plugins ({plugins.length} of {total})
               {filter === 'all' && installedOnPage > 0 && (
-                <span className="text-slate-400 font-normal"> · {installedOnPage} installed on this page</span>
+                <span className="text-muted-foreground font-normal"> · {installedOnPage} installed on this page</span>
               )}
             </h2>
           </div>
         </CardHeader>
         {loading && plugins.length === 0 ? (
           <CardContent className="flex items-center justify-center py-10">
-            <Spinner size="lg" className="text-slate-400" />
+            <Spinner size="lg" className="text-muted-foreground" />
           </CardContent>
         ) : plugins.length === 0 ? (
           <CardContent>

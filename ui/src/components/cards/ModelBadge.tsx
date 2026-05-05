@@ -7,13 +7,13 @@ export default function ModelBadge({ name, installed }: Props) {
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium ${
       installed === false
-        ? 'bg-red-50 text-red-600 border border-red-200'
+        ? 'bg-destructive/10 text-destructive border border-destructive/30'
         : installed === true
-        ? 'bg-green-50 text-green-700 border border-green-200'
-        : 'bg-blue-50 text-blue-700 border border-blue-200'
+        ? 'bg-success/10 text-success border border-success/30'
+        : 'bg-muted text-muted-foreground border'
     }`}>
       {installed !== undefined && (
-        <span className={`w-1.5 h-1.5 rounded-full ${installed ? 'bg-green-500' : 'bg-red-400'}`} />
+        <span className={`w-1.5 h-1.5 rounded-full ${installed ? 'bg-success' : 'bg-destructive'}`} />
       )}
       {name}
     </span>

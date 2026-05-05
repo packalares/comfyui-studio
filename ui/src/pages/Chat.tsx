@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Boxes, MessageSquare } from 'lucide-react';
 import { toast } from 'sonner';
 import { useChat } from '@ai-sdk/react';
@@ -44,8 +44,15 @@ export interface DraftOverrides {
 // `EMPTY_STATE_PROMPTS` is imported at the top of this file from
 // `../config/chat-suggestions` and renders as the empty-state hero pills.
 
+const LAST_CHAT_KEY = 'chat:lastConversationId';
+
 export default function Chat() {
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  // URL is the source of truth for which conversation is active. /chat (no
+  // param) means "no active chat" — empty state. /chat/c/:chatId means
+  // "this chat is active". Sidebar links + new-chat starts both navigate.
+  const { chatId } = useParams<{ chatId?: string }>();
+  const navigate = useNavigate();
+  const conversationId = chatId ?? null;
   const [installed, setInstalled] = useState<OllamaInstalledModel[]>([]);
   // True until the first installed-models fetch resolves (success or error).
   // The composer shows a skeleton in the model-picker pill during this window
@@ -117,6 +124,36 @@ export default function Chat() {
   const draftOverridesRef = useRef<DraftOverrides>({});
   useEffect(() => { draftOverridesRef.current = draftOverrides; }, [draftOverrides]);
 
+  // /chat (no chatId) → redirect to last-opened conversation if we have one
+  // saved, else stay on the empty-state page. Verifies the stored id still
+  // exists on the server before redirecting; a deleted conv falls through
+  // to the empty state. Runs once on mount when chatId is undefined.
+  useEffect(() => {
+    if (chatId !== undefined) return;
+    if (typeof window === 'undefined') return;
+    const last = window.localStorage.getItem(LAST_CHAT_KEY);
+    if (!last) return;
+    let cancelled = false;
+    api.chat.getConversation(last)
+      .then(() => { if (!cancelled) navigate(`/chat/c/${last}`, { replace: true }); })
+      .catch(() => {
+        // Stale id — drop it so we don't keep retrying on every /chat visit.
+        try { window.localStorage.removeItem(LAST_CHAT_KEY); } catch { /* ignore */ }
+      });
+    return () => { cancelled = true; };
+    // Intentionally only on mount — we don't want to re-redirect after the
+    // user explicitly clicks "New chat" (which navigates to /chat).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist the active conversation id so the next visit to /chat lands
+  // back on it. Cleared from storage when chatId becomes undefined via
+  // explicit New-chat — the redirect effect above only fires on mount.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (chatId) window.localStorage.setItem(LAST_CHAT_KEY, chatId);
+  }, [chatId]);
+
   // Refs used by `StudioTransport` so the transport always reads the latest
   // conversationId / model without forcing a recreate on every change. The
   // page-state setters update the refs synchronously below.
@@ -135,11 +172,13 @@ export default function Chat() {
     enabledToolsRef,
     draftOverridesRef,
     onConversationStarted: (cid) => {
-      // First send in a new conversation - server minted the id; surface it
-      // up to the page state + sidebar refresh.
+      // First send in a new conversation — server minted the id; reflect
+      // it in the URL (replace, not push, so Back doesn't return to a
+      // half-empty /chat). The useParams-driven render picks up the new
+      // chatId and the existing message-load effect kicks in.
       if (conversationIdRef.current !== cid) {
         conversationIdRef.current = cid;
-        setConversationId(cid);
+        navigate(`/chat/c/${cid}`, { replace: true });
         setListKey(k => k + 1);
         // Drafts now live on the new server-side conversation row; clear
         // local copies so subsequent meter writes go straight to the API.
@@ -341,10 +380,9 @@ export default function Chat() {
   }, [busy, stop]);
 
   const handleNew = () => {
-    setConversationId(null);
-    setMessages([]);
     setStreamError('');
     setAttachments([]);
+    navigate('/chat');
   };
 
   // Click handler for the static <Suggestion> follow-up buttons under the
@@ -406,11 +444,11 @@ export default function Chat() {
             two side-by-side panels). */}
         <Card>
           <div className="flex flex-col md:flex-row h-[calc(100vh-9rem)] min-h-0">
-            <aside className="w-full md:w-[280px] shrink-0 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col min-h-0">
+            <aside className="w-full md:w-[280px] shrink-0 border-b md:border-b-0 md:border-r flex flex-col min-h-0">
               <ConversationList
                 activeId={conversationId}
                 refreshKey={listKey}
-                onSelect={setConversationId}
+                onSelect={(id) => navigate(`/chat/c/${id}`)}
                 onNew={handleNew}
               />
             </aside>
@@ -420,7 +458,7 @@ export default function Chat() {
                   picks a conversation; the meter shows 0% as a placeholder
                   when there's no usage data yet. */}
               <div className="chat-topbar">
-                <ChatSearch onSelect={(id) => setConversationId(id)} />
+                <ChatSearch onSelect={(id) => navigate(`/chat/c/${id}`)} />
                 <div role="tablist" aria-label="Chat section" className="tab-strip">
                   <button role="tab" aria-selected="true" className="tab-strip-item is-active">
                     <MessageSquare className="w-3 h-3" />
@@ -480,7 +518,7 @@ export default function Chat() {
                    their first message we drop into the standard thread layout
                    above. */
                 <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-8 overflow-y-auto">
-                  <h1 className="text-2xl font-medium text-slate-700">What can I help with?</h1>
+                  <h1 className="text-2xl font-medium text-foreground">What can I help with?</h1>
                   <div className="w-full max-w-4xl">
                     <Composer
                       centered

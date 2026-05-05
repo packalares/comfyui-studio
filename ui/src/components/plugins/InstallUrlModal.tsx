@@ -119,7 +119,7 @@ export default function InstallUrlModal({
           </div>
         )}
         {error && (
-          <p className="text-xs text-rose-600 rounded-md bg-rose-50 border border-rose-100 px-2 py-1.5">
+          <p className="text-xs text-destructive rounded-md bg-destructive/10 border border-destructive/30 px-2 py-1.5">
             {error}
           </p>
         )}

@@ -673,7 +673,7 @@ export default function Models() {
         <Card>
           <div className="flex flex-col lg:flex-row min-h-[calc(100vh-180px)] relative">
             {/* ===== Left sidebar (Models tab only) ===== */}
-            <aside className={`${tab === 'models' ? '' : 'hidden'} ${filtersOpen ? 'block' : 'hidden'} lg:block w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 p-4 space-y-5 bg-white ${tab !== 'models' ? 'lg:hidden' : ''}`}>
+            <aside className={`${tab === 'models' ? '' : 'hidden'} ${filtersOpen ? 'block' : 'hidden'} lg:block w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r p-4 space-y-5 bg-card ${tab !== 'models' ? 'lg:hidden' : ''}`}>
               {/* Source — local catalog vs. CivitAI remote search. */}
               <div>
                 <label className="field-label mb-1.5 block">Source</label>
@@ -708,7 +708,7 @@ export default function Models() {
                     </SelectContent>
                   </SelectField>
                   {civitaiFeed === 'search' && !debouncedSearch.trim() && (
-                    <p className="mt-1.5 text-[11px] text-slate-500">
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">
                       Type a query in the Search box above to run a CivitAI search.
                     </p>
                   )}
@@ -785,7 +785,7 @@ export default function Models() {
                         {uniqueTypes.map(type => (
                           <label
                             key={type}
-                            className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer select-none hover:text-slate-900"
+                            className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none hover:text-foreground"
                           >
                             <Checkbox
                               checked={typeFilter.has(type)}
@@ -805,23 +805,23 @@ export default function Models() {
                   and would conflict with the local catalog totals shown
                   here. */}
               {source !== 'ollama' && (
-                <div className="pt-4 border-t border-slate-200">
+                <div className="pt-4 border-t">
                   <label className="field-label mb-2 block">Storage</label>
-                  <div className="divide-y divide-slate-100 rounded-lg ring-1 ring-inset ring-slate-200 overflow-hidden bg-white">
+                  <div className="divide-y rounded-lg ring-1 ring-inset ring-border/60 overflow-hidden bg-card">
                     <div className="flex items-center gap-2 px-3 py-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                      <span className="text-xs text-slate-600 flex-1">Installed</span>
-                      <span className="font-mono text-sm font-semibold text-slate-900">{installedCount}</span>
+                      <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
+                      <span className="text-xs text-muted-foreground flex-1">Installed</span>
+                      <span className="font-mono text-sm font-semibold text-foreground">{installedCount}</span>
                     </div>
                     <div className="flex items-center gap-2 px-3 py-2">
-                      <Package className="w-4 h-4 text-slate-500 shrink-0" />
-                      <span className="text-xs text-slate-600 flex-1">Available</span>
-                      <span className="font-mono text-sm font-semibold text-slate-900">{stats?.available ?? 0}</span>
+                      <Package className="w-4 h-4 text-muted-foreground shrink-0" />
+                      <span className="text-xs text-muted-foreground flex-1">Available</span>
+                      <span className="font-mono text-sm font-semibold text-foreground">{stats?.available ?? 0}</span>
                     </div>
                     <div className="flex items-center gap-2 px-3 py-2">
-                      <HardDrive className="w-4 h-4 text-teal-600 shrink-0" />
-                      <span className="text-xs text-slate-600 flex-1">Disk usage</span>
-                      <span className="font-mono text-sm font-semibold text-slate-900">{formatBytes(totalDiskSize)}</span>
+                      <HardDrive className="w-4 h-4 text-brand shrink-0" />
+                      <span className="text-xs text-muted-foreground flex-1">Disk usage</span>
+                      <span className="font-mono text-sm font-semibold text-foreground">{formatBytes(totalDiskSize)}</span>
                     </div>
                   </div>
                 </div>
@@ -843,7 +843,7 @@ export default function Models() {
                 {tab === 'models' && (
                   <>
                     <div className="flex-1 field-wrap">
-                      <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                       <input
                         type="text"
                         className="field-input"
@@ -856,7 +856,7 @@ export default function Models() {
                           type="button"
                           onClick={() => setSearch('')}
                           aria-label="Clear search"
-                          className="shrink-0 text-slate-400 hover:text-slate-700 transition-colors"
+                          className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -897,7 +897,7 @@ export default function Models() {
                     disabled={rescanning}
                     aria-label="Rescan models on disk"
                     title="Rescan model files on disk"
-                    className="tab-strip-item text-teal-700 hover:text-teal-800 hover:bg-teal-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="tab-strip-item text-brand hover:opacity-80 hover:bg-brand/10 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${rescanning ? 'animate-spin' : ''}`} />
                     {rescanning ? 'Rescanning…' : 'Rescan'}
@@ -911,8 +911,8 @@ export default function Models() {
               <>
               {/* Download All Missing banner — local catalog only. */}
               {source === 'local' && selectedWorkflow && missingInFilter > 0 && (
-                <div className="flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-lg mb-4">
-                  <span className="text-sm text-amber-800">
+                <div className="flex items-center justify-between p-3 bg-warning/10 border border-warning/30 rounded-lg mb-4">
+                  <span className="text-sm text-warning">
                     <strong>{missingInFilter}</strong> models required by{' '}
                     {templates.find(t => t.name === selectedWorkflow)?.title || selectedWorkflow} are not installed
                   </span>
@@ -931,22 +931,22 @@ export default function Models() {
                 // source. 6 rows × animate-pulse mirror the real ModelRow
                 // silhouette (32px thumb + two text lines).
                 <Card>
-                  <div className="divide-y divide-slate-100">
+                  <div className="divide-y">
                     {[0, 1, 2, 3, 4, 5].map((i) => (
                       <div key={`sk-${i}`} className="flex items-center gap-3 py-2.5 px-4">
-                        <div className="w-8 h-8 rounded bg-slate-100 animate-pulse shrink-0" />
+                        <div className="w-8 h-8 rounded bg-muted animate-pulse shrink-0" />
                         <div className="flex-1 min-w-0 space-y-1.5">
-                          <div className="h-3 w-1/2 rounded bg-slate-100 animate-pulse" />
-                          <div className="h-2.5 w-1/3 rounded bg-slate-100 animate-pulse" />
+                          <div className="h-3 w-1/2 rounded bg-muted animate-pulse" />
+                          <div className="h-2.5 w-1/3 rounded bg-muted animate-pulse" />
                         </div>
-                        <div className="h-7 w-20 rounded bg-slate-100 animate-pulse shrink-0" />
+                        <div className="h-7 w-20 rounded bg-muted animate-pulse shrink-0" />
                       </div>
                     ))}
                   </div>
                 </Card>
               ) : source === 'local' && filteredModels.length > 0 ? (
                 <Card>
-                  <div className="divide-y divide-slate-100">
+                  <div className="divide-y">
                     {filteredModels.map((model, i) => {
                       const isRequired = workflowRequired.has(model.filename) || workflowRequired.has(model.name);
                       return (
@@ -970,7 +970,7 @@ export default function Models() {
                 </Card>
               ) : source === 'civitai' && pageRows.length > 0 ? (
                 <Card>
-                  <div className="divide-y divide-slate-100">
+                  <div className="divide-y">
                     {pageRows.map((row, i) => {
                       if (row.kind !== 'civitai') return null;
                       const civ = row.item;
@@ -1016,17 +1016,17 @@ export default function Models() {
                 <div className="text-center py-16">
                   {source === 'civitai' ? (
                     <>
-                      <Box className="w-10 h-10 text-slate-200 mx-auto mb-3" />
-                      <p className="text-sm font-medium text-slate-500">
+                      <Box className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+                      <p className="text-sm font-medium text-muted-foreground">
                         {search.trim() ? `No results for "${search}"` : 'No CivitAI models found.'}
                       </p>
-                      <p className="text-xs text-slate-400 mt-1">Try a different search query.</p>
+                      <p className="text-xs text-muted-foreground mt-1">Try a different search query.</p>
                     </>
                   ) : !connected ? (
                     <>
-                      <WifiOff className="w-10 h-10 text-slate-200 mx-auto mb-3" />
-                      <p className="text-sm font-medium text-slate-500">Connect to ComfyUI to manage models</p>
-                      <p className="text-xs text-slate-400 mt-1 mb-4">Models will appear once the connection is established</p>
+                      <WifiOff className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+                      <p className="text-sm font-medium text-muted-foreground">Connect to ComfyUI to manage models</p>
+                      <p className="text-xs text-muted-foreground mt-1 mb-4">Models will appear once the connection is established</p>
                       <Button
                         onClick={() => navigate('/settings')}
                         variant="secondary"
@@ -1037,17 +1037,17 @@ export default function Models() {
                     </>
                   ) : (stats?.available ?? 0) === 0 ? (
                     <>
-                      <Box className="w-10 h-10 text-slate-200 mx-auto mb-3" />
-                      <p className="text-sm font-medium text-slate-500">No models found</p>
-                      <p className="text-xs text-slate-400 mt-1">The launcher may not be available</p>
+                      <Box className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+                      <p className="text-sm font-medium text-muted-foreground">No models found</p>
+                      <p className="text-xs text-muted-foreground mt-1">The launcher may not be available</p>
                     </>
                   ) : (
                     <>
-                      <Box className="w-10 h-10 text-slate-200 mx-auto mb-3" />
-                      <p className="text-sm text-slate-500">No models match your filters</p>
+                      <Box className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+                      <p className="text-sm text-muted-foreground">No models match your filters</p>
                       <button
                         onClick={clearFilters}
-                        className="text-xs text-teal-600 hover:text-teal-700 mt-2"
+                        className="text-xs text-brand hover:opacity-80 mt-2"
                       >
                         Clear filters
                       </button>
@@ -1063,15 +1063,15 @@ export default function Models() {
               {source === 'civitai' && pageRows.length > 0 && (
                 <div
                   ref={sentinelRef}
-                  className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-center"
+                  className="mt-4 rounded-lg border bg-muted px-4 py-3 flex items-center justify-center"
                 >
                   {paged.hasMore ? (
-                    <span className="inline-flex items-center gap-2 text-xs text-slate-500">
+                    <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
                       {loading && <Spinner size="sm" />}
                       {loading ? 'Loading more…' : 'Scroll to load more'}
                     </span>
                   ) : (
-                    <span className="text-xs text-slate-500">No more results</span>
+                    <span className="text-xs text-muted-foreground">No more results</span>
                   )}
                 </div>
               )}

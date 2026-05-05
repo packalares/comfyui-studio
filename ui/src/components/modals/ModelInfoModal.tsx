@@ -28,10 +28,10 @@ interface StatPillProps {
 
 function StatPill({ icon: Icon, label, value }: StatPillProps): JSX.Element {
   return (
-    <div className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-2.5 py-1 text-[11px] ring-1 ring-inset ring-slate-200">
-      <Icon className="w-3 h-3 text-slate-500" />
-      <span className="text-slate-500">{label}</span>
-      <span className="font-mono font-semibold text-slate-800">{value}</span>
+    <div className="stat-pill">
+      <Icon className="w-3 h-3 text-muted-foreground" />
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-mono font-semibold text-foreground">{value}</span>
     </div>
   );
 }
@@ -95,10 +95,10 @@ export default function ModelInfoModal({ open, onClose, source }: Props): JSX.El
     >
       <div className="space-y-4">
         {creator && (
-          <div className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-2.5 py-1 text-xs ring-1 ring-inset ring-slate-200">
-            <UserIcon className="w-3 h-3 text-slate-500" />
-            <span className="text-slate-500">by</span>
-            <span className="font-medium text-slate-800">{creator}</span>
+          <div className="stat-pill text-xs">
+            <UserIcon className="w-3 h-3 text-muted-foreground" />
+            <span className="text-muted-foreground">by</span>
+            <span className="font-medium text-foreground">{creator}</span>
           </div>
         )}
 
@@ -140,11 +140,11 @@ export default function ModelInfoModal({ open, onClose, source }: Props): JSX.El
             <h3 className="field-label mb-1.5">Description</h3>
             {hasHtmlTags(description) ? (
               <div
-                className="text-xs text-slate-700 break-words prose prose-sm max-w-none"
+                className="text-xs text-foreground break-words prose prose-sm max-w-none"
                 dangerouslySetInnerHTML={{ __html: sanitizeHtml(description) }}
               />
             ) : (
-              <p className="text-xs text-slate-700 whitespace-pre-wrap break-words">
+              <p className="text-xs text-foreground whitespace-pre-wrap break-words">
                 {description}
               </p>
             )}
@@ -168,7 +168,7 @@ export default function ModelInfoModal({ open, onClose, source }: Props): JSX.El
           href={pageUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs text-teal-700 hover:text-teal-800 underline"
+          className="inline-flex items-center gap-1 text-xs text-brand hover:text-brand/90 underline"
         >
           <ExternalLink className="w-3 h-3" />
           Open on civitai.com

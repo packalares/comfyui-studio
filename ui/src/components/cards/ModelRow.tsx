@@ -76,7 +76,7 @@ function CatalogRow({
   const isDownloading = !!download || !!model.downloading;
 
   return (
-    <div className="flex items-center gap-3 py-2.5 px-4 hover:bg-slate-50">
+    <div className="flex items-center gap-3 py-2.5 px-4 hover:bg-muted">
       {model.thumbnail ? (
         <img
           src={model.thumbnail}
@@ -85,12 +85,12 @@ function CatalogRow({
           height={32}
           loading="lazy"
           decoding="async"
-          className="w-8 h-8 rounded object-cover ring-1 ring-slate-200 bg-slate-100 shrink-0"
+          className="w-8 h-8 rounded object-cover ring-1 ring-border bg-muted shrink-0"
           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
         />
       ) : null}
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-slate-900 truncate">
+        <p className="text-sm font-medium text-foreground truncate">
           {model.filename || model.name}
         </p>
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
@@ -98,9 +98,9 @@ function CatalogRow({
             <Badge variant="slate">{model.type}</Badge>
           )}
           {model.fileSize ? (
-            <span className="text-[11px] text-slate-500">{formatBytes(model.fileSize)}</span>
+            <span className="text-[11px] text-muted-foreground">{formatBytes(model.fileSize)}</span>
           ) : model.size_bytes ? (
-            <span className="text-[11px] text-slate-500">{model.size_pretty || formatBytes(model.size_bytes)}</span>
+            <span className="text-[11px] text-muted-foreground">{model.size_pretty || formatBytes(model.size_bytes)}</span>
           ) : null}
           {isDownloading ? (
             <Badge variant="teal">
@@ -123,7 +123,7 @@ function CatalogRow({
               <AlertTriangle className="w-3 h-3" /> Incomplete
             </Badge>
           ) : (
-            <span className="text-[11px] text-slate-400">Not installed</span>
+            <span className="text-[11px] text-muted-foreground">Not installed</span>
           )}
           {model.gated && (
             <Badge
@@ -138,7 +138,7 @@ function CatalogRow({
           )}
         </div>
         {model.error && !isDownloading && !model.installed && (
-          <p className="text-[11px] text-rose-600 mt-1" title={model.error}>
+          <p className="text-[11px] text-destructive mt-1" title={model.error}>
             Download failed: <span className="font-mono">{model.error}</span>
           </p>
         )}
@@ -151,7 +151,7 @@ function CatalogRow({
         ) : download ? (
           <div className="flex items-center gap-2">
             <div className="w-24">
-              <div className="flex justify-between text-[10px] text-slate-500 mb-0.5">
+              <div className="flex justify-between text-[10px] text-muted-foreground mb-0.5">
                 <span>{Math.round(download.progress)}%</span>
               </div>
               <div className="progress-track">
@@ -180,7 +180,7 @@ function CatalogRow({
                   <Button
                     onClick={() => onDelete(model)}
                     variant="secondary"
-                    className="hover:!bg-red-50 hover:!border-red-200 hover:!text-red-600"
+                    className="hover:!bg-destructive/10 hover:!border-destructive/30 hover:!text-destructive"
                     aria-label="Delete model"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -252,7 +252,7 @@ function CivitaiRow({
   const downloads = civ.item.stats?.downloadCount;
   const primaryVersion = civ.item.modelVersions?.[0];
   return (
-    <div className="flex items-center gap-3 py-2.5 px-4 hover:bg-slate-50">
+    <div className="flex items-center gap-3 py-2.5 px-4 hover:bg-muted">
       {civ.thumbnail ? (
         <img
           src={civ.thumbnail}
@@ -261,12 +261,12 @@ function CivitaiRow({
           height={32}
           loading="lazy"
           decoding="async"
-          className="w-8 h-8 rounded object-cover ring-1 ring-slate-200 bg-slate-100 shrink-0"
+          className="w-8 h-8 rounded object-cover ring-1 ring-border bg-muted shrink-0"
           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
         />
       ) : null}
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-slate-900 truncate" title={civ.item.name}>
+        <p className="text-sm font-medium text-foreground truncate" title={civ.item.name}>
           {civ.item.name}
         </p>
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
@@ -274,11 +274,11 @@ function CivitaiRow({
             <Badge variant="slate">{civ.item.type}</Badge>
           )}
           {civ.sizeBytes && (
-            <span className="text-[11px] text-slate-500">{formatBytes(civ.sizeBytes)}</span>
+            <span className="text-[11px] text-muted-foreground">{formatBytes(civ.sizeBytes)}</span>
           )}
-          {creator && <span className="text-[11px] text-slate-500">by {creator}</span>}
+          {creator && <span className="text-[11px] text-muted-foreground">by {creator}</span>}
           {typeof downloads === 'number' && (
-            <span className="text-[11px] text-slate-500">{downloads.toLocaleString()} dl</span>
+            <span className="text-[11px] text-muted-foreground">{downloads.toLocaleString()} dl</span>
           )}
           {primaryVersion?.baseModel && (
             <Badge variant="slate" className="!text-[10px]">{primaryVersion.baseModel}</Badge>
@@ -286,7 +286,7 @@ function CivitaiRow({
           <Badge variant="teal">CivitAI</Badge>
         </div>
         {civ.error && (
-          <p className="text-[11px] text-rose-600 mt-1" title={civ.error}>
+          <p className="text-[11px] text-destructive mt-1" title={civ.error}>
             {civ.error}
           </p>
         )}

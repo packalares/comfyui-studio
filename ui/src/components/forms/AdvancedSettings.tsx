@@ -32,21 +32,21 @@ export default function AdvancedSettings({ settings, values, onChange }: Props) 
   };
 
   return (
-    <div className="border-t border-gray-100 pt-3">
+    <div className="border-t pt-3">
       <button
         type="button"
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1.5 w-full text-left group"
       >
         <ChevronDown
-          className={`w-3.5 h-3.5 text-gray-400 transition-transform ${
+          className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${
             open ? '' : '-rotate-90'
           }`}
         />
-        <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider group-hover:text-gray-600 transition-colors">
+        <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider group-hover:text-foreground transition-colors">
           Advanced Settings
         </span>
-        <span className="text-[10px] text-gray-300 ml-auto">
+        <span className="text-[10px] text-muted-foreground ml-auto">
           {settings.length} {settings.length === 1 ? 'option' : 'options'}
         </span>
       </button>
@@ -110,7 +110,7 @@ function NodeGroupedSettings({
       {groups.map(g => (
         <div key={g.key}>
           {g.title && (
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-2">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
               {g.title}
             </div>
           )}
@@ -183,7 +183,7 @@ function GroupedSettings({
         </div>
       )}
       {buckets.toggle.length > 0 && (
-        <div className="space-y-2 pt-2 border-t border-slate-100">
+        <div className="space-y-2 pt-2 border-t">
           {buckets.toggle.map(s => (
             <SettingField
               key={s.id}
@@ -225,7 +225,7 @@ function SettingField({
     const min = setting.min ?? 0;
     const num = (value as number) ?? min;
     const precision = Math.max(0, -Math.floor(Math.log10(step)));
-    labelRight = <span className="text-xs font-medium tabular-nums text-slate-700">{num.toFixed(precision)}</span>;
+    labelRight = <span className="text-xs font-medium tabular-nums text-foreground">{num.toFixed(precision)}</span>;
   }
   return (
     <div>
@@ -247,11 +247,11 @@ function SettingField({
 function SettingLabel({ setting }: { setting: AdvancedSetting }) {
   return (
     <span className="inline-flex items-center gap-1">
-      <label className="text-[11px] font-medium text-gray-600">{setting.label}</label>
+      <label className="text-[11px] font-medium text-foreground">{setting.label}</label>
       {setting.scopeLabel && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <Info className="w-3 h-3 text-slate-400 hover:text-slate-600 cursor-help" />
+            <Info className="w-3 h-3 text-muted-foreground hover:text-foreground cursor-help" />
           </TooltipTrigger>
           <TooltipContent>{setting.scopeLabel}</TooltipContent>
         </Tooltip>

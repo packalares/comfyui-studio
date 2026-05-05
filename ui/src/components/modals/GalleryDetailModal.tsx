@@ -108,7 +108,7 @@ export default function GalleryDetailModal({
       footer={
         <>
           <label
-            className={`flex items-center gap-2 text-[11px] text-slate-600 select-none ${
+            className={`flex items-center gap-2 text-[11px] text-foreground select-none ${
               canRegenerate ? 'cursor-pointer' : 'opacity-50 cursor-not-allowed'
             }`}
             title={regenerateTooltip}
@@ -141,7 +141,7 @@ export default function GalleryDetailModal({
             <Button
               type="button"
               variant="secondary"
-              className="text-red-600 border-red-200 hover:bg-red-50"
+              className="text-destructive border-destructive/30 hover:bg-destructive/10"
               onClick={onDelete}
               disabled={regenerating}
             >
@@ -160,7 +160,7 @@ export default function GalleryDetailModal({
         <MetadataSection item={detail} />
 
         {error && (
-          <div className="flex items-start gap-2 rounded-md bg-rose-50 border border-rose-100 px-3 py-2 text-xs text-rose-700">
+          <div className="flex items-start gap-2 rounded-md bg-destructive/10 border border-destructive/30 px-3 py-2 text-xs text-destructive">
             <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
             <span>{error}</span>
           </div>
@@ -177,9 +177,9 @@ export default function GalleryDetailModal({
 
 function MediaViewer({ item }: { item: GalleryItem }): JSX.Element {
   return (
-    <div className="bg-slate-100 rounded-lg flex items-center justify-center overflow-hidden">
+    <div className="bg-muted rounded-lg flex items-center justify-center overflow-hidden">
       {(() => {
-        if (!item.url) return <ImageIcon className="w-16 h-16 text-slate-300" />;
+        if (!item.url) return <ImageIcon className="w-16 h-16 text-muted-foreground" />;
         if (item.mediaType === 'video') {
           return <video src={item.url} controls className="max-h-[60vh] w-full" />;
         }
@@ -215,10 +215,10 @@ function AudioViewer({ item }: { item: GalleryItem }): JSX.Element {
   const [coverError, setCoverError] = useState(false);
   const coverUrl = `/api/thumbnail/${encodeURIComponent(item.id)}?w=640`;
   return (
-    <div className="relative w-full aspect-[21/9] rounded-lg overflow-hidden bg-slate-200">
+    <div className="relative w-full aspect-[21/9] rounded-lg overflow-hidden bg-muted">
       {coverError ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-200">
-          <Music className="w-16 h-16 text-slate-300" />
+        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-muted to-secondary">
+          <Music className="w-16 h-16 text-muted-foreground" />
         </div>
       ) : (
         <img
@@ -288,7 +288,7 @@ function MetadataSection({ item }: { item: GalleryItem }): JSX.Element | null {
 
   if (rows.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-[11px] text-slate-500">
+      <div className="rounded-lg border border-dashed bg-muted px-3 py-3 text-[11px] text-muted-foreground">
         No generation metadata was captured for this item. Regenerate is
         unavailable until you re-import from ComfyUI.
       </div>
@@ -296,19 +296,19 @@ function MetadataSection({ item }: { item: GalleryItem }): JSX.Element | null {
   }
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white">
-      <div className="border-b border-slate-200 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+    <div className="rounded-lg border bg-card">
+      <div className="border-b px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         Generation details
       </div>
-      <dl className="divide-y divide-slate-100">
+      <dl className="divide-y divide-border">
         {rows.map((r) => (
           <div key={r.label} className="grid grid-cols-[140px_1fr] gap-2 px-3 py-2 text-xs">
-            <dt className="text-slate-500">{r.label}</dt>
+            <dt className="text-muted-foreground">{r.label}</dt>
             <dd
               className={
                 (r.mono ? 'font-mono ' : '') +
                 (r.multiline ? 'whitespace-pre-wrap break-words ' : 'truncate ') +
-                'text-slate-800'
+                'text-foreground'
               }
               title={r.value ?? ''}
             >

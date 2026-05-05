@@ -105,7 +105,7 @@ export default function ConfirmDialog(props: ConfirmDialogProps): JSX.Element {
       }
     >
       {description && (
-        <p className="text-sm text-slate-600">{description}</p>
+        <p className="text-sm text-foreground">{description}</p>
       )}
       {children}
     </AppModal>

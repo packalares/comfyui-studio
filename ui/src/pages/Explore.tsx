@@ -369,7 +369,7 @@ export default function Explore() {
         <Card>
           <div className="flex flex-col lg:flex-row min-h-[calc(100vh-180px)]">
             {/* ===== Left sidebar ===== */}
-            <aside className={`${filtersOpen ? 'block' : 'hidden'} lg:block w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 p-4 space-y-5 bg-white`}>
+            <aside className={`${filtersOpen ? 'block' : 'hidden'} lg:block w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r p-4 space-y-5 bg-card`}>
               {/* Search + Ready-to-use moved to the main-pane toolbar below,
                   mirroring the Models page layout (search as a flex-1 input,
                   filter as a right-aligned tab strip). Keeps the sidebar
@@ -412,7 +412,7 @@ export default function Explore() {
                     </SelectContent>
                   </SelectField>
                   {civitaiFeed === 'search' && !debouncedSearch.trim() && (
-                    <p className="mt-1.5 text-[11px] text-slate-500">
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">
                       Type a query in the Search box above to run a CivitAI search.
                     </p>
                   )}
@@ -437,7 +437,7 @@ export default function Explore() {
                         if (cat !== 'All' && count === 0) return null;
                         return (
                           <SelectItem key={cat} value={cat}>
-                            {cat} {count > 0 && <span className="text-slate-400">({count})</span>}
+                            {cat} {count > 0 && <span className="text-muted-foreground">({count})</span>}
                           </SelectItem>
                         );
                       })}
@@ -454,7 +454,7 @@ export default function Explore() {
                     {tagOptions.map(tag => (
                       <label
                         key={tag}
-                        className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer select-none hover:text-slate-900"
+                        className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none hover:text-foreground"
                       >
                         <Checkbox
                           checked={activeTags.includes(tag)}
@@ -469,24 +469,24 @@ export default function Explore() {
 
               {/* Stats — vertical row list, matches Models page's Storage
                   panel language (icon + label left, value right-aligned). */}
-              <div className="pt-4 border-t border-slate-200">
+              <div className="pt-4 border-t">
                 <label className="field-label mb-2 block">Stats</label>
-                <div className="divide-y divide-slate-100 rounded-lg ring-1 ring-inset ring-slate-200 overflow-hidden bg-white">
+                <div className="divide-y rounded-lg ring-1 ring-inset ring-border/60 overflow-hidden bg-card">
                   <div className="flex items-center gap-2 px-3 py-2">
-                    <Layers className="w-4 h-4 text-slate-500 shrink-0" />
-                    <span className="text-xs text-slate-600 flex-1">Total</span>
-                    <span className="font-mono text-sm font-semibold text-slate-900">{templates.length}</span>
+                    <Layers className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <span className="text-xs text-muted-foreground flex-1">Total</span>
+                    <span className="font-mono text-sm font-semibold text-foreground">{templates.length}</span>
                   </div>
                   <div className="flex items-center gap-2 px-3 py-2">
-                    <SlidersHorizontal className="w-4 h-4 text-teal-600 shrink-0" />
-                    <span className="text-xs text-slate-600 flex-1">Filtered</span>
-                    <span className="font-mono text-sm font-semibold text-slate-900">{paged.total}</span>
+                    <SlidersHorizontal className="w-4 h-4 text-brand shrink-0" />
+                    <span className="text-xs text-muted-foreground flex-1">Filtered</span>
+                    <span className="font-mono text-sm font-semibold text-foreground">{paged.total}</span>
                   </div>
                 </div>
               </div>
 
               {/* Clear filters */}
-              <div className="pt-4 border-t border-slate-200">
+              <div className="pt-4 border-t">
                 <Button
                   onClick={() => { setActiveCategory('All'); setSearchQuery(''); setActiveTags([]); setSourceFilter('all'); setReadyFilter('all'); }}
                   variant="secondary"
@@ -507,7 +507,7 @@ export default function Explore() {
                   for the secondary filter. */}
               <div className="flex flex-col md:flex-row md:items-center gap-2 mb-4">
                 <div className="flex-1 field-wrap">
-                  <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                   <input
                     type="text"
                     className="field-input"
@@ -520,7 +520,7 @@ export default function Explore() {
                       type="button"
                       onClick={() => setSearchQuery('')}
                       aria-label="Clear search"
-                      className="shrink-0 text-slate-400 hover:text-slate-700 transition-colors"
+                      className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
@@ -552,9 +552,9 @@ export default function Explore() {
                 <div className="text-center py-20">
                   {!connected ? (
                     <>
-                      <WifiOff className="w-10 h-10 text-slate-200 mx-auto mb-3" />
-                      <p className="text-sm font-medium text-slate-500">Connect to ComfyUI to load workflows</p>
-                      <p className="text-xs text-slate-400 mt-1 mb-4">Workflows will appear once ComfyUI is running</p>
+                      <WifiOff className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+                      <p className="text-sm font-medium text-muted-foreground">Connect to ComfyUI to load workflows</p>
+                      <p className="text-xs text-muted-foreground mt-1 mb-4">Workflows will appear once ComfyUI is running</p>
                       <Button
                         onClick={() => navigate('/settings')}
                         variant="secondary"
@@ -565,9 +565,9 @@ export default function Explore() {
                     </>
                   ) : (
                     <>
-                      <Layers className="w-10 h-10 text-slate-200 mx-auto mb-3" />
-                      <p className="text-sm font-medium text-slate-500">No workflows available</p>
-                      <p className="text-xs text-slate-400 mt-1">Start ComfyUI to load workflow templates</p>
+                      <Layers className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+                      <p className="text-sm font-medium text-muted-foreground">No workflows available</p>
+                      <p className="text-xs text-muted-foreground mt-1">Start ComfyUI to load workflow templates</p>
                     </>
                   )}
                 </div>
@@ -591,8 +591,8 @@ export default function Explore() {
                 </div>
               ) : (
                 <div className="text-center py-16">
-                  <Layers className="w-10 h-10 text-slate-200 mx-auto mb-3" />
-                  <p className="text-sm text-slate-500">
+                  <Layers className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+                  <p className="text-sm text-muted-foreground">
                     {sourceFilter === 'civitai'
                       ? searchQuery.trim()
                         ? `No CivitAI results for "${searchQuery}"`
@@ -602,7 +602,7 @@ export default function Explore() {
                   {sourceFilter !== 'civitai' && (
                     <button
                       onClick={() => { setActiveCategory('All'); setSearchQuery(''); setActiveTags([]); setSourceFilter('all'); setReadyFilter('all'); }}
-                      className="text-xs text-teal-600 hover:text-teal-700 mt-2"
+                      className="text-xs text-brand hover:opacity-80 mt-2"
                     >
                       Clear filters
                     </button>
@@ -628,7 +628,7 @@ export default function Explore() {
                     hasMore={paged.hasMore}
                     onPageChange={paged.setPage}
                     onPageSizeChange={paged.setPageSize}
-                    className="rounded-lg border border-slate-200 bg-slate-50"
+                    className="rounded-lg border bg-muted"
                   />
                 )}
               </div>
@@ -672,10 +672,10 @@ function CivitaiLoadMore({ hasMore, loading, error, hasRows, onLoadMore, sentine
   return (
     <div
       ref={sentinelRef}
-      className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-center gap-3"
+      className="rounded-lg border bg-muted px-4 py-3 flex items-center justify-center gap-3"
     >
       {loading ? (
-        <span className="text-xs text-slate-500 inline-flex items-center gap-2">
+        <span className="text-xs text-muted-foreground inline-flex items-center gap-2">
           <Spinner size="sm" />
           Loading…
         </span>
@@ -687,9 +687,9 @@ function CivitaiLoadMore({ hasMore, loading, error, hasRows, onLoadMore, sentine
           Retry
         </Button>
       ) : hasMore ? (
-        <span className="text-xs text-slate-500">Scroll to load more</span>
+        <span className="text-xs text-muted-foreground">Scroll to load more</span>
       ) : hasRows ? (
-        <span className="text-xs text-slate-500">No more results</span>
+        <span className="text-xs text-muted-foreground">No more results</span>
       ) : null}
     </div>
   );

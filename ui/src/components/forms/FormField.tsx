@@ -27,7 +27,7 @@ export default function FormField({ input, value, onChange }: Props) {
   }
 
   const labelRight = input.type === 'slider' ? (
-    <span className="text-xs font-medium tabular-nums text-slate-700">{formatSliderValue(input, value)}</span>
+    <span className="text-xs font-medium tabular-nums text-foreground">{formatSliderValue(input, value)}</span>
   ) : undefined;
   return (
     <div>
@@ -47,17 +47,17 @@ function formatSliderValue(input: FormInput, value: unknown): string {
 function FieldLabel({ input, right, inline }: { input: FormInput; right?: React.ReactNode; inline?: boolean }) {
   return (
     <div className={`flex items-center gap-1.5 ${inline ? '' : 'mb-1.5'}`}>
-      <label className="text-sm font-medium text-gray-700">{input.label}</label>
+      <label className="text-sm font-medium text-foreground">{input.label}</label>
       {input.description && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <Info className="w-3.5 h-3.5 text-gray-400 cursor-help" />
+            <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
           </TooltipTrigger>
           <TooltipContent>{input.description}</TooltipContent>
         </Tooltip>
       )}
       {input.required && (
-        <span className="text-[10px] font-medium text-red-500">* required</span>
+        <span className="text-[10px] font-medium text-destructive">* required</span>
       )}
       {right && <span className="ml-auto">{right}</span>}
     </div>
@@ -323,7 +323,7 @@ function ImageField({ input, value, onChange }: Props) {
 
   if (imageValue?.preview) {
     return (
-      <div className="relative rounded-lg overflow-hidden border border-gray-200">
+      <div className="relative rounded-lg overflow-hidden border">
         <img src={imageValue.preview} alt="Upload preview" className="w-full h-36 object-cover" />
         <button
           onClick={handleClear}
@@ -344,13 +344,13 @@ function ImageField({ input, value, onChange }: Props) {
         onDrop={handleDrop}
         className={`flex flex-col items-center justify-center h-32 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
           dragOver
-            ? 'border-blue-400 bg-blue-50'
-            : 'border-gray-300 bg-gray-50 hover:border-gray-400 hover:bg-gray-100'
+            ? 'border-brand bg-brand/10'
+            : 'border-input bg-muted hover:border-input hover:bg-secondary'
         }`}
       >
-        <Upload className="w-6 h-6 text-gray-400 mb-1.5" />
-        <p className="text-xs text-gray-500">Drop image here or click to browse</p>
-        <p className="text-[10px] text-gray-400 mt-0.5">PNG, JPG, WebP, HEIC</p>
+        <Upload className="w-6 h-6 text-muted-foreground mb-1.5" />
+        <p className="text-xs text-muted-foreground">Drop image here or click to browse</p>
+        <p className="text-[10px] text-muted-foreground mt-0.5">PNG, JPG, WebP, HEIC</p>
         <input
           ref={fileInputRef}
           type="file"
@@ -384,11 +384,11 @@ function FileUploadField({ input, value, onChange, accept, label }: Props & { ac
 
   if (fileValue?.name) {
     return (
-      <div className="flex items-center gap-2 px-3 py-2.5 border border-gray-200 rounded-lg bg-gray-50">
-        <span className="text-sm text-gray-700 truncate flex-1">{fileValue.name}</span>
+      <div className="flex items-center gap-2 px-3 py-2.5 border rounded-lg bg-muted">
+        <span className="text-sm text-foreground truncate flex-1">{fileValue.name}</span>
         <button
           onClick={() => onChange(null)}
-          className="p-0.5 text-gray-400 hover:text-gray-600"
+          className="p-0.5 text-muted-foreground hover:text-foreground"
         >
           <X className="w-4 h-4" />
         </button>
@@ -404,13 +404,13 @@ function FileUploadField({ input, value, onChange, accept, label }: Props & { ac
       onDrop={handleDrop}
       className={`flex flex-col items-center justify-center h-24 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
         dragOver
-          ? 'border-blue-400 bg-blue-50'
-          : 'border-gray-300 bg-gray-50 hover:border-gray-400 hover:bg-gray-100'
+          ? 'border-brand bg-brand/10'
+          : 'border-input bg-muted hover:border-input hover:bg-secondary'
       }`}
     >
-      <Upload className="w-5 h-5 text-gray-400 mb-1" />
-      <p className="text-xs text-gray-500">Drop file or click to browse</p>
-      <p className="text-[10px] text-gray-400 mt-0.5">{label}</p>
+      <Upload className="w-5 h-5 text-muted-foreground mb-1" />
+      <p className="text-xs text-muted-foreground">Drop file or click to browse</p>
+      <p className="text-[10px] text-muted-foreground mt-0.5">{label}</p>
       <input
         ref={fileInputRef}
         type="file"

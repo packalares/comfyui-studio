@@ -106,16 +106,16 @@ export default function LogsDrawer({ open, onClose }: Props) {
         onClick={onClose}
       />
       {/* Right-side panel */}
-      <div className="absolute right-0 top-0 bottom-0 w-full max-w-[640px] bg-white shadow-xl border-l border-slate-200 flex flex-col animate-in slide-in-from-right duration-200">
+      <div className="absolute right-0 top-0 bottom-0 w-full max-w-[640px] bg-card shadow-xl border-l flex flex-col animate-in slide-in-from-right duration-200">
         {/* Header — uses panel-header rules inlined here because the drawer
              shell is not a Card. */}
-        <div className="border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+        <div className="border-b px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-slate-900">ComfyUI logs</h3>
-            {loading && <Spinner size="sm" className="text-slate-400" />}
+            <h3 className="text-sm font-semibold text-foreground">ComfyUI logs</h3>
+            {loading && <Spinner size="sm" className="text-muted-foreground" />}
           </div>
           <div className="flex items-center gap-2">
-            <label className="flex items-center gap-1.5 text-[11px] text-slate-500">
+            <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <Switch
                 checked={autoRefresh}
                 onCheckedChange={setAutoRefresh}
@@ -157,7 +157,7 @@ export default function LogsDrawer({ open, onClose }: Props) {
 
         {/* Error banner (non-blocking) */}
         {error && (
-          <div className="mx-4 mt-3 p-2.5 text-[11px] bg-rose-50 text-rose-700 border border-rose-200 rounded-lg">
+          <div className="mx-4 mt-3 p-2.5 text-[11px] bg-destructive/10 text-destructive border border-destructive/30 rounded-lg">
             {error}
           </div>
         )}
@@ -166,20 +166,20 @@ export default function LogsDrawer({ open, onClose }: Props) {
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-auto bg-slate-50 m-4 rounded-lg ring-1 ring-inset ring-slate-200"
+          className="flex-1 overflow-auto bg-muted m-4 rounded-lg ring-1 ring-inset ring-border"
         >
           {rows.length === 0 ? (
             <div className="h-full min-h-[200px] flex items-center justify-center p-6">
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-muted-foreground">
                 {loading ? 'Loading logs...' : 'No logs yet — start ComfyUI to see output.'}
               </p>
             </div>
           ) : (
-            <pre className="text-[11px] leading-relaxed font-mono text-slate-700 p-3 whitespace-pre-wrap break-words">
+            <pre className="text-[11px] leading-relaxed font-mono text-foreground p-3 whitespace-pre-wrap break-words">
               {rows.map((row, i) => (
                 <div
                   key={i}
-                  className={row.isError ? 'text-rose-600' : undefined}
+                  className={row.isError ? 'text-destructive' : undefined}
                 >
                   {row.text || '\u00a0'}
                 </div>

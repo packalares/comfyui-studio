@@ -10,7 +10,7 @@
 /* ===== Theme tokens =====
    Custom design tokens migrated from the old `tailwind.config.js`. v4
    exposes anything declared in `@theme` as both a CSS variable and a
-   Tailwind utility (e.g. `--color-brand-500` → `bg-brand-500`).
+   Tailwind utility (e.g. `--color-brand` → `bg-brand`).
 
    We also override a handful of v4 default tokens so the existing UI
    keeps the v3 visual language:
@@ -24,15 +24,6 @@
 */
 @theme {
   --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-
-  --color-brand-50: #eff6ff;
-  --color-brand-100: #dbeafe;
-  --color-brand-200: #bfdbfe;
-  --color-brand-300: #93c5fd;
-  --color-brand-400: #60a5fa;
-  --color-brand-500: #3b82f6;
-  --color-brand-600: #2563eb;
-  --color-brand-700: #1d4ed8;
 
   /* Restore v3-era shadow + radius scale values for the renamed steps. */
   --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
@@ -67,7 +58,7 @@
   ::before,
   ::backdrop,
   ::file-selector-button {
-    border-color: var(--color-gray-200, currentColor);
+    border-color: var(--color-border, currentColor);
   }
 }
 
@@ -81,7 +72,7 @@
     scrollbar-gutter: stable;
   }
   body {
-    @apply bg-gray-50 text-gray-900;
+    @apply bg-background text-foreground;
   }
 }
 
@@ -105,28 +96,28 @@
     @apply cursor-pointer inline-flex shrink-0 items-center justify-center gap-1
            rounded-md border border-transparent whitespace-nowrap font-medium
            transition outline-none select-none focus-visible:ring-2
-           focus-visible:ring-teal-500/40 disabled:opacity-50
+           focus-visible:ring-brand/40 disabled:opacity-50
            disabled:pointer-events-none disabled:cursor-not-allowed
            [&_svg]:pointer-events-none [&_svg]:shrink-0
            [&_svg:not([class*='size-'])]:size-4
            px-2 py-1 text-xs;
   }
   /* Variants — colors only. Pair with `.btn` for full styling. */
-  .btn-primary     { @apply bg-teal-600 text-white hover:bg-teal-700; }
-  .btn-secondary   { @apply border-slate-300 bg-white text-slate-700 hover:bg-slate-50; }
-  .btn-outline     { @apply border-slate-300 bg-transparent text-slate-700 hover:bg-slate-50; }
-  .btn-ghost       { @apply text-slate-600 hover:bg-slate-100 hover:text-slate-700; }
-  .btn-destructive { @apply bg-rose-600 text-white hover:bg-rose-700; }
-  .btn-link        { @apply text-teal-600 underline-offset-4 hover:underline; }
+  .btn-primary     { @apply bg-brand text-brand-foreground hover:bg-brand/90; }
+  .btn-secondary   { @apply border-input bg-card text-foreground hover:bg-muted; }
+  .btn-outline     { @apply border-input bg-transparent text-foreground hover:bg-muted; }
+  .btn-ghost       { @apply text-muted-foreground hover:bg-muted hover:text-foreground; }
+  .btn-destructive { @apply bg-destructive text-primary-foreground hover:bg-destructive/90; }
+  .btn-link        { @apply text-brand underline-offset-4 hover:underline; }
   /* Convenience all-in-one for plain `<button class="btn-icon">` authoring.
      Inlines the base utilities since `@apply btn` isn't allowed in v4. */
   .btn-icon {
     @apply inline-flex shrink-0 items-center justify-center gap-1
            rounded-md border border-transparent whitespace-nowrap font-medium
            transition outline-none select-none focus-visible:ring-2
-           focus-visible:ring-teal-500/40 disabled:opacity-50
+           focus-visible:ring-brand/40 disabled:opacity-50
            disabled:pointer-events-none disabled:cursor-not-allowed
-           text-slate-600 hover:bg-slate-100 hover:text-slate-700 p-1.5;
+           text-muted-foreground hover:bg-muted hover:text-foreground p-1.5;
   }
   /* Size overrides — applied alongside a variant class.
      Declared AFTER variants so cascade overrides padding/text-size correctly. */
@@ -176,14 +167,15 @@
      these classes too, so direct markup and the JSX component render identical.
      Active item: add the `is-active` modifier. */
   .tab-strip {
-    @apply inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm;
+    @apply inline-flex items-center gap-1 rounded-lg border bg-card p-1 shadow-sm;
   }
   .tab-strip-item {
     @apply inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[11px] font-semibold
-           transition cursor-pointer text-slate-600 hover:bg-slate-100;
+           transition cursor-pointer text-muted-foreground hover:bg-muted;
   }
+  /* Active tab: uses --primary token (resolves to slate-900-ish in light, light slate in dark). */
   .tab-strip-item.is-active {
-    @apply bg-slate-900 text-white hover:bg-slate-900;
+    @apply bg-primary text-primary-foreground hover:bg-primary;
   }
 
   /* ===== Generic micro-utilities =====
@@ -192,11 +184,11 @@
   /* Uppercase section label — date dividers, KV-row eyebrows, modal headings.
      Smaller + lighter than `.stat-label` (which is for dashboard widgets). */
   .eyebrow {
-    @apply text-[10px] font-semibold uppercase tracking-wider text-slate-500;
+    @apply text-[10px] font-semibold uppercase tracking-wider text-muted-foreground;
   }
   /* Generic list-row hover surface — sidebar lists, model rows, plugin rows. */
   .row-hover {
-    @apply transition-colors hover:bg-slate-50;
+    @apply transition-colors hover:bg-muted;
   }
   /* Hover-reveal pattern: child becomes visible when the `group` ancestor is
      hovered. Pair with `group` on the parent. */
@@ -233,8 +225,8 @@
     margin: 0.75rem 0 !important;
     padding: 0 !important;
     gap: 0 !important;
-    background: rgb(248 250 252) !important; /* slate-50 */
-    border: 1px solid rgb(226 232 240) !important; /* slate-200 */
+    background: var(--muted) !important;
+    border: 1px solid var(--border) !important;
     border-radius: 0.375rem !important; /* rounded-md */
     overflow: hidden !important;
   }
@@ -249,10 +241,10 @@
     height: auto !important;
     padding: 0.5rem 2.75rem 0.5rem 0.875rem !important; /* room for actions on the right */
     min-height: 2rem !important;
-    border-bottom: 1px solid rgb(226 232 240) !important;
+    border-bottom: 1px solid var(--border) !important;
     font-size: 11px !important;
     line-height: 1rem !important;
-    color: rgb(100 116 139) !important; /* slate-500 */
+    color: var(--muted-foreground) !important;
   }
   /* The sticky wrapper is the unnamed div parent of code-block-actions.
      `:has()` reaches it without depending on streamdown's class names. */
@@ -297,13 +289,13 @@
     align-items: center !important;
     justify-content: center !important;
     border-radius: 0.25rem !important;
-    color: rgb(100 116 139) !important; /* slate-500 */
+    color: var(--muted-foreground) !important;
     transition: background-color .15s, color .15s !important;
   }
   [data-streamdown="code-block-copy-button"]:hover,
   [data-streamdown="code-block-download-button"]:hover {
-    background: rgb(226 232 240) !important; /* slate-200 */
-    color: rgb(51 65 85) !important; /* slate-700 */
+    background: var(--accent) !important;
+    color: var(--accent-foreground) !important;
   }
   [data-streamdown="code-block-copy-button"] svg,
   [data-streamdown="code-block-download-button"] svg {
@@ -319,23 +311,23 @@
      opt into `.hover-reveal` (Tailwind v4 doesn't allow `@apply group`). */
   .chat-list-item {
     @apply relative flex items-start gap-2 border-l-2 border-transparent
-           px-3 py-2 transition-colors hover:bg-slate-50;
+           px-3 py-2 transition-colors hover:bg-muted;
   }
   .chat-list-item.is-active {
-    @apply border-teal-500 bg-teal-50 hover:bg-teal-50;
+    @apply border-brand bg-brand/10 hover:bg-brand/10;
   }
   .chat-list-item-title {
-    @apply truncate text-sm font-medium text-slate-800;
+    @apply truncate text-sm font-medium text-foreground;
   }
   .chat-list-item-meta {
-    @apply mt-0.5 text-[11px] text-slate-500;
+    @apply mt-0.5 text-[11px] text-muted-foreground;
   }
 
   /* ===== Chat main-content topbar =====
      Horizontal strip above the message thread holding search + nav tabs +
      context meter. */
   .chat-topbar {
-    @apply flex items-center gap-2 border-b border-slate-100 px-3 py-2;
+    @apply flex items-center gap-2 border-b px-3 py-2;
   }
 
   /* ===== Context meter trigger =====
@@ -343,10 +335,10 @@
      text-color class gets layered on top via callsite (emerald/amber/rose
      based on warning level). */
   .context-meter-trigger {
-    @apply inline-flex items-center gap-1.5 rounded-full border border-slate-200
-           bg-white/70 px-2.5 py-0.5 text-[11px] font-medium transition
-           hover:bg-slate-50 cursor-pointer disabled:cursor-default
-           disabled:hover:bg-white/70;
+    @apply inline-flex items-center gap-1.5 rounded-full border
+           bg-card/70 px-2.5 py-0.5 text-[11px] font-medium transition
+           hover:bg-muted cursor-pointer disabled:cursor-default
+           disabled:hover:bg-card/70;
   }
 
   /* ===== Label/value justify-between row =====
@@ -356,13 +348,36 @@
     @apply flex items-center justify-between;
   }
 
-  /* ===== Alert banner — rose tone =====
+  /* ===== Alert banner — destructive tone =====
      Generic error/warning row used by Chat 502s, Gallery delete failures,
      ContextMeter overage warning, etc. Caller controls text size + adds
-     icon as a child. */
+     icon as a child. `.alert-rose` kept as an alias for legacy callsites. */
+  .alert-destructive {
+    @apply flex items-start gap-2 rounded-lg border border-destructive/30
+           bg-destructive/10 px-3 py-2 text-destructive;
+  }
+  /* Legacy alias — same body since Tailwind v4 forbids `@apply`-ing a custom
+     class inside another @layer-components rule. */
   .alert-rose {
-    @apply flex items-start gap-2 rounded-lg border border-rose-200
-           bg-rose-50 px-3 py-2 text-rose-800;
+    @apply flex items-start gap-2 rounded-lg border border-destructive/30
+           bg-destructive/10 px-3 py-2 text-destructive;
+  }
+
+  /* ===== Stat pill =====
+     Compact rounded-full chip used for inline stats / KV chips
+     (ModelInfoModal hashes, file sizes, etc). Neutral muted surface
+     with a subtle inset ring — pairs with `.eyebrow` or sits inline. */
+  .stat-pill {
+    @apply inline-flex items-center gap-1.5 rounded-full bg-muted
+           px-2.5 py-1 text-[11px] ring-1 ring-inset ring-border;
+  }
+
+  /* ===== Card row =====
+     Bordered card surface used for per-row entries inside lists / modals
+     (DependencyModal model + plugin rows, ImportWorkflowModal workflow rows).
+     Pairs with row-level icon/badge + content + actions. */
+  .card-row {
+    @apply flex items-start gap-3 rounded-lg border bg-card p-3;
   }
 
   /* ===== Chat per-message action button =====
@@ -376,7 +391,7 @@
            rounded text-foreground transition-colors hover:bg-muted;
   }
   .chat-action-btn.is-danger {
-    @apply hover:bg-rose-50;
+    @apply hover:bg-destructive/10;
   }
   /* Container row holding the chat-action-btn buttons. Reveals on row hover
      (the ancestor `<Message>` adds `group`); right-aligns under user bubbles
@@ -393,13 +408,13 @@
      Image-button variant deepens on hover; static `<div>` variant uses the
      base only. */
   .chat-attachment-chip {
-    @apply inline-flex items-center gap-2 rounded-md border border-slate-200
-           bg-slate-50 px-2 py-1 text-xs text-slate-700;
+    @apply inline-flex items-center gap-2 rounded-md border
+           bg-muted px-2 py-1 text-xs text-foreground;
   }
   /* Tailwind v4 forbids `@apply group`, so callers must add `group` directly
      in JSX when they need group-hover descendants. */
   .chat-attachment-chip.is-button {
-    @apply p-1 pr-2 hover:bg-slate-100;
+    @apply p-1 pr-2 hover:bg-secondary;
   }
 
   /* ===== Skeleton shimmer band =====
@@ -436,7 +451,7 @@
            bg-background text-foreground hover:bg-muted;
   }
   .context-meter-pill.is-active {
-    @apply bg-teal-50 font-medium text-teal-900 hover:bg-teal-50;
+    @apply bg-brand/10 font-medium text-brand hover:bg-brand/10;
   }
 
   /* ===== Panels =====
@@ -444,16 +459,16 @@
      surface, `.panel-header` / `.panel-body` / `.panel-footer` for the slots.
      Title + description shortcuts match `<CardTitle>` / `<CardDescription>`. */
   .panel {
-    @apply flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm;
+    @apply flex flex-col overflow-hidden rounded-xl border bg-card shadow-sm;
   }
   .panel-header {
-    @apply border-b border-slate-200 px-4 py-3;
+    @apply border-b px-4 py-3;
   }
   .panel-header-title {
-    @apply text-sm font-semibold text-slate-900;
+    @apply text-sm font-semibold text-card-foreground;
   }
   .panel-header-desc {
-    @apply mt-0.5 text-[11px] text-slate-400;
+    @apply mt-0.5 text-[11px] text-muted-foreground;
   }
   /* Body grows to push the footer to the bottom — matters when sibling
      cards in the same grid row have different content heights and the
@@ -463,8 +478,8 @@
     @apply flex-1 px-4 py-4;
   }
   .panel-footer {
-    @apply flex items-center justify-between gap-3 border-t border-slate-200
-           bg-slate-50 px-4 py-3;
+    @apply flex items-center justify-between gap-3 border-t
+           bg-muted px-4 py-3;
   }
   .panel-action {
     @apply ml-auto flex items-center gap-2;
@@ -473,7 +488,7 @@
   /* ===== Cards (legacy hover-card surface) =====
      Lighter than `.panel` — used by content tiles that lift on hover. */
   .card {
-    @apply bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow;
+    @apply bg-card rounded-xl border shadow-sm hover:shadow-md transition-shadow;
   }
 
   /* ===== Badges =====
@@ -491,17 +506,21 @@
   /* Studio tone variants — `<Badge variant="emerald">` etc emit
      `class="badge badge-emerald"`. Mirrors the cva config in
      `components/ui/badge.tsx`. */
-  .badge-emerald   { @apply bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200; }
-  .badge-amber     { @apply bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200; }
-  .badge-rose      { @apply bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200; }
-  .badge-slate     { @apply bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-200; }
-  .badge-teal      { @apply bg-teal-50 text-teal-700 ring-1 ring-inset ring-teal-200; }
-  .badge-outline   { @apply border-slate-200 text-slate-700; }
-  .badge-secondary { @apply bg-slate-100 text-slate-700; }
+  /* Semantic success/warning resolve through `--success` / `--warning`
+     tokens (light/dark flipped in :root / .dark). */
+  .badge-emerald   { @apply bg-success/10 text-success ring-1 ring-inset ring-success/30; }
+  .badge-amber     { @apply bg-warning/10 text-warning ring-1 ring-inset ring-warning/30; }
+  /* Destructive — uses --destructive token (red). `.badge-rose` kept as alias. */
+  .badge-destructive { @apply bg-destructive/10 text-destructive ring-1 ring-inset ring-destructive/30; }
+  .badge-rose      { @apply bg-destructive/10 text-destructive ring-1 ring-inset ring-destructive/30; }
+  .badge-slate     { @apply bg-muted text-foreground ring-1 ring-inset ring-border; }
+  .badge-teal      { @apply bg-brand/10 text-brand ring-1 ring-inset ring-brand/30; }
+  .badge-outline   { @apply border text-foreground; }
+  .badge-secondary { @apply bg-secondary text-secondary-foreground; }
   /* Plain-CSS shortcut used by direct `<span class="badge-gray">` consumers
      (TemplateCard "User Workflows" indicator). */
   .badge-gray {
-    @apply bg-slate-50 text-slate-600 ring-1 ring-inset ring-slate-200;
+    @apply bg-muted text-muted-foreground ring-1 ring-inset ring-border;
   }
 
   /* `.stat-box` / `.stat-box-label` / `.stat-box-value` removed in Phase C —
@@ -511,7 +530,7 @@
   /* Small uppercase label used for widget/stat section titles
      (Dashboard cards, NetworkWidget, Plugins sidebar group). */
   .stat-label {
-    @apply text-[10px] font-semibold uppercase tracking-wide text-slate-500;
+    @apply text-[10px] font-semibold uppercase tracking-wide text-muted-foreground;
   }
 
   /* ===== Progress bars ===== */
@@ -519,10 +538,10 @@
      meter. Inner fill element (`.progress-bar-fill`) may carry its own color
      override when the state isn't the default teal. */
   .progress-track {
-    @apply h-1.5 bg-slate-100 rounded-full overflow-hidden;
+    @apply h-1.5 bg-muted rounded-full overflow-hidden;
   }
   .progress-bar-fill {
-    @apply h-full bg-teal-500 rounded-full transition-all duration-300;
+    @apply h-full bg-brand rounded-full transition-all duration-300;
   }
 
   /* `.modal-overlay` and `.modal-backdrop` removed in Phase C —
@@ -535,16 +554,16 @@
      `components/ui/input.tsx` for new fields, or `field-wrap` + `field-input`
      for the compact inline-control composition with steppers. */
   .field-label {
-    @apply block text-xs font-medium uppercase tracking-wide text-slate-500;
+    @apply block text-xs font-medium uppercase tracking-wide text-muted-foreground;
   }
   .field-helper {
-    @apply text-xs text-slate-500;
+    @apply text-xs text-muted-foreground;
   }
   .field-wrap {
-    @apply flex items-center gap-2 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 focus-within:border-teal-500 transition-colors;
+    @apply flex items-center gap-2 rounded-md border border-input bg-card px-2.5 py-1.5 focus-within:border-ring transition-colors;
   }
   .field-input {
-    @apply w-full bg-transparent text-[12px] text-slate-900 outline-none placeholder:text-slate-400;
+    @apply w-full bg-transparent text-[12px] text-foreground outline-none placeholder:text-muted-foreground;
   }
   /* Multi-line variant — same visual language as .field-wrap but comfortable padding and auto-sizing support.
      The `scrollbar-subtle` class is intentionally *not* part of `@apply` (v4
@@ -554,14 +573,14 @@
      the styling here so an unsuffixed `.field-textarea` still gets the
      subtle hover scrollbar. */
   .field-textarea {
-    @apply w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-[12px] leading-relaxed text-slate-900 outline-none placeholder:text-slate-400 shadow-inner transition-colors focus:border-teal-500 focus:ring-2 focus:ring-teal-100;
+    @apply w-full resize-none rounded-lg border bg-card px-3 py-2 text-[12px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground shadow-inner transition-colors focus:border-ring focus:ring-2 focus:ring-ring/30;
     scrollbar-width: thin;
     scrollbar-color: transparent transparent;
     transition-property: scrollbar-color, color, background-color, border-color, text-decoration-color, fill, stroke;
     transition-duration: 0.2s;
   }
   .field-textarea:hover {
-    scrollbar-color: #e2e8f0 transparent;
+    scrollbar-color: var(--border) transparent;
   }
   .field-textarea::-webkit-scrollbar {
     width: 2px;
@@ -573,20 +592,20 @@
     transition: background 0.2s;
   }
   .field-textarea:hover::-webkit-scrollbar-thumb {
-    background: #e2e8f0;
+    background: var(--border);
   }
   .field-textarea::-webkit-scrollbar-thumb:hover {
-    background: #cbd5e1;
+    background: var(--muted-foreground);
   }
   /* +/- stepper buttons used alongside .field-input inside a .field-wrap. */
   .field-stepper {
-    @apply shrink-0 rounded p-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40;
+    @apply shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40;
   }
   .info-box {
-    @apply rounded-lg bg-slate-50 px-3 py-2 ring-1 ring-inset ring-slate-200 text-xs text-slate-400;
+    @apply rounded-lg bg-muted px-3 py-2 ring-1 ring-inset ring-border text-xs text-muted-foreground;
   }
   .empty-box {
-    @apply rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center text-sm font-medium text-slate-600;
+    @apply rounded-lg border border-dashed bg-muted px-4 py-5 text-center text-sm font-medium text-muted-foreground;
   }
 
   /* ===== Toggle ===== */
@@ -603,11 +622,11 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #d1d5db;
+  background: var(--border);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #9ca3af;
+  background: var(--muted-foreground);
 }
 
 /* Subtle scrollbar (only visible on hover of container) */
@@ -617,7 +636,7 @@
   transition: scrollbar-color 0.2s;
 }
 .scrollbar-subtle:hover {
-  scrollbar-color: #e2e8f0 transparent;
+  scrollbar-color: var(--border) transparent;
 }
 .scrollbar-subtle::-webkit-scrollbar {
   width: 2px;
@@ -629,10 +648,10 @@
   transition: background 0.2s;
 }
 .scrollbar-subtle:hover::-webkit-scrollbar-thumb {
-  background: #e2e8f0;
+  background: var(--border);
 }
 .scrollbar-subtle::-webkit-scrollbar-thumb:hover {
-  background: #cbd5e1;
+  background: var(--muted-foreground);
 }
 /* ---break---
 */
@@ -646,11 +665,6 @@
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -669,6 +683,19 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
+  /* Brand color — formalizes teal as the Studio brand. Tailwind utilities
+     `bg-brand`, `text-brand`, `text-brand-foreground`, `border-brand`,
+     `ring-brand` etc. resolve through here so :root / .dark can flip the
+     hue independently of slate-derived `--primary`. */
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  /* Semantic success/warning tokens — emerald-derived "good"/amber-derived
+     "caution" hues exposed as Tailwind utilities (`bg-success`, `text-warning`,
+     `border-success/30`, etc). :root / .dark flip values for light/dark. */
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   /* `--radius-sm` intentionally omitted: Studio's primary `@theme` block
      pins it to 0.125rem for v3 visual parity. */
   --radius-md: calc(var(--radius) * 0.8);
@@ -696,14 +723,13 @@
   --accent: oklch(0.968 0.007 247.896);
   --accent-foreground: oklch(0.208 0.042 265.755);
   --destructive: oklch(0.577 0.245 27.325);
+  --success: oklch(0.696 0.17 162.48);          /* ~ emerald-500 */
+  --success-foreground: oklch(0.984 0.003 247.858);  /* near-white */
+  --warning: oklch(0.769 0.188 70.08);          /* ~ amber-500 */
+  --warning-foreground: oklch(0.21 0.05 70);    /* deep amber for contrast on lighter warning */
   --border: oklch(0.929 0.013 255.508);
   --input: oklch(0.929 0.013 255.508);
   --ring: oklch(0.704 0.04 256.788);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
   --radius: 0.625rem;
   --sidebar: oklch(0.984 0.003 247.858);
   --sidebar-foreground: oklch(0.129 0.042 264.695);
@@ -713,6 +739,8 @@
   --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
   --sidebar-border: oklch(0.929 0.013 255.508);
   --sidebar-ring: oklch(0.704 0.04 256.788);
+  --brand: oklch(0.6 0.118 184.704);          /* ~ teal-600 — Studio brand */
+  --brand-foreground: oklch(1 0 0);           /* white text on brand */
 }
 /* ---break---
 */
@@ -732,14 +760,13 @@
   --accent: oklch(0.279 0.041 260.031);
   --accent-foreground: oklch(0.984 0.003 247.858);
   --destructive: oklch(0.704 0.191 22.216);
+  --success: oklch(0.755 0.17 162);             /* lighter emerald for dark bg */
+  --success-foreground: oklch(0.21 0.05 162);   /* dark green text */
+  --warning: oklch(0.85 0.15 75);               /* lighter amber for dark bg */
+  --warning-foreground: oklch(0.21 0.05 70);    /* deep amber text */
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.551 0.027 264.364);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
   --sidebar: oklch(0.208 0.042 265.755);
   --sidebar-foreground: oklch(0.984 0.003 247.858);
   --sidebar-primary: oklch(0.488 0.243 264.376);
@@ -748,4 +775,6 @@
   --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.551 0.027 264.364);
+  --brand: oklch(0.777 0.152 181.912);        /* ~ teal-400 — pops on dark bg */
+  --brand-foreground: oklch(0.277 0.046 192.524); /* ~ teal-950 — dark text on lighter brand */
 }

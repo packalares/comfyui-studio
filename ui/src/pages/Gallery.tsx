@@ -198,7 +198,7 @@ export default function Gallery() {
         right={
           bulkSelecting ? (
             <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500">{selectedIds.size} selected</span>
+              <span className="text-xs text-muted-foreground">{selectedIds.size} selected</span>
               <Button variant="secondary">
                 <Download className="w-3.5 h-3.5" />
                 Download
@@ -206,7 +206,7 @@ export default function Gallery() {
               <Button
                 onClick={openDeleteForSelection}
                 variant="secondary"
-                className="text-red-600 border-red-200 hover:bg-red-50"
+                className="text-destructive border-destructive/30 hover:bg-destructive/10"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 Delete
@@ -250,7 +250,7 @@ export default function Gallery() {
         <Card>
           <div className="flex flex-col lg:flex-row min-h-[calc(100vh-180px)]">
             {/* ===== Left sidebar ===== */}
-            <aside className={`${filtersOpen ? 'block' : 'hidden'} lg:block w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 p-4 space-y-5 bg-white`}>
+            <aside className={`${filtersOpen ? 'block' : 'hidden'} lg:block w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r p-4 space-y-5 bg-card`}>
               {/* Media Type filter */}
               <div>
                 <label className="field-label mb-1.5 block">Media Type</label>
@@ -291,14 +291,14 @@ export default function Gallery() {
               {/* Favorites toggle */}
               <div>
                 <label className="field-label mb-1.5 block">Show</label>
-                <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer select-none">
+                <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
                   <Checkbox checked={onlyFavorites} onCheckedChange={(v) => setOnlyFavorites(v === true)} />
                   Favorites only
                 </label>
               </div>
 
               {/* Selection actions */}
-              <div className="pt-4 border-t border-slate-200">
+              <div className="pt-4 border-t">
                 <label className="field-label mb-1.5 block">Selection</label>
                 <Button onClick={selectAll} variant="secondary" className="w-full justify-center">
                   {selectedIds.size === filteredGallery.length && filteredGallery.length > 0 ? (
@@ -311,18 +311,18 @@ export default function Gallery() {
 
               {/* Stats — vertical row list, matches Models page's Storage
                   panel language (icon + label left, value right-aligned). */}
-              <div className="pt-4 border-t border-slate-200">
+              <div className="pt-4 border-t">
                 <label className="field-label mb-2 block">Stats</label>
-                <div className="divide-y divide-slate-100 rounded-lg ring-1 ring-inset ring-slate-200 overflow-hidden bg-white">
+                <div className="divide-y rounded-lg ring-1 ring-inset ring-border/60 overflow-hidden bg-card">
                   <div className="flex items-center gap-2 px-3 py-2">
-                    <Images className="w-4 h-4 text-slate-500 shrink-0" />
-                    <span className="text-xs text-slate-600 flex-1">Total</span>
-                    <span className="font-mono text-sm font-semibold text-slate-900">{paged.total}</span>
+                    <Images className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <span className="text-xs text-muted-foreground flex-1">Total</span>
+                    <span className="font-mono text-sm font-semibold text-foreground">{paged.total}</span>
                   </div>
                   <div className="flex items-center gap-2 px-3 py-2">
                     <Star className="w-4 h-4 text-amber-500 shrink-0" />
-                    <span className="text-xs text-slate-600 flex-1">Favorites</span>
-                    <span className="font-mono text-sm font-semibold text-slate-900">{favorites.size}</span>
+                    <span className="text-xs text-muted-foreground flex-1">Favorites</span>
+                    <span className="font-mono text-sm font-semibold text-foreground">{favorites.size}</span>
                   </div>
                 </div>
               </div>
@@ -331,12 +331,12 @@ export default function Gallery() {
             {/* ===== Right content ===== */}
             <main className="flex-1 p-4 overflow-y-auto">
               {deleteError && (
-                <div className="mb-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                <div className="mb-3 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                   <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
                   <div className="flex-1">{deleteError}</div>
                   <button
                     onClick={() => setDeleteError(null)}
-                    className="p-0.5 text-red-600 hover:text-red-800"
+                    className="p-0.5 text-destructive hover:opacity-80"
                     aria-label="Dismiss error"
                   >
                     <X className="w-3.5 h-3.5" />
@@ -344,12 +344,12 @@ export default function Gallery() {
                 </div>
               )}
               {importResult && (
-                <div className="mb-3 flex items-start gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-700">
+                <div className="mb-3 flex items-start gap-2 rounded-lg border border-brand bg-brand/10 px-3 py-2 text-xs text-brand">
                   <DownloadCloud className="w-4 h-4 mt-0.5 shrink-0" />
                   <div className="flex-1">{importResult}</div>
                   <button
                     onClick={() => setImportResult(null)}
-                    className="p-0.5 text-teal-600 hover:text-teal-800"
+                    className="p-0.5 text-brand hover:opacity-80"
                     aria-label="Dismiss"
                   >
                     <X className="w-3.5 h-3.5" />
@@ -373,11 +373,11 @@ export default function Gallery() {
                 </div>
               ) : (
                 <div className="text-center py-20">
-                  <ImageIcon className="w-12 h-12 text-slate-200 mx-auto mb-3" />
-                  <p className="text-sm font-medium text-slate-500">
+                  <ImageIcon className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
+                  <p className="text-sm font-medium text-muted-foreground">
                     {onlyFavorites ? 'No favorites yet' : 'No generations yet'}
                   </p>
-                  <p className="text-xs text-slate-400 mt-1 mb-4">
+                  <p className="text-xs text-muted-foreground mt-1 mb-4">
                     {onlyFavorites
                       ? 'Mark items as favorite to see them here'
                       : 'Your generated images, videos, and audio will appear here'}
@@ -386,7 +386,7 @@ export default function Gallery() {
                     <div className="flex items-center justify-center gap-2">
                       <button
                         onClick={() => navigate('/studio')}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 transition-colors"
+                        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-brand-foreground bg-brand rounded-lg hover:bg-brand/90 transition-colors"
                       >
                         Start Creating
                         <ArrowRight className="w-4 h-4" />
@@ -394,7 +394,7 @@ export default function Gallery() {
                       <button
                         onClick={() => { setImportResult(null); setImportConfirmOpen(true); }}
                         disabled={importing}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-foreground bg-card border border-input rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
                       >
                         {importing
                           ? <Spinner size="md" />
@@ -414,7 +414,7 @@ export default function Gallery() {
                   hasMore={paged.hasMore}
                   onPageChange={paged.setPage}
                   onPageSizeChange={paged.setPageSize}
-                  className="rounded-lg border border-slate-200 bg-slate-50"
+                  className="rounded-lg border bg-muted"
                 />
               </div>
             </main>

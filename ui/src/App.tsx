@@ -19,7 +19,7 @@ const Settings = lazy(() => import('./pages/Settings'));
 function RouteFallback() {
   return (
     <div className="flex items-center justify-center h-64">
-      <Spinner size="xl" className="text-slate-400" />
+      <Spinner size="xl" className="text-muted-foreground" />
     </div>
   );
 }
@@ -36,6 +36,10 @@ function App() {
           <Route path="/gallery" element={<Gallery />} />
           <Route path="/models" element={<Models />} />
           <Route path="/chat" element={<Chat />} />
+          {/* Per-conversation deep link. Sidebar items + new-chat redirect
+              both target this path; Chat.tsx reads `:chatId` via useParams
+              and treats the URL as the source of truth. */}
+          <Route path="/chat/c/:chatId" element={<Chat />} />
           {/* Legacy /chat/models — Ollama is now a Source filter on /models. */}
           <Route path="/chat/models" element={<Navigate to="/models?source=ollama" replace />} />
           <Route path="/plugins" element={<Plugins />}>

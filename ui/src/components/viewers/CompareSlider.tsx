@@ -44,7 +44,7 @@ export default function CompareSlider({ beforeSrc, afterSrc, beforeLabel = 'Inpu
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full select-none overflow-hidden rounded-lg bg-gray-100"
+      className="relative w-full h-full select-none overflow-hidden rounded-lg bg-muted"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -77,9 +77,9 @@ export default function CompareSlider({ beforeSrc, afterSrc, beforeLabel = 'Inpu
         style={{ left: `${position}%`, transform: 'translateX(-50%)' }}
       >
         {/* Handle */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 bg-white rounded-full shadow-lg border border-gray-200 flex items-center justify-center gap-0.5 cursor-ew-resize">
-          <ChevronLeft className="w-3.5 h-3.5 text-gray-600" />
-          <ChevronRight className="w-3.5 h-3.5 text-gray-600" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 bg-popover rounded-full shadow-lg border flex items-center justify-center gap-0.5 cursor-ew-resize">
+          <ChevronLeft className="w-3.5 h-3.5 text-foreground" />
+          <ChevronRight className="w-3.5 h-3.5 text-foreground" />
         </div>
       </div>
 

@@ -44,7 +44,7 @@ function WipeModal({
         onConfirm={onConfirm}
       >
         <div className="space-y-2 px-1 mt-2">
-          <label className="flex items-start gap-2 cursor-pointer p-2 rounded-md hover:bg-slate-50">
+          <label className="flex items-start gap-2 cursor-pointer p-2 rounded-md hover:bg-muted">
             <input
               type="radio"
               checked={mode === 'normal'}
@@ -52,11 +52,11 @@ function WipeModal({
               className="mt-1"
             />
             <div>
-              <p className="text-xs font-medium text-slate-900">Normal</p>
-              <p className="text-[11px] text-slate-500">Reset configuration and cache; keeps installed models and plugins.</p>
+              <p className="text-xs font-medium text-foreground">Normal</p>
+              <p className="text-[11px] text-muted-foreground">Reset configuration and cache; keeps installed models and plugins.</p>
             </div>
           </label>
-          <label className="flex items-start gap-2 cursor-pointer p-2 rounded-md hover:bg-slate-50 border border-red-100 bg-red-50/30">
+          <label className="flex items-start gap-2 cursor-pointer p-2 rounded-md hover:bg-muted border border-destructive/30 bg-destructive/10">
             <input
               type="radio"
               checked={mode === 'hard'}
@@ -64,8 +64,8 @@ function WipeModal({
               className="mt-1"
             />
             <div>
-              <p className="text-xs font-medium text-red-700">Hard</p>
-              <p className="text-[11px] text-red-600/80">Aggressive wipe: everything goes except essential files. Not reversible.</p>
+              <p className="text-xs font-medium text-destructive">Hard</p>
+              <p className="text-[11px] text-destructive/80">Aggressive wipe: everything goes except essential files. Not reversible.</p>
             </div>
           </label>
         </div>
@@ -78,10 +78,10 @@ function WipeModal({
       <div className="fixed inset-0 bg-black/50" onClick={phase !== 'running' ? onClose : undefined} />
       <Card className="relative w-full max-w-3xl max-h-[80vh] flex flex-col">
         <CardHeader className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-            {phase === 'running' && <Spinner size="md" className="text-amber-500" />}
-            {phase === 'done' && <CheckCircle2 className="w-4 h-4 text-teal-600" />}
-            {phase === 'error' && <AlertTriangle className="w-4 h-4 text-red-600" />}
+          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            {phase === 'running' && <Spinner size="md" className="text-warning" />}
+            {phase === 'done' && <CheckCircle2 className="w-4 h-4 text-brand" />}
+            {phase === 'error' && <AlertTriangle className="w-4 h-4 text-destructive" />}
             {phase === 'running' ? `Wiping (${mode})…` : phase === 'done' ? 'Wipe complete' : 'Wipe failed'}
           </h3>
           {phase !== 'running' && (
@@ -91,7 +91,7 @@ function WipeModal({
           )}
         </CardHeader>
         <CardContent className="flex-1 overflow-auto">
-          <pre className="text-xs font-mono text-slate-700 whitespace-pre-wrap break-words bg-slate-50 rounded-lg p-4 min-h-[200px] ring-1 ring-inset ring-slate-200">
+          <pre className="text-xs font-mono text-foreground whitespace-pre-wrap break-words bg-muted rounded-lg p-4 min-h-[200px] ring-1 ring-inset ring-border">
             {logs.length === 0 ? 'Starting…' : logs.join('\n')}
             {errorMsg && `\n\nError: ${errorMsg}`}
           </pre>
@@ -202,7 +202,7 @@ export default function ComfyUIActions() {
           <TooltipTrigger asChild>
             <button
               onClick={() => setDropdownOpen(v => !v)}
-              className="inline-flex items-center justify-center rounded-l-none rounded-r-full h-7 px-2 text-xs font-medium bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition-colors disabled:opacity-50"
+              className="inline-flex items-center justify-center rounded-l-none rounded-r-full h-7 px-2 text-xs font-medium bg-success/10 text-success border border-success/30 hover:bg-success/20 transition-colors disabled:opacity-50"
               aria-label="ComfyUI actions"
               disabled={actionLoading !== null}
             >
@@ -214,37 +214,37 @@ export default function ComfyUIActions() {
         {dropdownOpen && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />
-            <div className="absolute right-0 mt-1 w-48 bg-white border border-slate-200 rounded-lg shadow-lg z-50 py-1">
+            <div className="absolute right-0 mt-1 w-48 bg-popover border rounded-lg shadow-lg z-50 py-1">
               <button
                 onClick={handleStop}
                 disabled={actionLoading !== null}
-                className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 disabled:opacity-50"
+                className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-muted flex items-center gap-2 disabled:opacity-50"
               >
-                <Square className="w-3.5 h-3.5 text-red-500" />
+                <Square className="w-3.5 h-3.5 text-destructive" />
                 Stop
               </button>
               <button
                 onClick={handleRestart}
                 disabled={actionLoading !== null || processStatus !== 'running'}
-                className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 disabled:opacity-50"
+                className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-muted flex items-center gap-2 disabled:opacity-50"
               >
-                <RotateCw className="w-3.5 h-3.5 text-amber-500" />
+                <RotateCw className="w-3.5 h-3.5 text-warning" />
                 Restart
               </button>
-              <div className="border-t border-slate-100 my-1" />
+              <div className="border-t my-1" />
               <button
                 onClick={() => { setDropdownOpen(false); setLogsOpen(true); }}
-                className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-muted flex items-center gap-2"
               >
-                <FileText className="w-3.5 h-3.5 text-slate-400" />
+                <FileText className="w-3.5 h-3.5 text-muted-foreground" />
                 View Logs
               </button>
-              <div className="border-t border-slate-100 my-1" />
+              <div className="border-t my-1" />
               <button
                 onClick={() => { setDropdownOpen(false); setWipePhase('confirm'); }}
-                className="w-full text-left px-3 py-2 text-xs text-red-600 hover:bg-red-50 flex items-center gap-2"
+                className="w-full text-left px-3 py-2 text-xs text-destructive hover:bg-destructive/10 flex items-center gap-2"
               >
-                <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                <Trash2 className="w-3.5 h-3.5 text-destructive" />
                 Wipe and Reinitialize
               </button>
             </div>

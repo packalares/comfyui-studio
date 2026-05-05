@@ -262,9 +262,9 @@ export default function MessageThread({
         <ConversationContent className="mx-auto w-full max-w-4xl px-4 py-6">
           {!hasConversation && status === 'ready' && (
             <div className="empty-box flex flex-col items-center gap-1.5 py-12">
-              <MessageSquare className="h-6 w-6 text-slate-300" />
-              <div className="text-sm font-medium text-slate-600">Start a new conversation</div>
-              <div className="text-xs text-slate-500">Type below or pick one from the sidebar.</div>
+              <MessageSquare className="h-6 w-6 text-muted-foreground" />
+              <div className="text-sm font-medium text-foreground">Start a new conversation</div>
+              <div className="text-xs text-muted-foreground">Type below or pick one from the sidebar.</div>
             </div>
           )}
           {hasConversation && messages.length === 0 && status === 'ready' && (
@@ -305,7 +305,7 @@ export default function MessageThread({
               <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <div>
                 <div className="font-medium">Stream failed</div>
-                <div className="text-rose-700">{streamError}</div>
+                <div className="text-destructive">{streamError}</div>
               </div>
             </div>
           )}
@@ -313,8 +313,8 @@ export default function MessageThread({
         <ConversationScrollButton />
       </Conversation>
       {dragActive && (
-        <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-teal-400 bg-teal-50/80 backdrop-blur-sm">
-          <div className="flex items-center gap-2 text-sm font-medium text-teal-700">
+        <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-brand bg-brand/10 backdrop-blur-sm">
+          <div className="flex items-center gap-2 text-sm font-medium text-brand">
             <Upload className="h-4 w-4" />
             Drop file here
           </div>
@@ -403,28 +403,30 @@ function MessageRow({
     />
   ) : null;
 
+  // For user rows we split attachments + prose: chips render naked above the
+  // bubble (the chip is already its own affordance — wrapping it in
+  // bg-secondary px-4 py-3 just adds visual noise), prose still lands in the
+  // bubble. Bubble itself only renders when there's actual visible text.
+  const visibleUserText = isUser ? userVisibleText(text) : '';
+  const showUserBubble = isUser && visibleUserText.length > 0;
+
   return (
     <Message from={msg.role}>
+      {isUser && atts.length > 0 && (
+        <div className="flex flex-wrap gap-2 group-[.is-user]:ml-auto group-[.is-user]:justify-end">
+          {atts.map((a, i) => (
+            <RenderedAttachmentChip
+              key={i}
+              att={a}
+              onZoom={() => a.kind === 'image' && onZoom(a.url)}
+            />
+          ))}
+        </div>
+      )}
+      {(showUserBubble || !isUser) && (
       <MessageContent>
         {isUser ? (
-          <>
-            {atts.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {atts.map((a, i) => (
-                  <RenderedAttachmentChip
-                    key={i}
-                    att={a}
-                    onZoom={() => a.kind === 'image' && onZoom(a.url)}
-                  />
-                ))}
-              </div>
-            )}
-            {(() => {
-              const visible = userVisibleText(text);
-              if (visible.length === 0) return null;
-              return <div className="whitespace-pre-wrap text-sm">{visible}</div>;
-            })()}
-          </>
+          <div className="whitespace-pre-wrap text-sm">{visibleUserText}</div>
         ) : (
           <>
             {/* Render every assistant part in source order so the model's
@@ -480,6 +482,7 @@ function MessageRow({
           </>
         )}
       </MessageContent>
+      )}
       {/* Actions row — sibling of <MessageContent> so it doesn't reserve
           space inside the bubble when hidden. `<Message>` adds `group` to
           its wrapper; Actions uses `group-hover:flex` to surface only on
@@ -584,7 +587,7 @@ function GeneratedImage({ refData, resolved, onZoom }: GeneratedImageProps) {
         // assistant's surrounding text streams in and grows the bubble.
         // 24rem × 18rem = 384×288, 4:3, fits comfortably in any bubble
         // width and matches roughly the size the rendered image will land at.
-        className="relative mt-2 h-72 w-96 overflow-hidden rounded-lg bg-slate-200"
+        className="relative mt-2 h-72 w-96 overflow-hidden rounded-lg bg-secondary"
       >
         {/* Diagonal "shine" band sweeping left-to-right — the classic
             content-skeleton affordance (Twitter / YouTube / shadcn). The
@@ -594,7 +597,7 @@ function GeneratedImage({ refData, resolved, onZoom }: GeneratedImageProps) {
             stays still while the band moves underneath, like a watermark
             on a polished surface. */}
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-xs font-medium text-slate-500">Generating image…</span>
+          <span className="text-xs font-medium text-muted-foreground">Generating image…</span>
         </div>
       </div>
     );
@@ -610,7 +613,7 @@ function GeneratedImage({ refData, resolved, onZoom }: GeneratedImageProps) {
     || /\.(png|jpe?g|webp|gif|avif|bmp|svg)$/i.test(resolved.filename);
   if (!isImage) {
     return (
-      <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+      <div className="mt-2 rounded-md border bg-muted px-3 py-2 text-xs text-foreground">
         Generated <a href={url} className="underline">{resolved.filename}</a> — open the gallery to play it.
       </div>
     );
@@ -741,12 +744,12 @@ function RenderedAttachmentChip({ att, onZoom }: ChipProps) {
         <img
           src={att.url}
           alt={att.name ?? ''}
-          className="h-10 w-10 rounded object-cover ring-1 ring-slate-200"
+          className="h-10 w-10 rounded object-cover ring-1 ring-border"
         />
         <div className="flex flex-col items-start leading-tight">
-          {att.name && <span className="font-medium text-slate-800 max-w-[180px] truncate">{att.name}</span>}
+          {att.name && <span className="font-medium text-foreground max-w-[180px] truncate">{att.name}</span>}
           {att.size !== undefined && (
-            <span className="text-[10px] text-slate-500">{formatBytes(att.size)}</span>
+            <span className="text-[10px] text-muted-foreground">{formatBytes(att.size)}</span>
           )}
         </div>
       </button>
@@ -754,11 +757,11 @@ function RenderedAttachmentChip({ att, onZoom }: ChipProps) {
   }
   return (
     <div className="chat-attachment-chip">
-      <FileText className="h-4 w-4 text-slate-400" />
+      <FileText className="h-4 w-4 text-muted-foreground" />
       <div className="flex flex-col leading-tight">
-        <span className="font-medium text-slate-800 max-w-[180px] truncate">{att.name}</span>
+        <span className="font-medium text-foreground max-w-[180px] truncate">{att.name}</span>
         {att.size !== undefined && (
-          <span className="text-[10px] text-slate-500">{formatBytes(att.size)}</span>
+          <span className="text-[10px] text-muted-foreground">{formatBytes(att.size)}</span>
         )}
       </div>
     </div>

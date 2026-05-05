@@ -156,7 +156,7 @@ export default function ExposeWidgetsModal({ templateName, onClose, onSaved }: P
       disableClose={saving}
       footer={
         <>
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-muted-foreground">
             {selectedCount} {selectedCount === 1 ? 'field' : 'fields'} selected
           </span>
           <ButtonGroup>
@@ -178,14 +178,14 @@ export default function ExposeWidgetsModal({ templateName, onClose, onSaved }: P
       }
     >
       {loading ? (
-        <div className="flex items-center justify-center py-12 text-gray-400 gap-2">
+        <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
           <Spinner size="md" />
           <span className="text-sm">Loading widgets…</span>
         </div>
       ) : error ? (
-        <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-3">{error}</div>
+        <div className="text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded p-3">{error}</div>
       ) : totalGroups === 0 ? (
-        <div className="text-sm text-gray-500 py-8 text-center">
+        <div className="text-sm text-muted-foreground py-8 text-center">
           No editable widgets found for this template.
         </div>
       ) : (
@@ -193,7 +193,7 @@ export default function ExposeWidgetsModal({ templateName, onClose, onSaved }: P
           {sections.map(section => (
             <div key={section.scopeKey || '__top__'}>
               <div className="px-0 py-2 flex items-baseline gap-2">
-                <span className="text-sm font-semibold text-slate-900">{section.heading}</span>
+                <span className="text-sm font-semibold text-foreground">{section.heading}</span>
                 {section.scopeKey && (
                   <span className="stat-label">#{section.scopeKey}</span>
                 )}
@@ -201,13 +201,13 @@ export default function ExposeWidgetsModal({ templateName, onClose, onSaved }: P
               <div className="space-y-5">
                 {section.groups.map(g => (
                   <div key={g.nodeId}>
-                    <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+                    <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
                       {g.nodeTitle || g.nodeType}
-                      <span className="text-gray-300 font-normal normal-case tracking-normal ml-2">
+                      <span className="text-muted-foreground font-normal normal-case tracking-normal ml-2">
                         #{g.nodeId}
                       </span>
                     </div>
-                    <div className="space-y-0.5 border border-gray-100 rounded overflow-hidden">
+                    <div className="space-y-0.5 border rounded overflow-hidden">
                       {g.widgets.map(w => {
                         const key = `${w.nodeId}|${w.widgetName}`;
                         const lockedReason = w.proxyExposed
@@ -227,8 +227,8 @@ export default function ExposeWidgetsModal({ templateName, onClose, onSaved }: P
                             className={
                               'flex items-center gap-3 px-3 py-2 text-sm '
                               + (locked
-                                ? 'bg-gray-50/50 cursor-not-allowed'
-                                : 'hover:bg-gray-50 cursor-pointer')
+                                ? 'bg-muted/50 cursor-not-allowed'
+                                : 'hover:bg-muted cursor-pointer')
                             }
                             title={locked ? `Exposed via ${lockedReason}` : undefined}
                           >
@@ -239,18 +239,18 @@ export default function ExposeWidgetsModal({ templateName, onClose, onSaved }: P
                                 locked ? undefined : () => toggle(w.nodeId, w.widgetName)
                               }
                             />
-                            <span className="font-mono text-xs text-gray-700 flex-1 truncate">
+                            <span className="font-mono text-xs text-foreground flex-1 truncate">
                               {w.widgetName}
                             </span>
                             {lockedReason && (
-                              <span className="text-[10px] text-gray-400 italic">
+                              <span className="text-[10px] text-muted-foreground italic">
                                 via {lockedReason}
                               </span>
                             )}
-                            <span className="text-xs text-gray-400 truncate max-w-[40%]">
+                            <span className="text-xs text-muted-foreground truncate max-w-[40%]">
                               {formatValue(w.value)}
                             </span>
-                            <span className="text-[10px] text-gray-300 uppercase w-12 text-right">
+                            <span className="text-[10px] text-muted-foreground uppercase w-12 text-right">
                               {w.type}
                             </span>
                           </label>

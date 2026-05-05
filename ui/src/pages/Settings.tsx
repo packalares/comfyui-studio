@@ -37,11 +37,13 @@ import {
   Bug,
   Layout,
   Zap,
+  Sun,
   type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, type ChatAdvancedSettings, type SecretName } from '../services/comfyui';
 import { useApp } from '../context/AppContext';
+import { useTheme } from '../context/ThemeContext';
 import { Switch } from '../components/ui/switch';
 import { SelectField, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/forms/SelectField';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip';
@@ -218,10 +220,10 @@ function SectionHeader({
   return (
     <CardHeader className="flex items-start justify-between gap-3">
       <div className="flex items-start gap-2">
-        <Icon className="w-3.5 h-3.5 text-slate-400 mt-0.5" />
+        <Icon className="w-3.5 h-3.5 text-muted-foreground mt-0.5" />
         <div>
-          <h2 className="text-sm font-semibold text-slate-900 leading-tight">{title}</h2>
-          <p className="mt-0.5 text-[11px] text-slate-400">{description}</p>
+          <h2 className="text-sm font-semibold text-foreground leading-tight">{title}</h2>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">{description}</p>
         </div>
       </div>
       {right && <div className="shrink-0">{right}</div>}
@@ -411,7 +413,7 @@ function SecretsCard() {
           })()}
         </CardContent>
         <CardFooter>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-muted-foreground">
             {dirty.length === 0
               ? 'Type a value into one or more fields above to enable Save.'
               : `Saving ${dirty.length} field${dirty.length === 1 ? '' : 's'}.`}
@@ -561,7 +563,7 @@ function ChatLlmCard() {
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    className="cursor-help text-slate-400 transition-colors hover:text-slate-600"
+                    className="cursor-help text-muted-foreground transition-colors hover:text-foreground"
                     aria-label="keep_alive info"
                   >
                     <HelpCircle className="h-3 w-3" />
@@ -596,7 +598,7 @@ function ChatLlmCard() {
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    className="cursor-help text-slate-400 transition-colors hover:text-slate-600"
+                    className="cursor-help text-muted-foreground transition-colors hover:text-foreground"
                     aria-label="Default context strategy info"
                   >
                     <HelpCircle className="h-3 w-3" />
@@ -628,7 +630,7 @@ function ChatLlmCard() {
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    className="cursor-help text-slate-400 transition-colors hover:text-slate-600"
+                    className="cursor-help text-muted-foreground transition-colors hover:text-foreground"
                     aria-label="Default thinking mode info"
                   >
                     <HelpCircle className="h-3 w-3" />
@@ -657,7 +659,7 @@ function ChatLlmCard() {
         </div>
       </CardContent>
       <CardFooter>
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-muted-foreground">
           {probeFailedUrl
             ? 'Probe failed - persist the URL anyway, or fix it and retry.'
             : 'URL is probed before saving. Changes are applied immediately.'}
@@ -800,10 +802,10 @@ function ChatAdvancedCard() {
         </div>
         {/* Boolean toggle — kept outside the numeric grid so the InputField
             uniformity doesn't have to grow a "boolean" branch. */}
-        <div className="mt-4 flex items-start justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2.5">
+        <div className="mt-4 flex items-start justify-between gap-3 rounded-md border bg-muted px-3 py-2.5">
           <div className="min-w-0">
-            <div className="text-sm font-medium text-slate-900">Smart suggestions</div>
-            <p className="mt-0.5 text-xs leading-snug text-slate-500">
+            <div className="text-sm font-medium text-foreground">Smart suggestions</div>
+            <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
               After each assistant turn, run one extra LLM call to propose
               follow-up prompts the user might want to send next. Off →
               static heuristic pills only (no extra round-trip).
@@ -820,7 +822,7 @@ function ChatAdvancedCard() {
         </div>
       </CardContent>
       <CardFooter>
-        <p className="text-xs text-slate-500">Changes are applied immediately to the chat backend.</p>
+        <p className="text-xs text-muted-foreground">Changes are applied immediately to the chat backend.</p>
         <Button onClick={handleSave} disabled={busy || !advanced}>
           {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
           {saved ? 'Saved' : 'Save'}
@@ -853,7 +855,7 @@ function LaunchOptionRow({
   return (
     <div
       className={`flex items-center gap-3 px-4 py-2.5 transition-colors ${
-        isReadOnly ? 'opacity-60' : 'hover:bg-slate-50'
+        isReadOnly ? 'opacity-60' : 'hover:bg-muted'
       }`}
     >
       <div className="shrink-0">
@@ -865,20 +867,20 @@ function LaunchOptionRow({
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <code className="font-mono text-xs font-semibold text-slate-800">{label}</code>
+          <code className="font-mono text-xs font-semibold text-foreground">{label}</code>
           {isReadOnly && (
-            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-slate-500">
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
               Read-only
             </span>
           )}
           {showReadOnlyValue && (
-            <span className="rounded border border-slate-100 bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-500">
+            <span className="rounded border bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
               {String(item.value)}
             </span>
           )}
         </div>
         {description && (
-          <p className="mt-0.5 text-xs leading-relaxed text-slate-500">{description}</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{description}</p>
         )}
       </div>
       {showValueInput && (
@@ -896,7 +898,7 @@ function LaunchOptionRow({
                   : e.target.value
               )
             }
-            className="w-36 rounded-md border border-slate-300 bg-white px-2.5 py-1 font-mono text-[13px] text-slate-900 transition focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100"
+            className="w-36 rounded-md border border-input bg-card px-2.5 py-1 font-mono text-[13px] text-foreground transition focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/40"
             placeholder={item.type === 'number' ? '0' : 'value'}
           />
         </div>
@@ -920,22 +922,22 @@ function CategorySection({
   const Icon = CATEGORY_ICONS[category] || Terminal;
 
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-      <div className="flex items-center justify-between gap-3 bg-slate-50 px-3 py-2">
+    <div className="overflow-hidden rounded-lg border bg-card">
+      <div className="flex items-center justify-between gap-3 bg-muted px-3 py-2">
         <div className="flex items-center gap-2">
-          <Icon className="h-3.5 w-3.5 text-slate-500" />
-          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-700">
+          <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-foreground">
             {CATEGORY_LABELS[category] || category}
           </span>
           {enabledCount > 0 && (
-            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-teal-100 text-[10px] font-bold text-teal-700">
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand/20 text-[10px] font-bold text-brand">
               {enabledCount}
             </span>
           )}
         </div>
-        <span className="text-[11px] font-medium text-slate-400">{items.length} options</span>
+        <span className="text-[11px] font-medium text-muted-foreground">{items.length} options</span>
       </div>
-      <div className="divide-y divide-slate-100 border-t border-slate-200">
+      <div className="divide-y border-t">
         {items.map(item => (
           <LaunchOptionRow
             key={item.key}
@@ -978,14 +980,14 @@ function CommandPreview({ text, loading }: { text: string; loading: boolean }) {
           size="sm"
         >
           {copied ? (
-            <Check className="h-3 w-3 text-emerald-500" />
+            <Check className="h-3 w-3 text-success" />
           ) : (
             <Copy className="h-3 w-3" />
           )}
           {copied ? 'Copied' : 'Copy'}
         </Button>
       </div>
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-slate-950 px-3 py-3">
+      <div className="overflow-x-auto rounded-lg border bg-slate-950 px-3 py-3">
         <code className="block whitespace-pre-wrap break-all font-mono text-sm text-emerald-400">
           {loading ? (
             <span className="text-slate-500">Loading...</span>
@@ -1169,8 +1171,8 @@ function LaunchOptionsCard() {
       />
       <CardContent className="space-y-3">
         {error && (
-          <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2">
-            <p className="text-xs text-red-600">{error}</p>
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2">
+            <p className="text-xs text-destructive">{error}</p>
           </div>
         )}
 
@@ -1179,7 +1181,7 @@ function LaunchOptionsCard() {
         {loading ? (
           <div className="space-y-2">
             {[1, 2, 3].map(i => (
-              <div key={i} className="h-10 rounded-lg bg-slate-100 animate-pulse" />
+              <div key={i} className="h-10 rounded-lg bg-muted animate-pulse" />
             ))}
           </div>
         ) : grouped.length === 0 ? (
@@ -1207,7 +1209,7 @@ function LaunchOptionsCard() {
         )}
       </CardContent>
       <CardFooter>
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-muted-foreground">
           {grouped.length === 0
             ? 'No configurable flags detected.'
             : 'Changes require a ComfyUI restart to take effect.'}
@@ -1239,7 +1241,7 @@ function LaunchOptionsCard() {
 
 function ReachDot({ reach }: { reach?: { accessible: boolean; latencyMs?: number } }) {
   if (!reach) return null;
-  const cls = reach.accessible ? 'bg-emerald-500' : 'bg-rose-500';
+  const cls = reach.accessible ? 'bg-success' : 'bg-destructive';
   const tip = reach.accessible
     ? `reachable${reach.latencyMs != null ? ` · ${reach.latencyMs}ms` : ''}`
     : 'not reachable';
@@ -1276,7 +1278,7 @@ function NetworkRow({
   return (
     <div className="space-y-1.5 min-w-0">
       <label className="field-label flex items-center gap-1.5">
-        <Icon className="h-3 w-3 text-slate-400" />
+        <Icon className="h-3 w-3 text-muted-foreground" />
         {label}
         <ReachDot reach={reach} />
       </label>
@@ -1292,7 +1294,7 @@ function NetworkRow({
         <button
           onClick={onSave}
           disabled={saving}
-          className="shrink-0 rounded-md bg-teal-600 px-2 py-0.5 text-[11px] font-semibold text-white transition hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="shrink-0 rounded-md bg-brand px-2 py-0.5 text-[11px] font-semibold text-brand-foreground transition hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {saved ? (
             <Check className="h-3 w-3" />
@@ -1452,16 +1454,16 @@ function NetworkCard() {
       />
       <CardContent className="space-y-3">
         {error && (
-          <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2">
-            <p className="text-xs text-red-600">{error}</p>
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2">
+            <p className="text-xs text-destructive">{error}</p>
           </div>
         )}
         {loading ? (
           <div className="space-y-3">
             {[1, 2, 3].map(i => (
               <div key={i} className="space-y-1.5">
-                <div className="h-3 w-32 rounded bg-slate-100 animate-pulse" />
-                <div className="h-9 rounded-lg bg-slate-100 animate-pulse" />
+                <div className="h-3 w-32 rounded bg-muted animate-pulse" />
+                <div className="h-9 rounded-lg bg-muted animate-pulse" />
               </div>
             ))}
           </div>
@@ -1524,8 +1526,8 @@ function NetworkCard() {
             </div>
             <div className="flex items-center justify-between gap-3 pt-1">
               <div className="min-w-0">
-                <p className="text-xs font-medium text-slate-700">Allow Private-IP Pip Mirrors</p>
-                <p className="text-[11px] text-slate-500">
+                <p className="text-xs font-medium text-foreground">Allow Private-IP Pip Mirrors</p>
+                <p className="text-[11px] text-muted-foreground">
                   Accept <span className="font-mono">http://</span> pip sources on LAN IPs (10.*, 192.168.*, 172.16-31.*).
                 </p>
               </div>
@@ -1574,7 +1576,7 @@ function StorageRowCopyButton({ text }: { text: string }) {
   return (
     <Button onClick={copy} variant="ghost" size="icon" title="Copy to clipboard">
       {copied ? (
-        <Check className="h-3.5 w-3.5 text-emerald-500" />
+        <Check className="h-3.5 w-3.5 text-success" />
       ) : (
         <Copy className="h-3.5 w-3.5" />
       )}
@@ -1617,12 +1619,12 @@ function ThumbnailCacheRow() {
   };
 
   return (
-    <div className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50">
+    <div className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-muted">
       <div className="flex min-w-0 items-center gap-2">
-        <ImageIcon className="h-4 w-4 shrink-0 text-slate-500" />
+        <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0">
-          <div className="text-sm font-medium text-slate-800">Thumbnail cache</div>
-          <div className="mt-0.5 text-xs text-slate-500">
+          <div className="text-sm font-medium text-foreground">Thumbnail cache</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">
             {stats
               ? `${stats.count} file${stats.count === 1 ? '' : 's'} · ${formatBytes(stats.totalBytes)}`
               : 'Loading…'}
@@ -1648,21 +1650,51 @@ function StorageCard() {
         title="Storage"
         description="File locations used by the current workspace."
       />
-      <div className="divide-y divide-slate-100">
+      <div className="divide-y">
         {STORAGE_PATHS.map(({ label, path }) => (
           <div
             key={path}
-            className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50"
+            className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-muted"
           >
             <div className="min-w-0">
-              <div className="text-sm font-medium text-slate-800">{label}</div>
-              <div className="mt-0.5 truncate font-mono text-xs text-slate-500">{path}</div>
+              <div className="text-sm font-medium text-foreground">{label}</div>
+              <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{path}</div>
             </div>
             <StorageRowCopyButton text={path} />
           </div>
         ))}
         <ThumbnailCacheRow />
       </div>
+    </Card>
+  );
+}
+
+/* =================================================================
+   Appearance Card — toggles light/dark theme. The actual class flip
+   happens in <ThemeProvider>; this card is just the UI control.
+   ================================================================= */
+
+function AppearanceCard() {
+  const { theme, setTheme } = useTheme();
+  return (
+    <Card>
+      <SectionHeader
+        icon={Sun}
+        title="Appearance"
+        description="Switch the entire app between light and dark themes."
+      />
+      <CardContent>
+        <div className="flex items-center justify-between">
+          <div>
+            <label className="field-label">Dark mode</label>
+            <p className="text-xs text-muted-foreground">Persists locally in your browser; takes effect immediately.</p>
+          </div>
+          <Switch
+            checked={theme === 'dark'}
+            onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
+          />
+        </div>
+      </CardContent>
     </Card>
   );
 }
@@ -1676,6 +1708,8 @@ export default function Settings() {
     <>
       <PageSubbar title="Settings" description="Configure your workspace" />
       <div className="page-container space-y-3">
+        {/* Row 0: appearance — small card, full width */}
+        <AppearanceCard />
         {/* Row 1: secrets | chat advanced */}
         <div className="grid gap-3 lg:grid-cols-2">
           <SecretsCard />

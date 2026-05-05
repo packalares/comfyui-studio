@@ -371,7 +371,7 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
       disableClose={uploading || committing}
       footer={
         <>
-          <div className="text-[11px] text-slate-500">
+          <div className="text-[11px] text-muted-foreground">
             {step === 'review' && manifest
               ? `${selectedIndices.size} of ${manifest.workflows.length} selected`
               : 'Max 20 MB. Multiple workflows will be shown next.'}
@@ -469,7 +469,7 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
         />
       )}
       {error && (
-        <div className="mt-3 flex items-start gap-2 rounded-md bg-rose-50 border border-rose-100 px-3 py-2 text-xs text-rose-700">
+        <div className="mt-3 flex items-start gap-2 rounded-md bg-destructive/10 border border-destructive/30 px-3 py-2 text-xs text-destructive">
           <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
           <span>{error}</span>
         </div>
@@ -489,7 +489,7 @@ interface CollisionPromptProps {
 function CollisionPrompt(props: CollisionPromptProps): JSX.Element {
   const { existingSlug, suggestedSlug, busy, onCancel, onUseSuggested } = props;
   return (
-    <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-900">
+    <div className="mt-3 rounded-md border border-warning/30 bg-warning/10 px-3 py-3 text-xs text-warning">
       <div className="flex items-start gap-2">
         <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
         <div className="flex-1">
@@ -583,14 +583,14 @@ function UploadStep(p: UploadStepProps): JSX.Element {
             onDrop={onDrop}
             className={`rounded-xl border-2 border-dashed transition p-8 text-center ${
               dragActive
-                ? 'border-teal-500 bg-teal-50'
-                : 'border-slate-300 bg-slate-50'
+                ? 'border-brand bg-brand/10'
+                : 'border-input bg-muted'
             }`}
           >
-            <UploadCloud className="w-10 h-10 text-slate-400 mx-auto mb-3" />
-            <p className="text-sm font-medium text-slate-700">Drag a file here</p>
-            <p className="text-xs text-slate-500 mt-1">or click to pick one from your computer</p>
-            <p className="text-[11px] text-slate-400 mt-2">Accepts .json or .zip up to 20 MB</p>
+            <UploadCloud className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+            <p className="text-sm font-medium text-foreground">Drag a file here</p>
+            <p className="text-xs text-muted-foreground mt-1">or click to pick one from your computer</p>
+            <p className="text-[11px] text-muted-foreground mt-2">Accepts .json or .zip up to 20 MB</p>
             <input
               ref={fileInputRef}
               type="file"
@@ -612,7 +612,7 @@ function UploadStep(p: UploadStepProps): JSX.Element {
 
         <TabsContent value="github" className="pt-4">
           <div className="space-y-3">
-            <label className="block text-xs font-medium text-slate-700">
+            <label className="block text-xs font-medium text-foreground">
               GitHub URL
             </label>
             <input
@@ -620,12 +620,12 @@ function UploadStep(p: UploadStepProps): JSX.Element {
               value={githubUrl}
               onChange={(e) => onGithubUrlChange(e.target.value)}
               placeholder="https://github.com/owner/repo/blob/main/workflow.json"
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-teal-500"
+              className="w-full rounded-md border border-input px-3 py-2 text-sm focus:outline-none focus:border-ring"
               disabled={uploading}
               onKeyDown={(e) => { if (e.key === 'Enter' && !uploading) void onFetchGithub(); }}
             />
-            <div className="rounded-md bg-slate-50 border border-slate-200 px-3 py-2 text-[11px] text-slate-500">
-              <div className="font-medium text-slate-600 mb-1">Examples</div>
+            <div className="rounded-md bg-muted border px-3 py-2 text-[11px] text-muted-foreground">
+              <div className="font-medium text-foreground mb-1">Examples</div>
               <ul className="space-y-0.5 font-mono break-all">
                 {GITHUB_URL_EXAMPLES.map((ex) => <li key={ex}>{ex}</li>)}
               </ul>
@@ -645,7 +645,7 @@ function UploadStep(p: UploadStepProps): JSX.Element {
 
         <TabsContent value="civitai" className="pt-4">
           <div className="space-y-3">
-            <label className="block text-xs font-medium text-slate-700">
+            <label className="block text-xs font-medium text-foreground">
               CivitAI URL
             </label>
             <input
@@ -653,14 +653,14 @@ function UploadStep(p: UploadStepProps): JSX.Element {
               value={civitaiUrl}
               onChange={(e) => onCivitaiUrlChange(e.target.value)}
               placeholder="https://civitai.com/models/12345"
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-teal-500"
+              className="w-full rounded-md border border-input px-3 py-2 text-sm focus:outline-none focus:border-ring"
               disabled={uploading}
               onKeyDown={(e) => { if (e.key === 'Enter' && !uploading) void onFetchCivitai(); }}
             />
-            <div className="rounded-md bg-slate-50 border border-slate-200 px-3 py-2 text-[11px] text-slate-500">
-              <div className="font-medium text-slate-600 mb-1">Example</div>
+            <div className="rounded-md bg-muted border px-3 py-2 text-[11px] text-muted-foreground">
+              <div className="font-medium text-foreground mb-1">Example</div>
               <p className="font-mono break-all">{CIVITAI_URL_EXAMPLE}</p>
-              <p className="mt-1 text-slate-500">
+              <p className="mt-1 text-muted-foreground">
                 We look for a workflow JSON in the model's files, then fall back to
                 workflows embedded in image generation metadata.
               </p>
@@ -680,7 +680,7 @@ function UploadStep(p: UploadStepProps): JSX.Element {
 
         <TabsContent value="paste" className="pt-4">
           <div className="space-y-3">
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-muted-foreground">
               Paste a ComfyUI workflow JSON exported from the editor
               (Workflow → Export).
             </p>
@@ -689,7 +689,7 @@ function UploadStep(p: UploadStepProps): JSX.Element {
               value={pasteTitle}
               onChange={(e) => onPasteTitleChange(e.target.value)}
               placeholder="Optional title"
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-teal-500"
+              className="w-full rounded-md border border-input px-3 py-2 text-sm focus:outline-none focus:border-ring"
               disabled={uploading}
             />
             <textarea
@@ -697,11 +697,11 @@ function UploadStep(p: UploadStepProps): JSX.Element {
               onChange={(e) => onPasteTextChange(e.target.value)}
               placeholder='{"nodes":[...], "links":[...]}'
               rows={10}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-xs font-mono focus:outline-none focus:border-teal-500"
+              className="w-full rounded-md border border-input px-3 py-2 text-xs font-mono focus:outline-none focus:border-ring"
               disabled={uploading}
             />
             <div className="flex items-center justify-between text-[11px]">
-              <span className={pasteOver ? 'text-rose-600 font-medium' : 'text-slate-500'}>
+              <span className={pasteOver ? 'text-destructive font-medium' : 'text-muted-foreground'}>
                 {humanBytes(pasteBytes)} / Max {humanBytes(MAX_UPLOAD_BYTES)}
               </span>
               <Button
@@ -812,8 +812,8 @@ function ReviewStep(p: ReviewStepProps): JSX.Element {
   return (
     <div className="space-y-3">
       {manifest.defaultTitle && (
-        <div className="text-xs text-slate-500">
-          Source: <span className="font-medium text-slate-800">{manifest.defaultTitle}</span>
+        <div className="text-xs text-muted-foreground">
+          Source: <span className="font-medium text-foreground">{manifest.defaultTitle}</span>
           {manifest.sourceUrl && (
             <>
               {' · '}
@@ -821,7 +821,7 @@ function ReviewStep(p: ReviewStepProps): JSX.Element {
                 href={manifest.sourceUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-teal-600 hover:text-teal-700"
+                className="text-brand hover:text-brand/90"
               >
                 View original
               </a>
@@ -833,7 +833,7 @@ function ReviewStep(p: ReviewStepProps): JSX.Element {
         {manifest.workflows.map((wf, idx) => (
           <li
             key={`${wf.entryName}-${idx}`}
-            className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3"
+            className="card-row"
           >
             <Checkbox
               checked={selectedIndices.has(idx)}
@@ -842,7 +842,7 @@ function ReviewStep(p: ReviewStepProps): JSX.Element {
             />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-medium text-slate-900 truncate" title={wf.title}>
+                <span className="text-sm font-medium text-foreground truncate" title={wf.title}>
                   {wf.title}
                 </span>
                 <span className={`badge ${
@@ -853,7 +853,7 @@ function ReviewStep(p: ReviewStepProps): JSX.Element {
                   {wf.mediaType}
                 </span>
               </div>
-              <div className="mt-1 text-[11px] text-slate-500 flex items-center gap-3 flex-wrap">
+              <div className="mt-1 text-[11px] text-muted-foreground flex items-center gap-3 flex-wrap">
                 <span className="inline-flex items-center gap-1">
                   <Layers className="w-3 h-3" />
                   {wf.nodeCount} nodes
@@ -868,7 +868,7 @@ function ReviewStep(p: ReviewStepProps): JSX.Element {
                   </span>
                 )}
               </div>
-              <p className="mt-1 text-[11px] text-slate-400 font-mono truncate" title={wf.entryName}>
+              <p className="mt-1 text-[11px] text-muted-foreground font-mono truncate" title={wf.entryName}>
                 {wf.entryName}
               </p>
             </div>
@@ -877,7 +877,7 @@ function ReviewStep(p: ReviewStepProps): JSX.Element {
       </ul>
 
       {manifest.images.length > 0 && (
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <div className="rounded-lg border bg-muted p-3">
           <label className="flex items-start gap-3 cursor-pointer">
             <Checkbox
               checked={copyImages}
@@ -885,11 +885,11 @@ function ReviewStep(p: ReviewStepProps): JSX.Element {
               className="mt-0.5"
             />
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
-                <ImageIcon className="w-3.5 h-3.5 text-slate-500" />
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <ImageIcon className="w-3.5 h-3.5 text-muted-foreground" />
                 Copy {manifest.images.length} reference image{manifest.images.length === 1 ? '' : 's'}
               </div>
-              <p className="mt-0.5 text-[11px] text-slate-500">
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
                 Files will land in ComfyUI/input/ with the template slug as a prefix to avoid collisions.
               </p>
             </div>
@@ -898,32 +898,32 @@ function ReviewStep(p: ReviewStepProps): JSX.Element {
       )}
 
       {commitBlockers.unresolvedModels.length > 0 && (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 p-3">
-          <div className="flex items-center gap-2 text-sm font-medium text-rose-900 mb-1">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-destructive mb-1">
             <AlertCircle className="w-3.5 h-3.5" />
             Cannot import — {commitBlockers.unresolvedModels.length} model
             {commitBlockers.unresolvedModels.length === 1 ? '' : 's'} unresolved.
           </div>
-          <p className="text-[11px] text-rose-800 mb-1">
+          <p className="text-[11px] text-destructive mb-1">
             Resolve these rows first:
           </p>
-          <ul className="list-disc ml-4 text-[11px] text-rose-900 font-mono space-y-0.5">
+          <ul className="list-disc ml-4 text-[11px] text-destructive font-mono space-y-0.5">
             {commitBlockers.unresolvedModels.map((m) => <li key={`m-${m}`}>{m}</li>)}
           </ul>
         </div>
       )}
 
       {commitBlockers.unresolvedPlugins.length > 0 && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <div className="flex items-center gap-2 text-sm font-medium text-amber-900 mb-1">
+        <div className="rounded-lg border border-warning/30 bg-warning/10 p-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-warning mb-1">
             <AlertCircle className="w-3.5 h-3.5" />
             {commitBlockers.unresolvedPlugins.length} custom node
             {commitBlockers.unresolvedPlugins.length === 1 ? '' : 's'} couldn't be resolved (warning only — commit proceeds).
           </div>
-          <p className="text-[11px] text-amber-800 mb-1">
+          <p className="text-[11px] text-warning mb-1">
             ComfyUI-Manager may be unreachable, or the workflow was saved without plugin metadata. You'll still be able to import — missing plugins surface at first run.
           </p>
-          <ul className="list-disc ml-4 text-[11px] text-amber-900 font-mono space-y-0.5">
+          <ul className="list-disc ml-4 text-[11px] text-warning font-mono space-y-0.5">
             {commitBlockers.unresolvedPlugins.map((p) => (
               <li key={`p-${p}`}>plugin: {p}</li>
             ))}
@@ -938,8 +938,8 @@ function ReviewStep(p: ReviewStepProps): JSX.Element {
       />
 
       {(pluginSummary.resolved.length > 0 || pluginSummary.unresolvedClassTypes.length > 0) && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <div className="flex items-center gap-2 text-sm font-medium text-amber-900 mb-2">
+        <div className="rounded-lg border border-warning/30 bg-warning/10 p-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-warning mb-2">
             <Puzzle className="w-3.5 h-3.5" />
             Required custom nodes ({pluginSummary.resolved.length})
           </div>
@@ -953,10 +953,10 @@ function ReviewStep(p: ReviewStepProps): JSX.Element {
                     className="mt-0.5"
                   />
                   <div className="min-w-0 flex-1">
-                    <div className="text-xs font-medium text-slate-800 truncate" title={p.title}>
+                    <div className="text-xs font-medium text-foreground truncate" title={p.title}>
                       {p.title}
                     </div>
-                    <div className="text-[11px] text-slate-500 font-mono truncate" title={p.repo}>
+                    <div className="text-[11px] text-muted-foreground font-mono truncate" title={p.repo}>
                       {p.repo}
                     </div>
                   </div>
@@ -965,23 +965,23 @@ function ReviewStep(p: ReviewStepProps): JSX.Element {
             </ul>
           )}
           {pluginSummary.unresolvedClassTypes.length > 0 && (
-            <div className="mt-2 text-[11px] text-amber-800">
+            <div className="mt-2 text-[11px] text-warning">
               <span className="font-medium">Unresolved:</span>{' '}
               {pluginSummary.unresolvedClassTypes.length} class type{pluginSummary.unresolvedClassTypes.length === 1 ? '' : 's'} not
               in Manager's catalog. You can install them manually later via Plugins → Custom URL.
               <details className="mt-1">
-                <summary className="cursor-pointer text-amber-700">Show class types</summary>
-                <ul className="mt-1 font-mono text-[10px] text-amber-900">
+                <summary className="cursor-pointer text-warning">Show class types</summary>
+                <ul className="mt-1 font-mono text-[10px] text-warning">
                   {pluginSummary.unresolvedClassTypes.map((c) => <li key={c}>{c}</li>)}
                 </ul>
               </details>
             </div>
           )}
-          <p className="mt-2 text-[11px] text-amber-800">
+          <p className="mt-2 text-[11px] text-warning">
             Checked plugins are queued for install after the template is saved.
           </p>
           {installProgress && (
-            <p className="mt-1 text-[11px] text-amber-900 inline-flex items-center gap-1">
+            <p className="mt-1 text-[11px] text-warning inline-flex items-center gap-1">
               <Spinner size="xs" />
               {installProgress}
             </p>
@@ -990,13 +990,13 @@ function ReviewStep(p: ReviewStepProps): JSX.Element {
       )}
 
       {manifest.notes.length > 0 && (
-        <details className="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600">
-          <summary className="cursor-pointer font-medium text-slate-700">
+        <details className="rounded-lg border bg-card p-3 text-xs text-foreground">
+          <summary className="cursor-pointer font-medium text-foreground">
             {manifest.notes.length} note{manifest.notes.length === 1 ? '' : 's'} included
           </summary>
           <div className="mt-2 space-y-2 max-h-40 overflow-y-auto">
             {manifest.notes.map((note, i) => (
-              <pre key={i} className="whitespace-pre-wrap text-[11px] text-slate-600">{note}</pre>
+              <pre key={i} className="whitespace-pre-wrap text-[11px] text-muted-foreground">{note}</pre>
             ))}
           </div>
         </details>
@@ -1140,12 +1140,12 @@ function MissingModelsSection(p: MissingModelsSectionProps): JSX.Element | null 
   );
   if (rows.length === 0) return null;
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-      <div className="flex items-center gap-2 text-sm font-medium text-slate-800 mb-2">
+    <div className="rounded-lg border bg-muted p-3">
+      <div className="flex items-center gap-2 text-sm font-medium text-foreground mb-2">
         <Package className="w-3.5 h-3.5" />
         Model dependencies ({rows.length})
       </div>
-      <p className="mb-2 text-[11px] text-slate-500">
+      <p className="mb-2 text-[11px] text-muted-foreground">
         Paste a HuggingFace or CivitAI URL to register the file in the catalog so the
         launcher can download it after import.
       </p>
@@ -1193,13 +1193,13 @@ function MissingModelRowView(p: MissingModelRowViewProps): JSX.Element {
   }, [value, busy, onResolveModelUrl, row.workflowIndex, row.fileName]);
 
   return (
-    <li className="rounded-md border border-slate-200 bg-white px-3 py-2">
+    <li className="rounded-md border bg-card px-3 py-2">
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs font-mono text-slate-800 truncate" title={row.fileName}>
+        <span className="text-xs font-mono text-foreground truncate" title={row.fileName}>
           {row.fileName}
         </span>
         {row.kind.state === 'resolved' && (
-          <span className="inline-flex items-center gap-1 rounded bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800"
+          <span className="inline-flex items-center gap-1 rounded bg-success/10 border border-success/30 px-1.5 py-0.5 text-[10px] font-medium text-success"
             title={row.kind.downloadUrl}>
             <CheckCircle2 className="w-3 h-3" />
             resolved via {row.kind.source}
@@ -1207,7 +1207,7 @@ function MissingModelRowView(p: MissingModelRowViewProps): JSX.Element {
           </span>
         )}
         {row.kind.state === 'auto' && (
-          <span className="inline-flex items-center gap-1 rounded bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800"
+          <span className="inline-flex items-center gap-1 rounded bg-success/10 border border-success/30 px-1.5 py-0.5 text-[10px] font-medium text-success"
             title={row.kind.hfRepo || row.kind.downloadUrl}>
             <CheckCircle2 className="w-3 h-3" />
             auto-resolved {viaLabel(row.kind.source)}
@@ -1216,7 +1216,7 @@ function MissingModelRowView(p: MissingModelRowViewProps): JSX.Element {
           </span>
         )}
         {row.kind.state === 'unresolved' && (
-          <span className="inline-flex items-center gap-1 rounded bg-rose-50 border border-rose-200 px-1.5 py-0.5 text-[10px] font-medium text-rose-800">
+          <span className="inline-flex items-center gap-1 rounded bg-destructive/10 border border-destructive/30 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
             <AlertCircle className="w-3 h-3" />
             Unresolved — paste URL below
           </span>
@@ -1224,14 +1224,14 @@ function MissingModelRowView(p: MissingModelRowViewProps): JSX.Element {
       </div>
       {row.kind.state === 'unresolved' && (
         <div className="mt-1.5 flex items-center gap-2">
-          <Link2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          <Link2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
           <input
             type="url"
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder="https://huggingface.co/... or https://civitai.com/..."
             disabled={busy}
-            className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs focus:outline-none focus:border-teal-500"
+            className="flex-1 rounded border border-input px-2 py-1 text-xs focus:outline-none focus:border-ring"
             onKeyDown={(e) => { if (e.key === 'Enter' && !busy) void submit(); }}
           />
           <Button
@@ -1245,7 +1245,7 @@ function MissingModelRowView(p: MissingModelRowViewProps): JSX.Element {
         </div>
       )}
       {rowError && (
-        <div className="mt-1 text-[11px] text-rose-700">{rowError}</div>
+        <div className="mt-1 text-[11px] text-destructive">{rowError}</div>
       )}
     </li>
   );

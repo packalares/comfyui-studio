@@ -50,10 +50,10 @@ interface StatPillProps {
 
 function StatPill({ icon: Icon, label, value }: StatPillProps): JSX.Element {
   return (
-    <div className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-2.5 py-1 text-[11px] ring-1 ring-inset ring-slate-200">
-      <Icon className="w-3 h-3 text-slate-500" />
-      <span className="text-slate-500">{label}</span>
-      <span className="font-mono font-semibold text-slate-800">{value}</span>
+    <div className="stat-pill">
+      <Icon className="w-3 h-3 text-muted-foreground" />
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-mono font-semibold text-foreground">{value}</span>
     </div>
   );
 }
@@ -87,7 +87,7 @@ function SourcesSection(p: { sources: UrlSource[]; winnerUrl?: string }): JSX.El
           if (!entries || entries.length === 0) return null;
           return (
             <div key={host}>
-              <div className="text-[11px] font-medium text-slate-600 mb-0.5">
+              <div className="text-[11px] font-medium text-foreground mb-0.5">
                 {HOST_LABELS[host]}
               </div>
               <ul className="space-y-1">
@@ -104,12 +104,12 @@ function SourcesSection(p: { sources: UrlSource[]; winnerUrl?: string }): JSX.El
                         href={s.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="font-mono text-teal-700 hover:text-teal-800 underline truncate inline-block max-w-full align-bottom"
+                        className="font-mono text-brand hover:text-brand/90 underline truncate inline-block max-w-full align-bottom"
                         title={s.url}
                       >
                         {s.url}
                       </a>
-                      <div className="text-slate-400">declared by: {s.declaredBy}</div>
+                      <div className="text-muted-foreground">declared by: {s.declaredBy}</div>
                     </div>
                   </li>
                 ))}
@@ -134,7 +134,7 @@ function StatusSection(p: { gated?: boolean; gatedMessage?: string; error?: stri
               Gated
             </Badge>
             {p.gatedMessage && (
-              <span className="text-[11px] text-slate-600">{p.gatedMessage}</span>
+              <span className="text-[11px] text-foreground">{p.gatedMessage}</span>
             )}
           </div>
         )}
@@ -144,7 +144,7 @@ function StatusSection(p: { gated?: boolean; gatedMessage?: string; error?: stri
               <XCircle className="w-3 h-3" />
               Error
             </Badge>
-            <span className="text-[11px] text-slate-600 break-words">{p.error}</span>
+            <span className="text-[11px] text-foreground break-words">{p.error}</span>
           </div>
         )}
       </div>
@@ -197,7 +197,7 @@ export function CatalogModelBody(p: { model: CatalogModel }): JSX.Element {
         {/* Full path is only meaningful when installed — the "Folder" pill
             already covers the not-installed "where will it land" case. */}
         {model.installed && model.save_path && (
-          <p className="mt-1 text-[11px] text-slate-500 font-mono break-all">
+          <p className="mt-1 text-[11px] text-muted-foreground font-mono break-all">
             models/{model.save_path}/{model.filename || model.name}
           </p>
         )}
@@ -218,11 +218,11 @@ export function CatalogModelBody(p: { model: CatalogModel }): JSX.Element {
           <h3 className="field-label mb-1.5">Description</h3>
           {hasHtmlTags(description) ? (
             <div
-              className="text-xs text-slate-700 break-words prose prose-sm max-w-none"
+              className="text-xs text-foreground break-words prose prose-sm max-w-none"
               dangerouslySetInnerHTML={{ __html: sanitizeHtml(description) }}
             />
           ) : (
-            <p className="text-xs text-slate-700 whitespace-pre-wrap break-words">{description}</p>
+            <p className="text-xs text-foreground whitespace-pre-wrap break-words">{description}</p>
           )}
         </section>
       )}
@@ -232,7 +232,7 @@ export function CatalogModelBody(p: { model: CatalogModel }): JSX.Element {
           href={reference}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs text-teal-700 hover:text-teal-800 underline break-all"
+          className="inline-flex items-center gap-1 text-xs text-brand hover:text-brand/90 underline break-all"
         >
           <ExternalLink className="w-3 h-3 shrink-0" />
           {reference}

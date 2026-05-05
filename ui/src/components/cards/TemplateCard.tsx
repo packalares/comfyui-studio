@@ -32,12 +32,9 @@ const mediaIcons: Record<string, React.ElementType> = {
   '3d': Box,
 };
 
-const gradientMap: Record<string, string> = {
-  image: 'from-blue-400 to-blue-600',
-  video: 'from-purple-400 to-purple-600',
-  audio: 'from-orange-400 to-orange-600',
-  '3d': 'from-green-400 to-green-600',
-};
+// Single neutral fallback gradient for when no thumbnail is available.
+// The mediaType icon (image/video/audio/3d) already conveys what the card is.
+const FALLBACK_GRADIENT = 'from-muted to-muted-foreground/30';
 
 /** Compact download-count formatter: 3640 → "3.6k", 1_234_567 → "1.2M". */
 function formatCompact(n: number): string {
@@ -49,7 +46,7 @@ function formatCompact(n: number): string {
 function TemplateCardInner({ template, onDeleted }: Props) {
   const navigate = useNavigate();
   const Icon = mediaIcons[template.mediaType] || Image;
-  const gradient = gradientMap[template.mediaType] || 'from-gray-400 to-gray-600';
+  const gradient = FALLBACK_GRADIENT;
   // User-imported workflows use this category marker — see
   // server/src/services/templates/userTemplates.ts::saveUserWorkflow.
   const isUser = template.category === 'User Workflows';
@@ -172,7 +169,7 @@ function TemplateCardInner({ template, onDeleted }: Props) {
             if (!template.name) {
               return (
                 <div className={`w-full h-full bg-gradient-to-br ${gradient} flex items-center justify-center`}>
-                  <Icon className="w-10 h-10 text-white/60 group-hover:text-white/80 transition-colors" />
+                  <Icon className="w-10 h-10 text-muted-foreground/60 group-hover:text-muted-foreground transition-colors" />
                 </div>
               );
             }
@@ -199,20 +196,20 @@ function TemplateCardInner({ template, onDeleted }: Props) {
           })()}
           <div className="absolute top-2 right-2 flex items-center gap-1.5">
             {template.ready === true && (
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/90 text-white">
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-success/90 text-success-foreground">
                 Ready
               </span>
             )}
             {isUser && (
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-teal-500/90 text-white">
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand/90 text-brand-foreground">
                 User
               </span>
             )}
             {template.openSource !== undefined && (
               <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
                 template.openSource
-                  ? 'bg-green-500/90 text-white'
-                  : 'bg-gray-500/80 text-white'
+                  ? 'bg-success/90 text-success-foreground'
+                  : 'bg-muted-foreground/80 text-primary-foreground'
               }`}>
                 {template.openSource ? 'Open Source' : 'API'}
               </span>
@@ -239,7 +236,7 @@ function TemplateCardInner({ template, onDeleted }: Props) {
                 aria-label="Template actions"
                 variant="ghost"
                 size="icon"
-                className="!bg-white/90 hover:!bg-white ring-1 ring-slate-200"
+                className="!bg-popover/90 hover:!bg-popover ring-1 ring-border"
                 onClick={(e) => {
                   e.stopPropagation();
                   setMenuOpen((v) => !v);
@@ -250,7 +247,7 @@ function TemplateCardInner({ template, onDeleted }: Props) {
               {menuOpen && (
                 <div
                   role="menu"
-                  className="absolute top-9 left-0 z-10 min-w-[10rem] rounded-md border border-slate-200 bg-white shadow-lg p-1"
+                  className="absolute top-9 left-0 z-10 min-w-[10rem] rounded-md border bg-popover shadow-lg p-1"
                 >
                   <button
                     type="button"
@@ -260,7 +257,7 @@ function TemplateCardInner({ template, onDeleted }: Props) {
                       setMenuOpen(false);
                       setConfirmOpen(true);
                     }}
-                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-red-600 hover:bg-red-50"
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-destructive hover:bg-destructive/10"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     Delete template
@@ -272,12 +269,12 @@ function TemplateCardInner({ template, onDeleted }: Props) {
         </div>
         <div className="p-4 flex flex-col flex-1">
           <div className="flex items-center gap-2 mb-1">
-            <h3 className="font-semibold text-sm text-gray-900 group-hover:text-teal-600 transition-colors line-clamp-1 flex-1 min-w-0">
+            <h3 className="font-semibold text-sm text-foreground group-hover:text-brand transition-colors line-clamp-1 flex-1 min-w-0">
               {template.title}
             </h3>
             {civitaiMeta && (
               <span
-                className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-teal-500/90 text-white shrink-0"
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand/90 text-brand-foreground shrink-0"
                 title={civitaiMeta.originalUrl ?? `CivitAI model ${civitaiMeta.modelId}`}
               >
                 CivitAI
@@ -286,7 +283,7 @@ function TemplateCardInner({ template, onDeleted }: Props) {
           </div>
           <div className="mt-auto">
             {/* Stats row */}
-            <div className="flex items-center gap-3 mb-3 text-[11px] text-gray-400">
+            <div className="flex items-center gap-3 mb-3 text-[11px] text-muted-foreground">
               {template.size !== undefined && (
                 <span className="flex items-center gap-1">
                   <HardDrive className="w-3 h-3" />
@@ -304,7 +301,7 @@ function TemplateCardInner({ template, onDeleted }: Props) {
             {uniqueTags.length > 0 && (
               <div className="flex flex-wrap gap-1">
                 {uniqueTags.map(tag => (
-                  <span key={tag} className="text-[10px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
+                  <span key={tag} className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
                     {tag}
                   </span>
                 ))}
@@ -315,7 +312,7 @@ function TemplateCardInner({ template, onDeleted }: Props) {
         {/* Footer — icon-only button group, right-aligned. Install-plugins
             only renders when Manager reports at least one missing plugin. */}
         <div
-          className="border-t border-slate-200 p-3 flex justify-end"
+          className="border-t p-3 flex justify-end"
           onClick={(e) => e.stopPropagation()}
         >
           <ButtonGroup size="sm">
@@ -573,7 +570,7 @@ function CivitaiTemplateCardInner({ item, onStagedImport }: CivitaiTemplateCardP
         type="button"
         onClick={() => setDescOpen(true)}
         aria-label={`Open ${item.name} description`}
-        className="aspect-video shrink-0 relative flex items-center justify-center overflow-hidden bg-slate-100 cursor-pointer group/thumb"
+        className="aspect-video shrink-0 relative flex items-center justify-center overflow-hidden bg-muted cursor-pointer group/thumb"
       >
         {thumb ? (
           <img
@@ -587,29 +584,29 @@ function CivitaiTemplateCardInner({ item, onStagedImport }: CivitaiTemplateCardP
             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-slate-300">
+          <div className="w-full h-full flex items-center justify-center text-muted-foreground">
             <ImageOff className="w-10 h-10" />
           </div>
         )}
         <div className="absolute top-2 right-2 flex items-center gap-1.5">
-          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-teal-500/90 text-white">
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand/90 text-brand-foreground">
             CivitAI
           </span>
           {item.type && (
-            <span className="badge badge-gray !bg-white/90 !text-slate-700">
+            <span className="badge badge-gray !bg-popover/90 !text-foreground">
               {item.type}
             </span>
           )}
         </div>
       </button>
       <div className="p-4 flex flex-col flex-1">
-        <h3 className="font-semibold text-sm text-gray-900 mb-1 line-clamp-1" title={item.name}>
+        <h3 className="font-semibold text-sm text-foreground mb-1 line-clamp-1" title={item.name}>
           {item.name}
         </h3>
         <div className="flex items-center justify-between gap-2 mb-2">
           {creator ? (
             <span
-              className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-normal text-slate-500 ring-1 ring-inset ring-slate-200/70 max-w-[60%]"
+              className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-normal text-muted-foreground ring-1 ring-inset ring-border/70 max-w-[60%]"
               title={creator}
             >
               <UserIcon className="w-2.5 h-2.5 shrink-0" />
@@ -618,7 +615,7 @@ function CivitaiTemplateCardInner({ item, onStagedImport }: CivitaiTemplateCardP
           ) : <span />}
           {typeof downloads === 'number' && (
             <span
-              className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-normal text-slate-500 ring-1 ring-inset ring-slate-200/70"
+              className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-normal text-muted-foreground ring-1 ring-inset ring-border/70"
               title={`${downloads.toLocaleString()} downloads`}
             >
               <Download className="w-2.5 h-2.5" />
@@ -629,7 +626,7 @@ function CivitaiTemplateCardInner({ item, onStagedImport }: CivitaiTemplateCardP
       </div>
       {/* Footer — ButtonGroup matching the local TemplateCard footer pattern,
           icon-only after the primary Import action, right-aligned. */}
-      <div className="border-t border-slate-200 p-3 flex justify-end">
+      <div className="border-t p-3 flex justify-end">
         <ButtonGroup size="sm">
           <Tooltip>
             <TooltipTrigger asChild>

@@ -107,10 +107,10 @@ export default function PackagesPanel() {
     <Card>
       <CardHeader className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-2">
-          <PackageIcon className="w-3.5 h-3.5 text-slate-400 mt-0.5" />
+          <PackageIcon className="w-3.5 h-3.5 text-muted-foreground mt-0.5" />
           <div>
-            <h2 className="text-sm font-semibold text-slate-900 leading-tight">Installed packages</h2>
-            <p className="mt-0.5 text-[11px] text-slate-400">{packages.length} installed via pip.</p>
+            <h2 className="text-sm font-semibold text-foreground leading-tight">Installed packages</h2>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">{packages.length} installed via pip.</p>
           </div>
         </div>
         <Button
@@ -129,7 +129,7 @@ export default function PackagesPanel() {
         {/* Install input */}
         <div className="flex flex-col md:flex-row gap-2">
           <div className="flex-1 field-wrap">
-            <PackageIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <PackageIcon className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
             <input
               type="text"
               className="field-input"
@@ -152,19 +152,19 @@ export default function PackagesPanel() {
         </div>
 
         {installOp.error && (
-          <p className="text-[11px] text-rose-600 rounded-md bg-rose-50 border border-rose-100 px-2 py-1.5 break-all">
+          <p className="text-[11px] text-destructive rounded-md bg-destructive/10 border border-destructive/30 px-2 py-1.5 break-all">
             {installOp.error}
           </p>
         )}
         {installOp.success && (
-          <p className="text-[11px] text-emerald-700 rounded-md bg-emerald-50 border border-emerald-100 px-2 py-1.5">
+          <p className="text-[11px] text-success rounded-md bg-success/10 border border-success/20 px-2 py-1.5">
             Install succeeded.
           </p>
         )}
 
         {/* Search */}
         <div className="field-wrap">
-          <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
           <input
             type="text"
             className="field-input"
@@ -175,7 +175,7 @@ export default function PackagesPanel() {
         </div>
 
         {error && (
-          <div className="rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 flex items-center gap-2 text-xs text-rose-700">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 flex items-center gap-2 text-xs text-destructive">
             <AlertTriangle className="h-3.5 w-3.5" />
             {error}
           </div>
@@ -183,7 +183,7 @@ export default function PackagesPanel() {
 
         {loading ? (
           <div className="flex items-center justify-center py-6">
-            <Spinner size="lg" className="text-slate-400" />
+            <Spinner size="lg" className="text-muted-foreground" />
           </div>
         ) : filtered.length === 0 ? (
           <div className="empty-box">
@@ -191,20 +191,20 @@ export default function PackagesPanel() {
           </div>
         ) : (
           <div className="max-h-[480px] overflow-y-auto scrollbar-subtle">
-            <ul className="divide-y divide-slate-100">
+            <ul className="divide-y">
               {filtered.map((p) => {
                 const op = uninstallOps[p.name];
                 return (
                   <li
                     key={p.name}
-                    className="flex items-center gap-3 px-1 py-1.5 hover:bg-slate-50 transition-colors"
+                    className="flex items-center gap-3 px-1 py-1.5 hover:bg-muted transition-colors"
                   >
                     <div className="flex-1 min-w-0 flex items-center gap-3">
-                      <span className="font-mono text-sm text-slate-900 truncate">{p.name}</span>
-                      <span className="font-mono text-xs text-slate-500 shrink-0">{p.version}</span>
+                      <span className="font-mono text-sm text-foreground truncate">{p.name}</span>
+                      <span className="font-mono text-xs text-muted-foreground shrink-0">{p.version}</span>
                     </div>
                     {op?.error && (
-                      <span className="text-[11px] text-rose-600 font-mono truncate" title={op.error}>
+                      <span className="text-[11px] text-destructive font-mono truncate" title={op.error}>
                         {op.error}
                       </span>
                     )}
@@ -213,7 +213,7 @@ export default function PackagesPanel() {
                       disabled={op?.busy}
                       variant="ghost"
                       size="icon"
-                      className="hover:!text-red-500"
+                      className="hover:!text-destructive"
                       aria-label={`Uninstall ${p.name}`}
                       title="Uninstall"
                     >

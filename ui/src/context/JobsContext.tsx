@@ -150,14 +150,14 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
                     {g.classType && ': '}
                     <span>{g.message}</span>
                     {g.nodeIds.length > 0 && (
-                      <span className="text-slate-500">
+                      <span className="text-muted-foreground">
                         {' '}({g.nodeIds.length === 1 ? `node ${g.nodeIds[0]}` : `nodes ${g.nodeIds.join(', ')}`})
                       </span>
                     )}
                   </li>
                 ))}
                 {groups.size > rows.length && (
-                  <li className="text-slate-500 list-none">…and {groups.size - rows.length} more</li>
+                  <li className="text-muted-foreground list-none">…and {groups.size - rows.length} more</li>
                 )}
               </ul>
             );

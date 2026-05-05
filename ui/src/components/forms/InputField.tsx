@@ -108,13 +108,13 @@ export default function InputField({
   const effectiveType = isPassword ? (showPwd ? 'text' : 'password') : type;
 
   const wrapClass = configured
-    ? 'field-wrap !border-emerald-300 !bg-emerald-50/50 focus-within:!border-emerald-400'
+    ? 'field-wrap !border-success/40 !bg-success/5 focus-within:!border-success/50'
     : invalid
-    ? 'field-wrap !border-rose-400 focus-within:!border-rose-500'
+    ? 'field-wrap !border-destructive focus-within:!border-destructive'
     : 'field-wrap';
 
   const inputClass = configured
-    ? 'field-input font-medium text-emerald-700'
+    ? 'field-input font-medium text-success'
     : monospace
     ? 'field-input font-mono'
     : 'field-input';
@@ -126,7 +126,7 @@ export default function InputField({
           type="button"
           onClick={configured.onClear}
           disabled={configured.clearDisabled}
-          className="cursor-pointer text-emerald-600 transition-colors hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
+          className="cursor-pointer text-success transition-colors hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40"
           aria-label="Clear"
         >
           <Trash2 className="h-4 w-4" />
@@ -140,7 +140,7 @@ export default function InputField({
     <button
       type="button"
       onClick={() => setShowPwd(s => !s)}
-      className="cursor-pointer text-slate-400 transition-colors hover:text-slate-700"
+      className="cursor-pointer text-muted-foreground transition-colors hover:text-foreground"
       aria-label={showPwd ? 'Hide' : 'Show'}
     >
       {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -155,8 +155,8 @@ export default function InputField({
           aria-label={rightAction.ariaLabel ?? rightAction.tooltip ?? 'Action'}
           className={`cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
             rightAction.tone === 'danger'
-              ? 'text-slate-400 hover:text-rose-600'
-              : 'text-slate-400 hover:text-slate-700'
+              ? 'text-muted-foreground hover:text-destructive'
+              : 'text-muted-foreground hover:text-foreground'
           }`}
         >
           {rightAction.icon}
@@ -180,7 +180,7 @@ export default function InputField({
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  className="cursor-help text-slate-400 transition-colors hover:text-slate-600"
+                  className="cursor-help text-muted-foreground transition-colors hover:text-foreground"
                   aria-label={`${label ?? 'field'} info`}
                 >
                   <HelpCircle className="h-3 w-3" />
@@ -193,7 +193,7 @@ export default function InputField({
         </div>
       )}
       <div className={wrapClass}>
-        {leftIcon && <span className="text-slate-400 [&>*]:h-4 [&>*]:w-4">{leftIcon}</span>}
+        {leftIcon && <span className="text-muted-foreground [&>*]:h-4 [&>*]:w-4">{leftIcon}</span>}
         <input
           id={inputId}
           type={effectiveType}

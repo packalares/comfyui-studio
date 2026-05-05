@@ -564,12 +564,12 @@ export default function Studio() {
         <Card>
           <div className="flex flex-col lg:flex-row lg:h-[calc(100vh-180px)]">
             {/* Left aside: form */}
-            <aside className="w-full lg:w-[420px] shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 bg-white flex flex-col">
-            <div className="border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+            <aside className="w-full lg:w-[420px] shrink-0 border-b lg:border-b-0 lg:border-r bg-card flex flex-col">
+            <div className="border-b px-4 py-3 flex items-center justify-between">
               <div className="min-w-0">
-                <h2 className="text-sm font-semibold text-slate-900">{categoryTitles[activeCategory]}</h2>
+                <h2 className="text-sm font-semibold text-foreground">{categoryTitles[activeCategory]}</h2>
                 {template?.title && (
-                  <p className="mt-0.5 text-[11px] text-slate-400 truncate">{template.title}</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground truncate">{template.title}</p>
                 )}
               </div>
               <div role="tablist" aria-label="Input mode" className="tab-strip shrink-0">
@@ -597,13 +597,13 @@ export default function Studio() {
             <div className="px-4 py-4 flex-1 overflow-y-auto scrollbar-subtle space-y-5">
               {/* Not connected banner */}
               {!connected && (
-                <div className="flex items-start gap-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
-                  <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                <div className="flex items-start gap-2 p-2.5 bg-warning/10 border border-warning/30 rounded-lg">
+                  <AlertTriangle className="w-4 h-4 text-warning mt-0.5 flex-shrink-0" />
                   <div>
-                    <p className="text-xs font-medium text-amber-800">ComfyUI is not connected</p>
+                    <p className="text-xs font-medium text-warning">ComfyUI is not connected</p>
                     <button
                       onClick={() => navigate('/settings')}
-                      className="text-[11px] text-amber-700 underline mt-0.5"
+                      className="text-[11px] text-warning underline mt-0.5"
                     >
                       Configure in Settings
                     </button>
@@ -614,17 +614,17 @@ export default function Studio() {
               {/* MODEL section */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Model</p>
+                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Model</p>
                   {depLoading && (
-                    <Spinner size="xs" className="text-slate-400" />
+                    <Spinner size="xs" className="text-muted-foreground" />
                   )}
                   {!depLoading && depCheck?.ready && (
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                    <CheckCircle2 className="w-3.5 h-3.5 text-success" />
                   )}
                   {!depLoading && hasMissingDeps && (
                     <button
                       onClick={() => setShowDepModal(true)}
-                      className="flex items-center gap-1 text-[10px] text-amber-600 hover:text-amber-700"
+                      className="flex items-center gap-1 text-[10px] text-warning hover:text-warning/80"
                     >
                       <AlertTriangle className="w-3.5 h-3.5" />
                       {depCheck?.missing.length} missing
@@ -634,7 +634,7 @@ export default function Studio() {
                     <button
                       type="button"
                       onClick={() => setShowExposeModal(true)}
-                      className="ml-auto flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-700 transition-colors"
+                      className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
                     >
                       <Settings2 className="w-3.5 h-3.5" />
                       Edit advanced fields
@@ -650,7 +650,7 @@ export default function Studio() {
 
               {/* PARAMETERS section */}
               <div>
-                <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-3">Parameters</p>
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Parameters</p>
 
                 {mode === 'form' ? (
                   mergedFormInputs.length > 0 ? (
@@ -671,7 +671,7 @@ export default function Studio() {
                       )}
                     </>
                   ) : (
-                    <p className="text-sm text-slate-400">Select a model to see parameters.</p>
+                    <p className="text-sm text-muted-foreground">Select a model to see parameters.</p>
                   )
                 ) : (
                   <JsonEditor
@@ -683,14 +683,14 @@ export default function Studio() {
             </div>
 
             {/* Footer: progress + Reset/Generate */}
-            <div className="border-t border-slate-200 bg-slate-50 px-4 py-3 flex flex-col items-stretch gap-3">
+            <div className="border-t bg-muted px-4 py-3 flex flex-col items-stretch gap-3">
               {isRunning && currentJob && (
                 <div>
-                  <div className="flex justify-between text-xs text-slate-500 mb-1">
+                  <div className="flex justify-between text-xs text-muted-foreground mb-1">
                     <span>{currentJob.status === 'pending' ? 'Queued…' : 'Generating…'}</span>
                     <span>{Math.round(currentJob.progress)}%</span>
                   </div>
-                  <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                  <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
                     <div
                       className="progress-bar-fill"
                       style={{ width: `${Math.min(100, Math.max(0, currentJob.progress))}%` }}
@@ -701,7 +701,7 @@ export default function Studio() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleReset}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 hover:border-red-300 transition-colors"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-destructive/30 bg-card px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/10 hover:border-destructive transition-colors"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                   Reset
@@ -710,7 +710,7 @@ export default function Studio() {
                   <button
                     onClick={handleGenerate}
                     disabled={generateDisabled}
-                    className="relative w-full overflow-hidden inline-flex items-center justify-center gap-2 rounded-md bg-gradient-to-r from-teal-500 to-emerald-500 text-white py-2 text-sm font-semibold shadow-sm hover:shadow-md hover:from-teal-600 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:ring-offset-1 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:from-slate-400 disabled:to-slate-400 disabled:shadow-none"
+                    className="relative w-full overflow-hidden inline-flex items-center justify-center gap-2 rounded-md bg-gradient-to-r from-teal-500 to-success text-brand-foreground py-2 text-sm font-semibold shadow-sm hover:shadow-md hover:from-teal-600 hover:to-success/90 focus:outline-none focus:ring-2 focus:ring-brand/40 focus:ring-offset-1 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:from-muted-foreground disabled:to-muted-foreground disabled:shadow-none"
                   >
                     {/* Shimmer sweep. Disabled when running or unusable so
                         the button doesn't flash during actual generation. */}
@@ -734,7 +734,7 @@ export default function Studio() {
                     )}
                   </button>
                   {hasMissingDeps && !isRunning && (
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-slate-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-popover text-popover-foreground border text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
                       Missing required models
                     </div>
                   )}
@@ -745,11 +745,11 @@ export default function Studio() {
 
             {/* Right main: result */}
             <main className="flex-1 flex flex-col min-w-0">
-            <div className="border-b border-slate-200 bg-white px-4 py-3 flex items-center justify-between gap-3">
-              <h3 className="text-sm font-semibold text-slate-900">Result</h3>
+            <div className="border-b bg-card px-4 py-3 flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-foreground">Result</h3>
               <div className="flex items-center gap-3">
                 {canCompare && (
-                  <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Compare
                     <Switch
                       checked={showCompare}
@@ -784,7 +784,7 @@ export default function Studio() {
               </div>
             </div>
 
-            <div className="flex-1 p-6 flex items-center justify-center relative overflow-hidden bg-slate-50">
+            <div className="flex-1 p-6 flex items-center justify-center relative overflow-hidden bg-muted">
               {currentJob?.status === 'completed' && outputImage ? (
                 <div className="relative w-full h-full max-w-3xl max-h-[calc(100vh-14rem)] flex items-center justify-center">
                   {isOutput3D ? (
@@ -806,10 +806,10 @@ export default function Studio() {
                     />
                   ) : outputMediaType === 'audio' ? (
                     <div className="w-full max-w-md">
-                      <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+                      <div className="bg-card rounded-xl p-6 shadow-sm border">
                         <div className="flex items-center justify-center mb-4">
-                          <div className="w-16 h-16 rounded-full bg-emerald-50 flex items-center justify-center">
-                            <Music className="w-8 h-8 text-emerald-600" />
+                          <div className="w-16 h-16 rounded-full bg-success/10 flex items-center justify-center">
+                            <Music className="w-8 h-8 text-success" />
                           </div>
                         </div>
                         <audio src={outputImage} controls className="w-full" />
@@ -824,23 +824,23 @@ export default function Studio() {
                   )}
 
                   {currentJob.seed !== undefined && (
-                    <p className="absolute bottom-3 left-3 text-xs text-slate-500 bg-white/80 px-2 py-1 rounded">
+                    <p className="absolute bottom-3 left-3 text-xs text-muted-foreground bg-card/80 px-2 py-1 rounded">
                       Seed: {currentJob.seed}
                     </p>
                   )}
                 </div>
               ) : currentJob?.status === 'failed' ? (
                 <div className="text-center">
-                  <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-3">
-                    <AlertTriangle className="w-7 h-7 text-red-400" />
+                  <div className="w-14 h-14 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-3">
+                    <AlertTriangle className="w-7 h-7 text-destructive" />
                   </div>
-                  <p className="text-sm font-medium text-red-600">Generation failed</p>
-                  <p className="text-xs text-slate-500 mt-1">Check the console for details</p>
+                  <p className="text-sm font-medium text-destructive">Generation failed</p>
+                  <p className="text-xs text-muted-foreground mt-1">Check the console for details</p>
                 </div>
               ) : isRunning ? (
                 <div className="text-center">
-                  <Spinner size="2xl" className="text-teal-500 mx-auto mb-3" />
-                  <p className="text-sm text-slate-500">Generating…</p>
+                  <Spinner size="2xl" className="text-brand mx-auto mb-3" />
+                  <p className="text-sm text-muted-foreground">Generating…</p>
                 </div>
               ) : (
                 <div className="text-center max-w-sm">
@@ -850,35 +850,29 @@ export default function Studio() {
                       they've landed in the right context. */}
                   <div className="relative mx-auto mb-5 w-28 h-28">
                     <div
-                      className={`absolute inset-0 rounded-3xl blur-2xl opacity-60 animate-pulse bg-gradient-to-br ${
-                        activeCategory === 'video' ? 'from-purple-300 to-fuchsia-300' :
-                        activeCategory === 'audio' ? 'from-orange-300 to-amber-300' :
-                        activeCategory === '3d' ? 'from-emerald-300 to-teal-300' :
-                        activeCategory === 'tools' ? 'from-slate-300 to-slate-400' :
-                        'from-sky-300 to-indigo-300'
-                      }`}
+                      className="absolute inset-0 rounded-3xl blur-2xl opacity-60 animate-pulse bg-gradient-to-br from-muted to-muted-foreground/30"
                       aria-hidden="true"
                     />
-                    <div className="relative w-28 h-28 rounded-3xl bg-white ring-1 ring-slate-200 shadow-sm flex items-center justify-center">
+                    <div className="relative w-28 h-28 rounded-3xl bg-card ring-1 ring-border/60 shadow-sm flex items-center justify-center">
                       {activeCategory === 'video' ? (
-                        <Film className="w-11 h-11 text-purple-400" />
+                        <Film className="w-11 h-11 text-muted-foreground" />
                       ) : activeCategory === 'audio' ? (
-                        <Music className="w-11 h-11 text-orange-400" />
+                        <Music className="w-11 h-11 text-muted-foreground" />
                       ) : activeCategory === '3d' ? (
-                        <Box className="w-11 h-11 text-emerald-400" />
+                        <Box className="w-11 h-11 text-muted-foreground" />
                       ) : activeCategory === 'tools' ? (
-                        <Wrench className="w-11 h-11 text-slate-400" />
+                        <Wrench className="w-11 h-11 text-muted-foreground" />
                       ) : (
-                        <ImageIcon className="w-11 h-11 text-sky-400" />
+                        <ImageIcon className="w-11 h-11 text-brand" />
                       )}
                     </div>
                   </div>
-                  <h4 className="text-sm font-semibold text-slate-700 mb-1">
+                  <h4 className="text-sm font-semibold text-foreground mb-1">
                     Ready when you are
                   </h4>
-                  <p className="text-xs text-slate-500 leading-relaxed">
+                  <p className="text-xs text-muted-foreground leading-relaxed">
                     Pick a model on the left, fill the prompt, and hit{' '}
-                    <span className="inline-flex items-center gap-1 font-semibold text-teal-600">
+                    <span className="inline-flex items-center gap-1 font-semibold text-brand">
                       <Wand2 className="w-3 h-3" />Generate
                     </span>
                     . Output shows up here.

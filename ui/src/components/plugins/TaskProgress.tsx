@@ -82,33 +82,33 @@ export default function TaskProgress({ taskId, onComplete }: Props) {
   const lastLog = logs.length > 0 ? logs[logs.length - 1] : progress?.message ?? 'Starting…';
 
   return (
-    <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+    <div className="mt-2 rounded-md border bg-muted px-3 py-2">
       <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-1.5 text-[11px] text-slate-600">
+        <div className="flex items-center gap-1.5 text-[11px] text-foreground">
           {done ? (
             success ? (
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              <CheckCircle2 className="w-3.5 h-3.5 text-success" />
             ) : (
-              <XCircle className="w-3.5 h-3.5 text-rose-600" />
+              <XCircle className="w-3.5 h-3.5 text-destructive" />
             )
           ) : (
-            <Spinner size="sm" className="text-teal-600" />
+            <Spinner size="sm" className="text-brand" />
           )}
           <span className="font-medium">
             {progress?.type ? progress.type.replace('-', ' ') : 'task'}
           </span>
-          <span className="text-slate-400 font-mono">{Math.round(pct)}%</span>
+          <span className="text-muted-foreground font-mono">{Math.round(pct)}%</span>
         </div>
       </div>
-      <div className="h-1 bg-slate-200 rounded-full overflow-hidden mb-1">
+      <div className="h-1 bg-muted rounded-full overflow-hidden mb-1">
         <div
           className={`h-full rounded-full transition-all duration-300 ${
-            done && !success ? 'bg-rose-500' : 'bg-teal-500'
+            done && !success ? 'bg-destructive' : 'bg-brand'
           }`}
           style={{ width: `${pct}%` }}
         />
       </div>
-      <p className="text-[10px] text-slate-500 font-mono truncate" title={lastLog}>
+      <p className="text-[10px] text-muted-foreground font-mono truncate" title={lastLog}>
         {error ? error : lastLog}
       </p>
     </div>

@@ -47,39 +47,39 @@ export default function ModelFolderPickerModal({
   const ready = folders !== null && folders.length > 0 && selected !== '';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={(e) => {
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-primary/40 backdrop-blur-sm" onClick={(e) => {
       if (e.target === e.currentTarget) onCancel();
     }}>
       <Card className="w-full max-w-md flex flex-col">
         <CardHeader>
-          <h2 className="text-sm font-semibold text-slate-900">Choose download folder</h2>
-          <p className="mt-0.5 text-[11px] text-slate-400">No folder hint for this model — pick a destination.</p>
+          <h2 className="text-sm font-semibold text-foreground">Choose download folder</h2>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">No folder hint for this model — pick a destination.</p>
         </CardHeader>
         <div className="p-4 space-y-3">
           <div>
             <label className="field-label mb-1.5 block">Model</label>
-            <div className="text-xs font-mono text-slate-700 break-all">{modelName}</div>
+            <div className="text-xs font-mono text-foreground break-all">{modelName}</div>
           </div>
           <div>
             <label htmlFor="model-folder-select" className="field-label mb-1.5 block">Destination folder</label>
             {folders === null && !error && (
-              <div className="flex items-center gap-2 text-xs text-slate-500">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Spinner size="sm" />
                 Loading folders…
               </div>
             )}
             {error && (
-              <div className="text-xs text-red-600">{error}</div>
+              <div className="text-xs text-destructive">{error}</div>
             )}
             {folders !== null && folders.length === 0 && (
-              <div className="text-xs text-amber-700">
+              <div className="text-xs text-warning">
                 ComfyUI returned no folders. Start ComfyUI and try again.
               </div>
             )}
             {folders !== null && folders.length > 0 && (
               <select
                 id="model-folder-select"
-                className="field-input border border-slate-300 rounded px-2 py-1.5 w-full"
+                className="field-input border border-input rounded px-2 py-1.5 w-full"
                 value={selected}
                 onChange={(e) => setSelected(e.target.value)}
               >

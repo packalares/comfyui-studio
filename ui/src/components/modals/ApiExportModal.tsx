@@ -95,7 +95,7 @@ export default function ApiExportModal({ open, templateName, onClose }: Props) {
       onClose={onClose}
       size="xl"
       scrollBody
-      icon={<Braces className="w-4 h-4 text-slate-500" />}
+      icon={<Braces className="w-4 h-4 text-muted-foreground" />}
       title="API Prompt"
       subtitle={templateName}
       footer={
@@ -135,18 +135,18 @@ export default function ApiExportModal({ open, templateName, onClose }: Props) {
           read as a "modal flickers / opens twice" jump. */}
       <div className="min-h-[200px]">
         {loading && (
-          <div className="flex items-center gap-2 text-xs text-slate-500 p-4">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground p-4">
             <Spinner size="md" />
             Converting workflow…
           </div>
         )}
         {error && (
-          <div className="rounded-md bg-rose-50 border border-rose-100 px-3 py-2 text-[12px] text-rose-700">
+          <div className="rounded-md bg-destructive/10 border border-destructive/30 px-3 py-2 text-[12px] text-destructive">
             {error}
           </div>
         )}
         {!loading && !error && payload && (
-          <pre className="text-[11px] font-mono text-slate-700 whitespace-pre-wrap break-words bg-slate-50 rounded-lg p-4 ring-1 ring-inset ring-slate-200 max-h-[60vh] overflow-auto">
+          <pre className="text-[11px] font-mono text-foreground whitespace-pre-wrap break-words bg-muted rounded-lg p-4 ring-1 ring-inset ring-border max-h-[60vh] overflow-auto">
             {payload}
           </pre>
         )}

@@ -75,16 +75,16 @@ function buildCtxSteps(maxCtx: number): number[] {
 }
 
 function fillStrokeFor(warning: ChatUsageState['warning'] | undefined): string {
-  if (warning === 'red') return 'stroke-rose-500';
-  if (warning === 'yellow') return 'stroke-amber-500';
-  return 'stroke-emerald-500';
+  if (warning === 'red') return 'stroke-destructive';
+  if (warning === 'yellow') return 'stroke-warning';
+  return 'stroke-success';
 }
 
 function textColorFor(warning: ChatUsageState['warning'] | undefined): string {
-  if (warning === 'red') return 'text-rose-700';
-  if (warning === 'yellow') return 'text-amber-700';
-  if (!warning) return 'text-slate-500';
-  return 'text-emerald-700';
+  if (warning === 'red') return 'text-destructive';
+  if (warning === 'yellow') return 'text-warning';
+  if (!warning) return 'text-muted-foreground';
+  return 'text-success';
 }
 
 export default function ContextMeter({
@@ -266,7 +266,7 @@ export default function ContextMeter({
         stats: {
           tokens_in: null, tokens_out: null,
           ms_to_first_token: null, ms_total: null, tokens_per_sec: null,
-          model: null,
+          model: null, load_duration_ms: null,
         },
       });
       chatEvents.dispatchCompacted({ conversationId });
@@ -373,7 +373,7 @@ export default function ContextMeter({
                   key={s}
                   className={`block cursor-pointer rounded-md p-3 transition-colors ${
                     active
-                      ? 'bg-teal-50 ring-1 ring-inset ring-teal-300'
+                      ? 'bg-brand/10 ring-1 ring-inset ring-brand/40'
                       : 'hover:bg-muted'
                   }`}
                 >
@@ -388,12 +388,12 @@ export default function ContextMeter({
                     <span
                       aria-hidden
                       className={`flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 ${
-                        active ? 'border-teal-500' : 'border-muted-foreground/40'
+                        active ? 'border-brand' : 'border-muted-foreground/40'
                       }`}
                     >
-                      {active && <span className="h-1.5 w-1.5 rounded-full bg-teal-500" />}
+                      {active && <span className="h-1.5 w-1.5 rounded-full bg-brand" />}
                     </span>
-                    <span className={`text-xs font-medium ${active ? 'text-teal-900' : 'text-foreground'}`}>
+                    <span className={`text-xs font-medium ${active ? 'text-brand' : 'text-foreground'}`}>
                       {STRATEGY_LABELS[s]}
                     </span>
                   </div>

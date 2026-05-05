@@ -94,11 +94,11 @@ export default function DescriptionModal(props: Props): JSX.Element | null {
             <h3 className="field-label mb-1.5">Description</h3>
             {hasHtmlTags(topDesc) ? (
               <div
-                className="text-xs text-slate-700 break-words prose prose-sm max-w-none"
+                className="text-xs text-foreground break-words prose prose-sm max-w-none"
                 dangerouslySetInnerHTML={{ __html: sanitizeHtml(topDesc) }}
               />
             ) : (
-              <p className="text-xs text-slate-700 whitespace-pre-wrap break-words">
+              <p className="text-xs text-foreground whitespace-pre-wrap break-words">
                 {topDesc}
               </p>
             )}
@@ -121,23 +121,23 @@ export default function DescriptionModal(props: Props): JSX.Element | null {
         {models && models.length > 0 && (
           <section>
             <h3 className="field-label mb-1.5">Models</h3>
-            <pre className="text-[11px] font-mono text-slate-700 bg-slate-50 ring-1 ring-inset ring-slate-200 rounded-md px-3 py-2 whitespace-pre-wrap break-all">
+            <pre className="text-[11px] font-mono text-foreground bg-muted ring-1 ring-inset ring-border rounded-md px-3 py-2 whitespace-pre-wrap break-all">
               {models.join('\n')}
             </pre>
           </section>
         )}
 
         {civitaiMeta && (civDesc || civitaiMeta.tags?.length || civitaiLink) && (
-          <section className="rounded-lg border border-teal-200 bg-teal-50/60 p-3">
-            <h3 className="field-label text-teal-700 mb-1.5">CivitAI</h3>
+          <section className="rounded-lg border border-brand bg-brand/10 p-3">
+            <h3 className="field-label text-brand mb-1.5">CivitAI</h3>
             {civDesc && (
               hasHtmlTags(civDesc) ? (
                 <div
-                  className="text-xs text-slate-700 break-words prose prose-sm max-w-none mb-2"
+                  className="text-xs text-foreground break-words prose prose-sm max-w-none mb-2"
                   dangerouslySetInnerHTML={{ __html: sanitizeHtml(civDesc) }}
                 />
               ) : (
-                <p className="text-xs text-slate-700 whitespace-pre-wrap break-words mb-2">
+                <p className="text-xs text-foreground whitespace-pre-wrap break-words mb-2">
                   {civDesc}
                 </p>
               )
@@ -156,7 +156,7 @@ export default function DescriptionModal(props: Props): JSX.Element | null {
                 href={civitaiLink}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-teal-700 hover:text-teal-800 underline"
+                className="inline-flex items-center gap-1 text-xs text-brand hover:text-brand/90 underline"
               >
                 <ExternalLink className="w-3 h-3" />
                 Open on CivitAI

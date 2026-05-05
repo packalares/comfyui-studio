@@ -36,7 +36,7 @@ export default function TelemetryFooter({
     || showLoad;
   if (!haveAny) return null;
   return (
-    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
+    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
       {model && <span className="font-mono">{model}</span>}
       {tokensPerSec !== null && <span>{num(tokensPerSec)} tok/s</span>}
       {msTotal !== null && <span>{ms(msTotal)} total</span>}

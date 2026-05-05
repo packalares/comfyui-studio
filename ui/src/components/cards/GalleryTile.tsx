@@ -83,8 +83,8 @@ export default function GalleryTile({
 }: GalleryTileProps) {
   return (
     <div
-      className={`group relative overflow-hidden rounded-xl bg-slate-100 ring-1 ring-slate-200 shadow-sm transition-all hover:shadow-lg hover:-translate-y-0.5 ${
-        isSelected ? 'ring-2 ring-teal-500' : ''
+      className={`group relative overflow-hidden rounded-xl bg-muted ring-1 ring-border shadow-sm transition-all hover:shadow-lg hover:-translate-y-0.5 ${
+        isSelected ? 'ring-2 ring-brand' : ''
       }`}
     >
       <button
@@ -111,8 +111,8 @@ export default function GalleryTile({
           onClick={(e) => { e.stopPropagation(); onToggleSelect(); }}
           className={`p-1 rounded-full border backdrop-blur transition-colors ${
             isSelected
-              ? 'bg-teal-500 border-teal-500 text-white'
-              : 'bg-white/80 border-white/40 text-slate-700 hover:bg-white'
+              ? 'bg-brand border-brand text-brand-foreground'
+              : 'bg-popover/80 border-border text-foreground hover:bg-popover'
           }`}
           aria-label={isSelected ? 'Deselect' : 'Select'}
         >
@@ -124,7 +124,7 @@ export default function GalleryTile({
       <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
           onClick={(e) => { e.stopPropagation(); onToggleFavorite(); }}
-          className="p-1 rounded-full border border-white/40 bg-white/80 text-slate-700 hover:text-yellow-500 backdrop-blur transition-colors"
+          className="p-1 rounded-full border border-border bg-popover/80 text-foreground hover:text-yellow-500 backdrop-blur transition-colors"
           aria-label={isFav ? 'Unfavorite' : 'Favorite'}
         >
           {isFav
@@ -133,7 +133,7 @@ export default function GalleryTile({
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="p-1 rounded-full border border-white/40 bg-white/80 text-slate-700 hover:text-red-600 backdrop-blur transition-colors"
+          className="p-1 rounded-full border border-border bg-popover/80 text-foreground hover:text-destructive backdrop-blur transition-colors"
           aria-label="Delete"
         >
           <Trash2 className="w-3.5 h-3.5" />
@@ -172,15 +172,15 @@ function MediaTypeBadge({ item }: { item: GalleryItem }) {
 
 function ThreeDPreview() {
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-gradient-to-br from-slate-100 to-slate-200">
-      <Box className="w-10 h-10 text-slate-400" />
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">3D</span>
+    <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-gradient-to-br from-muted to-secondary">
+      <Box className="w-10 h-10 text-muted-foreground" />
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">3D</span>
     </div>
   );
 }
 
 function ImagePreview({ item }: { item: GalleryItem }) {
-  if (!item.url) return <ImageIcon className="w-10 h-10 text-slate-300" />;
+  if (!item.url) return <ImageIcon className="w-10 h-10 text-muted-foreground" />;
   // All media types go through the unified /api/thumbnail/:id endpoint.
   return (
     <img
@@ -217,7 +217,7 @@ function VideoPreview({ item }: { item: GalleryItem }) {
 
   if (!item.url) {
     return (
-      <div className="w-full h-full bg-slate-800 flex items-center justify-center">
+      <div className="w-full h-full bg-primary flex items-center justify-center">
         <Play className="w-8 h-8 text-white/80" fill="currentColor" />
       </div>
     );
@@ -262,7 +262,7 @@ function VideoPreview({ item }: { item: GalleryItem }) {
           onError={() => setThumbError(true)}
         />
       ) : (
-        <div className={`w-full h-full bg-slate-800 flex items-center justify-center ${hover && videoLoaded ? 'opacity-0' : 'opacity-100'} transition-opacity`}>
+        <div className={`w-full h-full bg-primary flex items-center justify-center ${hover && videoLoaded ? 'opacity-0' : 'opacity-100'} transition-opacity`}>
           <Play className="w-8 h-8 text-white/80" fill="currentColor" />
         </div>
       )}
@@ -298,8 +298,8 @@ function AudioPreview({ item }: { item: GalleryItem }) {
   const [error, setError] = useState(false);
   if (error) {
     return (
-      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-200">
-        <Music className="w-10 h-10 text-slate-400" />
+      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-secondary">
+        <Music className="w-10 h-10 text-muted-foreground" />
       </div>
     );
   }

@@ -124,7 +124,7 @@ export default function ChatModelPickerModal({
             'h-8 gap-1.5 px-2.5 font-mono text-xs',
             // Rose ring only once we're certain there's no model — never
             // during the initial fetch (would flash red on every reload).
-            !loading && noModel && 'text-rose-600 ring-1 ring-rose-300 ring-inset bg-rose-50/60',
+            !loading && noModel && 'text-destructive ring-1 ring-destructive/30 ring-inset bg-destructive/10',
           )}
           aria-label="Pick a chat model"
         >
@@ -134,7 +134,7 @@ export default function ChatModelPickerModal({
             // is defined globally in `index.css`.
             <span
               aria-label="Loading models"
-              className="relative inline-block h-3.5 w-28 overflow-hidden rounded bg-slate-200"
+              className="relative inline-block h-3.5 w-28 overflow-hidden rounded bg-muted"
             >
               <span className="skeleton-shimmer" />
             </span>
@@ -175,14 +175,14 @@ export default function ChatModelPickerModal({
                   >
                     <div className="flex w-4 shrink-0 items-center pt-0.5">
                       {selected
-                        ? <Check className="h-3.5 w-3.5 text-emerald-600" />
+                        ? <Check className="h-3.5 w-3.5 text-success" />
                         : null}
                     </div>
                     <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <div className="flex items-center gap-2">
                         <span className="truncate font-mono text-xs">{row.name}</span>
                         {row.size !== undefined && (
-                          <span className="text-[10px] text-slate-500">{formatSize(row.size)}</span>
+                          <span className="text-[10px] text-muted-foreground">{formatSize(row.size)}</span>
                         )}
                       </div>
                       {row.caps.length > 0 && (

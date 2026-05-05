@@ -113,10 +113,10 @@ export default function ToolsCard() {
     <Card>
       <CardHeader className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-2">
-          <Wrench className="w-3.5 h-3.5 text-slate-400 mt-0.5" />
+          <Wrench className="w-3.5 h-3.5 text-muted-foreground mt-0.5" />
           <div>
-            <h2 className="text-sm font-semibold text-slate-900 leading-tight">Tools / Integrations</h2>
-            <p className="mt-0.5 text-[11px] text-slate-400">
+            <h2 className="text-sm font-semibold text-foreground leading-tight">Tools / Integrations</h2>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
               Optional tools the chat LLM can call. Each is disabled until its
               URL / key is set.
             </p>
@@ -176,7 +176,7 @@ export default function ToolsCard() {
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  className="cursor-help text-slate-400 transition-colors hover:text-slate-600"
+                  className="cursor-help text-muted-foreground transition-colors hover:text-foreground"
                   aria-label="Default image template info"
                 >
                   <HelpCircle className="h-3 w-3" />
@@ -206,7 +206,7 @@ export default function ToolsCard() {
         </div>
       </CardContent>
       <CardFooter>
-        <p className="text-xs text-slate-500">Changes apply immediately to new chats.</p>
+        <p className="text-xs text-muted-foreground">Changes apply immediately to new chats.</p>
         <Button onClick={handleSave} disabled={busy || !loaded}>
           {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
           {saved ? 'Saved' : 'Save'}

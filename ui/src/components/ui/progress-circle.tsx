@@ -10,9 +10,9 @@ interface ProgressCircleProps {
   percent: number
   /** SVG container size — defaults to `h-3.5 w-3.5` (14px) for inline use. */
   className?: string
-  /** Stroke color of the unfilled track. Default: `stroke-slate-200`. */
+  /** Stroke color of the unfilled track. Default: `stroke-muted`. */
   trackClassName?: string
-  /** Stroke color of the filled portion. Default: `stroke-emerald-500`. */
+  /** Stroke color of the filled portion. Default: `stroke-success`. */
   fillClassName?: string
   /** Stroke thickness. Defaults to 2 (out of a 16-unit viewBox). */
   strokeWidth?: number
@@ -37,12 +37,12 @@ export function ProgressCircle({
     >
       <circle
         cx="8" cy="8" r={r}
-        className={cn("fill-none stroke-slate-200", trackClassName)}
+        className={cn("fill-none stroke-muted", trackClassName)}
         strokeWidth={strokeWidth}
       />
       <circle
         cx="8" cy="8" r={r}
-        className={cn("fill-none stroke-emerald-500 transition-all", fillClassName)}
+        className={cn("fill-none stroke-success transition-all", fillClassName)}
         strokeWidth={strokeWidth}
         strokeDasharray={circumference}
         strokeDashoffset={offset}

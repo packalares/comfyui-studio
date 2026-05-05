@@ -134,7 +134,7 @@ function ProgressCell({ downloaded, total, progress }: {
   );
   return (
     <div className="w-full">
-      <div className="flex justify-between text-[10px] text-slate-500 mb-0.5">
+      <div className="flex justify-between text-[10px] text-muted-foreground mb-0.5">
         <span>{Math.round(pct)}%</span>
         {total ? (
           <span className="font-mono">
@@ -244,10 +244,10 @@ export default function DownloadsTab() {
     <Card>
       <CardHeader className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-2">
-          <History className="w-3.5 h-3.5 text-slate-400 mt-0.5" />
+          <History className="w-3.5 h-3.5 text-muted-foreground mt-0.5" />
           <div>
-            <h2 className="text-sm font-semibold text-slate-900 leading-tight">Download History</h2>
-            <p className="mt-0.5 text-[11px] text-slate-400">
+            <h2 className="text-sm font-semibold text-foreground leading-tight">Download History</h2>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
               {loading
                 ? 'Loading…'
                 : total === 0
@@ -261,7 +261,7 @@ export default function DownloadsTab() {
             <Button
               onClick={() => setClearOpen(true)}
               variant="secondary"
-              className="!text-red-600 hover:!bg-red-50"
+              className="!text-destructive hover:!bg-destructive/10"
               disabled={busy}
               title="Clear all entries"
             >
@@ -284,8 +284,8 @@ export default function DownloadsTab() {
 
       <CardContent className="space-y-3">
         {error && (
-          <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2">
-            <p className="text-xs text-red-600 flex items-center gap-1.5">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2">
+            <p className="text-xs text-destructive flex items-center gap-1.5">
               <AlertTriangle className="h-3 w-3" />
               {error}
             </p>
@@ -295,18 +295,18 @@ export default function DownloadsTab() {
         {loading && displayEntries.length === 0 ? (
           <div className="space-y-2">
             {[1, 2, 3].map(i => (
-              <div key={i} className="h-12 rounded-lg bg-slate-100 animate-pulse" />
+              <div key={i} className="h-12 rounded-lg bg-muted animate-pulse" />
             ))}
           </div>
         ) : displayEntries.length === 0 ? (
           <div className="empty-box">
-            <DownloadIcon className="w-6 h-6 text-slate-300 mx-auto mb-2" />
+            <DownloadIcon className="w-6 h-6 text-muted-foreground mx-auto mb-2" />
             Your download history will appear here
           </div>
         ) : (
           <>
             {/* Desktop table header */}
-            <div className="hidden md:grid grid-cols-[minmax(0,1fr)_120px_110px_140px_140px_36px] gap-3 px-3 pb-2 text-[11px] uppercase tracking-wider font-semibold text-slate-500 border-b border-slate-100">
+            <div className="hidden md:grid grid-cols-[minmax(0,1fr)_120px_110px_140px_140px_36px] gap-3 px-3 pb-2 text-[11px] uppercase tracking-wider font-semibold text-muted-foreground border-b">
               <span>File</span>
               <span>Status</span>
               <span>Size</span>
@@ -315,7 +315,7 @@ export default function DownloadsTab() {
               <span className="sr-only">Actions</span>
             </div>
 
-            <ul className="divide-y divide-slate-100">
+            <ul className="divide-y">
               {displayEntries.map(entry => {
                 const isActive = entry.status === 'downloading' || entry.status === 'queued';
                 const when = entry.endTime ?? entry.startTime;
@@ -323,15 +323,15 @@ export default function DownloadsTab() {
                 return (
                   <li
                     key={entry.id}
-                    className="md:grid md:grid-cols-[minmax(0,1fr)_120px_110px_140px_140px_36px] md:gap-3 md:items-center flex flex-col gap-2 px-3 py-3 hover:bg-slate-50 transition-colors"
+                    className="md:grid md:grid-cols-[minmax(0,1fr)_120px_110px_140px_140px_36px] md:gap-3 md:items-center flex flex-col gap-2 px-3 py-3 hover:bg-muted transition-colors"
                   >
                     {/* File */}
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-slate-900 truncate" title={name}>
+                      <p className="text-sm font-medium text-foreground truncate" title={name}>
                         {name}
                       </p>
                       {entry.modelName && entry.modelName !== name && (
-                        <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                        <p className="text-[11px] text-muted-foreground truncate mt-0.5">
                           {entry.modelName}
                         </p>
                       )}
@@ -340,14 +340,14 @@ export default function DownloadsTab() {
                           href={entry.downloadUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-[11px] text-teal-600 hover:text-teal-700 hover:underline truncate mt-0.5 block font-mono"
+                          className="text-[11px] text-brand hover:text-brand/90 hover:underline truncate mt-0.5 block font-mono"
                           title={entry.downloadUrl}
                         >
                           {entry.downloadUrl}
                         </a>
                       )}
                       {entry.error && (
-                        <p className="text-[11px] text-rose-600 truncate mt-0.5" title={entry.error}>
+                        <p className="text-[11px] text-destructive truncate mt-0.5" title={entry.error}>
                           {entry.error}
                         </p>
                       )}
@@ -359,13 +359,13 @@ export default function DownloadsTab() {
                     </div>
 
                     {/* Size */}
-                    <div className="text-[11px] text-slate-500 font-mono">
+                    <div className="text-[11px] text-muted-foreground font-mono">
                       {entry.fileSize ? formatBytes(entry.fileSize) : '—'}
                     </div>
 
                     {/* When */}
                     <div
-                      className="text-[11px] text-slate-500"
+                      className="text-[11px] text-muted-foreground"
                       title={when ? new Date(when).toLocaleString() : ''}
                     >
                       {when ? formatRelativeTime(when) : '—'}
@@ -380,7 +380,7 @@ export default function DownloadsTab() {
                           progress={entry.progress}
                         />
                       ) : (
-                        <span className="text-[11px] text-slate-400">—</span>
+                        <span className="text-[11px] text-muted-foreground">—</span>
                       )}
                     </div>
 
@@ -390,7 +390,7 @@ export default function DownloadsTab() {
                         onClick={() => setDeleteTarget(entry)}
                         variant="ghost"
                         size="icon"
-                        className="hover:!text-red-500"
+                        className="hover:!text-destructive"
                         title="Remove from history"
                         aria-label="Remove from history"
                         disabled={busy}

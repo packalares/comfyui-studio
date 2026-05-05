@@ -176,7 +176,7 @@ export default function AppModal(props: AppModalProps): JSX.Element | null {
       aria-modal="true"
       aria-label={title ?? ariaLabel}
       data-state={isExiting ? 'closed' : 'open'}
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm transition-opacity duration-150 ${backdropOpacity}`}
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-primary/40 backdrop-blur-sm transition-opacity duration-150 ${backdropOpacity}`}
       onClick={(e) => {
         if (disableClose) return;
         if (!closeOnBackdropClick) return;
@@ -193,11 +193,11 @@ export default function AppModal(props: AppModalProps): JSX.Element | null {
               {icon && <div className="shrink-0">{icon}</div>}
               <div className="min-w-0">
                 {title && (
-                  <h2 className="text-sm font-semibold text-slate-900 truncate" title={title}>
+                  <h2 className="text-sm font-semibold text-foreground truncate" title={title}>
                     {title}
                   </h2>
                 )}
-                {subtitle && <p className="mt-0.5 text-[11px] text-slate-400">{subtitle}</p>}
+                {subtitle && <p className="mt-0.5 text-[11px] text-muted-foreground">{subtitle}</p>}
               </div>
             </div>
             <Button

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Plus, Trash2, MessageSquare } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, type ChatConversation } from '../../services/comfyui';
@@ -189,9 +190,9 @@ export default function ConversationList({ activeId, refreshKey, onSelect, onNew
       </CardHeader>
       <div className="flex-1 min-h-0 overflow-y-auto py-1">
         {items.length === 0 && !loading && (
-          <div className="px-4 py-10 text-center text-xs text-slate-400 space-y-1">
-            <MessageSquare className="mx-auto mb-1 h-5 w-5 text-slate-300" />
-            <div className="font-medium text-slate-500">No conversations yet</div>
+          <div className="px-4 py-10 text-center text-xs text-muted-foreground space-y-1">
+            <MessageSquare className="mx-auto mb-1 h-5 w-5 text-muted-foreground" />
+            <div className="font-medium text-muted-foreground">No conversations yet</div>
             <div>Click <span className="font-medium">New</span> above to start chatting.</div>
           </div>
         )}
@@ -203,21 +204,28 @@ export default function ConversationList({ activeId, refreshKey, onSelect, onNew
                 key={c.id}
                 className={`group chat-list-item ${activeId === c.id ? 'is-active' : ''}`}
               >
-                <button
-                  type="button"
-                  onClick={() => onSelect(c.id)}
-                  className="min-w-0 flex-1 text-left cursor-pointer"
+                <Link
+                  to={`/chat/c/${c.id}`}
+                  onClick={(e) => {
+                    // Preserve onSelect for parent-side navigation hooks (it
+                    // calls navigate too, which is harmless on the same path)
+                    // and so right-click → "open in new tab" still works via
+                    // the real `<a href>` Link emits.
+                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+                    onSelect(c.id);
+                  }}
+                  className="min-w-0 flex-1 text-left cursor-pointer no-underline text-current"
                   aria-label={`Open ${c.title || 'Untitled'}`}
                 >
                   <div className="chat-list-item-title">{c.title || 'Untitled'}</div>
                   <div className="chat-list-item-meta">{formatRelative(c.updated_at)}</div>
-                </button>
+                </Link>
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon-xs"
                   onClick={(e) => { e.stopPropagation(); setPendingDelete(c); }}
-                  className="hover-reveal mt-0.5 hover:text-rose-600"
+                  className="hover-reveal mt-0.5 hover:text-destructive"
                   aria-label="Delete conversation"
                 >
                   <Trash2 />
@@ -231,7 +239,7 @@ export default function ConversationList({ activeId, refreshKey, onSelect, onNew
             don't re-trigger on the final page. */}
         {hasMore && (
           <div ref={sentinelRef} className="flex items-center justify-center py-3">
-            {loadingMore && <Spinner size="sm" className="text-slate-400" />}
+            {loadingMore && <Spinner size="sm" className="text-muted-foreground" />}
           </div>
         )}
       </div>

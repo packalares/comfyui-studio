@@ -77,10 +77,10 @@ export default function PluginDepsPanel() {
     <Card>
       <CardHeader className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-2">
-          <Wrench className="w-3.5 h-3.5 text-slate-400 mt-0.5" />
+          <Wrench className="w-3.5 h-3.5 text-muted-foreground mt-0.5" />
           <div>
-            <h2 className="text-sm font-semibold text-slate-900 leading-tight">Plugin dependencies</h2>
-            <p className="mt-0.5 text-[11px] text-slate-400">
+            <h2 className="text-sm font-semibold text-foreground leading-tight">Plugin dependencies</h2>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
               Per-plugin <code className="font-mono">requirements.txt</code> status.
             </p>
           </div>
@@ -99,19 +99,19 @@ export default function PluginDepsPanel() {
 
       <CardContent className="space-y-2">
         {error && (
-          <div className="rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 flex items-center gap-2 text-xs text-rose-700">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 flex items-center gap-2 text-xs text-destructive">
             <AlertTriangle className="h-3.5 w-3.5" />
             {error}
           </div>
         )}
         {loading ? (
           <div className="flex items-center justify-center py-6">
-            <Spinner size="lg" className="text-slate-400" />
+            <Spinner size="lg" className="text-muted-foreground" />
           </div>
         ) : reports.length === 0 ? (
           <div className="empty-box">No plugins installed.</div>
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y">
             {reports.map((r) => {
               const missing = r.missingDeps.length;
               const depCount = r.dependencies.length;
@@ -133,7 +133,7 @@ export default function PluginDepsPanel() {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => setExpanded((e) => ({ ...e, [r.plugin]: !e[r.plugin] }))}
-                      className="text-slate-400 hover:text-slate-700 shrink-0"
+                      className="text-muted-foreground hover:text-foreground shrink-0"
                       aria-label={open ? 'Collapse' : 'Expand'}
                       disabled={depCount === 0}
                     >
@@ -145,8 +145,8 @@ export default function PluginDepsPanel() {
                     </button>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-medium text-slate-900 truncate">{r.plugin}</p>
-                        <span className="text-[11px] text-slate-500">{depCount} deps</span>
+                        <p className="text-sm font-medium text-foreground truncate">{r.plugin}</p>
+                        <span className="text-[11px] text-muted-foreground">{depCount} deps</span>
                         <Badge variant={status.variant}>
                           {status.icon}
                           {status.label}
@@ -169,29 +169,29 @@ export default function PluginDepsPanel() {
                     )}
                   </div>
                   {op?.error && (
-                    <p className="mt-1 ml-6 text-[11px] text-rose-600 font-mono break-all">{op.error}</p>
+                    <p className="mt-1 ml-6 text-[11px] text-destructive font-mono break-all">{op.error}</p>
                   )}
                   {op?.success && (
-                    <p className="mt-1 ml-6 text-[11px] text-emerald-600">Dependencies installed.</p>
+                    <p className="mt-1 ml-6 text-[11px] text-success">Dependencies installed.</p>
                   )}
                   {open && depCount > 0 && (
-                    <div className="mt-1.5 ml-6 rounded-md bg-slate-50 border border-slate-200 px-2 py-1.5">
+                    <div className="mt-1.5 ml-6 rounded-md bg-muted border px-2 py-1.5">
                       <ul className="space-y-0.5">
                         {r.dependencies.map((d) => (
                           <li
                             key={d.name}
                             className="flex items-center justify-between text-[11px] font-mono"
                           >
-                            <span className="text-slate-700 truncate">
+                            <span className="text-foreground truncate">
                               {d.name}
-                              {d.version && <span className="text-slate-400">{d.version}</span>}
+                              {d.version && <span className="text-muted-foreground">{d.version}</span>}
                             </span>
                             {d.missing ? (
-                              <span className="text-rose-600">missing</span>
+                              <span className="text-destructive">missing</span>
                             ) : d.versionMismatch ? (
-                              <span className="text-amber-600">version mismatch</span>
+                              <span className="text-warning">version mismatch</span>
                             ) : (
-                              <span className="text-emerald-600">ok</span>
+                              <span className="text-success">ok</span>
                             )}
                           </li>
                         ))}

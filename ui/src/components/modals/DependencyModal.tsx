@@ -220,19 +220,19 @@ export default function DependencyModal({
               : 'These models are referenced by the workflow but not installed.'
       }
       icon={
-        <div className="rounded-md bg-amber-50 p-1.5 ring-1 ring-inset ring-amber-200">
-          <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+        <div className="rounded-md bg-warning/10 p-1.5 ring-1 ring-inset ring-warning/30">
+          <AlertTriangle className="w-3.5 h-3.5 text-warning" />
         </div>
       }
       size="lg"
       disableClose={isAnyActive}
       footer={
         <>
-          <div className="text-[11px] text-slate-500">
+          <div className="text-[11px] text-muted-foreground">
             {isAnyActive
               ? 'Downloads running — keep this window open.'
               : totalSize > 0 && view.size === 0
-                ? <>Total: <span className="font-semibold text-slate-700">{formatBytes(totalSize)}</span></>
+                ? <>Total: <span className="font-semibold text-foreground">{formatBytes(totalSize)}</span></>
                 : (() => {
                     const parts: string[] = [];
                     if (missingPlugins.length > 0) {
@@ -277,14 +277,14 @@ export default function DependencyModal({
       }
     >
       {gatedBlocked && (
-        <div className="mb-3 flex items-start gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
-          <Lock className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600" />
+        <div className="mb-3 flex items-start gap-2 rounded-md bg-warning/10 border border-warning/30 px-3 py-2 text-xs text-warning">
+          <Lock className="w-3.5 h-3.5 shrink-0 mt-0.5 text-warning" />
           <span>
             Some models are gated and require a HuggingFace token.{' '}
             <button
               type="button"
               onClick={() => { onClose(); navigate('/settings'); }}
-              className="underline font-medium hover:text-amber-900"
+              className="underline font-medium hover:text-warning/80"
             >
               Add token in Settings
             </button>
@@ -296,10 +296,10 @@ export default function DependencyModal({
       {missingPlugins.length > 0 && (
         <section className="mb-4">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600 flex items-center gap-1.5">
-              <Puzzle className="w-3.5 h-3.5 text-violet-500" />
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-foreground flex items-center gap-1.5">
+              <Puzzle className="w-3.5 h-3.5 text-muted-foreground" />
               Missing plugins
-              <span className="text-[10px] font-normal text-slate-400">
+              <span className="text-[10px] font-normal text-muted-foreground">
                 ({missingPlugins.length} node{missingPlugins.length === 1 ? '' : 's'})
               </span>
             </h3>
@@ -324,22 +324,22 @@ export default function DependencyModal({
               return (
                 <li
                   key={`plugin:${p.classType}:${key}`}
-                  className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3"
+                  className="card-row"
                 >
                   <div className="shrink-0 mt-0.5">
                     {status === 'installed' ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                      <CheckCircle2 className="w-4 h-4 text-success" />
                     ) : status === 'queued' ? (
-                      <Spinner size="md" className="text-violet-500" />
+                      <Spinner size="md" className="text-muted-foreground" />
                     ) : status === 'error' ? (
-                      <AlertCircle className="w-4 h-4 text-rose-500" />
+                      <AlertCircle className="w-4 h-4 text-destructive" />
                     ) : (
-                      <Puzzle className="w-4 h-4 text-slate-400" />
+                      <Puzzle className="w-4 h-4 text-muted-foreground" />
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-medium text-slate-900 truncate" title={p.classType}>
+                      <span className="text-sm font-medium text-foreground truncate" title={p.classType}>
                         {p.classType}
                       </span>
                       {status === 'installed' && (
@@ -362,21 +362,21 @@ export default function DependencyModal({
                       )}
                     </div>
                     {p.subgraphName && (
-                      <div className="mt-0.5 text-[11px] text-slate-500">
-                        in subgraph <span className="font-medium text-slate-700">'{p.subgraphName}'</span>
+                      <div className="mt-0.5 text-[11px] text-muted-foreground">
+                        in subgraph <span className="font-medium text-foreground">'{p.subgraphName}'</span>
                       </div>
                     )}
                     {p.repos.length > 0 ? (
-                      <div className="mt-1 text-[11px] text-slate-500">
+                      <div className="mt-1 text-[11px] text-muted-foreground">
                         Provided by{' '}
                         {p.repos.map((r, i) => (
-                          <span key={r.repo} className="text-slate-700">
+                          <span key={r.repo} className="text-foreground">
                             {i > 0 ? ', ' : ''}{r.title || r.repo}
                           </span>
                         ))}
                       </div>
                     ) : (
-                      <div className="mt-1 text-[11px] text-amber-700">
+                      <div className="mt-1 text-[11px] text-warning">
                         Plugin not in any registry — install manually from the source URL.
                       </div>
                     )}
@@ -393,10 +393,10 @@ export default function DependencyModal({
       ) : missingModels.length === 0 ? null : (
         <section>
           {missingPlugins.length > 0 && (
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600 flex items-center gap-1.5">
-              <HardDrive className="w-3.5 h-3.5 text-teal-500" />
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-foreground flex items-center gap-1.5">
+              <HardDrive className="w-3.5 h-3.5 text-brand" />
               Missing models
-              <span className="text-[10px] font-normal text-slate-400">
+              <span className="text-[10px] font-normal text-muted-foreground">
                 ({missingModels.length})
               </span>
             </h3>
@@ -407,22 +407,22 @@ export default function DependencyModal({
             return (
               <li
                 key={model.name}
-                className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3"
+                className="card-row"
               >
                 <div className="shrink-0 mt-0.5">
                   {dl?.status === 'completed' ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                    <CheckCircle2 className="w-4 h-4 text-success" />
                   ) : dl?.status === 'error' ? (
-                    <AlertCircle className="w-4 h-4 text-rose-500" />
+                    <AlertCircle className="w-4 h-4 text-destructive" />
                   ) : dl?.status === 'downloading' ? (
-                    <Spinner size="md" className="text-teal-500" />
+                    <Spinner size="md" className="text-brand" />
                   ) : (
-                    <HardDrive className="w-4 h-4 text-slate-400" />
+                    <HardDrive className="w-4 h-4 text-muted-foreground" />
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-medium text-slate-900 truncate" title={model.name}>
+                    <span className="text-sm font-medium text-foreground truncate" title={model.name}>
                       {model.name}
                     </span>
                     {model.gated && (
@@ -444,7 +444,7 @@ export default function DependencyModal({
                       </Badge>
                     )}
                   </div>
-                  <div className="mt-1 text-[11px] text-slate-500 flex items-center gap-3 flex-wrap">
+                  <div className="mt-1 text-[11px] text-muted-foreground flex items-center gap-3 flex-wrap">
                     <span className="inline-flex items-center gap-1">
                       <FolderOpen className="w-3 h-3" />
                       {model.directory || 'unknown type'}
@@ -455,7 +455,7 @@ export default function DependencyModal({
                   </div>
                   {model.gated && (
                     <p
-                      className="mt-1 text-[11px] text-amber-700 truncate"
+                      className="mt-1 text-[11px] text-warning truncate"
                       title={model.gated_message || ''}
                     >
                       {model.gated_message || 'Requires HuggingFace token (Settings)'}
@@ -467,16 +467,16 @@ export default function DependencyModal({
                     <div className="mt-2">
                       <div className="progress-track">
                         <div
-                          className={`progress-bar-fill ${dl.status === 'completed' ? '' : 'bg-teal-400'}`}
+                          className={`progress-bar-fill ${dl.status === 'completed' ? '' : 'bg-brand/70'}`}
                           style={{ width: `${Math.min(100, dl.progress)}%` }}
                         />
                       </div>
                       <div className="flex justify-between mt-1">
-                        <span className="text-[10px] text-slate-400">
+                        <span className="text-[10px] text-muted-foreground">
                           {dl.status === 'completed' ? 'Complete' : `${Math.round(dl.progress)}%`}
                         </span>
                         {typeof dl.speed === 'number' && dl.speed > 0 && (
-                          <span className="text-[10px] text-slate-400">
+                          <span className="text-[10px] text-muted-foreground">
                             {formatBytes(dl.speed)}/s
                           </span>
                         )}
@@ -484,7 +484,7 @@ export default function DependencyModal({
                     </div>
                   )}
                   {dl?.status === 'error' && (
-                    <div className="mt-2 flex items-start gap-2 rounded-md bg-rose-50 border border-rose-100 px-2 py-1.5 text-[11px] text-rose-700">
+                    <div className="mt-2 flex items-start gap-2 rounded-md bg-destructive/10 border border-destructive/30 px-2 py-1.5 text-[11px] text-destructive">
                       <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" />
                       <span className="truncate">{dl.error}</span>
                     </div>

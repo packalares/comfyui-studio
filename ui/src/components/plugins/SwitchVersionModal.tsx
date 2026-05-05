@@ -68,13 +68,13 @@ export default function SwitchVersionModal({ plugin, onClose, onConfirm }: Props
         </div>
       }
     >
-      <p className="text-xs text-slate-500 mb-3">
-        <span className="font-medium text-slate-700">{plugin.name || plugin.id}</span> —
+      <p className="text-xs text-muted-foreground mb-3">
+        <span className="font-medium text-foreground">{plugin.name || plugin.id}</span> —
         currently <span className="font-mono">{plugin.version}</span>
       </p>
       <div className="space-y-1 max-h-72 overflow-y-auto pr-1 scrollbar-subtle">
         {versions.length === 0 ? (
-          <p className="text-xs text-slate-500 italic">No other versions listed in the catalog.</p>
+          <p className="text-xs text-muted-foreground italic">No other versions listed in the catalog.</p>
         ) : (
           versions.map((v, i) => {
             const key = v.id || v.version || String(i);
@@ -84,19 +84,19 @@ export default function SwitchVersionModal({ plugin, onClose, onConfirm }: Props
               <label
                 key={key}
                 className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors ${
-                  isSelected ? 'bg-teal-50' : 'hover:bg-slate-50'
+                  isSelected ? 'bg-brand/10' : 'hover:bg-muted'
                 }`}
               >
                 <input
                   type="radio"
                   name="version"
-                  className="accent-teal-600"
+                  className="accent-brand"
                   value={v.id || v.version || ''}
                   checked={isSelected}
                   onChange={() => setSelected(v.id || v.version || '')}
                   disabled={busy || isCurrent}
                 />
-                <span className="text-xs font-mono text-slate-700">{v.version || v.id}</span>
+                <span className="text-xs font-mono text-foreground">{v.version || v.id}</span>
                 {isCurrent && <Badge variant="slate" className="!text-[10px]">Current</Badge>}
                 {v.deprecated && (
                   <Badge variant="amber" className="!text-[10px]">
@@ -109,7 +109,7 @@ export default function SwitchVersionModal({ plugin, onClose, onConfirm }: Props
         )}
       </div>
       {error && (
-        <p className="mt-3 text-xs text-rose-600 rounded-md bg-rose-50 border border-rose-100 px-2 py-1.5">
+        <p className="mt-3 text-xs text-destructive rounded-md bg-destructive/10 border border-destructive/30 px-2 py-1.5">
           {error}
         </p>
       )}

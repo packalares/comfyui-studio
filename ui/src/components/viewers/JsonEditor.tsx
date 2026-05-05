@@ -34,11 +34,11 @@ export default function JsonEditor({ values, onChange }: Props) {
         value={text}
         onChange={e => handleChange(e.target.value)}
         spellCheck={false}
-        className="w-full h-80 px-3 py-3 text-sm font-mono text-green-700 bg-white border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 leading-relaxed"
+        className="w-full h-80 px-3 py-3 text-sm font-mono text-success bg-card border border-input rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-brand focus:border-brand leading-relaxed"
         style={{ tabSize: 2 }}
       />
       {error && (
-        <p className="mt-1.5 text-xs text-red-500">{error}</p>
+        <p className="mt-1.5 text-xs text-destructive">{error}</p>
       )}
     </div>
   );

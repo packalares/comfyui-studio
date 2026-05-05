@@ -98,10 +98,10 @@ export default function RunningTaskCard() {
       >
         <CardHeader className="flex items-center gap-2">
           <span className="relative flex h-2 w-2 flex-shrink-0">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-teal-400 opacity-75" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-teal-500" />
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand/70 opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-brand" />
           </span>
-          <span className="text-sm font-semibold text-slate-900 flex-1 truncate">Running in ComfyUI</span>
+          <span className="text-sm font-semibold text-foreground flex-1 truncate">Running in ComfyUI</span>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -138,7 +138,7 @@ export default function RunningTaskCard() {
                     role="progressbar"
                   />
                 </div>
-                <span className="text-[11px] tabular-nums text-slate-600 w-10 text-right">
+                <span className="text-[11px] tabular-nums text-foreground w-10 text-right">
                   {Math.round(progressPct!)}%
                 </span>
               </div>
@@ -152,15 +152,15 @@ export default function RunningTaskCard() {
           <>
             <div className="px-4 py-3 space-y-2">
               {activePromptId && (
-                <div className="flex items-center justify-between text-[11px] text-slate-500">
+                <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                   <span>Prompt</span>
-                  <span className="font-mono text-slate-700">{shortId(activePromptId)}</span>
+                  <span className="font-mono text-foreground">{shortId(activePromptId)}</span>
                 </div>
               )}
               {progress?.nodeId && (
-                <div className="flex items-center justify-between text-[11px] text-slate-500">
+                <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                   <span>Node</span>
-                  <span className="font-mono text-slate-700 truncate max-w-[140px]" title={progress.nodeId}>
+                  <span className="font-mono text-foreground truncate max-w-[140px]" title={progress.nodeId}>
                     {progress.nodeId}
                   </span>
                 </div>
@@ -178,7 +178,7 @@ export default function RunningTaskCard() {
                       role="progressbar"
                     />
                   </div>
-                  <div className="flex justify-between text-[10px] text-slate-400 tabular-nums">
+                  <div className="flex justify-between text-[10px] text-muted-foreground tabular-nums">
                     <span>{progress!.value}/{progress!.max}</span>
                     <span>{Math.round(progressPct!)}%</span>
                   </div>
@@ -193,7 +193,7 @@ export default function RunningTaskCard() {
               )}
 
               {pending > 0 && (
-                <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                   <Clock className="h-3 w-3" />
                   <span>
                     {pending} queued behind this
@@ -210,7 +210,7 @@ export default function RunningTaskCard() {
                     variant="secondary"
                     onClick={handleCancel}
                     disabled={cancelling}
-                    className="!border-red-200 !text-red-700 hover:!bg-red-50"
+                    className="!border-destructive/30 !text-destructive hover:!bg-destructive/10"
                   >
                     {cancelling
                       ? <Spinner size="sm" />

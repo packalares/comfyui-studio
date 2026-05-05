@@ -35,12 +35,12 @@ export default function NetworkWidget() {
   return (
     <Card className="p-4">
       <div className="flex items-center gap-2 mb-3">
-        <div className="p-1.5 rounded-md bg-emerald-50">
-          <Globe className="w-3.5 h-3.5 text-emerald-600" />
+        <div className="p-1.5 rounded-md bg-success/10">
+          <Globe className="w-3.5 h-3.5 text-success" />
         </div>
         <h3 className="stat-label">Network</h3>
-        <span className="ml-auto text-[11px] text-slate-500 flex items-center gap-1.5">
-          {loading && <Spinner size="xs" className="text-slate-400" />}
+        <span className="ml-auto text-[11px] text-muted-foreground flex items-center gap-1.5">
+          {loading && <Spinner size="xs" className="text-muted-foreground" />}
           {summary}
         </span>
       </div>
@@ -48,14 +48,14 @@ export default function NetworkWidget() {
         {ROWS.map((row, i) => {
           const r = cfg?.reachability?.[row.key];
           const s = states[i];
-          const cls = s === 'ok' ? 'bg-emerald-500' : s === 'fail' ? 'bg-rose-500' : 'bg-amber-400';
+          const cls = s === 'ok' ? 'bg-success' : s === 'fail' ? 'bg-destructive' : 'bg-warning';
           return (
             <li key={row.key} className="flex items-center justify-between text-xs">
-              <span className="flex items-center gap-2 text-slate-700">
+              <span className="flex items-center gap-2 text-foreground">
                 <span className={`inline-block h-1.5 w-1.5 rounded-full ${cls}`} />
                 {row.label}
               </span>
-              <span className="text-[11px] tabular-nums text-slate-500">
+              <span className="text-[11px] tabular-nums text-muted-foreground">
                 {r?.latencyMs != null ? `${r.latencyMs} ms` : s === 'unknown' ? '—' : 'offline'}
               </span>
             </li>
