@@ -28,6 +28,7 @@ import { extractAndPersistAttachments } from './attachments.js';
 import { ThinkParser } from './thinkParser.js';
 import { enforceContextStrategy } from './contextEnforce.js';
 import { beforeTool as gpuBeforeTool } from './gpuOrchestrator.js';
+import { expandLatestSlashCommand } from './commands/expander.js';
 
 // `LOADING_HINT_MS` and `MAX_TOOL_STEPS` are now `settings.chatLoadingHintMs`
 // and `settings.chatMaxToolSteps`. Resolved at call sites below.
@@ -104,9 +105,14 @@ export function startStream(input: StreamChatInput): StreamChatStarted {
 
   emitChatEvent({ type: 'chat:start', data: { conversationId, msgId, model } });
 
+  // Pre-process the latest user message for slash commands.
+  // The raw text is already persisted to the DB above (user sees their literal
+  // `/command args`). We only mutate the in-memory array Ollama will see.
+  const ollamaMessages = expandLatestSlashCommand(messages);
+
   void runStream({
     msgId, userMsgId, conversationId, baseUrl, model, keepAlive,
-    abort, messages, systemPrompt: systemPrompt ?? null,
+    abort, messages: ollamaMessages, systemPrompt: systemPrompt ?? null,
     enabledToolFilter: toolFilter,
   });
 

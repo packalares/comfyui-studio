@@ -121,6 +121,16 @@ export const paths = {
    */
   bundledPersonalitiesDir: path.join(BUNDLED_DATA_DIR, 'personalities'),
   /**
+   * Bundled read-only skill seeds. Each skill is a folder containing SKILL.md
+   * and optional scripts/. Services must never write here.
+   */
+  bundledSkillsDir: path.join(BUNDLED_DATA_DIR, 'skills'),
+  /**
+   * Bundled read-only command seeds. Each command is a single <name>.md file.
+   * Services must never write here.
+   */
+  bundledCommandsDir: path.join(BUNDLED_DATA_DIR, 'commands'),
+  /**
    * Single sqlite database file backing the gallery + plugin catalog queries.
    * Overridable via `STUDIO_SQLITE_PATH` so tests can point it at a tmpdir
    * and swap the file on every test case. Resolved lazily via the getter

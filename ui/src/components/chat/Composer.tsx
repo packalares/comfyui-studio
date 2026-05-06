@@ -6,7 +6,7 @@
 // `attachments` array (drag-drop on the thread shares this list) and feed it
 // into the standard ai-elements layout primitives only for visual polish.
 
-import { useEffect, useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useRef, useState, useCallback, type MutableRefObject } from 'react';
 import {
   ArrowUp, StopCircle, Paperclip, X, FileText, Image as ImageIcon, Globe, Code2,
 } from 'lucide-react';
@@ -30,6 +30,7 @@ import {
 import ChatModelPickerModal from './ChatModelPickerModal';
 import ChatToolsPopover from './ChatToolsPopover';
 import SoulPicker from './SoulPicker';
+import SlashMenu from './SlashMenu';
 
 interface Props {
   installed: OllamaInstalledModel[];
@@ -85,6 +86,34 @@ export default function Composer({
   // their own dragenter/leave don't toggle the overlay off mid-drag.
   const [dragDepth, setDragDepth] = useState(0);
   const isDragging = dragDepth > 0;
+
+  // Slash-menu state. The menu opens when the textarea value matches
+  // /^\/(\w*)$/ — a slash at the very start with nothing else (or word chars).
+  // We track the raw textarea value to derive open/query reactively so we
+  // never have to intercept keystrokes.
+  const [textareaValue, setTextareaValue] = useState('');
+  const slashMatch = /^\/(\w*)$/.exec(textareaValue.trimStart());
+  const slashMenuOpen = !busy && slashMatch !== null;
+  const slashQuery = slashMatch ? slashMatch[1] : '';
+
+  const handleSlashSelect = useCallback((name: string) => {
+    const ta = wrapRef.current?.querySelector<HTMLTextAreaElement>('textarea[name="message"]');
+    if (!ta) return;
+    // Replace the textarea value with /<name> followed by a space so the
+    // user can immediately type arguments.
+    const next = `/${name} `;
+    // Trigger a native input event so PromptInput's internal state updates.
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(ta, next);
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    setTextareaValue(next);
+    ta.focus();
+  }, []);
+
+  const handleSlashClose = useCallback(() => {
+    // Close without inserting; focus returns to the textarea naturally.
+    const ta = wrapRef.current?.querySelector<HTMLTextAreaElement>('textarea[name="message"]');
+    ta?.focus();
+  }, []);
   const focusTextarea = () => {
     const ta = wrapRef.current?.querySelector<HTMLTextAreaElement>('textarea[name="message"]');
     ta?.focus();
@@ -267,6 +296,15 @@ export default function Composer({
             the `:has(> textarea)` selector that expands the group from h-8
             to h-auto/flex-col. Children must be direct DOM kids of the
             InputGroup for the layout to lift to two-row mode. */}
+        <SlashMenu
+          open={slashMenuOpen}
+          query={slashQuery}
+          onSelect={handleSlashSelect}
+          onClose={handleSlashClose}
+        >
+          {/* SlashMenu wraps the entire PromptInput as its popover trigger
+              anchor so the popover appears above the composer surface. */}
+          <div className="w-full">
         <PromptInput onSubmit={submit}>
             {attachments.length > 0 && (
               <PromptInputHeader>
@@ -283,10 +321,20 @@ export default function Composer({
                     : 'Ask anything...'
               }
               disabled={busy}
+              onChange={(e) => setTextareaValue(e.target.value)}
               onKeyDown={(e) => {
+                // Suppress submit while the slash menu is open so Enter selects.
+                if (slashMenuOpen && e.key === 'Enter') {
+                  e.preventDefault();
+                  return;
+                }
                 if (e.key === 'Escape' && busy) {
                   e.preventDefault();
                   onStop();
+                }
+                if (e.key === 'Escape' && slashMenuOpen) {
+                  e.preventDefault();
+                  handleSlashClose();
                 }
               }}
             />
@@ -375,6 +423,8 @@ export default function Composer({
               </PromptInputTools>
             </PromptInputFooter>
         </PromptInput>
+          </div>
+        </SlashMenu>
       </div>
     </div>
   );

@@ -34,6 +34,8 @@ import * as getJobStatus from './tools/studio/getJobStatus.js';
 import * as listRecentOutputs from './tools/studio/listRecentOutputs.js';
 import * as remember from './tools/studio/remember.js';
 import * as proposeSoulEdit from './tools/studio/proposeSoulEdit.js';
+import * as loadSkill from './tools/studio/loadSkill.js';
+import * as listSkillsMcp from './tools/studio/listSkills.js';
 
 // --- types -----------------------------------------------------------------
 
@@ -166,6 +168,12 @@ const studioDefs: ToolDef[] = [
   { mcpName: 'studio.proposeSoulEdit', chatName: 'studio_propose_soul_edit',
     description: proposeSoulEdit.description, shape: proposeSoulEdit.inputShape,
     run: proposeSoulEdit.run },
+  { mcpName: 'studio.loadSkill', chatName: 'studio_load_skill',
+    description: loadSkill.description, shape: loadSkill.inputShape,
+    run: loadSkill.run },
+  { mcpName: 'studio.listSkills', chatName: 'studio_list_skills',
+    description: listSkillsMcp.description, shape: listSkillsMcp.inputShape,
+    run: listSkillsMcp.run },
 ];
 
 const TOOL_DEFS: ToolDef[] = [...comfyDefs, ...studioDefs];
@@ -189,7 +197,7 @@ export function registerAllTools(server: McpServer): void {
       }
     });
   }
-  logger.info(`MCP: registered ${TOOL_DEFS.length} tools (10 comfy + 8 studio)`);
+  logger.info(`MCP: registered ${TOOL_DEFS.length} tools (10 comfy + 10 studio)`);
 }
 
 /** Public listing for the chat composer's tool-toggle popover. */

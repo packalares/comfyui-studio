@@ -1253,6 +1253,34 @@ export const api = {
       ),
   },
 
+  // ---- Skills ----
+
+  skills: {
+    list: () => fetchJson<{ skills: SkillSummary[] }>('/skills'),
+    get: (name: string) => fetchJson<SkillDetail>(`/skills/${encodeURIComponent(name)}`),
+    put: (name: string, body: string) =>
+      fetchJson<{ ok: true }>(`/skills/${encodeURIComponent(name)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ body }),
+      }),
+    delete: (name: string) =>
+      fetchJson<{ ok: true }>(`/skills/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  },
+
+  // ---- Commands ----
+
+  commands: {
+    list: () => fetchJson<{ commands: CommandSummary[] }>('/commands'),
+    get: (name: string) => fetchJson<CommandDetail>(`/commands/${encodeURIComponent(name)}`),
+    put: (name: string, body: string) =>
+      fetchJson<{ ok: true }>(`/commands/${encodeURIComponent(name)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ body }),
+      }),
+    delete: (name: string) =>
+      fetchJson<{ ok: true }>(`/commands/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  },
+
   // ---- Personality / Souls + Memory ----
   // Agent A owns the real implementations. This namespace is defined here so
   // Agent B's components can call api.personality.* and tsc exits 0 during
@@ -1455,3 +1483,10 @@ export interface HfModelSummary {
   pipeline_tag: string | null;
   tags: string[];
 }
+
+// ---- Skills + Commands shared types ----
+
+export interface SkillSummary { name: string; description: string; }
+export interface SkillDetail { name: string; body: string; frontmatter: Record<string, unknown>; }
+export interface CommandSummary { name: string; description: string; argument_hint?: string; }
+export interface CommandDetail { name: string; body: string; frontmatter: Record<string, unknown>; }

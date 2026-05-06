@@ -31,6 +31,8 @@ import chatModels from './chat.models.routes.js';
 import mcp from './mcp.routes.js';
 import mcpServers from './mcpServers.routes.js';
 import { personalityRouter } from './personality.routes.js';
+import { skillsRouter } from './skills.routes.js';
+import { commandsRouter } from './commands.routes.js';
 
 const router = Router();
 
@@ -63,5 +65,7 @@ router.use(chatModels);
 router.use('/mcp', mcp);          // /api/mcp — Studio's MCP server endpoint
 router.use(mcpServers);            // /api/mcp/servers and /api/mcp/profiles
 router.use(personalityRouter);
+router.use(skillsRouter);
+router.use(commandsRouter);
 
 export default router;

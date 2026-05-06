@@ -42,6 +42,8 @@ import {
   Plug,
   Cpu as CpuTabIcon,
   Sparkles,
+  BookOpen,
+  SlashSquare,
   type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -60,6 +62,8 @@ import StudioMcpServerSection from '../components/settings/StudioMcpServerSectio
 import IntegratedToolsSection from '../components/settings/IntegratedToolsSection';
 import SoulsSection from '../components/settings/SoulsSection';
 import MemorySection from '../components/settings/MemorySection';
+import SkillsSection from '../components/settings/SkillsSection';
+import CommandsSection from '../components/settings/CommandsSection';
 
 /* ---------- types for launch options ---------- */
 
@@ -1681,13 +1685,15 @@ function StorageCard() {
    Page
    ================================================================= */
 
-type SettingsTab = 'general' | 'mcp' | 'comfy' | 'souls';
+type SettingsTab = 'general' | 'mcp' | 'comfy' | 'souls' | 'skills' | 'commands';
 
 const TABS: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
   { id: 'general', label: 'General', icon: SettingsIcon },
   { id: 'mcp', label: 'MCP', icon: Plug },
   { id: 'comfy', label: 'Comfy', icon: CpuTabIcon },
   { id: 'souls', label: 'Souls', icon: Sparkles },
+  { id: 'skills', label: 'Skills', icon: BookOpen },
+  { id: 'commands', label: 'Commands', icon: SlashSquare },
 ];
 
 export default function Settings() {
@@ -1757,6 +1763,20 @@ export default function Settings() {
           <div className="space-y-3">
             <SoulsSection />
             <MemorySection />
+          </div>
+        )}
+
+        {/* Skills — reusable instruction blocks */}
+        {tab === 'skills' && (
+          <div className="space-y-3">
+            <SkillsSection />
+          </div>
+        )}
+
+        {/* Commands — slash-triggered shortcuts for the composer */}
+        {tab === 'commands' && (
+          <div className="space-y-3">
+            <CommandsSection />
           </div>
         )}
       </div>
