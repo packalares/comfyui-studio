@@ -24,7 +24,6 @@ import {
   CommandList,
 } from '../ui/command';
 import { Check } from 'lucide-react';
-import { Button } from '../ui/button';
 
 interface Soul {
   name: string;
@@ -91,33 +90,29 @@ export default function SoulPicker({
   if (variant === 'pill') {
     return (
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={disabled || loading}
-            className={cn(
-              'h-8 gap-1.5 px-2.5 text-xs ring-1 ring-inset ring-border hover:ring-input',
-              className,
-            )}
-            aria-label="Pick a soul"
-          >
-            {loading ? (
-              <span
-                aria-label="Loading souls"
-                className="relative inline-block h-3.5 w-20 overflow-hidden rounded bg-muted"
-              >
-                <span className="skeleton-shimmer" />
-              </span>
-            ) : (
-              <>
-                <UserCircle2 className="h-3.5 w-3.5" />
-                <span className="max-w-[120px] truncate">{selectedLabel}</span>
-                <ChevronDown className="h-3 w-3 opacity-60" />
-              </>
-            )}
-          </Button>
+        <PopoverTrigger
+          type="button"
+          disabled={disabled || loading}
+          aria-label="Pick a soul"
+          className={cn(
+            'btn btn-ghost btn-sm h-8 gap-1.5 px-2.5 text-xs ring-1 ring-inset ring-border hover:ring-input disabled:cursor-not-allowed disabled:opacity-50',
+            className,
+          )}
+        >
+          {loading ? (
+            <span
+              aria-label="Loading souls"
+              className="relative inline-block h-3.5 w-20 overflow-hidden rounded bg-muted"
+            >
+              <span className="skeleton-shimmer" />
+            </span>
+          ) : (
+            <>
+              <UserCircle2 className="h-3.5 w-3.5" />
+              <span className="max-w-[120px] truncate">{selectedLabel}</span>
+              <ChevronDown className="h-3 w-3 opacity-60" />
+            </>
+          )}
         </PopoverTrigger>
         <SoulDropdown
           souls={souls}

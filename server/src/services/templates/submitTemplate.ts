@@ -62,8 +62,11 @@ async function buildOverridesFromArgs(
   return overrides;
 }
 
-/** Compute a lightweight fingerprint for model files. `size-mtime` per file. */
-function computeModelFingerprint(modelNames: string[]): string | null {
+/** Compute a lightweight fingerprint for model files. `size-mtime` per file.
+ *  Exported so the inline `/api/generate` pipeline can attach the same
+ *  fingerprint to UI-triggered gallery rows without round-tripping through
+ *  submitTemplate's stricter input contract. */
+export function computeModelFingerprint(modelNames: string[]): string | null {
   if (!modelNames || modelNames.length === 0) return null;
   try {
     const db = getDb();

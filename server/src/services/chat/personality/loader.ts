@@ -61,9 +61,12 @@ export function getUserPersonalitiesDir(): string {
   return path.join(configRoot, 'personalities');
 }
 
-/** Absolute path to the bundled (read-only) personalities dir. */
+/** Absolute path to the bundled (read-only) personalities dir.
+ *  Uses `paths.bundledPersonalitiesDir` (file-relative) rather than
+ *  `paths.dataDir` so the env override DATA_DIR (which redirects mutable
+ *  state on the pod) does not also redirect the bundled seeds. */
 export function getBundledPersonalitiesDir(): string {
-  return path.join(paths.dataDir, 'personalities');
+  return paths.bundledPersonalitiesDir;
 }
 
 function getUserSoulsDir(): string {

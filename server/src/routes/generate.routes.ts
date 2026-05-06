@@ -1,17 +1,33 @@
-// Generate endpoint — thin handler that delegates to `submitTemplate`.
-// Fix 3: the prior inline pipeline (proxyOverrides → workflowToApiPrompt →
-// applyNodeOverrides → submitPrompt) is replaced by a single `submitTemplate`
-// call so snapshot, provenance, and fingerprint logic runs for all entry points.
+// Generate endpoint — inline pipeline (legacy, pre-1b9f77b shape).
+//
+// The earlier refactor routed `/api/generate` through `submitTemplate`, but
+// that path enforces a chat-tool input contract (zod schema with required
+// `prompt` key) which rejected legitimate UI submissions that use raw widget
+// keys (`text`, `image`, `audio`, etc.). This handler restores the legacy
+// pass-through behavior. Chat-tool callers (generate_image / submitGeneration
+// MCP tool) continue to use `submitTemplate` directly.
 
+import { createHash } from 'crypto';
 import { Router, type Request, type Response } from 'express';
 import * as comfyui from '../services/comfyui.js';
+import * as templates from '../services/templates/index.js';
+import { generateFormInputs } from '../services/templates/templates.formInputs.js';
+import type { RawTemplate } from '../services/templates/types.js';
+import { getObjectInfo, workflowToApiPrompt } from '../services/workflow/index.js';
+import { schedulePromptWatch } from '../services/gallery.sentry.js';
+import { insertSnapshot } from '../lib/db/promptSnapshots.repo.js';
+import { computeModelFingerprint } from '../services/templates/submitTemplate.js';
+import {
+  applyNodeOverrides,
+  applyProxyOverrides,
+  splitAdvancedSettings,
+} from '../services/templates/advancedSettings.js';
+import { env } from '../config/env.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { sendError } from '../middleware/errors.js';
-import { submitTemplate } from '../services/templates/submitTemplate.js';
 
 const router = Router();
 
-// 60 req/min per IP.
 const generateLimiter = rateLimit({ windowMs: 60_000, max: 60 });
 
 interface NodeErrorRow {
@@ -61,22 +77,100 @@ router.post('/generate', generateLimiter, async (req: Request, res: Response) =>
       res.status(400).json({ error: 'templateName is required' });
       return;
     }
-    const result = await submitTemplate({
-      templateName,
-      inputs: userInputs || {},
-      advancedSettings,
-      provenance: { triggeredBy: 'ui' },
-    });
-    // Preserve prior response shape: { prompt_id, ... } that frontend expects.
-    res.json({ prompt_id: result.promptId, promptId: result.promptId, templateName: result.templateName, fieldId: result.fieldId });
+
+    let workflow: Record<string, unknown>;
+    if (templates.isUserWorkflow(templateName)) {
+      const local = templates.getUserWorkflowJson(templateName);
+      if (!local) {
+        res.status(404).json({ error: 'User workflow file missing or unreadable' });
+        return;
+      }
+      workflow = local;
+    } else {
+      const wfRes = await fetch(
+        `${env.COMFYUI_URL}/templates/${encodeURIComponent(templateName)}.json`,
+      );
+      if (!wfRes.ok) {
+        res.status(404).json({ error: 'Workflow not found' });
+        return;
+      }
+      workflow = await wfRes.json() as Record<string, unknown>;
+    }
+
+    // Hash the workflow BEFORE any overrides so identical templates with
+    // different widget values share the same hash (used for "show me all
+    // gallery items rendered from this workflow" queries).
+    const templateHash = createHash('sha1')
+      .update(JSON.stringify(workflow))
+      .digest('hex')
+      .slice(0, 16);
+
+    const { proxyEntries, nodeOverrides } = splitAdvancedSettings(advancedSettings);
+    applyProxyOverrides(workflow, proxyEntries);
+
+    const template = templates.getTemplate(templateName);
+    const objectInfo = await getObjectInfo();
+    const rawForBindings: RawTemplate = {
+      name: templateName,
+      title: template?.title ?? templateName,
+      description: template?.description ?? '',
+      mediaType: template?.mediaType ?? 'image',
+      tags: template?.tags ?? [],
+      models: template?.models ?? [],
+      io: template?.io,
+    };
+    const mergedFormInputs = generateFormInputs(rawForBindings, workflow, objectInfo);
+
+    const apiPrompt = await workflowToApiPrompt(
+      workflow,
+      userInputs || {},
+      mergedFormInputs,
+    );
+    applyNodeOverrides(apiPrompt, nodeOverrides);
+
+    const attachApiKey = template?.openSource === false;
+    const result = await comfyui.submitPrompt(apiPrompt, { attachApiKey });
+    if (result?.prompt_id) {
+      // Snapshot for race-recovery: gallery hydration falls back to this
+      // row if the WS event path misses execution_success.
+      try {
+        insertSnapshot({
+          promptId: result.prompt_id,
+          apiPromptJson: JSON.stringify(apiPrompt),
+          templateName,
+        });
+      } catch { /* snapshot failure must not fail the submit */ }
+
+      const modelFingerprint = computeModelFingerprint(
+        template?.models?.map(m =>
+          typeof m === 'string' ? m : (m as { filename?: string }).filename ?? '',
+        ).filter(Boolean) ?? [],
+      );
+      schedulePromptWatch(result.prompt_id, {
+        triggeredBy: 'ui',
+        conversationId: null,
+        messageId: null,
+        modelFingerprint,
+        templateHash,
+      });
+    }
+    res.json(result);
   } catch (err) {
     if (err instanceof comfyui.ComfyUIHttpError) {
       const parsed = parseComfyValidation(err.body);
       if (parsed && err.status >= 400 && err.status < 500) {
-        res.status(400).json({ error: parsed.summary, nodeErrors: parsed.nodeErrors, upstreamStatus: err.status });
+        res.status(400).json({
+          error: parsed.summary,
+          nodeErrors: parsed.nodeErrors,
+          upstreamStatus: err.status,
+        });
         return;
       }
-      res.status(502).json({ error: 'ComfyUI rejected the prompt', detail: err.body.slice(0, 500) || err.message, upstreamStatus: err.status });
+      res.status(502).json({
+        error: 'ComfyUI rejected the prompt',
+        detail: err.body.slice(0, 500) || err.message,
+        upstreamStatus: err.status,
+      });
       return;
     }
     sendError(res, err, 500, 'Generation failed');

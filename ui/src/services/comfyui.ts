@@ -181,6 +181,20 @@ export type ProbeResult =
   | { ok: true; count: number }
   | { ok: false; error: string };
 
+// Shape of a single pending soul-edit proposal, mirroring the server type.
+// Exported so the PendingEditsCard component can import it without a separate
+// types file.
+export interface PendingEdit {
+  id: string;
+  soulName: string;
+  reason: string;
+  /** null means append-at-end mode; non-null is the exact text to replace. */
+  currentSection: string | null;
+  proposedReplacement: string;
+  /** Unix milliseconds timestamp of when the model proposed this edit. */
+  createdAt: number;
+}
+
 export const api = {
   // Unified settings writer. The `key` segment (`secret` | `chat` | `tools`)
   // selects the body shape and the server-side dispatcher. Reads for chat +
@@ -1271,6 +1285,25 @@ export const api = {
 
     getDefaultSoul: (): Promise<{ name: string | null }> =>
       fetchJson('/personality/default-soul'),
+
+    listPendingEdits: (): Promise<{ edits: PendingEdit[] }> =>
+      fetchJson('/personality/pending-edits'),
+
+    getPendingEdit: (id: string): Promise<PendingEdit> =>
+      fetchJson(`/personality/pending-edits/${encodeURIComponent(id)}`),
+
+    // accept applies the proposed change to the soul file and removes the
+    // pending row. Returns ok=false if the currentSection no longer matches.
+    acceptPendingEdit: (id: string): Promise<{ ok: boolean; soulName?: string }> =>
+      fetchJson(`/personality/pending-edits/${encodeURIComponent(id)}/accept`, {
+        method: 'POST',
+      }),
+
+    // reject discards the pending row without touching the soul file.
+    rejectPendingEdit: (id: string): Promise<{ ok: boolean }> =>
+      fetchJson(`/personality/pending-edits/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      }),
   },
 };
 

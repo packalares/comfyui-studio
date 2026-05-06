@@ -11,6 +11,7 @@ import { Button } from '../ui/button';
 import { ButtonGroup } from '../ui/button-group';
 import { Badge } from '../ui/badge';
 import SoulEditorModal from './SoulEditorModal';
+import PendingEditsCard from './PendingEditsCard';
 import { api } from '../../services/comfyui';
 
 interface SoulRow {
@@ -66,6 +67,10 @@ export default function SoulsSection() {
 
   return (
     <>
+      {/* Render pending soul-edit proposals above the souls list. The card
+          returns null when empty, so it has no visual footprint in normal use. */}
+      <PendingEditsCard onSoulChanged={fetchData} />
+
       <Card>
         <CardHeader className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-2">
