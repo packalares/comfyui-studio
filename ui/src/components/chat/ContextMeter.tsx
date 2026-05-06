@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Wand2, Database, AlertTriangle, SlidersHorizontal } from 'lucide-react';
+import SoulPicker from './SoulPicker';
 import {
   HoverCard, HoverCardContent, HoverCardTrigger,
 } from '../ui/hover-card';
@@ -35,6 +36,11 @@ interface Props {
    *  `api.chat.start` on first send (see Chat.tsx + StudioTransport). */
   draftOverrides: DraftOverrides;
   onDraftOverrideChange: (patch: DraftOverrides) => void;
+  /** Active soul selection. null = server default. Shared with the composer
+   *  so the picker in the pre-chat popover and the mid-chat popover stay
+   *  in sync via Chat.tsx state. */
+  soulName: string | null;
+  onSoulNameChange: (next: string | null) => void;
 }
 
 const STRATEGY_LABELS: Record<ChatContextStrategy, string> = {
@@ -89,6 +95,7 @@ function textColorFor(warning: ChatUsageState['warning'] | undefined): string {
 
 export default function ContextMeter({
   conversationId, model, draftOverrides, onDraftOverrideChange,
+  soulName, onSoulNameChange,
 }: Props) {
   const [serverUsage, setServerUsage] = useState<ChatUsageState | null>(null);
   const [compacting, setCompacting] = useState(false);
@@ -211,6 +218,29 @@ export default function ContextMeter({
       refresh();
     } catch (err) {
       toast.error('Could not update output format', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
+
+  // Per-conversation soul override. Sent via PATCH /chat/conversations/:id
+  // with { soul_name }. null = use the server-default soul. Changes take
+  // effect on the next assistant turn (server re-resolves the system prompt).
+  const handleSoulNameChange = async (next: string | null) => {
+    // Always update the shared state immediately (optimistic).
+    onSoulNameChange(next);
+    if (!conversationId) return; // pre-chat: localStorage write happens in Chat.tsx
+    try {
+      await fetch(
+        `/api/chat/conversations/${encodeURIComponent(conversationId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ soul_name: next }),
+        },
+      );
+    } catch (err) {
+      toast.error('Could not update soul', {
         description: err instanceof Error ? err.message : String(err),
       });
     }
@@ -592,6 +622,28 @@ export default function ContextMeter({
               </div>
             );
           })()}
+          {/* Soul (personality) picker — compact variant sits at the bottom
+              of the popover so users can switch the active persona mid-chat.
+              The change is applied on the next assistant turn; the server
+              re-resolves the system prompt using the updated soul. */}
+          <div className="context-meter-section">
+            <div className="context-meter-section-head">
+              <div className="text-xs font-semibold text-foreground">
+                Soul
+              </div>
+            </div>
+            <div className="mt-2">
+              <SoulPicker
+                value={soulName}
+                onChange={handleSoulNameChange}
+                variant="compact"
+              />
+            </div>
+            <p className="mt-2 text-xs leading-snug text-muted-foreground">
+              The active personality (system prompt) for this conversation.
+              Changes take effect on the next message.
+            </p>
+          </div>
         </PopoverContent>
       )}
     </Popover>

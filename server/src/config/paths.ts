@@ -97,6 +97,30 @@ export const paths = {
    */
   userTemplatesDir: path.join(STUDIO_CONFIG_ROOT, 'user-workflows'),
   /**
+   * User-writable personality directory. Houses user-authored soul files
+   * (souls/*.md) and memory.md. These overlay the bundled seeds in
+   * `bundledPersonalitiesDir`; user files always win on name collision.
+   * Persists across image rebuilds alongside other user config.
+   */
+  personalitiesDir: path.join(STUDIO_CONFIG_ROOT, 'personalities'),
+  /**
+   * Pending soul edit proposals from the studio_propose_soul_edit MCP tool.
+   * Each file is a <id>.json blob the user reviews and accepts/rejects via
+   * the personality API. Never applied without explicit user confirmation.
+   */
+  pendingSoulEditsDir: path.join(STUDIO_CONFIG_ROOT, 'personalities', 'pending-soul-edits'),
+  /**
+   * Timestamped soul file backups created before applying a pending edit.
+   * Allows rollback if the user decides the applied change was wrong.
+   */
+  soulBackupsDir: path.join(STUDIO_CONFIG_ROOT, 'personalities', 'soul-backups'),
+  /**
+   * Bundled read-only personality seeds shipped with the image. Contains
+   * default.md and security-auditor.md souls, and an empty memory.md stub.
+   * Services must never write here; use `personalitiesDir` for mutations.
+   */
+  bundledPersonalitiesDir: path.join(BUNDLED_DATA_DIR, 'personalities'),
+  /**
    * Single sqlite database file backing the gallery + plugin catalog queries.
    * Overridable via `STUDIO_SQLITE_PATH` so tests can point it at a tmpdir
    * and swap the file on every test case. Resolved lazily via the getter

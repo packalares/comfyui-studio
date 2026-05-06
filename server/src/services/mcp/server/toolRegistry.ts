@@ -32,6 +32,8 @@ import * as checkDependencies from './tools/studio/checkDependencies.js';
 import * as submitGeneration from './tools/studio/submitGeneration.js';
 import * as getJobStatus from './tools/studio/getJobStatus.js';
 import * as listRecentOutputs from './tools/studio/listRecentOutputs.js';
+import * as remember from './tools/studio/remember.js';
+import * as proposeSoulEdit from './tools/studio/proposeSoulEdit.js';
 
 // --- types -----------------------------------------------------------------
 
@@ -158,6 +160,12 @@ const studioDefs: ToolDef[] = [
   { mcpName: 'studio.listRecentOutputs', chatName: 'studio_list_recent_outputs',
     description: listRecentOutputs.description, shape: listRecentOutputs.inputShape,
     run: listRecentOutputs.run },
+  { mcpName: 'studio.remember', chatName: 'studio_remember',
+    description: remember.description, shape: remember.inputShape,
+    run: remember.run },
+  { mcpName: 'studio.proposeSoulEdit', chatName: 'studio_propose_soul_edit',
+    description: proposeSoulEdit.description, shape: proposeSoulEdit.inputShape,
+    run: proposeSoulEdit.run },
 ];
 
 const TOOL_DEFS: ToolDef[] = [...comfyDefs, ...studioDefs];
@@ -181,7 +189,7 @@ export function registerAllTools(server: McpServer): void {
       }
     });
   }
-  logger.info(`MCP: registered ${TOOL_DEFS.length} tools (10 comfy + 6 studio)`);
+  logger.info(`MCP: registered ${TOOL_DEFS.length} tools (10 comfy + 8 studio)`);
 }
 
 /** Public listing for the chat composer's tool-toggle popover. */

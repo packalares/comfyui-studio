@@ -29,6 +29,7 @@ import {
 } from './attachments';
 import ChatModelPickerModal from './ChatModelPickerModal';
 import ChatToolsPopover from './ChatToolsPopover';
+import SoulPicker from './SoulPicker';
 
 interface Props {
   installed: OllamaInstalledModel[];
@@ -55,6 +56,9 @@ interface Props {
    *  white bg). Used by the centered empty-state hero in `Chat.tsx` so the
    *  composer floats inside its own column instead of pinning the page. */
   centered?: boolean;
+  /** Active soul (personality) for new conversations. null = server default. */
+  soulName: string | null;
+  onSoulNameChange: (next: string | null) => void;
 }
 
 export default function Composer({
@@ -63,6 +67,7 @@ export default function Composer({
   webPreviews, onWebPreviewsChange,
   showToolDetails, onShowToolDetailsChange,
   enabledTools, onEnabledToolsChange,
+  soulName, onSoulNameChange,
   centered = false,
 }: Props) {
   // The ref attached to <PromptInputTextarea> won't actually land on the
@@ -193,6 +198,7 @@ export default function Composer({
                 <div className="h-8 w-24 rounded-md bg-secondary" />
               </div>
               <div className="flex items-center gap-2">
+                <div className="h-8 w-24 rounded-md bg-secondary" />
                 <div className="h-8 w-32 rounded-md bg-secondary" />
                 <div className="h-8 w-8 rounded-full bg-secondary" />
               </div>
@@ -314,6 +320,12 @@ export default function Composer({
                 <ToolDetailsToggle enabled={showToolDetails} onToggle={onShowToolDetailsChange} />
               </PromptInputTools>
               <PromptInputTools>
+                <SoulPicker
+                  value={soulName}
+                  onChange={onSoulNameChange}
+                  variant="pill"
+                  disabled={busy}
+                />
                 <ChatModelPickerModal
                   installed={installed}
                   loading={!!installedLoading}

@@ -328,6 +328,22 @@ function applyOllamaLibraryUpdatedAgoMigration(db: DB): void {
   }
 }
 
+/**
+ * Schema v16 adds `soul_name` to `conversations`. Stores the soul slug chosen
+ * at conversation creation so re-resolution on each turn picks up memory
+ * updates while keeping the soul identity stable for the life of the chat.
+ * `system_prompt` is kept (not dropped) — it holds the resolved snapshot for
+ * reproducibility.
+ */
+function applyConversationsSoulNameMigration(db: DB): void {
+  const cols = db.prepare('PRAGMA table_info(conversations)').all() as
+    Array<{ name: string }>;
+  const present = new Set(cols.map(c => c.name));
+  if (!present.has('soul_name')) {
+    db.exec('ALTER TABLE conversations ADD COLUMN soul_name TEXT');
+  }
+}
+
 function openAndInit(dbPath: string): DB {
   const db = new Database(dbPath);
   // WAL: many readers + single writer, durable across crashes, and the
@@ -346,6 +362,7 @@ function openAndInit(dbPath: string): DB {
   applyOllamaLibraryUpdatedAgoMigration(db);
   applyConversationsPinnedMigration(db);
   applyGalleryProvenanceFingerprintMigration(db);
+  applyConversationsSoulNameMigration(db);
   const row = db.prepare('SELECT version FROM schema_version LIMIT 1').get() as
     | { version: number } | undefined;
   if (!row) {

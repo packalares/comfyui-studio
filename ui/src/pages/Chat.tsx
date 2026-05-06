@@ -39,6 +39,8 @@ export interface DraftOverrides {
   numCtx?: number | null;
   temperature?: number | null;
   format?: 'json' | null;
+  /** Soul (personality) override. null = use the server default soul. */
+  soulName?: string | null;
 }
 
 // `EMPTY_STATE_PROMPTS` is imported at the top of this file from
@@ -114,6 +116,21 @@ export default function Chat() {
     if (enabledTools === null) window.localStorage.removeItem('chat:enabledTools');
     else window.localStorage.setItem('chat:enabledTools', JSON.stringify(enabledTools));
   }, [enabledTools]);
+  // Soul (personality) selection. null = server default. Persisted in
+  // localStorage so the user's pick survives page reloads and new-chat
+  // sessions. A ref keeps the transport in sync without forcing a recreate.
+  const [soulName, setSoulName] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const raw = window.localStorage.getItem('studio.chat.soulName');
+    return typeof raw === 'string' ? raw : null;
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (soulName === null) window.localStorage.removeItem('studio.chat.soulName');
+    else window.localStorage.setItem('studio.chat.soulName', soulName);
+  }, [soulName]);
+  const soulNameRef = useRef<string | null>(soulName);
+  useEffect(() => { soulNameRef.current = soulName; }, [soulName]);
   const composerFocusRef = useRef<() => void>(() => {});
 
   // Pre-chat overrides — written by the ContextMeter popover when no
@@ -170,6 +187,7 @@ export default function Chat() {
     conversationIdRef,
     modelRef,
     enabledToolsRef,
+    soulNameRef,
     draftOverridesRef,
     onConversationStarted: (cid) => {
       // First send in a new conversation — server minted the id; reflect
@@ -486,6 +504,8 @@ export default function Chat() {
                     model={model}
                     draftOverrides={draftOverrides}
                     onDraftOverrideChange={(patch) => setDraftOverrides(prev => ({ ...prev, ...patch }))}
+                    soulName={soulName}
+                    onSoulNameChange={setSoulName}
                   />
                 </div>
               </div>
@@ -521,6 +541,8 @@ export default function Chat() {
                     onShowToolDetailsChange={setShowToolDetails}
                     enabledTools={enabledTools}
                     onEnabledToolsChange={setEnabledTools}
+                    soulName={soulName}
+                    onSoulNameChange={setSoulName}
                   />
                 </>
               ) : (
@@ -550,6 +572,8 @@ export default function Chat() {
                       onShowToolDetailsChange={setShowToolDetails}
                       enabledTools={enabledTools}
                       onEnabledToolsChange={setEnabledTools}
+                      soulName={soulName}
+                      onSoulNameChange={setSoulName}
                     />
                   </div>
                   <div className="flex max-w-4xl flex-wrap justify-center gap-2">

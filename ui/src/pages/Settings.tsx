@@ -41,6 +41,7 @@ import {
   Settings as SettingsIcon,
   Plug,
   Cpu as CpuTabIcon,
+  Sparkles,
   type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -57,6 +58,8 @@ import InputField from '../components/forms/InputField';
 import McpServersSection from '../components/settings/McpServersSection';
 import StudioMcpServerSection from '../components/settings/StudioMcpServerSection';
 import IntegratedToolsSection from '../components/settings/IntegratedToolsSection';
+import SoulsSection from '../components/settings/SoulsSection';
+import MemorySection from '../components/settings/MemorySection';
 
 /* ---------- types for launch options ---------- */
 
@@ -1678,12 +1681,13 @@ function StorageCard() {
    Page
    ================================================================= */
 
-type SettingsTab = 'general' | 'mcp' | 'comfy';
+type SettingsTab = 'general' | 'mcp' | 'comfy' | 'souls';
 
 const TABS: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
   { id: 'general', label: 'General', icon: SettingsIcon },
   { id: 'mcp', label: 'MCP', icon: Plug },
   { id: 'comfy', label: 'Comfy', icon: CpuTabIcon },
+  { id: 'souls', label: 'Souls', icon: Sparkles },
 ];
 
 export default function Settings() {
@@ -1745,6 +1749,14 @@ export default function Settings() {
         {tab === 'comfy' && (
           <div className="space-y-3">
             <LaunchOptionsCard />
+          </div>
+        )}
+
+        {/* Souls — soul list + memory */}
+        {tab === 'souls' && (
+          <div className="space-y-3">
+            <SoulsSection />
+            <MemorySection />
           </div>
         )}
       </div>

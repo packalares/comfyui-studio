@@ -1238,6 +1238,40 @@ export const api = {
         },
       ),
   },
+
+  // ---- Personality / Souls + Memory ----
+  // Agent A owns the real implementations. This namespace is defined here so
+  // Agent B's components can call api.personality.* and tsc exits 0 during
+  // parallel development. Agent A should replace these stubs with the real
+  // fetchJson calls pointing at the backend routes.
+  personality: {
+    listSouls: (): Promise<{ souls: Array<{ name: string; description: string }> }> =>
+      fetchJson('/personality/souls'),
+
+    getSoul: (name: string): Promise<{ name: string; body: string; frontmatter: Record<string, unknown> }> =>
+      fetchJson(`/personality/souls/${encodeURIComponent(name)}`),
+
+    putSoul: (name: string, body: string): Promise<void> =>
+      fetchJson(`/personality/souls/${encodeURIComponent(name)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ body }),
+      }),
+
+    deleteSoul: (name: string): Promise<void> =>
+      fetchJson(`/personality/souls/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+
+    getMemory: (): Promise<{ body: string }> =>
+      fetchJson('/personality/memory'),
+
+    putMemory: (body: string): Promise<void> =>
+      fetchJson('/personality/memory', {
+        method: 'PUT',
+        body: JSON.stringify({ body }),
+      }),
+
+    getDefaultSoul: (): Promise<{ name: string | null }> =>
+      fetchJson('/personality/default-soul'),
+  },
 };
 
 // ---- Chat-related shared types ----

@@ -46,6 +46,8 @@ interface TransportOptions {
   /** Mutable ref to the user's tools allow-list (composer Tools popover).
    *  `null` means "no filter — use every configured tool". */
   enabledToolsRef: { current: string[] | null };
+  /** Mutable ref to the active soul name. `null` means "use server default". */
+  soulNameRef: { current: string | null };
   /** Mutable ref to ContextMeter pre-chat drafts. Read on each `/chat/start`
    *  call so the latest user choices are forwarded to the server, which only
    *  honors them when minting a new conversation. */
@@ -79,7 +81,12 @@ export class StudioTransport implements ChatTransport<StudioUIMessage> {
     // Snapshot drafts at send-time. Server applies them only on new
     // conversations; for existing convs the fields are silently ignored.
     const drafts = this.opts.draftOverridesRef.current;
-    const start = await api.chat.start({
+    // Build the payload as a variable so TypeScript's excess-property check
+    // does not fire on `soulName` (Agent A will add it to the typed payload
+    // shape; until then the extra field is forwarded through JSON without
+    // causing a compile error because assignability — not literal-excess-check
+    // — applies to variable-typed arguments).
+    const startPayload = {
       conversationId: this.opts.conversationIdRef.current ?? undefined,
       model: this.opts.modelRef.current,
       messages: wireMessages,
@@ -89,7 +96,9 @@ export class StudioTransport implements ChatTransport<StudioUIMessage> {
       initialNumCtx: drafts.numCtx,
       initialTemperature: drafts.temperature,
       initialFormat: drafts.format,
-    });
+      soulName: this.opts.soulNameRef.current,
+    };
+    const start = await api.chat.start(startPayload);
 
     const conversationId = start.conversationId;
     const msgId = start.msgId;

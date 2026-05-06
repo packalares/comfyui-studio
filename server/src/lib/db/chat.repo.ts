@@ -53,6 +53,10 @@ export interface ConversationRow {
   format: 'json' | null;
   /** Whether this conversation is pinned to the top of the list. */
   pinned: boolean;
+  /** Soul slug used when this conversation was created. NULL for legacy rows
+   *  that predate the souls feature; the chat route re-resolves via the
+   *  stored system_prompt snapshot in that case. */
+  soul_name: string | null;
 }
 
 export interface ChatMessageRow {
@@ -114,6 +118,7 @@ function rowToConversation(r: Record<string, unknown>): ConversationRow {
     temperature: nullableNumber(r.temperature),
     format,
     pinned: Boolean(r.pinned),
+    soul_name: nullableString(r.soul_name),
   };
 }
 
@@ -154,6 +159,8 @@ export interface CreateConversationInput {
   temperature?: number | null;
   /** Optional initial output format. NULL/undefined = free text. */
   format?: 'json' | null;
+  /** Soul slug chosen at creation time. NULL = used default resolution. */
+  soul_name?: string | null;
 }
 
 export function createConversation(
@@ -163,8 +170,8 @@ export function createConversation(
   db.prepare(
     `INSERT INTO conversations
        (id, title, model, system_prompt, created_at, updated_at,
-        context_strategy, think_mode, num_ctx, temperature, format)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        context_strategy, think_mode, num_ctx, temperature, format, soul_name)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     input.id, input.title, input.model,
     input.system_prompt ?? null, input.created_at, input.updated_at,
@@ -173,6 +180,7 @@ export function createConversation(
     input.num_ctx ?? null,
     input.temperature ?? null,
     input.format ?? null,
+    input.soul_name ?? null,
   );
 }
 
@@ -270,6 +278,7 @@ export interface UpdateConversationPatch {
   title?: string;
   model?: string;
   system_prompt?: string | null;
+  soul_name?: string | null;
   num_ctx?: number | null;
   think_mode?: 'on' | 'off' | null;
   temperature?: number | null;
@@ -289,6 +298,9 @@ export function renameConversation(
   if (patch.model !== undefined) { sets.push('model = ?'); params.push(patch.model); }
   if (patch.system_prompt !== undefined) {
     sets.push('system_prompt = ?'); params.push(patch.system_prompt);
+  }
+  if (patch.soul_name !== undefined) {
+    sets.push('soul_name = ?'); params.push(patch.soul_name);
   }
   if (patch.num_ctx !== undefined) {
     sets.push('num_ctx = ?'); params.push(patch.num_ctx);

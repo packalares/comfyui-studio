@@ -187,3 +187,12 @@ export function currentSqliteOverride(): string | undefined {
 export function autoResolveSearchEnabled(): boolean {
   return process.env.STUDIO_AUTO_RESOLVE_SEARCH === '1';
 }
+
+/**
+ * Read the current `STUDIO_CONFIG_ROOT` override live. The personality loader
+ * resolves user-dir paths through this getter so vitest fixtures can point the
+ * loader at a per-test tmpdir without re-importing the module.
+ */
+export function currentConfigRootOverride(): string | undefined {
+  return process.env.STUDIO_CONFIG_ROOT;
+}

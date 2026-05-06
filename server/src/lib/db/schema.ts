@@ -15,7 +15,7 @@
 // `author`, `installed`, `category`, `model_filename`, `plugin_id`). Anything
 // else stays unindexed or lives inside `raw_json` / `workflow_json`.
 
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -131,7 +131,8 @@ CREATE TABLE IF NOT EXISTS conversations (
   num_ctx          INTEGER,
   think_mode       TEXT,
   temperature      REAL,
-  format           TEXT
+  format           TEXT,
+  soul_name        TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at DESC);
 
