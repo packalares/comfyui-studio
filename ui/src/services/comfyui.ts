@@ -1085,6 +1085,13 @@ export const api = {
         { method: 'DELETE' },
       ),
 
+    /** Wipe every conversation for the current user. */
+    deleteAllConversations: () =>
+      fetchJson<{ deleted: number }>(
+        '/chat/conversations',
+        { method: 'DELETE' },
+      ),
+
     /** Drop a single message row. Used by the per-message Trash action in
      *  the thread. Server validates the conversation/message pair so a stale
      *  client can't delete from the wrong chat. */
@@ -1096,7 +1103,7 @@ export const api = {
 
     renameConversation: (
       id: string,
-      patch: Partial<{ title: string; model: string; system_prompt: string | null }>,
+      patch: Partial<{ title: string; model: string; system_prompt: string | null; pinned: boolean }>,
     ) =>
       fetchJson<ChatConversation>(
         `/chat/conversations/${encodeURIComponent(id)}`,
@@ -1279,6 +1286,8 @@ export interface ChatConversation {
   created_at: number;
   updated_at: number;
   context_strategy?: ChatContextStrategy;
+  /** Whether this conversation is pinned to the top of the list. */
+  pinned?: boolean;
 }
 
 /** Mirrors `UsageState` returned by GET /chat/conversations/:id/usage. */

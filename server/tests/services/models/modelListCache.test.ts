@@ -1,11 +1,12 @@
-// Tests for the model-list cache cascade.
+// Tests for the model-list cache.
 //
 // Coverage:
-//   - cascadeRead returns the cache file when present.
-//   - cascadeRead falls back to the bundled file when cache is absent.
-//   - cascadeRead returns an empty list when both are missing.
-//   - refreshModelListCache writes the cache atomically and tolerates
-//     network failures without throwing or stomping the existing cache.
+//   - getCachedModelList returns the cache file when present.
+//   - getCachedModelList returns an empty list when the cache is missing.
+//   - ensureModelListCacheSeeded copies bundled -> cache on first boot,
+//     stripping `size` from each entry, and is a no-op on subsequent calls.
+//   - refreshModelListFromUpstream writes the cache (strips size), tolerates
+//     network failures and non-2xx responses without stomping the prior file.
 
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
@@ -34,7 +35,7 @@ function writeFile(p: string, body: unknown): void {
   fs.writeFileSync(p, JSON.stringify(body), 'utf8');
 }
 
-describe('modelListCache.cascadeRead', () => {
+describe('modelListCache.getCachedModelList', () => {
   beforeEach(() => {
     try { fs.unlinkSync(CACHE_PATH); } catch { /* ignore */ }
     try { fs.unlinkSync(path.join(BUNDLED_DIR, 'model-list.json')); } catch { /* ignore */ }
@@ -43,44 +44,88 @@ describe('modelListCache.cascadeRead', () => {
 
   it('returns the cache when it exists', () => {
     writeFile(CACHE_PATH, { models: [{ filename: 'a.bin' }] });
-    writeFile(path.join(BUNDLED_DIR, 'model-list.json'), { models: [{ filename: 'b.bin' }] });
-    const out = cache.cascadeRead();
+    const out = cache.getCachedModelList();
     expect(out.models?.[0].filename).toBe('a.bin');
   });
 
-  it('falls back to the bundled file when cache is missing', () => {
-    writeFile(path.join(BUNDLED_DIR, 'model-list.json'), { models: [{ filename: 'b.bin' }] });
-    const out = cache.cascadeRead();
-    expect(out.models?.[0].filename).toBe('b.bin');
-  });
-
-  it('returns an empty list when both are missing', () => {
-    const out = cache.cascadeRead();
+  it('returns an empty list when the cache is missing', () => {
+    const out = cache.getCachedModelList();
     expect(out.models).toEqual([]);
   });
 });
 
-describe('modelListCache.refreshModelListCache', () => {
+describe('modelListCache.ensureModelListCacheSeeded', () => {
+  beforeEach(() => {
+    try { fs.unlinkSync(CACHE_PATH); } catch { /* ignore */ }
+    try { fs.unlinkSync(path.join(BUNDLED_DIR, 'model-list.json')); } catch { /* ignore */ }
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('copies the bundled list to the cache on first call, stripping size', async () => {
+    writeFile(path.join(BUNDLED_DIR, 'model-list.json'), {
+      models: [
+        { filename: 'a.bin', size: '19.6GB' },
+        { filename: 'b.bin', size: '810MB' },
+      ],
+    });
+    await cache.ensureModelListCacheSeeded();
+    const written = JSON.parse(fs.readFileSync(CACHE_PATH, 'utf8'));
+    expect(written.models).toHaveLength(2);
+    for (const m of written.models) {
+      expect(m).not.toHaveProperty('size');
+    }
+    expect(written.models[0].filename).toBe('a.bin');
+  });
+
+  it('is a no-op when the cache already exists', async () => {
+    writeFile(CACHE_PATH, { models: [{ filename: 'preexisting.bin' }] });
+    writeFile(path.join(BUNDLED_DIR, 'model-list.json'), {
+      models: [{ filename: 'bundled.bin' }],
+    });
+    await cache.ensureModelListCacheSeeded();
+    const after = JSON.parse(fs.readFileSync(CACHE_PATH, 'utf8'));
+    // Cache untouched: still the preexisting entry, not the bundled one.
+    expect(after.models[0].filename).toBe('preexisting.bin');
+  });
+
+  it('logs and no-ops when the bundled seed is also missing', async () => {
+    await cache.ensureModelListCacheSeeded();
+    expect(fs.existsSync(CACHE_PATH)).toBe(false);
+  });
+});
+
+describe('modelListCache.refreshModelListFromUpstream', () => {
   beforeEach(() => {
     try { fs.unlinkSync(CACHE_PATH); } catch { /* ignore */ }
   });
   afterEach(() => { vi.restoreAllMocks(); });
 
-  it('writes the cache when upstream returns 200', async () => {
+  it('writes the cache and strips size when upstream returns 200', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ models: [{ filename: 'fresh.bin' }] }), {
+      new Response(JSON.stringify({
+        models: [
+          { filename: 'fresh.bin', size: '19.6GB' },
+          { filename: 'no-size.bin' },
+        ],
+      }), {
         status: 200, headers: { 'content-type': 'application/json' },
       }),
     );
-    await cache.refreshModelListCache({ force: true });
+    const result = await cache.refreshModelListFromUpstream();
+    expect(result.ok).toBe(true);
     const written = JSON.parse(fs.readFileSync(CACHE_PATH, 'utf8'));
-    expect(written.models?.[0].filename).toBe('fresh.bin');
+    expect(written.models).toHaveLength(2);
+    for (const m of written.models) {
+      expect(m).not.toHaveProperty('size');
+    }
   });
 
   it('tolerates a network failure: leaves prior cache in place', async () => {
     writeFile(CACHE_PATH, { models: [{ filename: 'old.bin' }] });
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ENETUNREACH'));
-    await cache.refreshModelListCache({ force: true });
+    const result = await cache.refreshModelListFromUpstream();
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain('ENETUNREACH');
     const after = JSON.parse(fs.readFileSync(CACHE_PATH, 'utf8'));
     expect(after.models?.[0].filename).toBe('old.bin');
   });
@@ -88,7 +133,9 @@ describe('modelListCache.refreshModelListCache', () => {
   it('tolerates an upstream non-2xx: leaves prior cache in place', async () => {
     writeFile(CACHE_PATH, { models: [{ filename: 'old.bin' }] });
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 500 }));
-    await cache.refreshModelListCache({ force: true });
+    const result = await cache.refreshModelListFromUpstream();
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain('500');
     const after = JSON.parse(fs.readFileSync(CACHE_PATH, 'utf8'));
     expect(after.models?.[0].filename).toBe('old.bin');
   });

@@ -247,6 +247,54 @@ function applyChatMessagesLoadDurationMigration(db: DB): void {
 }
 
 /**
+ * Schema v15 adds provenance + fingerprint columns to `gallery`.
+ *
+ * Provenance (three nullable TEXT columns):
+ *   triggered_by    — 'ui' | 'chat' | 'mcp' | NULL (legacy rows)
+ *   conversation_id — chat conversation id when triggered_by='chat'
+ *   message_id      — chat message id when triggered_by='chat'
+ *
+ * Fingerprinting (two nullable TEXT columns):
+ *   model_fingerprint — compact JSON: { "filename.safetensors": "size-mtime" }
+ *   template_hash     — sha1(workflow_json).slice(0,16) at submit time
+ *
+ * All five are additive nullable columns — existing rows get NULL, no data loss.
+ */
+function applyGalleryProvenanceFingerprintMigration(db: DB): void {
+  const cols = db.prepare('PRAGMA table_info(gallery)').all() as Array<{ name: string }>;
+  const present = new Set(cols.map(c => c.name));
+  const needed: Array<{ name: string; decl: string }> = [
+    { name: 'triggered_by',    decl: 'TEXT' },
+    { name: 'conversation_id', decl: 'TEXT' },
+    { name: 'message_id',      decl: 'TEXT' },
+    { name: 'model_fingerprint', decl: 'TEXT' },
+    { name: 'template_hash',   decl: 'TEXT' },
+  ];
+  for (const col of needed) {
+    if (!present.has(col.name)) {
+      db.exec(`ALTER TABLE gallery ADD COLUMN ${col.name} ${col.decl}`);
+    }
+  }
+}
+
+/**
+ * Schema v14 adds `pinned` to `conversations`. Default 0 (false) so all
+ * existing rows remain unpinned after migration. The sort order in
+ * `listConversations` uses `pinned DESC, updated_at DESC` so pinned rows
+ * always float to the top regardless of date group.
+ */
+function applyConversationsPinnedMigration(db: DB): void {
+  const cols = db.prepare('PRAGMA table_info(conversations)').all() as
+    Array<{ name: string }>;
+  const present = new Set(cols.map(c => c.name));
+  if (!present.has('pinned')) {
+    db.exec(
+      'ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0',
+    );
+  }
+}
+
+/**
  * Schema v13 collapses the three-strategy model down to two:
  *   - 'summarize' (in-flight summary, recomputed each send) → 'auto'
  *     (destructive server-side Compact when threshold is hit). The
@@ -296,6 +344,8 @@ function openAndInit(dbPath: string): DB {
   applyChatMessagesLoadDurationMigration(db);
   applyContextStrategyV13Migration(db);
   applyOllamaLibraryUpdatedAgoMigration(db);
+  applyConversationsPinnedMigration(db);
+  applyGalleryProvenanceFingerprintMigration(db);
   const row = db.prepare('SELECT version FROM schema_version LIMIT 1').get() as
     | { version: number } | undefined;
   if (!row) {

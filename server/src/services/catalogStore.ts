@@ -10,7 +10,9 @@ import { paths } from '../config/paths.js';
 import { atomicWrite } from '../lib/fs.js';
 import { logger } from '../lib/logger.js';
 import { urlSourceFor, declaredByFor } from './catalog.urlSources.js';
-import { cascadeRead, refreshModelListCache } from './models/modelListCache.js';
+import {
+  ensureModelListCacheSeeded, getCachedModelList,
+} from './models/modelListCache.js';
 import type { CatalogModel } from '../contracts/catalog.contract.js';
 
 interface CatalogFile {
@@ -148,12 +150,11 @@ function mapSeedEntry(m: Record<string, unknown>): CatalogModel {
 }
 
 /**
- * Seed catalog from the cascade (cache → bundled → empty). Idempotent.
+ * Seed catalog from the on-disk model-list cache. Idempotent.
  *
- * Refreshes the on-disk cache from upstream first when stale or absent so
- * a long-running pod periodically picks up new entries; cascade reads then
- * tolerate upstream outages (cache or bundled survives even when GitHub
- * is unreachable).
+ * On first boot the cache is copied from the bundled seed; subsequent boots
+ * read whatever the user has on disk. Upstream refresh only happens via the
+ * explicit `/api/models/rescan` endpoint.
  */
 export async function seedFromComfyUI(): Promise<void> {
   const data = load();
@@ -161,8 +162,8 @@ export async function seedFromComfyUI(): Promise<void> {
   if (seedInFlight) return seedInFlight;
   seedInFlight = (async () => {
     try {
-      await refreshModelListCache().catch(() => { /* offline-tolerant */ });
-      const body = cascadeRead();
+      await ensureModelListCacheSeeded();
+      const body = getCachedModelList();
       const models = (body.models || [])
         .map(mapSeedEntry)
         .filter(m => m.filename && m.url);

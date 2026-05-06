@@ -1,26 +1,25 @@
-// Local cache of ltdrdata/ComfyUI-Manager's model-list.json.
+// Local copy of ltdrdata/ComfyUI-Manager's model-list.json.
 //
-// Cascade read order, used by both catalog seeding and `getModelList()`:
-//   1. `~/.config/comfyui-studio/model-list.cache.json` (refreshed on boot).
-//   2. Bundled `server/data/model-list.json` (read-only seed shipped in image).
-//   3. Empty list.
+// Single source of truth: `~/.config/comfyui-studio/model-list.cache.json`.
+// On first boot the file is seeded from the bundled `server/data/model-list.json`.
+// On subsequent boots the file is read as-is — no network fetch, no staleness
+// check. The user-triggered Rescan endpoint is the only path that re-fetches
+// upstream.
 //
-// The cache survives upstream outages: a refresh failure leaves the prior
-// cache file intact so seeding still works offline. Refresh staleness is
-// bounded so a long-running pod periodically picks up new entries.
+// Upstream `size` strings are unreliable (e.g. Lightning LoRAs declared 19.6GB
+// when actual is 810MB) and trigger false-positive size-mismatch warnings,
+// so the field is stripped from every entry on both seed and rescan writes.
 
 import fs from 'fs';
 import path from 'path';
 import { paths } from '../../config/paths.js';
 import { atomicWrite } from '../../lib/fs.js';
 import { logger } from '../../lib/logger.js';
+import { invalidateModelListMemo } from './info.service.js';
 
 /** Upstream canonical model-list. Same URL the prior seed code used. */
 const MODEL_LIST_URL =
   'https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/model-list.json';
-
-/** Re-fetch upstream after this age. 24 h is a friendly cadence. */
-const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export interface ModelListBody {
   models?: Array<Record<string, unknown>>;
@@ -43,51 +42,73 @@ function readJsonFile(file: string): ModelListBody | null {
   }
 }
 
-/**
- * Cache → bundled → empty cascade. Cheap synchronous read; safe to call from
- * boot paths or hot loops. Never throws.
- */
-export function cascadeRead(): ModelListBody {
+// Strip upstream-declared `size` so downstream consumers never see it. The
+// upstream values are frequently wrong; relying on them produced false
+// positive size-mismatch warnings that flagged correctly-downloaded files
+// as `incomplete`.
+function stripSize(entry: Record<string, unknown>): Record<string, unknown> {
+  const { size: _omit, ...rest } = entry;
+  return rest;
+}
+
+function stripSizesFromBody(body: ModelListBody): ModelListBody {
+  if (!body || !Array.isArray(body.models)) return { models: [] };
+  return { ...body, models: body.models.map(stripSize) };
+}
+
+/** Read the on-disk cache file. Returns `{ models: [] }` when absent. */
+export function getCachedModelList(): ModelListBody {
   const cached = readJsonFile(paths.modelListCachePath);
   if (cached && Array.isArray(cached.models)) return cached;
-  const bundled = readJsonFile(bundledListPath());
-  if (bundled && Array.isArray(bundled.models)) return bundled;
   return { models: [] };
 }
 
-function cacheIsFresh(): boolean {
-  try {
-    const st = fs.statSync(paths.modelListCachePath);
-    if (!st.isFile()) return false;
-    return Date.now() - st.mtimeMs < CACHE_MAX_AGE_MS;
-  } catch {
-    return false;
+/**
+ * First-boot seed: if the cache file does not yet exist, copy the bundled
+ * list (size fields stripped) to the user config dir. No-op when the cache
+ * already exists. Never overwrites an existing user file.
+ */
+export async function ensureModelListCacheSeeded(): Promise<void> {
+  if (fs.existsSync(paths.modelListCachePath)) return;
+  const bundled = readJsonFile(bundledListPath());
+  if (!bundled || !Array.isArray(bundled.models)) {
+    logger.warn('modelListCache: bundled seed missing', { file: bundledListPath() });
+    return;
   }
+  const stripped = stripSizesFromBody(bundled);
+  atomicWrite(paths.modelListCachePath, JSON.stringify(stripped, null, 2));
+  invalidateModelListMemo();
+  logger.info('modelListCache: seeded from bundled', {
+    count: stripped.models?.length ?? 0,
+  });
 }
 
 /**
- * Fetch upstream and write the local cache. No-op if the cache is fresh.
- * Network failures are swallowed (logged at warn) so seeding stays robust.
+ * User-triggered upstream refresh. On success: parse, strip `size`, atomically
+ * overwrite the cache, invalidate the memo, return `{ ok: true }`. On any
+ * failure (network, non-2xx, parse): leave the existing cache intact and
+ * return `{ ok: false, reason }`.
  */
-export async function refreshModelListCache(opts: { force?: boolean } = {}): Promise<void> {
-  if (!opts.force && cacheIsFresh()) return;
+export async function refreshModelListFromUpstream(): Promise<{ ok: boolean; reason?: string }> {
   try {
     const res = await fetch(MODEL_LIST_URL);
     if (!res.ok) {
+      const reason = `upstream ${res.status}`;
       logger.warn('modelListCache refresh non-2xx', { status: res.status });
-      return;
+      return { ok: false, reason };
     }
     const body = await res.json() as ModelListBody;
-    if (!body || !Array.isArray(body.models)) return;
-    atomicWrite(paths.modelListCachePath, JSON.stringify(body, null, 2));
+    if (!body || !Array.isArray(body.models)) {
+      return { ok: false, reason: 'upstream body shape invalid' };
+    }
+    const stripped = stripSizesFromBody(body);
+    atomicWrite(paths.modelListCachePath, JSON.stringify(stripped, null, 2));
+    invalidateModelListMemo();
+    logger.info('modelListCache refreshed', { count: stripped.models?.length ?? 0 });
+    return { ok: true };
   } catch (err) {
-    logger.warn('modelListCache refresh failed', {
-      message: err instanceof Error ? err.message : String(err),
-    });
+    const reason = err instanceof Error ? err.message : String(err);
+    logger.warn('modelListCache refresh failed', { message: reason });
+    return { ok: false, reason };
   }
-}
-
-/** Sync cached list (for tests / diagnostics). Cascade-aware. */
-export function getCachedModelList(): ModelListBody {
-  return cascadeRead();
 }

@@ -13,6 +13,11 @@ export interface GalleryRow extends GalleryItem {
   createdAt: number;
   templateName?: string | null;
   sizeBytes?: number | null;
+  triggeredBy?: string | null;
+  conversationId?: string | null;
+  messageId?: string | null;
+  modelFingerprint?: string | null;
+  templateHash?: string | null;
 }
 
 /** Repo-side slim row: list shape + guaranteed `createdAt`. */
@@ -101,9 +106,10 @@ const GALLERY_COLUMNS =
   'id, filename, subfolder, mediaType, createdAt, templateName, ' +
   'promptId, sizeBytes, url, type, workflowJson, promptText, negativeText, ' +
   'seed, model, sampler, steps, cfg, width, height, workflowHash, ' +
-  'scheduler, denoise, lengthFrames, fps, batchSize, durationMs, modelsJson';
+  'scheduler, denoise, lengthFrames, fps, batchSize, durationMs, modelsJson, ' +
+  'triggered_by, conversation_id, message_id, model_fingerprint, template_hash';
 
-const GALLERY_VALUES_PLACEHOLDERS = new Array(28).fill('?').join(', ');
+const GALLERY_VALUES_PLACEHOLDERS = new Array(33).fill('?').join(', ');
 
 function rowParams(item: GalleryRow): unknown[] {
   return [
@@ -117,6 +123,8 @@ function rowParams(item: GalleryRow): unknown[] {
     item.scheduler ?? null, item.denoise ?? null, item.lengthFrames ?? null,
     item.fps ?? null, item.batchSize ?? null, item.durationMs ?? null,
     serializeModels(item.models),
+    item.triggeredBy ?? null, item.conversationId ?? null, item.messageId ?? null,
+    item.modelFingerprint ?? null, item.templateHash ?? null,
   ];
 }
 
@@ -127,30 +135,21 @@ export function insert(item: GalleryRow, db: Database.Database = getDb()): void 
 }
 
 /**
- * Event-driven append: insert ONLY when the row is absent. Used by the WS
- * `execution_complete` path so a user-deleted row never resurrects from a
- * stale ComfyUI history entry — the opposite semantics from `insert()`
- * which uses OR REPLACE. Returns true when a row was written, false when
- * the id already existed (already present or previously tombstoned).
+ * Event-driven append: insert row or COALESCE-upgrade an existing one so
+ * that null metadata columns filled by a later `execution_success` event
+ * backfill a row already written by the `executed` event path.
+ * Returns true when changes were made (new row or metadata upgraded).
  */
 export function appendFromHistory(
   item: GalleryRow, db: Database.Database = getDb(),
 ): boolean {
-  // Insert new row OR upgrade an existing one with metadata. The `executed`
-  // event path inserts rows with just the file shape (workflowJson/prompt
-  // text/seed/... are null). When `execution_success` later fires with
-  // full history data, we DO NOT want INSERT OR IGNORE to skip the update.
-  // Instead: COALESCE against existing values so nulls get filled in and
-  // previously-set fields are preserved.
-  // Columns that should COALESCE against existing non-null values when an
-  // older row already carries metadata from an earlier event. `id`,
-  // `filename`, `mediaType`, `type`, `url`, `createdAt`, `subfolder`,
-  // `promptId` are identity/locator fields and stay as-is on conflict.
   const coalesceCols = [
     'workflowJson', 'promptText', 'negativeText', 'seed', 'model',
     'sampler', 'steps', 'cfg', 'width', 'height', 'templateName',
     'sizeBytes', 'workflowHash', 'scheduler', 'denoise', 'lengthFrames',
     'fps', 'batchSize', 'durationMs', 'modelsJson',
+    'triggered_by', 'conversation_id', 'message_id',
+    'model_fingerprint', 'template_hash',
   ];
   const updateSet = coalesceCols
     .map(c => `${c} = COALESCE(gallery.${c}, excluded.${c})`)
@@ -162,13 +161,7 @@ export function appendFromHistory(
   return info.changes > 0;
 }
 
-/**
- * Cache-hit lookup: find rows with this workflowHash, newest first. Used by
- * the history route when ComfyUI reports `execution_cached` across every
- * node in the submitted prompt — the new prompt_id has no outputs, but a
- * prior uncached run with the same canonical workflow DOES, and those are
- * the files the user should see.
- */
+/** Cache-hit lookup: find rows with this workflowHash, newest first. */
 export function findByWorkflowHash(
   hash: string,
   limit = 5,
@@ -192,12 +185,7 @@ export function getById(id: string, db: Database.Database = getDb()): GalleryIte
   return r ? rowToItem(r) : null;
 }
 
-/**
- * Full-row lookup used by `GET /api/gallery/:id` — returns every captured
- * generation-metadata field (workflowJson, prompt text, KSampler params).
- * Aliased to `getById` but exposed under its own name so call sites that
- * specifically need the fat payload read clearly at the usage point.
- */
+/** Full-row lookup for `GET /api/gallery/:id` — fat fields included. */
 export function getByIdFull(id: string, db: Database.Database = getDb()): GalleryItem | null {
   return getById(id, db);
 }
@@ -207,11 +195,7 @@ export function count(db: Database.Database = getDb()): number {
   return r.c;
 }
 
-/**
- * Slim list — returns rows without `workflowJson` + KSampler metadata. Wave
- * P trimmed the list payload after measuring 2-10 KB per row of fat fields
- * the tile grid never renders. `GET /api/gallery/:id` returns the full row.
- */
+/** Slim list — no workflowJson or KSampler metadata. */
 export function listAll(
   filter: GalleryListFilter = {},
   db: Database.Database = getDb(),
@@ -225,10 +209,7 @@ export function listAll(
   return rows.map(rowToSlim);
 }
 
-/** Look up gallery rows whose `promptId` is in the provided set. Used by
- *  the chat thread on conversation reload to rehydrate `<GeneratedImage>`
- *  placeholders for old `generate_image` tool calls — the message parts
- *  carry the promptId, this query resolves it back to the rendered image. */
+/** Look up gallery rows whose `promptId` is in the provided set. */
 export function listByPromptIds(
   promptIds: readonly string[],
   db: Database.Database = getDb(),

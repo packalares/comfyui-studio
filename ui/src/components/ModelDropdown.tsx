@@ -82,8 +82,10 @@ export default function ModelDropdown({ templates, selected, onSelect }: Props) 
         </button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-[--radix-popover-trigger-width] p-0 max-h-72"
+        className="p-0 rounded-md shadow-md"
+        style={{ width: 'var(--radix-popover-trigger-width)' }}
         align="start"
+        sideOffset={2}
       >
         <Command
           // cmdk's default filter does fuzzy substring; we also include the
@@ -96,7 +98,11 @@ export default function ModelDropdown({ templates, selected, onSelect }: Props) 
           }}
         >
           <CommandInput placeholder="Search models..." />
-          <CommandList>
+          {/* Visible scrollbar (overrides cmdk's `no-scrollbar`) + bottom
+              padding so the last row clears the popover's rounded corner. */}
+          <CommandList
+            className="max-h-72 overflow-y-auto !overflow-x-hidden pb-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded-full"
+          >
             <CommandEmpty>No models found</CommandEmpty>
             <CommandGroup>
               {templates.map(t => {
@@ -118,7 +124,7 @@ export default function ModelDropdown({ templates, selected, onSelect }: Props) 
                       <p className="text-[11px] text-muted-foreground truncate">{getSubtitle(t)}</p>
                     </div>
                     {t.models.length > 0 && (
-                      <span className="text-[10px] font-medium text-brand bg-brand/10 px-1.5 py-0.5 rounded flex-shrink-0">
+                      <span className="ml-auto text-[10px] font-medium text-slate-600 bg-slate-100 dark:text-slate-300 dark:bg-slate-800 px-1.5 py-0.5 rounded shrink-0">
                         {t.models[0]}
                       </span>
                     )}

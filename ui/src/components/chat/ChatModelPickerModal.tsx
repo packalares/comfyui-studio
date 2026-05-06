@@ -121,10 +121,12 @@ export default function ChatModelPickerModal({
           className={cn(
             // Pill height matched to the round send button (h-8) so the
             // composer footer right-side reads as one consistent row.
-            'h-8 gap-1.5 px-2.5 font-mono text-xs',
-            // Rose ring only once we're certain there's no model — never
-            // during the initial fetch (would flash red on every reload).
-            !loading && noModel && 'text-destructive ring-1 ring-destructive/30 ring-inset bg-destructive/10',
+            // Subtle ring at rest so it reads as a clickable affordance even
+            // when the textarea is the visual focus; ring deepens on hover.
+            'h-8 gap-1.5 px-2.5 text-xs ring-1 ring-inset ring-border hover:ring-input',
+            // Destructive ring only once we're certain there's no model —
+            // never during the initial fetch (would flash red on reload).
+            !loading && noModel && 'text-destructive ring-destructive/30 bg-destructive/10',
           )}
           aria-label="Pick a chat model"
         >

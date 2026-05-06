@@ -1,17 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Trash2, MessageSquare } from 'lucide-react';
+import { Plus, Trash2, MessageSquare, MoreHorizontal, Pin, PinOff, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, type ChatConversation } from '../../services/comfyui';
 import { chatEvents } from '../../services/chatEvents';
 import { Button } from '../ui/button';
+import { ButtonGroup } from '../ui/button-group';
 import { CardHeader } from '../ui/card';
 import { Spinner } from '../ui/spinner';
 import ConfirmDialog from '../modals/ConfirmDialog';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '../ui/dropdown-menu';
 
-// How many conversations to fetch per page. Matches the server's default
-// cap (20) so the first response always fills the visible viewport for
-// typical screen heights without the sentinel needing to fire immediately.
 const PAGE_SIZE = 20;
 
 interface Props {
@@ -21,8 +26,6 @@ interface Props {
   onNew: () => void;
 }
 
-// Friendly relative time. Buckets: <1m → "just now"; <1h → "Nm ago";
-// <today → "Nh ago"; yesterday; this week → weekday; older → "Mon DD".
 function formatRelative(ts: number): string {
   if (!ts) return '';
   const now = Date.now();
@@ -33,7 +36,6 @@ function formatRelative(ts: number): string {
   if (delta < MIN) return 'just now';
   if (delta < HOUR) return `${Math.floor(delta / MIN)}m ago`;
   if (delta < DAY) return `${Math.floor(delta / HOUR)}h ago`;
-
   const d = new Date(ts);
   const today = new Date();
   const yesterday = new Date();
@@ -44,19 +46,15 @@ function formatRelative(ts: number): string {
 }
 
 interface Group {
-  key: 'today' | 'yesterday' | 'week' | 'older';
+  key: string;
   label: string;
   items: ChatConversation[];
 }
 
-// Bucket the (already-sorted) list by `updated_at`. Today first, then
-// Yesterday, then last 7 days, then everything older. Empty buckets are
-// dropped so the heading isn't rendered alone.
 function groupByDate(items: ChatConversation[]): Group[] {
   const todayStart = new Date().setHours(0, 0, 0, 0);
   const yesterdayStart = todayStart - 24 * 60 * 60 * 1000;
   const weekAgoStart = todayStart - 7 * 24 * 60 * 60 * 1000;
-
   const groups: Group[] = [
     { key: 'today', label: 'Today', items: [] },
     { key: 'yesterday', label: 'Yesterday', items: [] },
@@ -73,24 +71,54 @@ function groupByDate(items: ChatConversation[]): Group[] {
   return groups.filter(g => g.items.length > 0);
 }
 
+// ---- Inline rename sub-component ----------------------------------------
+interface RenameInputProps {
+  initialValue: string;
+  onSave: (v: string) => void;
+  onCancel: () => void;
+}
+function RenameInput({ initialValue, onSave, onCancel }: RenameInputProps) {
+  const [value, setValue] = useState(initialValue);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { inputRef.current?.select(); }, []);
+
+  const commit = () => {
+    const trimmed = value.trim();
+    if (trimmed && trimmed !== initialValue) onSave(trimmed);
+    else onCancel();
+  };
+
+  return (
+    <input
+      ref={inputRef}
+      value={value}
+      onChange={e => setValue(e.target.value)}
+      onKeyDown={e => {
+        if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+      }}
+      onBlur={commit}
+      className="min-w-0 flex-1 rounded border border-brand bg-background px-1.5 py-0.5 text-sm font-medium text-foreground outline-none focus:ring-1 focus:ring-brand"
+      aria-label="Rename conversation"
+    />
+  );
+}
+
+// ---- Main component -------------------------------------------------------
 export default function ConversationList({ activeId, refreshKey, onSelect, onNew }: Props) {
   const [items, setItems] = useState<ChatConversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
-  // Conversation pending delete-confirm (null = no dialog open). The dialog
-  // is mounted once at the bottom of the tree; the row trash-can just sets
-  // state to open it. Mirrors Gallery.tsx's delete-flow pattern.
   const [pendingDelete, setPendingDelete] = useState<ChatConversation | null>(null);
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+  /** id of the conversation currently being renamed inline */
+  const [renamingId, setRenamingId] = useState<string | null>(null);
 
-  // Request token used to discard out-of-order responses. Bumped on every
-  // initial-load (refreshKey change); scroll-load checks it before merging.
   const reqRef = useRef(0);
-  // Sentinel that triggers the next-page fetch when scrolled into view.
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  // Initial load (and reload on refreshKey bump after a delete / send / etc).
   useEffect(() => {
     const token = ++reqRef.current;
     setLoading(true);
@@ -115,45 +143,41 @@ export default function ConversationList({ activeId, refreshKey, onSelect, onNew
     const token = reqRef.current;
     setLoadingMore(true);
     try {
-      const res = await api.chat.listConversations({
-        limit: PAGE_SIZE, offset: items.length,
-      });
+      const res = await api.chat.listConversations({ limit: PAGE_SIZE, offset: items.length });
       if (token !== reqRef.current) return;
       setItems(prev => [...prev, ...res.items]);
       setTotal(res.total);
       setHasMore(res.hasMore);
     } catch {
-      // Swallow; the sentinel stays mounted so the user can scroll-retry.
+      // silent; sentinel stays mounted for scroll-retry
     } finally {
       if (token === reqRef.current) setLoadingMore(false);
     }
   }, [items.length, loadingMore, hasMore]);
 
-  // IntersectionObserver — fires `loadMore` whenever the bottom sentinel
-  // enters the scroll viewport. Uses a 200px rootMargin so we start
-  // fetching before the user actually hits the bottom.
   useEffect(() => {
     const node = sentinelRef.current;
     if (!node || !hasMore) return;
     const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) if (e.isIntersecting) void loadMore();
-      },
+      (entries) => { for (const e of entries) if (e.isIntersecting) void loadMore(); },
       { rootMargin: '200px' },
     );
     io.observe(node);
     return () => { io.disconnect(); };
   }, [hasMore, loadMore]);
 
-  // Patch title in-place when the auto-titler broadcasts — avoids a full
-  // refetch + re-sort flicker.
   useEffect(() => {
     return chatEvents.onTitle(({ conversationId, title }) => {
       setItems(prev => prev.map(c => c.id === conversationId ? { ...c, title } : c));
     });
   }, []);
 
-  const groups = useMemo(() => groupByDate(items), [items]);
+  // Separate pinned from unpinned, then bucket unpinned by date
+  const pinned = useMemo(() => items.filter(c => c.pinned), [items]);
+  const unpinned = useMemo(() => items.filter(c => !c.pinned), [items]);
+  const groups = useMemo(() => groupByDate(unpinned), [unpinned]);
+
+  // ---- Actions ----
 
   const handleDeleteConfirmed = async (): Promise<void> => {
     if (!pendingDelete) return;
@@ -168,26 +192,158 @@ export default function ConversationList({ activeId, refreshKey, onSelect, onNew
       toast.error('Failed to delete conversation', {
         description: err instanceof Error ? err.message : String(err),
       });
-      // Leave the dialog open so the user sees the toast — they can close
-      // it manually. Re-throwing would let ConfirmDialog clear its busy
-      // spinner; suppressing it keeps the spinner visible until close.
     }
   };
+
+  const handleDeleteAllConfirmed = async (): Promise<void> => {
+    try {
+      await api.chat.deleteAllConversations();
+      setItems([]);
+      setTotal(0);
+      setHasMore(false);
+      onSelect(null);
+      setDeleteAllOpen(false);
+    } catch (err) {
+      toast.error('Failed to delete all conversations', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
+
+  const handleTogglePin = async (c: ChatConversation): Promise<void> => {
+    const next = !c.pinned;
+    // Optimistic update
+    setItems(prev => prev.map(x => x.id === c.id ? { ...x, pinned: next } : x));
+    try {
+      await api.chat.renameConversation(c.id, { pinned: next });
+    } catch (err) {
+      // Revert
+      setItems(prev => prev.map(x => x.id === c.id ? { ...x, pinned: c.pinned } : x));
+      toast.error('Failed to update pin', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
+
+  const handleRename = async (c: ChatConversation, title: string): Promise<void> => {
+    setRenamingId(null);
+    setItems(prev => prev.map(x => x.id === c.id ? { ...x, title } : x));
+    try {
+      await api.chat.renameConversation(c.id, { title });
+    } catch (err) {
+      setItems(prev => prev.map(x => x.id === c.id ? { ...x, title: c.title } : x));
+      toast.error('Rename failed', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
+
+  // ---- Row renderer ----
+
+  const renderRow = (c: ChatConversation) => {
+    const isActive = activeId === c.id;
+    const isRenaming = renamingId === c.id;
+
+    return (
+      <div
+        key={c.id}
+        className={`group chat-list-item ${isActive ? 'is-active' : ''}`}
+      >
+        {isRenaming ? (
+          <RenameInput
+            initialValue={c.title || 'Untitled'}
+            onSave={(title) => void handleRename(c, title)}
+            onCancel={() => setRenamingId(null)}
+          />
+        ) : (
+          <Link
+            to={`/chat/c/${c.id}`}
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+              onSelect(c.id);
+            }}
+            className="min-w-0 flex-1 text-left cursor-pointer no-underline text-current"
+            aria-label={`Open ${c.title || 'Untitled'}`}
+          >
+            <div className="chat-list-item-title">{c.title || 'Untitled'}</div>
+            <div className="chat-list-item-meta flex items-center gap-1.5">
+              {c.model && (
+                <span className="max-w-[90px] truncate rounded bg-muted px-1 py-px text-[10px] font-medium text-muted-foreground">
+                  {c.model}
+                </span>
+              )}
+              <span>{formatRelative(c.updated_at)}</span>
+            </div>
+          </Link>
+        )}
+
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger
+            aria-label="More options"
+            className="btn btn-secondary mt-0.5"
+          >
+            <MoreHorizontal className="w-3.5 h-3.5" />
+          </DropdownMenuTrigger>
+          
+          <DropdownMenuContent align="end" className="min-w-[140px]">
+            <DropdownMenuItem
+              onClick={(e) => { e.stopPropagation(); void handleTogglePin(c); }}
+            >
+              {c.pinned
+                ? <><PinOff className="w-3.5 h-3.5" />Unpin</>
+                : <><Pin className="w-3.5 h-3.5" />Pin</>
+              }
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={(e) => { e.stopPropagation(); setRenamingId(c.id); }}
+            >
+              <Pencil className="w-3.5 h-3.5" />Rename
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={(e) => { e.stopPropagation(); setPendingDelete(c); }}
+            >
+              <Trash2 className="w-3.5 h-3.5" />Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    );
+  };
+
+  // ---- Render ----
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <CardHeader className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="panel-header-title">Conversations</h2>
-          <p className="panel-header-desc">
-            {loading ? 'Loading…' : total === 1 ? '1 chat' : `${total} chats`}
-          </p>
-        </div>
-        <Button onClick={onNew} size="sm" aria-label="New chat">
-          <Plus className="w-3.5 h-3.5" />
-          New
-        </Button>
+        <h2 className="panel-header-title">Conversations</h2>
+        <ButtonGroup>
+          <Button onClick={onNew}  aria-label="New chat">
+            <Plus className="w-3.5 h-3.5" />
+            New
+          </Button>
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger
+              aria-label="More options"
+              className="btn btn-secondary"
+            >
+              <MoreHorizontal className="w-3.5 h-3.5" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[160px]">
+              <DropdownMenuItem
+                variant="destructive"
+                disabled={items.length === 0}
+                onClick={() => setDeleteAllOpen(true)}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete all ({total})
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </ButtonGroup>
       </CardHeader>
+
       <div className="flex-1 min-h-0 overflow-y-auto py-1">
         {items.length === 0 && !loading && (
           <div className="px-4 py-10 text-center text-xs text-muted-foreground space-y-1">
@@ -196,53 +352,31 @@ export default function ConversationList({ activeId, refreshKey, onSelect, onNew
             <div>Click <span className="font-medium">New</span> above to start chatting.</div>
           </div>
         )}
+
+        {/* Pinned group */}
+        {pinned.length > 0 && (
+          <div className="mb-1">
+            <div className="eyebrow px-3 pt-2 pb-1">Pinned</div>
+            {pinned.map(renderRow)}
+          </div>
+        )}
+
+        {/* Date groups (unpinned) */}
         {groups.map(group => (
           <div key={group.key} className="mb-1">
             <div className="eyebrow px-3 pt-2 pb-1">{group.label}</div>
-            {group.items.map(c => (
-              <div
-                key={c.id}
-                className={`group chat-list-item ${activeId === c.id ? 'is-active' : ''}`}
-              >
-                <Link
-                  to={`/chat/c/${c.id}`}
-                  onClick={(e) => {
-                    // Preserve onSelect for parent-side navigation hooks (it
-                    // calls navigate too, which is harmless on the same path)
-                    // and so right-click → "open in new tab" still works via
-                    // the real `<a href>` Link emits.
-                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
-                    onSelect(c.id);
-                  }}
-                  className="min-w-0 flex-1 text-left cursor-pointer no-underline text-current"
-                  aria-label={`Open ${c.title || 'Untitled'}`}
-                >
-                  <div className="chat-list-item-title">{c.title || 'Untitled'}</div>
-                  <div className="chat-list-item-meta">{formatRelative(c.updated_at)}</div>
-                </Link>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={(e) => { e.stopPropagation(); setPendingDelete(c); }}
-                  className="hover-reveal mt-0.5 hover:text-destructive"
-                  aria-label="Delete conversation"
-                >
-                  <Trash2 />
-                </Button>
-              </div>
-            ))}
+            {group.items.map(renderRow)}
           </div>
         ))}
-        {/* Sentinel — when this scrolls into view, IntersectionObserver
-            fires `loadMore`. Renders only while there's more data so we
-            don't re-trigger on the final page. */}
+
         {hasMore && (
           <div ref={sentinelRef} className="flex items-center justify-center py-3">
             {loadingMore && <Spinner size="sm" className="text-muted-foreground" />}
           </div>
         )}
       </div>
+
+      {/* Per-row delete dialog */}
       <ConfirmDialog
         open={pendingDelete !== null}
         onClose={() => setPendingDelete(null)}
@@ -255,6 +389,17 @@ export default function ConversationList({ activeId, refreshKey, onSelect, onNew
         confirmLabel="Delete"
         confirmTone="danger"
         onConfirm={handleDeleteConfirmed}
+      />
+
+      {/* Delete all dialog */}
+      <ConfirmDialog
+        open={deleteAllOpen}
+        onClose={() => setDeleteAllOpen(false)}
+        title="Delete all conversations?"
+        description={`Delete all ${total} conversation${total === 1 ? '' : 's'}? This cannot be undone.`}
+        confirmLabel="Delete all"
+        confirmTone="danger"
+        onConfirm={handleDeleteAllConfirmed}
       />
     </div>
   );

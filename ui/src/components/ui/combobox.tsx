@@ -63,30 +63,46 @@ export function Combobox({
           <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+      <PopoverContent
+        className="p-0 rounded-md shadow-md"
+        style={{ width: 'var(--radix-popover-trigger-width)' }}
+        sideOffset={2}
+      >
         <Command>
           <CommandInput placeholder={searchPlaceholder} autoFocus />
-          <CommandList>
-            <CommandEmpty>{emptyMessage}</CommandEmpty>
-            <CommandGroup>
-              {options.map(opt => (
-                <CommandItem
-                  key={opt.value}
-                  value={`${opt.label} ${opt.value}`}
-                  onSelect={() => {
-                    onValueChange(opt.value);
-                    setOpen(false);
-                  }}
-                >
-                  <Check
+          {/* Visible thin scrollbar (overrides cmdk's `no-scrollbar` default).
+              Bottom padding ensures the last item clears the rounded corner. */}
+          <CommandList
+            className="max-h-72 overflow-y-auto !overflow-x-hidden p-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded-full"
+          >
+            <CommandEmpty className="py-3 text-center text-xs">{emptyMessage}</CommandEmpty>
+            <CommandGroup className="p-0">
+              {options.map(opt => {
+                const isSelected = opt.value === value;
+                return (
+                  <CommandItem
+                    key={opt.value}
+                    value={`${opt.label} ${opt.value}`}
+                    onSelect={() => {
+                      onValueChange(opt.value);
+                      setOpen(false);
+                    }}
                     className={cn(
-                      'mr-2 h-4 w-4 text-brand',
-                      opt.value === value ? 'opacity-100' : 'opacity-0',
+                      'gap-2 px-2 py-1.5 text-[12px] rounded-md cursor-pointer',
+                      'data-[selected=true]:bg-muted',
+                      isSelected && 'bg-brand/10 text-foreground font-medium',
                     )}
-                  />
-                  <span className="truncate">{opt.label}</span>
-                </CommandItem>
-              ))}
+                  >
+                    <Check
+                      className={cn(
+                        'h-3.5 w-3.5 text-brand shrink-0 transition-opacity',
+                        isSelected ? 'opacity-100' : 'opacity-0',
+                      )}
+                    />
+                    <span className="truncate flex-1">{opt.label}</span>
+                  </CommandItem>
+                );
+              })}
             </CommandGroup>
           </CommandList>
         </Command>

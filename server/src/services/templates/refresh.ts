@@ -21,7 +21,7 @@ import * as templateRepo from '../../lib/db/templates.repo.js';
 import { extractDeps } from './depExtract.js';
 import { extractDepsWithPluginResolution, resolutionsToRepoKeys } from './extractDepsAsync.js';
 import { loadTemplatesFromComfyUI, getTemplates } from './templates.service.js';
-import { recomputeReadinessFor } from './readiness.js';
+import { recomputeTemplateReadiness } from './dependencyCheck.js';
 import { isUserWorkflow } from './userTemplates.js';
 import type { TemplateData } from './types.js';
 
@@ -181,7 +181,7 @@ export async function refreshTemplates(): Promise<RefreshResult> {
     .filter((t) => isUserWorkflow(t.name))
     .map((t) => t.name);
   try {
-    await recomputeReadinessFor([...computed.map((c) => c.name), ...userNames]);
+    await recomputeTemplateReadiness([...computed.map((c) => c.name), ...userNames]);
   } catch (err) {
     logger.warn('refresh readiness recompute failed', { error: String(err) });
   }

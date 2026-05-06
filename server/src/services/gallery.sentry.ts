@@ -21,13 +21,18 @@ import { fetchComfyUI } from './comfyui.js';
 import { appendHistoryEntry } from './gallery.service.js';
 import * as repo from '../lib/db/gallery.repo.js';
 import { logger } from '../lib/logger.js';
+import { setPromptMeta, clearPromptMeta, _clearAllPromptMetaForTests } from './gallery.promptMeta.js';
+import type { PromptMeta } from './gallery.promptMeta.js';
+
+export type { PromptMeta };
 
 const watched = new Set<string>();
 
-/** Add a promptId to the watch set. Called after a successful submit. */
-export function schedulePromptWatch(promptId: string): void {
+/** Add a promptId to the watch set with optional provenance/fingerprint metadata. */
+export function schedulePromptWatch(promptId: string, meta?: PromptMeta): void {
   if (!promptId) return;
   watched.add(promptId);
+  if (meta) setPromptMeta(promptId, meta);
 }
 
 /**
@@ -66,9 +71,10 @@ export async function onQueueStatus(activeIds: Set<string>): Promise<void> {
   }
 }
 
-/** Test-only: clear the watch set. */
+/** Test-only: clear the watch set and meta map. */
 export function _cancelAllWatchesForTests(): void {
   watched.clear();
+  _clearAllPromptMetaForTests();
 }
 
 /**

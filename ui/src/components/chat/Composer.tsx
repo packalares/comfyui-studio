@@ -6,7 +6,7 @@
 // `attachments` array (drag-drop on the thread shares this list) and feed it
 // into the standard ai-elements layout primitives only for visual polish.
 
-import { useEffect, useRef, type MutableRefObject } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import {
   ArrowUp, StopCircle, Paperclip, X, FileText, Image as ImageIcon, Globe, Code2,
 } from 'lucide-react';
@@ -74,6 +74,12 @@ export default function Composer({
   // ai-elements' `<InputGroupTextarea>` and is stable.
   const wrapRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Tracks active drag-over state for the composer's own drop zone. Independent
+  // of the message-thread overlay; both surfaces accept files and feed them to
+  // the same `addFiles()` path. Counter (not boolean) so child elements firing
+  // their own dragenter/leave don't toggle the overlay off mid-drag.
+  const [dragDepth, setDragDepth] = useState(0);
+  const isDragging = dragDepth > 0;
   const focusTextarea = () => {
     const ta = wrapRef.current?.querySelector<HTMLTextAreaElement>('textarea[name="message"]');
     ta?.focus();
@@ -199,7 +205,43 @@ export default function Composer({
 
   return (
     <div className={centered ? '' : 'border-t bg-card'}>
-      <div ref={wrapRef} className="mx-auto max-w-4xl px-4 py-3">
+      <div
+        ref={wrapRef}
+        className="relative mx-auto max-w-4xl px-4 py-3"
+        onDragEnter={(e) => {
+          if (busy || noModel) return;
+          if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+          e.preventDefault();
+          setDragDepth(d => d + 1);
+        }}
+        onDragOver={(e) => {
+          if (busy || noModel) return;
+          if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        }}
+        onDragLeave={(e) => {
+          if (busy || noModel) return;
+          if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+          e.preventDefault();
+          setDragDepth(d => Math.max(0, d - 1));
+        }}
+        onDrop={(e) => {
+          if (busy || noModel) return;
+          if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+          e.preventDefault();
+          setDragDepth(0);
+          if (e.dataTransfer.files.length > 0) void addFiles(e.dataTransfer.files);
+        }}
+      >
+        {isDragging && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-3 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-brand bg-brand/10 text-sm font-medium text-brand"
+          >
+            Drop files to attach
+          </div>
+        )}
         <input
           ref={fileInputRef}
           type="file"
@@ -228,6 +270,7 @@ export default function Composer({
               </PromptInputHeader>
             )}
             <PromptInputTextarea
+              className="min-h-14 max-h-48"
               placeholder={
                 busy ? 'Generating... (Esc to stop)'
                   : noModel ? 'Pick a model below to start chatting'
@@ -333,7 +376,7 @@ function AttachmentChip({ att, onRemove }: ChipProps) {
         <img
           src={att.dataUrl}
           alt={att.filename}
-          className="h-7 w-7 rounded object-cover ring-1 ring-border"
+          className="h-9 w-9 rounded object-cover ring-1 ring-border"
         />
       ) : att.kind === 'image' ? (
         <ImageIcon className="h-4 w-4 text-muted-foreground" />

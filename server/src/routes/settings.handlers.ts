@@ -7,6 +7,7 @@
 import type { Request, Response } from 'express';
 import * as settings from '../services/settings.js';
 import * as toolsSettings from '../services/settings.tools.js';
+import * as mcpSettings from '../services/settings.mcp.js';
 
 const SECRET_HANDLERS = {
   apiKeyComfyOrg: { set: settings.setApiKey,       clear: settings.clearApiKey },
@@ -14,6 +15,10 @@ const SECRET_HANDLERS = {
   civitaiToken:   { set: settings.setCivitaiToken, clear: settings.clearCivitaiToken },
   githubToken:    { set: settings.setGithubToken,  clear: settings.clearGithubToken },
   pexelsApiKey:   { set: settings.setPexelsApiKey, clear: settings.clearPexelsApiKey },
+  studioMcpToken: {
+    set: (v: string) => mcpSettings.setStudioMcpToken(v),
+    clear: () => mcpSettings.setStudioMcpToken(null),
+  },
 } as const;
 type SecretName = keyof typeof SECRET_HANDLERS;
 
@@ -134,6 +139,7 @@ function toolsSettingsResponse() {
     ragflowUrl: toolsSettings.getRagflowUrl() ?? '',
     ragflowApiKeyConfigured: toolsSettings.isRagflowApiKeyConfigured(),
     defaultImageTemplate: toolsSettings.getDefaultImageTemplate() ?? '',
+    enabledMcpTools: toolsSettings.getEnabledMcpTools(),
   };
 }
 
@@ -143,7 +149,26 @@ export function putTools(req: Request, res: Response): void {
     ragflowUrl?: unknown;
     ragflowApiKey?: unknown;
     defaultImageTemplate?: unknown;
+    enabledMcpTools?: unknown;
   };
+  if (body.enabledMcpTools !== undefined) {
+    if (
+      typeof body.enabledMcpTools !== 'object'
+      || body.enabledMcpTools === null
+      || Array.isArray(body.enabledMcpTools)
+    ) {
+      res.status(400).json({ error: '`enabledMcpTools` must be an object' });
+      return;
+    }
+    const map = body.enabledMcpTools as Record<string, unknown>;
+    for (const [k, v] of Object.entries(map)) {
+      if (typeof v !== 'boolean') {
+        res.status(400).json({ error: `enabledMcpTools["${k}"] must be boolean` });
+        return;
+      }
+    }
+    toolsSettings.setEnabledMcpTools(map as Record<string, boolean>);
+  }
   if (typeof body.searxngUrl === 'string') {
     const trimmed = body.searxngUrl.trim();
     if (trimmed.length === 0) toolsSettings.clearSearxngUrl();

@@ -39,14 +39,17 @@ export interface RowBuildInput {
   apiPrompt: ApiPrompt | null;
   createdAt: number;
   templateName?: string | null;
-  /**
-   * Raw workflow JSON (the UI-graph shape with subgraph definitions and
-   * Primitive* nodes). Needed for title-based metadata extraction on
-   * modern subgraph workflows. Optional — falls back to apiPrompt only.
-   */
+  /** Raw workflow JSON for title-based metadata extraction. Falls back to apiPrompt only. */
   workflowGraph?: unknown;
   /** ComfyUI history `status.messages` array — used for duration extraction. */
   statusMessages?: unknown[];
+  /** Provenance: how the generation was triggered. */
+  triggeredBy?: string | null;
+  conversationId?: string | null;
+  messageId?: string | null;
+  /** Fingerprints computed at submit time. */
+  modelFingerprint?: string | null;
+  templateHash?: string | null;
 }
 
 /**
@@ -98,6 +101,11 @@ export function buildRowsFromHistory(input: RowBuildInput): repo.GalleryRow[] {
         batchSize: meta.batchSize,
         durationMs: meta.durationMs,
         models: meta.models,
+        triggeredBy: input.triggeredBy ?? null,
+        conversationId: input.conversationId ?? null,
+        messageId: input.messageId ?? null,
+        modelFingerprint: input.modelFingerprint ?? null,
+        templateHash: input.templateHash ?? null,
       });
       fileIndex += 1;
     }

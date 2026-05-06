@@ -13,7 +13,7 @@ import type { CatalogModelEntry } from './download.service.js';
 import { inferType, type ScanInfo } from './install.scan.js';
 import * as modelFiles from '../../lib/db/modelFiles.repo.js';
 import * as modelIndex from './modelIndex.js';
-import { matchInstalled, parseSizeString, inferModelTypeFromPath, formatFileSize } from './install.match.js';
+import { matchInstalled, inferModelTypeFromPath } from './install.match.js';
 
 /**
  * Read every installed model out of the SQLite-backed index, returning a Map
@@ -153,4 +153,4 @@ function resolveAbsoluteModelPath(info: CatalogModelEntry, modelName: string): s
   );
 }
 
-export { inferModelType, getModelSaveDir, formatFileSize, parseSizeString };
+export { inferModelType, getModelSaveDir };

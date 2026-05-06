@@ -14,7 +14,7 @@ import { generateFormInputs } from './templates.formInputs.js';
 import type { TemplateData, RawCategory } from './types.js';
 import { logger } from '../../lib/logger.js';
 import * as templateRepo from '../../lib/db/templates.repo.js';
-import { recomputeReadinessFor } from './readiness.js';
+import { recomputeTemplateReadiness } from './dependencyCheck.js';
 import { listUserWorkflows } from './userTemplates.js';
 
 function mapCategory(
@@ -155,7 +155,7 @@ export function getTemplates(): TemplateData[] {
  */
 export function seedTemplatesOnce(): void {
   persistTemplates(cachedTemplates);
-  void recomputeReadinessFor(cachedTemplates.map((t) => t.name)).catch((err) => {
+  void recomputeTemplateReadiness(cachedTemplates.map((t) => t.name)).catch((err) => {
     logger.warn('boot readiness recompute failed', { error: String(err) });
   });
 }

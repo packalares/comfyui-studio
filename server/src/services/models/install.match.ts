@@ -2,7 +2,6 @@
 // `install.service.ts` for the 250-line cap.
 
 import path from 'path';
-import { logger } from '../../lib/logger.js';
 import type { CatalogModelEntry } from './download.service.js';
 import type { ScanInfo } from './install.scan.js';
 
@@ -92,44 +91,6 @@ function applyMatch(
   // breaks the badge in the Models page and confuses every consumer that
   // expects a bare folder. The actual file location is in the model_files
   // index; `resolveAbsoluteModelPath` looks it up there directly.
-  if (model.size) verifySizeMatch(model, info.size);
-}
-
-function verifySizeMatch(model: CatalogModelEntry, actualSize: number): void {
-  if (!model.size) return;
-  const expected = parseSizeString(model.size);
-  if (!expected) return;
-  if (Math.abs(actualSize - expected) / expected > 0.1) {
-    model.fileStatus = 'incomplete';
-    logger.warn('model size mismatch', {
-      filename: model.filename,
-      expected: model.size,
-      actual: formatFileSize(actualSize),
-    });
-  }
-}
-
-export function parseSizeString(sizeStr: string): number | null {
-  if (!sizeStr) return null;
-  const match = sizeStr.match(/^([\d.]+)\s*([KMGT]B?)?$/i);
-  if (!match) return null;
-  const value = parseFloat(match[1]);
-  if (isNaN(value)) return null;
-  const unit = match[2]?.toUpperCase() || '';
-  switch (unit) {
-    case 'KB': case 'K': return value * 1024;
-    case 'MB': case 'M': return value * 1024 * 1024;
-    case 'GB': case 'G': return value * 1024 * 1024 * 1024;
-    case 'TB': case 'T': return value * 1024 * 1024 * 1024 * 1024;
-    default: return value;
-  }
-}
-
-export function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
-  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
-  return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
 }
 
 export function inferModelTypeFromPath(relativePath: string): string {

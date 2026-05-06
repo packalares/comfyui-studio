@@ -81,3 +81,19 @@ export function setDefaultImageTemplate(name: string): void {
 export function clearDefaultImageTemplate(): void {
   dropKey('defaultImageTemplate');
 }
+
+// ---- MCP tool toggle map ---------------------------------------------------
+// Stored as `enabledMcpTools: Record<string, boolean>` in settings.json.
+// Default: any name absent OR set to false → disabled. Only `true` enables.
+// Fresh install → empty object → no in-process MCP tools reach the LLM.
+
+type WithMcpTools = SettingsInternal & { enabledMcpTools?: Record<string, boolean> };
+
+export function getEnabledMcpTools(): Record<string, boolean> {
+  const v = (_loadInternal() as WithMcpTools).enabledMcpTools;
+  return v && typeof v === 'object' && !Array.isArray(v) ? { ...v } : {};
+}
+
+export function setEnabledMcpTools(map: Record<string, boolean>): void {
+  _saveInternal({ ...(_loadInternal() as WithMcpTools), enabledMcpTools: map } as SettingsInternal);
+}

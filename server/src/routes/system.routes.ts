@@ -7,6 +7,8 @@ import * as comfyui from '../services/comfyui.js';
 import * as gallery from '../services/gallery.service.js';
 import * as settings from '../services/settings.js';
 import * as toolsSettings from '../services/settings.tools.js';
+import { getStudioMcpStatus } from '../services/settings.mcp.js';
+import { getMcpToolListings } from '../services/mcp/server/toolRegistry.js';
 import * as systemFacade from '../services/systemLauncher/system.service.js';
 import * as networkChecker from '../services/systemLauncher/networkChecker/service.js';
 import { env } from '../config/env.js';
@@ -75,6 +77,9 @@ router.get('/system', async (_req: Request, res: Response) => {
       ragflowUrl: toolsSettings.getRagflowUrl() ?? '',
       ragflowApiKeyConfigured: toolsSettings.isRagflowApiKeyConfigured(),
       defaultImageTemplate: toolsSettings.getDefaultImageTemplate() ?? '',
+      enabledMcpTools: toolsSettings.getEnabledMcpTools(),
+      mcpToolListings: getMcpToolListings(),
+      studioMcp: getStudioMcpStatus(),
     },
   };
 

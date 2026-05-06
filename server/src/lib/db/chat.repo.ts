@@ -51,6 +51,8 @@ export interface ConversationRow {
   /** Output format override. NULL = free text; `'json'` forces Ollama to
    *  emit valid JSON (top-level `format: 'json'` on the request body). */
   format: 'json' | null;
+  /** Whether this conversation is pinned to the top of the list. */
+  pinned: boolean;
 }
 
 export interface ChatMessageRow {
@@ -111,6 +113,7 @@ function rowToConversation(r: Record<string, unknown>): ConversationRow {
     think_mode: thinkMode,
     temperature: nullableNumber(r.temperature),
     format,
+    pinned: Boolean(r.pinned),
   };
 }
 
@@ -206,7 +209,7 @@ export function listConversations(
 
   const rows = db.prepare(
     `SELECT * FROM conversations ${where}
-     ORDER BY updated_at DESC LIMIT @limit OFFSET @offset`,
+     ORDER BY pinned DESC, updated_at DESC LIMIT @limit OFFSET @offset`,
   ).all({ ...params, limit, offset }) as Record<string, unknown>[];
 
   return {
@@ -228,6 +231,23 @@ export function deleteConversation(
   id: string, db: Database.Database = getDb(),
 ): boolean {
   const r = db.prepare('DELETE FROM conversations WHERE id = ?').run(id);
+  return r.changes > 0;
+}
+
+/** Delete every conversation (and cascade-delete all messages).
+ *  Returns the number of rows removed. */
+export function deleteAllConversations(db: Database.Database = getDb()): number {
+  const r = db.prepare('DELETE FROM conversations').run();
+  return r.changes;
+}
+
+/** Pin or unpin a conversation. Returns false when the id is not found. */
+export function setPinned(
+  id: string, pinned: boolean, db: Database.Database = getDb(),
+): boolean {
+  const r = db.prepare(
+    'UPDATE conversations SET pinned = ? WHERE id = ?',
+  ).run(pinned ? 1 : 0, id);
   return r.changes > 0;
 }
 
@@ -254,6 +274,7 @@ export interface UpdateConversationPatch {
   think_mode?: 'on' | 'off' | null;
   temperature?: number | null;
   format?: 'json' | null;
+  pinned?: boolean;
 }
 
 export function renameConversation(
@@ -280,6 +301,9 @@ export function renameConversation(
   }
   if (patch.format !== undefined) {
     sets.push('format = ?'); params.push(patch.format);
+  }
+  if (patch.pinned !== undefined) {
+    sets.push('pinned = ?'); params.push(patch.pinned ? 1 : 0);
   }
   if (sets.length === 0) return false;
   sets.push('updated_at = ?'); params.push(updated_at);
@@ -321,6 +345,14 @@ export function appendMessage(
     t.tokens_per_sec ?? null, t.model ?? null,
     input.created_at,
   );
+}
+
+export function getMessage(
+  messageId: string, db: Database.Database = getDb(),
+): ChatMessageRow | null {
+  const r = db.prepare('SELECT * FROM chat_messages WHERE id = ?').get(messageId) as
+    | Record<string, unknown> | undefined;
+  return r ? rowToMessage(r) : null;
 }
 
 export function listMessages(

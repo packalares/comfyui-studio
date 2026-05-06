@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^2.0.45",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/multer": "^2.1.0",
     "ai": "^6.0.174",
     "better-sqlite3": "^11.10.0",

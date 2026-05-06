@@ -53,12 +53,18 @@ export const TOOL_DESCRIPTION_RAG_UPLOAD = 'Upload a publicly reachable file URL
   + 'forwarded to RAGFlow which queues it for chunking + embedding '
   + 'asynchronously.';
 
-export const TOOL_DESCRIPTION_GENERATE_IMAGE = 'Start an image generation in '
-  + 'Studio using a ComfyUI template workflow. Returns the prompt_id '
-  + 'immediately; the rendered image will appear inline in the chat thread '
-  + 'as soon as ComfyUI finishes. Acknowledge the user briefly (one short '
-  + 'sentence). Do NOT tell the user to open or navigate to the gallery — '
-  + 'the image is shown right there in the chat.';
+// Kept short on purpose. Earlier verbose versions (with "do NOT" directives
+// and exhaustive default explanations) caused Qwen 3.5 9B to refuse and
+// hallucinate "tool unavailable" — confirmed by side-by-side test against
+// Ollama. Modern instruction-tuned models trigger reliably on a tight,
+// directive description; the optional-fields list lives in the schema's
+// per-field `.describe()` strings (built by `formInputsToSchema`), not here.
+export const TOOL_DESCRIPTION_GENERATE_IMAGE = 'Generate an image from a text '
+  + 'prompt. Call this whenever the user asks for a picture, image, photo, '
+  + 'illustration, render, painting, drawing, or any visual. Pass the user\'s '
+  + 'request as `prompt`; optionally set width / height / steps / seed / cfg '
+  + '/ sampler / negative_prompt when the user specifies (e.g. "4K" → '
+  + 'width=3840, height=2160). The image appears in chat when ready.';
 
 // ===== Human-friendly tool labels =====
 // UI-facing labels (Tools popover in the composer). Server returns these

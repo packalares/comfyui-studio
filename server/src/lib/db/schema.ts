@@ -15,7 +15,7 @@
 // `author`, `installed`, `category`, `model_filename`, `plugin_id`). Anything
 // else stays unindexed or lives inside `raw_json` / `workflow_json`.
 
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 15;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -165,4 +165,12 @@ CREATE TABLE IF NOT EXISTS ollama_library (
 );
 CREATE INDEX IF NOT EXISTS idx_ollama_library_title ON ollama_library(title);
 CREATE INDEX IF NOT EXISTS idx_ollama_library_updated_ago ON ollama_library(updated_ago_sec);
+
+CREATE TABLE IF NOT EXISTS prompt_snapshots (
+  promptId      TEXT PRIMARY KEY,
+  apiPromptJson TEXT NOT NULL,
+  templateName  TEXT,
+  createdAt     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_prompt_snapshots_createdAt ON prompt_snapshots(createdAt);
 `;

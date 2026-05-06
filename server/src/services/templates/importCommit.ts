@@ -258,8 +258,8 @@ export async function commitStaging(id: string, selection: CommitSelection): Pro
       // for templates whose deps are already satisfied means "never until
       // boot" if the user just imported them and didn't trigger any
       // installs.
-      const { recomputeReadinessFor } = await import('./readiness.js');
-      await recomputeReadinessFor([saved.name]);
+      const { recomputeTemplateReadiness } = await import('./dependencyCheck.js');
+      await recomputeTemplateReadiness([saved.name]);
     } catch (err) {
       logger.warn('import commit: template_plugins edge write skipped', {
         name: saved.name, error: err instanceof Error ? err.message : String(err),

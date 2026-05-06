@@ -316,9 +316,20 @@ export default function Chat() {
           setModel(conv.model);
         }
       })
-      .catch(() => { if (!cancelled) setMessages([]); });
+      .catch((err) => {
+        if (cancelled) return;
+        // Stale URL — conversation was deleted (or the id is bogus). Clear
+        // the messages list, drop the persisted last-chat id so /chat won't
+        // bounce back here, and redirect to the empty-state.
+        setMessages([]);
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('404') || msg.toLowerCase().includes('not found')) {
+          try { window.localStorage.removeItem(LAST_CHAT_KEY); } catch { /* ignore */ }
+          navigate('/chat', { replace: true });
+        }
+      });
     return () => { cancelled = true; };
-  }, [conversationId, setMessages, installed]);
+  }, [conversationId, setMessages, installed, navigate]);
 
   // Auto-title broadcast updates the sidebar without a refetch.
   useEffect(() => {

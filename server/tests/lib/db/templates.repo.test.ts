@@ -50,17 +50,17 @@ describe('templates repo', () => {
     expect(got?.plugins).toEqual([]);
   });
 
-  it('setInstalledForTemplates flips the ready flag', () => {
+  it('setInstalledForTemplates flips the cached ready flag', () => {
     const a = mk('wf.one');
     const b = mk('wf.two');
     repo.upsertTemplate(a.row, a.deps);
     repo.upsertTemplate(b.row, b.deps);
-    expect(repo.getInstalledFlag('wf.one')).toBe(false);
+    expect(repo.getTemplate('wf.one')?.installed).toBe(false);
     repo.setInstalledForTemplates(['wf.one'], true);
-    expect(repo.getInstalledFlag('wf.one')).toBe(true);
-    expect(repo.getInstalledFlag('wf.two')).toBe(false);
+    expect(repo.getTemplate('wf.one')?.installed).toBe(true);
+    expect(repo.getTemplate('wf.two')?.installed).toBe(false);
     repo.setInstalledForTemplates(['wf.one', 'wf.two'], true);
-    expect(repo.getInstalledFlag('wf.two')).toBe(true);
+    expect(repo.getTemplate('wf.two')?.installed).toBe(true);
   });
 
   it('findTemplatesRequiringModel returns every template with that filename', () => {

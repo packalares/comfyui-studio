@@ -142,15 +142,6 @@ export function upsertTemplate(
   tx();
 }
 
-export function getInstalledFlag(
-  name: string,
-  db: Database.Database = getDb(),
-): boolean {
-  const row = db.prepare('SELECT installed FROM templates WHERE name = ?').get(name) as
-    | { installed: number } | undefined;
-  return row ? row.installed === 1 : false;
-}
-
 export function deleteTemplate(
   name: string,
   db: Database.Database = getDb(),

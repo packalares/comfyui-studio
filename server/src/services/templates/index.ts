@@ -24,7 +24,8 @@ export { refreshTemplates } from './refresh.js';
 export type { RefreshResult } from './refresh.js';
 export { installMissingPluginsForTemplate } from './installMissingPlugins.js';
 export type { InstallMissingResult } from './installMissingPlugins.js';
-export { isReady, recomputeReadinessFor } from './readiness.js';
+export { checkTemplateDependencies, recomputeTemplateReadiness } from './dependencyCheck.js';
+export type { DependencyCheckResult } from './dependencyCheck.js';
 export {
   saveUserWorkflow,
   listUserWorkflows,

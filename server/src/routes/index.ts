@@ -26,7 +26,10 @@ import civitai from './civitai.routes.js';
 import systemLauncher from './systemLauncher.routes.js';
 import thumbnail from './thumbnail.routes.js';
 import chat from './chat.routes.js';
+import chatAttachments from './chat.attachments.routes.js';
 import chatModels from './chat.models.routes.js';
+import mcp from './mcp.routes.js';
+import mcpServers from './mcpServers.routes.js';
 
 const router = Router();
 
@@ -54,6 +57,9 @@ router.use(civitai);
 router.use(systemLauncher);
 router.use(thumbnail);
 router.use(chat);
+router.use(chatAttachments);
 router.use(chatModels);
+router.use('/mcp', mcp);          // /api/mcp — Studio's MCP server endpoint
+router.use(mcpServers);            // /api/mcp/servers and /api/mcp/profiles
 
 export default router;

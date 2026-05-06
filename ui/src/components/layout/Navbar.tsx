@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Compass, Wand2, Image, Box, Package, Settings, Wifi, WifiOff, Menu, X, Play, ExternalLink, MessageSquare } from 'lucide-react';
+import { LayoutDashboard, Compass, Wand2, Image, Box, Package, Settings, Wifi, WifiOff, Menu, X, Play, ExternalLink, MessageSquare, Sun, Moon } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/comfyui';
 import ComfyUIActions from '../ComfyUIActions';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { Button } from '../ui/button';
 import { Spinner } from '../ui/spinner';
+import { useTheme } from '../../context/ThemeContext';
 
 function editorHref(): string {
   const { protocol, host } = window.location;
@@ -28,6 +29,7 @@ const links = [
 
 export default function Navbar() {
   const { connected, launcherStatus, loading } = useApp();
+  const { theme, toggleTheme } = useTheme();
   const [menuOpen, setMenuOpen] = useState(false);
   const [starting, setStarting] = useState(false);
 
@@ -158,6 +160,21 @@ export default function Navbar() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {/* Theme toggle — icon-button matching the ghost/icon button style */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggleTheme}
+                  aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                  className="hidden md:inline-flex"
+                >
+                  {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}</TooltipContent>
+            </Tooltip>
             {/* Desktop: status pill + actions share a zero-gap group so the
                 connected-state pill and the chevron dropdown read as one
                 segmented control. */}

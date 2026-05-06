@@ -24,6 +24,7 @@ import { isModelLoaded } from './ollamaPs.js';
 import { getEnabledTools, filterEnabledTools, toAiSdkToolMap } from './tools/index.js';
 import { toOllamaTools, executeOllamaToolCall } from './ollamaTools.js';
 import { runToolDispatch, type ToolPart } from './toolDispatch.js';
+import { extractAndPersistAttachments } from './attachments.js';
 import { ThinkParser } from './thinkParser.js';
 import { enforceContextStrategy } from './contextEnforce.js';
 import { beforeTool as gpuBeforeTool } from './gpuOrchestrator.js';
@@ -77,11 +78,13 @@ export function startStream(input: StreamChatInput): StreamChatStarted {
   let userMsgId: string | null = null;
   if (lastUser) {
     userMsgId = makeId();
+    const rawParts = (lastUser.parts ?? []) as Record<string, unknown>[];
+    const { rewrittenParts } = extractAndPersistAttachments(userMsgId, rawParts);
     repo.appendMessage({
       id: userMsgId,
       conversation_id: conversationId,
       role: 'user',
-      parts: JSON.stringify(lastUser.parts ?? []),
+      parts: JSON.stringify(rewrittenParts),
       created_at: now,
     });
   }
@@ -218,7 +221,10 @@ async function runStream(args: RunStreamArgs): Promise<void> {
     const thinkMode = conv?.think_mode ?? undefined;
     const temperature = conv?.temperature ?? undefined;
     const format = conv?.format ?? undefined;
-    const enabledTools = filterEnabledTools(getEnabledTools(), enabledToolFilter);
+    const enabledTools = filterEnabledTools(
+      await getEnabledTools({ conversationId, messageId: msgId }),
+      enabledToolFilter,
+    );
     // Derive an AI-SDK tool map for `toOllamaTools` / `executeOllamaToolCall`
     // — those helpers consume the bare AI-SDK shape, while `enabledTools`
     // also carries the Studio metadata the GPU orchestrator needs.
@@ -269,6 +275,18 @@ async function runStream(args: RunStreamArgs): Promise<void> {
             });
           },
         });
+      },
+      // Tools that opt into the GPU unload AND returned a successful queue
+      // envelope (carries `promptId`) are skipped — asking Ollama for a
+      // follow-up sentence forces a reload during ComfyUI's render. When the
+      // tool FAILED (returned a plain error string), let the model continue
+      // so the user actually sees the explanation in chat instead of staring
+      // at an empty assistant bubble (especially with tool-details disabled).
+      isAsyncDeferred: (toolName, result) => {
+        if (!enabledTools[toolName]?.unloadGpuOnUse) return false;
+        return typeof result === 'object'
+          && result !== null
+          && 'promptId' in (result as Record<string, unknown>);
       },
       onToolPart: (part) => {
         toolParts.push(part);

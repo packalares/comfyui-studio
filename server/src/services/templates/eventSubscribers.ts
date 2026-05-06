@@ -10,7 +10,7 @@
 import { logger } from '../../lib/logger.js';
 import * as bus from '../../lib/events.js';
 import * as templateRepo from '../../lib/db/templates.repo.js';
-import { recomputeReadinessFor } from './readiness.js';
+import { recomputeTemplateReadiness } from './dependencyCheck.js';
 
 let wired = false;
 
@@ -36,7 +36,7 @@ function subscribe(): void {
     void (async () => {
       try {
         const affected = templateRepo.findTemplatesRequiringModel(filename);
-        if (affected.length > 0) await recomputeReadinessFor(affected);
+        if (affected.length > 0) await recomputeTemplateReadiness(affected);
       } catch (err) {
         logger.warn('model:installed hook failed', {
           filename, error: err instanceof Error ? err.message : String(err),
@@ -62,7 +62,7 @@ function subscribe(): void {
     void (async () => {
       try {
         const affected = templateRepo.findTemplatesRequiringPlugin(pluginId);
-        if (affected.length > 0) await recomputeReadinessFor(affected);
+        if (affected.length > 0) await recomputeTemplateReadiness(affected);
       } catch (err) {
         logger.warn('plugin:installed hook failed', {
           pluginId, error: err instanceof Error ? err.message : String(err),
@@ -75,7 +75,7 @@ function subscribe(): void {
     void (async () => {
       try {
         const affected = templateRepo.findTemplatesRequiringPlugin(pluginId);
-        if (affected.length > 0) await recomputeReadinessFor(affected);
+        if (affected.length > 0) await recomputeTemplateReadiness(affected);
       } catch (err) {
         logger.warn('plugin:enabled hook failed', {
           pluginId, error: err instanceof Error ? err.message : String(err),

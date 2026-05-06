@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import PageSubbar from '../components/layout/PageSubbar';
+import { usePersistedState } from '../hooks/usePersistedState';
 import ToolsCard from '../components/cards/ToolsCard';
 import {
   Copy,
@@ -37,13 +38,14 @@ import {
   Bug,
   Layout,
   Zap,
-  Sun,
+  Settings as SettingsIcon,
+  Plug,
+  Cpu as CpuTabIcon,
   type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, type ChatAdvancedSettings, type SecretName } from '../services/comfyui';
 import { useApp } from '../context/AppContext';
-import { useTheme } from '../context/ThemeContext';
 import { Switch } from '../components/ui/switch';
 import { SelectField, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/forms/SelectField';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip';
@@ -52,6 +54,9 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from '../components/ui/card';
 import ConfirmDialog from '../components/modals/ConfirmDialog';
 import InputField from '../components/forms/InputField';
+import McpServersSection from '../components/settings/McpServersSection';
+import StudioMcpServerSection from '../components/settings/StudioMcpServerSection';
+import IntegratedToolsSection from '../components/settings/IntegratedToolsSection';
 
 /* ---------- types for launch options ---------- */
 
@@ -1670,63 +1675,78 @@ function StorageCard() {
 }
 
 /* =================================================================
-   Appearance Card — toggles light/dark theme. The actual class flip
-   happens in <ThemeProvider>; this card is just the UI control.
-   ================================================================= */
-
-function AppearanceCard() {
-  const { theme, setTheme } = useTheme();
-  return (
-    <Card>
-      <SectionHeader
-        icon={Sun}
-        title="Appearance"
-        description="Switch the entire app between light and dark themes."
-      />
-      <CardContent>
-        <div className="flex items-center justify-between">
-          <div>
-            <label className="field-label">Dark mode</label>
-            <p className="text-xs text-muted-foreground">Persists locally in your browser; takes effect immediately.</p>
-          </div>
-          <Switch
-            checked={theme === 'dark'}
-            onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
-          />
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-/* =================================================================
    Page
    ================================================================= */
 
+type SettingsTab = 'general' | 'mcp' | 'comfy';
+
+const TABS: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
+  { id: 'general', label: 'General', icon: SettingsIcon },
+  { id: 'mcp', label: 'MCP', icon: Plug },
+  { id: 'comfy', label: 'Comfy', icon: CpuTabIcon },
+];
+
 export default function Settings() {
+  const [tab, setTab] = usePersistedState<SettingsTab>('settings.tab', 'general');
+
+  const tabStrip = (
+    <div role="tablist" aria-label="Settings tabs" className="tab-strip">
+      {TABS.map(t => {
+        const Icon = t.icon;
+        return (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            className={`tab-strip-item inline-flex items-center gap-1.5 ${tab === t.id ? 'is-active' : ''}`}
+            onClick={() => setTab(t.id)}
+          >
+            <Icon className="w-3.5 h-3.5" />
+            {t.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+
   return (
     <>
-      <PageSubbar title="Settings" description="Configure your workspace" />
-      <div className="page-container space-y-3">
-        {/* Row 0: appearance — small card, full width */}
-        <AppearanceCard />
-        {/* Row 1: secrets | chat advanced */}
-        <div className="grid gap-3 lg:grid-cols-2">
-          <SecretsCard />
-          <ChatAdvancedCard />
-        </div>
-        {/* Row 2: chat LLM | tools */}
-        <div className="grid gap-3 lg:grid-cols-2">
-          <ChatLlmCard />
-          <ToolsCard />
-        </div>
-        {/* Storage + Network row */}
-        <div className="grid gap-3 md:grid-cols-2">
-          <StorageCard />
-          <NetworkCard />
-        </div>
-        {/* Launch options — full width */}
-        <LaunchOptionsCard />
+      <PageSubbar title="Settings" description="Configure your workspace" right={tabStrip} />
+      <div className="page-container space-y-4">
+        {/* General — LLM, chat advanced, tools, secrets, storage, network */}
+        {tab === 'general' && (
+          <div className="space-y-3">
+            <div className="grid gap-3 lg:grid-cols-2">
+              <ChatLlmCard />
+              <ChatAdvancedCard />
+            </div>
+            <ToolsCard />
+            <SecretsCard />
+            <div className="grid gap-3 md:grid-cols-2">
+              <StorageCard />
+              <NetworkCard />
+            </div>
+          </div>
+        )}
+
+        {/* MCP — Studio MCP server + external servers (side by side), integrated tools */}
+        {tab === 'mcp' && (
+          <div className="space-y-3">
+            <div className="grid gap-3 lg:grid-cols-2">
+              <StudioMcpServerSection />
+              <McpServersSection />
+            </div>
+            <IntegratedToolsSection />
+          </div>
+        )}
+
+        {/* Comfy — launch options */}
+        {tab === 'comfy' && (
+          <div className="space-y-3">
+            <LaunchOptionsCard />
+          </div>
+        )}
       </div>
     </>
   );

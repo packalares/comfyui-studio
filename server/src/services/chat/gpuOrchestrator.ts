@@ -26,10 +26,22 @@ import type { StudioTool } from './tools/defineTool.js';
 const UNLOAD_TIMEOUT_MS = 2000;
 
 /**
- * True when Ollama and ComfyUI appear to share a host (same hostname or both
- * loopback addresses). Hostname collision is a proxy for "they share a GPU";
- * operators with separate GPU nodes will have different hostnames and we
- * skip the unload accordingly.
+ * Heuristic for "Ollama and ComfyUI probably share a GPU." Assumes co-located
+ * by default. Only returns false when the Ollama URL points at an obviously
+ * remote host — a public FQDN (`example.com`) or raw IP (`1.2.3.4`).
+ *
+ * Captures these as co-located:
+ *   - loopback hosts (`localhost`, `127.0.0.1`, `0.0.0.0`, `::1`)
+ *   - bare Kubernetes service names (`ollama`, `comfyui`)
+ *   - container/cluster DNS (`*.svc`, `*.cluster.local`, `*.local`)
+ *   - same-hostname matches
+ *
+ * Strict hostname-equality was too conservative for in-cluster deployments
+ * where `ollama` (k8s service) lands on the same node as a `localhost`-bound
+ * Studio process — that combo skipped the unload despite real GPU contention.
+ * The new rule errs toward unloading: cost of a needless unload is one cold
+ * reload (~3-30s on next turn). Cost of skipping a real unload is OOM /
+ * thrash. The asymmetry says default-true.
  */
 export function isLikelyColocated(): boolean {
   try {
@@ -38,7 +50,15 @@ export function isLikelyColocated(): boolean {
     const isLoopback = (h: string): boolean =>
       h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' || h === '::1';
     if (ollama === comfy) return true;
-    if (isLoopback(ollama) && isLoopback(comfy)) return true;
+    if (isLoopback(ollama) || isLoopback(comfy)) return true;
+    // Cluster / container DNS suffixes count as local enough.
+    const isClusterDns = (h: string): boolean =>
+      h.endsWith('.svc') || h.endsWith('.cluster.local') || h.endsWith('.local');
+    if (isClusterDns(ollama) || isClusterDns(comfy)) return true;
+    // Bare hostname (no dot) — k8s service name or docker container alias.
+    // Treat as local; remote endpoints almost always carry a TLD.
+    if (!ollama.includes('.') || !comfy.includes('.')) return true;
+    // Both resolved with a dotted FQDN or raw IP — likely remote.
     return false;
   } catch {
     // Bad URL — be conservative, assume co-located so we still unload.

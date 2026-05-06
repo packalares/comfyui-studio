@@ -10,6 +10,7 @@
 import type { OllamaChatMessage, OllamaFinalFrame } from './ollamaChat.js';
 import { iterateNdjson } from './ollamaChat.js';
 import { extractToolCalls, type OllamaToolCall, type OllamaToolDef } from './ollamaTools.js';
+import { logger } from '../../lib/logger.js';
 
 export interface OllamaStepInput {
   baseUrl: string;
@@ -75,6 +76,16 @@ export async function runOllamaStep(input: OllamaStepInput): Promise<OllamaStepR
   if (input.thinkMode === 'on') body.think = true;
   else if (input.thinkMode === 'off') body.think = false;
   if (input.format === 'json') body.format = 'json';
+
+  // TEMP TRACE — dump every tool name being sent to Ollama so we can verify
+  // the MCP tools (comfy_*, studio_*) are actually reaching the model.
+  if (input.tools && input.tools.length > 0) {
+    const tools = input.tools as Array<{ function?: { name?: string } }>;
+    logger.warn('ollama-debug: tools sent to model', {
+      count: tools.length,
+      names: tools.map(t => t.function?.name ?? '?'),
+    });
+  }
 
   const res = await fetch(`${input.baseUrl.replace(/\/+$/, '')}/api/chat`, {
     method: 'POST',

@@ -14,6 +14,8 @@ import { startStream, abortStream } from '../services/chat/streamChat.js';
 import { computeUsage } from '../services/chat/contextWindow.js';
 import { compactConversation } from '../services/chat/contextCompact.js';
 import { listAvailableTools } from '../services/chat/tools/index.js';
+import { deleteAttachmentsForMessages } from '../services/chat/attachments.js';
+import { logger } from '../lib/logger.js';
 
 const router = Router();
 
@@ -146,8 +148,8 @@ router.post('/chat/stop/:msgId', (req: Request, res: Response) => {
   res.json({ aborted });
 });
 
-router.get('/chat/tools', (_req: Request, res: Response) => {
-  res.json({ items: listAvailableTools() });
+router.get('/chat/tools', async (_req: Request, res: Response) => {
+  res.json({ items: await listAvailableTools() });
 });
 
 router.get('/chat/conversations', (req: Request, res: Response) => {
@@ -192,8 +194,46 @@ router.get('/chat/conversations/:id/messages', (req: Request, res: Response) => 
   res.json({ items: rows });
 });
 
+// Bulk-delete: wipes every conversation and all cascaded messages.
+// Must be declared BEFORE the /:id route so Express doesn't interpret
+// the literal string "conversations" as a param value.
+router.delete('/chat/conversations', (_req: Request, res: Response) => {
+  // Best-effort attachment cleanup before wiping rows.
+  try {
+    // Fetch all conversations (paginated) to gather their messages' parts.
+    const allParts: Record<string, unknown>[][] = [];
+    let offset = 0;
+    const pageSize = 100;
+    while (true) {
+      const page = chatRepo.listConversations({ limit: pageSize, offset });
+      for (const conv of page.items) {
+        for (const m of chatRepo.listMessages(conv.id)) {
+          try { allParts.push(JSON.parse(m.parts) as Record<string, unknown>[]); } catch { /* skip */ }
+        }
+      }
+      if (!page.hasMore) break;
+      offset += pageSize;
+    }
+    deleteAttachmentsForMessages(allParts);
+  } catch (err) {
+    logger.warn('bulk delete: attachment cleanup failed', { error: String(err) });
+  }
+  const deleted = chatRepo.deleteAllConversations();
+  res.json({ deleted });
+});
+
 router.delete('/chat/conversations/:id', (req: Request, res: Response) => {
   const id = paramStr(req.params.id);
+  // Best-effort attachment cleanup before cascade-deleting rows.
+  try {
+    const msgs = chatRepo.listMessages(id);
+    const parts = msgs.map((m) => {
+      try { return JSON.parse(m.parts) as Record<string, unknown>[]; } catch { return []; }
+    });
+    deleteAttachmentsForMessages(parts);
+  } catch (err) {
+    logger.warn('conversation delete: attachment cleanup failed', { id, error: String(err) });
+  }
   const ok = chatRepo.deleteConversation(id);
   if (!ok) { res.status(404).json({ error: 'not found' }); return; }
   res.json({ deleted: true, id });
@@ -205,6 +245,16 @@ router.delete('/chat/conversations/:id', (req: Request, res: Response) => {
 router.delete('/chat/conversations/:id/messages/:msgId', (req: Request, res: Response) => {
   const id = paramStr(req.params.id);
   const msgId = paramStr(req.params.msgId);
+  // Best-effort attachment cleanup.
+  try {
+    const msg = chatRepo.getMessage(msgId);
+    if (msg) {
+      const parts = [JSON.parse(msg.parts) as Record<string, unknown>[]];
+      deleteAttachmentsForMessages(parts);
+    }
+  } catch (err) {
+    logger.warn('message delete: attachment cleanup failed', { msgId, error: String(err) });
+  }
   const ok = chatRepo.deleteMessage(id, msgId);
   if (!ok) { res.status(404).json({ error: 'not found' }); return; }
   res.json({ deleted: true, id, msgId });
@@ -221,6 +271,7 @@ router.patch('/chat/conversations/:id', (req: Request, res: Response) => {
     think_mode?: unknown;
     temperature?: unknown;
     format?: unknown;
+    pinned?: unknown;
   };
   const patch: chatRepo.UpdateConversationPatch = {};
   if (typeof body.title === 'string') patch.title = body.title;
@@ -256,6 +307,10 @@ router.patch('/chat/conversations/:id', (req: Request, res: Response) => {
     patch.format = null;
   } else if (body.format === 'json') {
     patch.format = 'json';
+  }
+  // pinned: boolean only. Other types are silently ignored.
+  if (typeof body.pinned === 'boolean') {
+    patch.pinned = body.pinned;
   }
   // Apply context_strategy as a side update — it lives on the same row but
   // outside the `renameConversation` patch helper so existing callers stay

@@ -14,6 +14,9 @@ import { Router, type Request, type Response, type RequestHandler } from 'expres
 import * as models from '../services/models/models.service.js';
 import { NoDownloadSourceError } from '../services/models/download.service.js';
 import * as modelIndex from '../services/models/modelIndex.js';
+import { refreshModelListFromUpstream } from '../services/models/modelListCache.js';
+import { invalidateModelListMemo } from '../services/models/info.service.js';
+import { logger } from '../lib/logger.js';
 import { handleDownloadHfRepo } from './models.downloadHfRepo.js';
 import { toWireEntry } from '../services/models/models.wire.js';
 import * as settings from '../services/settings.js';
@@ -186,8 +189,15 @@ const handleDownloadCustom: RequestHandler = async (req: Request, res: Response)
 
 const handleRescan: RequestHandler = async (_req, res) => {
   try {
+    const refresh = await refreshModelListFromUpstream();
+    if (!refresh.ok) {
+      logger.warn('rescan: upstream fetch failed, continuing with existing cache', {
+        reason: refresh.reason,
+      });
+    }
+    invalidateModelListMemo();
     const result = await modelIndex.rebuildFullIndex();
-    res.json(result);
+    res.json({ ...result, modelListRefreshed: refresh.ok });
   } catch (err) { sendError(res, err, 500, 'Rescan failed'); }
 };
 
