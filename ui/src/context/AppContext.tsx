@@ -98,6 +98,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setUploadMaxBytes,
     _setNetwork,
     _setChat,
+    _setPersonality,
     _systemStatsRef,
   } = system;
   const { _setGalleryTotal, _setRecentGallery } = catalog;
@@ -120,6 +121,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
         comfyuiConnected,
         network,
         chat,
+        personality,
         apiKeyConfigured, hfTokenConfigured, civitaiTokenConfigured,
         githubTokenConfigured,
         pexelsApiKeyConfigured,
@@ -150,6 +152,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       }
       if (network) _setNetwork(network);
       if (chat) _setChat(chat);
+      if (personality) _setPersonality(personality);
       // Older servers omit `comfyuiConnected`; default to true for back-compat.
       _setConnected(comfyuiConnected ?? true);
     } catch (err) {
@@ -169,6 +172,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setUploadMaxBytes,
     _setNetwork,
     _setChat,
+    _setPersonality,
     _setConnected,
   ]);
 

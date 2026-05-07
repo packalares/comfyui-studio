@@ -141,11 +141,25 @@ export function writeMemoryBody(body: string): void {
 /**
  * Append a single timestamped fact to memory.md.
  * Format: `- YYYY-MM-DD: <fact>\n`
+ *
+ * No-op when the same fact (case-insensitive, ignoring date) is already in
+ * the file — small models occasionally double-fire `studio_remember`, and
+ * users repeating themselves across turns shouldn't accumulate duplicates.
  */
 export function appendMemoryFact(fact: string): void {
-  const date = new Date().toISOString().slice(0, 10);
+  const trimmed = fact.trim();
+  if (trimmed.length === 0) return;
+
   const existing = loadMemoryBody();
-  const line = `- ${date}: ${fact}\n`;
+  const factKey = trimmed.toLowerCase();
+  const alreadyHas = existing.split('\n').some(rawLine => {
+    const m = rawLine.match(/^-\s+\d{4}-\d{2}-\d{2}:\s*(.+)$/);
+    return m !== null && m[1].trim().toLowerCase() === factKey;
+  });
+  if (alreadyHas) return;
+
+  const date = new Date().toISOString().slice(0, 10);
+  const line = `- ${date}: ${trimmed}\n`;
   const base = existing.length > 0 && !existing.endsWith('\n')
     ? existing + '\n'
     : existing;

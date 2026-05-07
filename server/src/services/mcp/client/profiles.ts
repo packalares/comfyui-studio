@@ -6,6 +6,8 @@
 
 import {
   getMcpProfiles,
+  getMcpServers,
+  slugifyServerName,
   DEFAULT_PROFILE_NAME,
   type Profile,
 } from '../../settings.mcp.js';
@@ -40,22 +42,29 @@ export function serverAllowList(
 }
 
 /**
- * Given a map of all namespaced tools from all servers (`mcp__sid__name`) and
- * a named profile, return the keys that pass the filter.
+ * Given a map of all namespaced tools from all servers (`mcp__<slug>__name`)
+ * and a named profile, return the keys that pass the filter.
  *
- * `toolKeys` are the raw namespaced keys from the tool map; serverId is
- * derived by splitting on `__`.
+ * Tool keys carry the server *slug* (derived from the user-given name) but
+ * profile entries are still keyed by server *UUID* — so we resolve slug →
+ * server.id before looking up the allow-list.
  */
 export function filterByProfile(
   toolKeys: string[],
   profile: Profile,
 ): string[] {
+  // Build slug → id once per call. Servers list is short; cost is trivial.
+  const slugToId = new Map<string, string>();
+  for (const s of getMcpServers()) slugToId.set(slugifyServerName(s.name, s.id), s.id);
+
   return toolKeys.filter((key) => {
-    // Format: mcp__<serverId>__<toolName>
+    // Format: mcp__<slug>__<toolName>
     const parts = key.split('__');
     if (parts.length < 3 || parts[0] !== 'mcp') return false;
-    const serverId = parts[1];
+    const slug = parts[1];
     const toolName = parts.slice(2).join('__');
+    const serverId = slugToId.get(slug);
+    if (serverId === undefined) return false;
     const allow = serverAllowList(profile, serverId);
     if (allow === null) return false;
     if (allow === '*') return true;

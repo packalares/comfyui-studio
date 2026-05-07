@@ -23,8 +23,8 @@ function ensureDir(): void {
   fs.mkdirSync(attachmentDir(), { recursive: true, mode: 0o700 });
 }
 
-/** MIME type → file extension mapping. */
-function extFromMime(mime: string): string {
+/** MIME type → file extension mapping. Shared with `toolMediaPersist`. */
+export function extFromMime(mime: string): string {
   const m = mime.toLowerCase().split(';')[0].trim();
   const map: Record<string, string> = {
     'image/png': 'png',
@@ -35,6 +35,13 @@ function extFromMime(mime: string): string {
     'image/bmp': 'bmp',
     'image/tiff': 'tiff',
     'image/svg+xml': 'svg',
+    'application/pdf': 'pdf',
+    'audio/mpeg': 'mp3',
+    'audio/mp3': 'mp3',
+    'audio/wav': 'wav',
+    'audio/ogg': 'ogg',
+    'video/mp4': 'mp4',
+    'video/webm': 'webm',
   };
   return map[m] ?? 'bin';
 }

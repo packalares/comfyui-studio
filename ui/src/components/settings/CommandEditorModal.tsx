@@ -32,7 +32,7 @@ export default function CommandEditorModal({ open, onClose, editName, onSaved, o
     if (editName) {
       setName(editName);
       setLoading(true);
-      api.commands.get(editName)
+      api.personality.get('command', editName)
         .then(data => { setBody(data.body); })
         .catch(err => {
           setLoadError(err instanceof Error ? err.message : 'Could not load command');
@@ -46,13 +46,13 @@ export default function CommandEditorModal({ open, onClose, editName, onSaved, o
   }, [open, editName]);
 
   const handleSave = async () => {
-    await api.commands.put(name.trim(), body);
+    await api.personality.put('command', name.trim(), body);
     onSaved();
   };
 
   const handleDelete = editName
     ? async () => {
-        await api.commands.delete(editName);
+        await api.personality.delete('command', editName);
         onDeleted();
       }
     : undefined;

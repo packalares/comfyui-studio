@@ -10,7 +10,7 @@
 import { McpConnection, type ConnectionState } from './connection.js';
 import { wrapServerTools, type McpToolExecutor } from './wrap.js';
 import type { StudioTool } from '../../chat/tools/defineTool.js';
-import { getMcpServers } from '../../settings.mcp.js';
+import { getMcpServers, slugifyServerName } from '../../settings.mcp.js';
 import type { McpServerConfig } from '../../settings.mcp.js';
 import { logger } from '../../../lib/logger.js';
 
@@ -22,6 +22,21 @@ export class McpClientRegistry {
   // ---- Boot / reload -------------------------------------------------------
 
   async boot(): Promise<void> {
+    // Backfill the default profile from already-enabled servers so users
+    // who connected an MCP server before this change start seeing its
+    // tools in chat without re-toggling. Idempotent.
+    try {
+      const { migrateMcpProfilesFromEnabled } = await import('../../settings.mcp.js');
+      const added = migrateMcpProfilesFromEnabled();
+      if (added > 0) {
+        logger.info(`mcp: granted '*' default-profile access to ${added} already-enabled server(s)`);
+      }
+    } catch (err) {
+      logger.warn('mcp profile migration failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     const servers = getMcpServers().filter((s) => s.enabled);
     await Promise.allSettled(servers.map((s) => this._connectServer(s)));
     this._registerShutdown();
@@ -82,14 +97,20 @@ export class McpClientRegistry {
 
   async getAllTools(): Promise<Record<string, StudioTool>> {
     const out: Record<string, StudioTool> = {};
+    // Resolve id → slug once per call so the namespaced tool keys stay
+    // consistent with what users see in `enabledMcpTools`.
+    const idToSlug = new Map<string, string>();
+    for (const s of getMcpServers()) idToSlug.set(s.id, slugifyServerName(s.name, s.id));
+
     for (const [id, conn] of this.connections.entries()) {
       if (conn.status !== 'connected') continue;
-      // Build executor bound to this connection
+      const slug = idToSlug.get(id);
+      if (slug === undefined) continue; // server vanished from settings between connect and listTools
       const executor: McpToolExecutor = (toolName, args) =>
         conn.callTool(toolName, args);
       try {
         const tools = await conn.listTools();
-        const wrapped = wrapServerTools(id, tools, executor);
+        const wrapped = wrapServerTools(slug, tools, executor);
         Object.assign(out, wrapped);
       } catch {
         // Server went away — skip its tools silently

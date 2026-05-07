@@ -101,7 +101,7 @@ describe('personality endpoints', () => {
     const app = await startApp(makePersonalityApp());
     try {
       const { status, body } = await getJson<{ souls: Array<{ name: string; description: string }> }>(
-        `${app.url}/api/personality/souls`,
+        `${app.url}/api/personality`,
       );
       expect(status).toBe(200);
       expect(Array.isArray(body.souls)).toBe(true);
@@ -111,11 +111,11 @@ describe('personality endpoints', () => {
     } finally { await app.close(); }
   });
 
-  it('GET /api/personality/souls/default returns body', async () => {
+  it('GET /api/personality/soul/default returns body', async () => {
     const app = await startApp(makePersonalityApp());
     try {
       const { status, body } = await getJson<{ name: string; body: string; frontmatter: Record<string, unknown> }>(
-        `${app.url}/api/personality/souls/default`,
+        `${app.url}/api/personality/soul/default`,
       );
       expect(status).toBe(200);
       expect(body.name).toBe('default');
@@ -129,14 +129,14 @@ describe('personality endpoints', () => {
     try {
       const content = 'You are a test soul.\n';
       const put = await putJson<{ ok: boolean }>(
-        `${app.url}/api/personality/souls/test-soul`,
+        `${app.url}/api/personality/soul/test-soul`,
         { body: content },
       );
       expect(put.status).toBe(200);
       expect(put.body.ok).toBe(true);
 
       const get = await getJson<{ name: string; body: string }>(
-        `${app.url}/api/personality/souls/test-soul`,
+        `${app.url}/api/personality/soul/test-soul`,
       );
       expect(get.status).toBe(200);
       expect(get.body.body).toBe(content);
@@ -146,10 +146,10 @@ describe('personality endpoints', () => {
   it('PUT then DELETE removes the soul from listing', async () => {
     const app = await startApp(makePersonalityApp());
     try {
-      await putJson(`${app.url}/api/personality/souls/to-delete`, { body: 'temp\n' });
+      await putJson(`${app.url}/api/personality/soul/to-delete`, { body: 'temp\n' });
 
       const del = await deleteReq<{ ok: boolean }>(
-        `${app.url}/api/personality/souls/to-delete`,
+        `${app.url}/api/personality/soul/to-delete`,
       );
       expect(del.status).toBe(200);
       expect(del.body.ok).toBe(true);
@@ -157,7 +157,7 @@ describe('personality endpoints', () => {
       // After deletion the user file is gone. Bundled fallback does not exist
       // for this name, so 404.
       const get = await getJson<{ error: string }>(
-        `${app.url}/api/personality/souls/to-delete`,
+        `${app.url}/api/personality/soul/to-delete`,
       );
       expect(get.status).toBe(404);
     } finally { await app.close(); }
@@ -169,7 +169,7 @@ describe('personality endpoints', () => {
     const app = await startApp(makePersonalityApp());
     try {
       const del = await deleteReq<{ error: string }>(
-        `${app.url}/api/personality/souls/default`,
+        `${app.url}/api/personality/soul/default`,
       );
       expect(del.status).toBe(404);
       expect(typeof del.body.error).toBe('string');
@@ -205,15 +205,15 @@ describe('personality endpoints', () => {
     } finally { await app.close(); }
   });
 
-  it('GET /api/personality/default-soul returns a non-null name', async () => {
+  it('GET /api/personality summary returns defaultSoul', async () => {
     const app = await startApp(makePersonalityApp());
     try {
-      const { status, body } = await getJson<{ name: string | null }>(
-        `${app.url}/api/personality/default-soul`,
+      const { status, body } = await getJson<{ defaultSoul: string | null }>(
+        `${app.url}/api/personality`,
       );
       expect(status).toBe(200);
       // Seeds ship with default.md so it should return 'default'.
-      expect(body.name).toBe('default');
+      expect(body.defaultSoul).toBe('default');
     } finally { await app.close(); }
   });
 
@@ -221,7 +221,7 @@ describe('personality endpoints', () => {
     const app = await startApp(makePersonalityApp());
     try {
       const res = await putJson<{ error: string }>(
-        `${app.url}/api/personality/souls/INVALID%20NAME`,
+        `${app.url}/api/personality/soul/INVALID%20NAME`,
         { body: 'x' },
       );
       expect(res.status).toBe(400);
@@ -259,26 +259,26 @@ describe('POST /api/chat/start with soulName', () => {
       const soulName = typeof body.soulName === 'string' && body.soulName.length > 0
         ? body.soulName
         : null;
-      const resolved = resolveSystemPrompt(soulName) || null;
       const id = `test-${Date.now()}`;
       createConversation({
         id,
         title: 'test',
         model: 'test-model',
-        system_prompt: resolved,
         soul_name: soulName,
         created_at: Date.now(),
         updated_at: Date.now(),
       });
       const row = getConversation(id);
-      res.json({ id, row });
+      // Re-resolve live so the test can assert what the chat would actually send.
+      const resolved = resolveSystemPrompt(row?.soul_name ?? null) || null;
+      res.json({ id, row, resolvedSystemPrompt: resolved });
     });
 
     app.use('/api', router);
     return app;
   }
 
-  it('POST with soulName=default writes both columns; system_prompt has soul content', async () => {
+  it('POST with soulName=default stores soul_name; resolved prompt has soul content', async () => {
     const app = await startApp(makeChatApp());
     try {
       const res = await fetch(`${app.url}/api/chat/start-test`, {
@@ -287,11 +287,13 @@ describe('POST /api/chat/start with soulName', () => {
         body: JSON.stringify({ soulName: 'default' }),
       });
       expect(res.status).toBe(200);
-      const data = await res.json() as { row: { soul_name: string; system_prompt: string | null } };
+      const data = await res.json() as {
+        row: { soul_name: string };
+        resolvedSystemPrompt: string | null;
+      };
       expect(data.row.soul_name).toBe('default');
-      // The default soul body should appear in the snapshot.
-      expect(typeof data.row.system_prompt).toBe('string');
-      expect(data.row.system_prompt!.length).toBeGreaterThan(0);
+      expect(typeof data.resolvedSystemPrompt).toBe('string');
+      expect((data.resolvedSystemPrompt ?? '').length).toBeGreaterThan(0);
     } finally { await app.close(); }
   });
 
@@ -304,10 +306,13 @@ describe('POST /api/chat/start with soulName', () => {
         body: JSON.stringify({}),
       });
       expect(res.status).toBe(200);
-      const data = await res.json() as { row: { soul_name: string | null; system_prompt: string | null } };
-      // soul_name is null (no explicit choice) but system_prompt is resolved.
+      const data = await res.json() as {
+        row: { soul_name: string | null };
+        resolvedSystemPrompt: string | null;
+      };
+      // soul_name is null (no explicit choice) but the resolver still finds default.
       expect(data.row.soul_name).toBeNull();
-      expect(typeof data.row.system_prompt).toBe('string');
+      expect(typeof data.resolvedSystemPrompt).toBe('string');
     } finally { await app.close(); }
   });
 });
@@ -348,6 +353,29 @@ describe('studio_remember MCP tool', () => {
     expect(body).toContain('fact one');
     expect(body).toContain('fact two');
   });
+
+  it('dedups when the same fact is appended twice', async () => {
+    const { run } = await import('../../src/services/mcp/server/tools/studio/remember.js');
+    await run({ fact: 'Assistant name is Mariola' });
+    await run({ fact: 'Assistant name is Mariola' });
+
+    const { loadMemoryBody } = await import('../../src/services/chat/personality/index.js');
+    const body = loadMemoryBody();
+    const matches = body.match(/Assistant name is Mariola/g) ?? [];
+    expect(matches.length).toBe(1);
+  });
+
+  it('dedup is case-insensitive and ignores surrounding whitespace', async () => {
+    const { run } = await import('../../src/services/mcp/server/tools/studio/remember.js');
+    await run({ fact: 'Prefers concise answers' });
+    await run({ fact: '  prefers concise answers  ' });
+    await run({ fact: 'PREFERS CONCISE ANSWERS' });
+
+    const { loadMemoryBody } = await import('../../src/services/chat/personality/index.js');
+    const body = loadMemoryBody();
+    const matches = body.match(/[Pp][Rr][Ee][Ff][Ee][Rr][Ss] [Cc][Oo][Nn][Cc][Ii][Ss][Ee] [Aa][Nn][Ss][Ww][Ee][Rr][Ss]/g) ?? [];
+    expect(matches.length).toBe(1);
+  });
 });
 
 // ---------- PATCH /api/chat/conversations/:id soul_name ----------
@@ -372,7 +400,6 @@ describe('PATCH /chat/conversations/:id soul_name', () => {
     // Create a conversation row so the PATCH has something to update.
     router.post('/chat/conversations', async (req, res) => {
       const { createConversation, getConversation } = await import('../../src/lib/db/chat.repo.js');
-      const { resolveSystemPrompt } = await import('../../src/services/chat/personality/index.js');
       const body = req.body as { soulName?: string | null };
       const soulName = typeof body.soulName === 'string' ? body.soulName : null;
       const id = `patch-test-${Date.now()}`;
@@ -380,7 +407,6 @@ describe('PATCH /chat/conversations/:id soul_name', () => {
         id,
         title: 'test',
         model: 'test-model',
-        system_prompt: resolveSystemPrompt(soulName) || null,
         soul_name: soulName,
         created_at: Date.now(),
         updated_at: Date.now(),
@@ -393,21 +419,22 @@ describe('PATCH /chat/conversations/:id soul_name', () => {
       const { resolveSystemPrompt } = await import('../../src/services/chat/personality/index.js');
       const id = String(req.params.id ?? '');
       const body = req.body as { soul_name?: unknown };
-      const patch: { soul_name?: string | null; system_prompt?: string | null } = {};
+      const patch: { soul_name?: string | null } = {};
       if (typeof body.soul_name === 'string' || body.soul_name === null) {
         patch.soul_name = body.soul_name as string | null;
-        patch.system_prompt = resolveSystemPrompt(patch.soul_name) || null;
       }
       const ok = renameConversation(id, patch, Date.now());
       if (!ok) { res.status(404).json({ error: 'not found' }); return; }
-      res.json(getConversation(id));
+      const row = getConversation(id);
+      const resolvedSystemPrompt = resolveSystemPrompt(row?.soul_name ?? null) || null;
+      res.json({ ...row, resolvedSystemPrompt });
     });
 
     app.use('/api', router);
     return app;
   }
 
-  it('PATCH soul_name updates soul_name column and re-resolves system_prompt', async () => {
+  it('PATCH soul_name updates soul_name column and re-resolves system prompt', async () => {
     const app = await startApp(makePatchChatApp());
     try {
       // Create conversation with no soul.
@@ -416,7 +443,7 @@ describe('PATCH /chat/conversations/:id soul_name', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
-      const created = await createRes.json() as { id: string; row: { soul_name: string | null; system_prompt: string | null } };
+      const created = await createRes.json() as { id: string; row: { soul_name: string | null } };
       expect(created.row.soul_name).toBeNull();
 
       // PATCH to switch to the 'default' soul.
@@ -426,11 +453,14 @@ describe('PATCH /chat/conversations/:id soul_name', () => {
         body: JSON.stringify({ soul_name: 'default' }),
       });
       expect(patchRes.status).toBe(200);
-      const patched = await patchRes.json() as { soul_name: string; system_prompt: string | null };
+      const patched = await patchRes.json() as {
+        soul_name: string;
+        resolvedSystemPrompt: string | null;
+      };
       expect(patched.soul_name).toBe('default');
-      // system_prompt snapshot should reflect the new soul body.
-      expect(typeof patched.system_prompt).toBe('string');
-      expect((patched.system_prompt ?? '').length).toBeGreaterThan(0);
+      // Re-resolved system prompt should reflect the new soul body.
+      expect(typeof patched.resolvedSystemPrompt).toBe('string');
+      expect((patched.resolvedSystemPrompt ?? '').length).toBeGreaterThan(0);
     } finally { await app.close(); }
   });
 
@@ -459,6 +489,7 @@ describe('PATCH /chat/conversations/:id soul_name', () => {
 // ---------- studio_propose_soul_edit MCP tool + pending-edits API ----------
 
 describe('studio_propose_soul_edit + pending-edits API', () => {
+  useFreshDb();
   let fixture: PersonalityFixture;
 
   beforeEach(() => {
@@ -536,7 +567,7 @@ describe('studio_propose_soul_edit + pending-edits API', () => {
     const app = await startApp(makePersonalityApiApp());
     try {
       const { status, body } = await getJson<{ edits: Array<{ id: string; soulName: string }> }>(
-        `${app.url}/api/personality/pending-edits`,
+        `${app.url}/api/personality`,
       );
       expect(status).toBe(200);
       expect(Array.isArray(body.edits)).toBe(true);
@@ -545,7 +576,7 @@ describe('studio_propose_soul_edit + pending-edits API', () => {
     } finally { await app.close(); }
   });
 
-  it('GET /api/personality/pending-edits/:id returns edit or 404', async () => {
+  it('GET /api/personality/edit/:id returns edit or 404', async () => {
     const { run } = await import('../../src/services/mcp/server/tools/studio/proposeSoulEdit.js');
     const created = await run({
       soulName: 'test-soul',
@@ -556,13 +587,13 @@ describe('studio_propose_soul_edit + pending-edits API', () => {
     const app = await startApp(makePersonalityApiApp());
     try {
       const { status, body } = await getJson<{ id: string; soulName: string }>(
-        `${app.url}/api/personality/pending-edits/${created.pendingEditId}`,
+        `${app.url}/api/personality/edit/${created.pendingEditId}`,
       );
       expect(status).toBe(200);
       expect(body.id).toBe(created.pendingEditId);
 
       const notFound = await getJson<{ error: string }>(
-        `${app.url}/api/personality/pending-edits/no-such-id`,
+        `${app.url}/api/personality/edit/no-such-id`,
       );
       expect(notFound.status).toBe(404);
     } finally { await app.close(); }
@@ -584,7 +615,7 @@ describe('studio_propose_soul_edit + pending-edits API', () => {
     const app = await startApp(makePersonalityApiApp());
     try {
       const del = await deleteReq<{ ok: boolean }>(
-        `${app.url}/api/personality/pending-edits/${created.pendingEditId}`,
+        `${app.url}/api/personality/edit/${created.pendingEditId}`,
       );
       expect(del.status).toBe(200);
       expect(del.body.ok).toBe(true);
@@ -598,7 +629,7 @@ describe('studio_propose_soul_edit + pending-edits API', () => {
 
       // Pending edit gone.
       const list = await getJson<{ edits: unknown[] }>(
-        `${app.url}/api/personality/pending-edits`,
+        `${app.url}/api/personality`,
       );
       expect(list.body.edits.length).toBe(0);
     } finally { await app.close(); }
@@ -616,8 +647,8 @@ describe('studio_propose_soul_edit + pending-edits API', () => {
     const app = await startApp(makePersonalityApiApp());
     try {
       const accept = await fetch(
-        `${app.url}/api/personality/pending-edits/${created.pendingEditId}/accept`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' } },
+        `${app.url}/api/personality/edit/${created.pendingEditId}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'accept' }) },
       );
       expect(accept.status).toBe(200);
       const result = await accept.json() as { ok: boolean };
@@ -630,7 +661,7 @@ describe('studio_propose_soul_edit + pending-edits API', () => {
 
       // Pending edit removed.
       const list = await getJson<{ edits: unknown[] }>(
-        `${app.url}/api/personality/pending-edits`,
+        `${app.url}/api/personality`,
       );
       expect(list.body.edits.length).toBe(0);
     } finally { await app.close(); }
@@ -648,8 +679,8 @@ describe('studio_propose_soul_edit + pending-edits API', () => {
     const app = await startApp(makePersonalityApiApp());
     try {
       const accept = await fetch(
-        `${app.url}/api/personality/pending-edits/${created.pendingEditId}/accept`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' } },
+        `${app.url}/api/personality/edit/${created.pendingEditId}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'accept' }) },
       );
       const result = await accept.json() as { ok: boolean };
       expect(result.ok).toBe(true);
@@ -678,8 +709,8 @@ describe('studio_propose_soul_edit + pending-edits API', () => {
     const app = await startApp(makePersonalityApiApp());
     try {
       const accept = await fetch(
-        `${app.url}/api/personality/pending-edits/${created.pendingEditId}/accept`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' } },
+        `${app.url}/api/personality/edit/${created.pendingEditId}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'accept' }) },
       );
       const result = await accept.json() as { ok: boolean };
       expect(result.ok).toBe(false);
@@ -705,8 +736,8 @@ describe('studio_propose_soul_edit + pending-edits API', () => {
     const app = await startApp(makePersonalityApiApp());
     try {
       await fetch(
-        `${app.url}/api/personality/pending-edits/${created.pendingEditId}/accept`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' } },
+        `${app.url}/api/personality/edit/${created.pendingEditId}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'accept' }) },
       );
 
       const backupsDir = join(fixture.dir, 'personalities', 'soul-backups');
@@ -715,5 +746,87 @@ describe('studio_propose_soul_edit + pending-edits API', () => {
       expect(backups.length).toBe(1);
       expect(backups[0]).toMatch(/test-soul\.md$/);
     } finally { await app.close(); }
+  });
+
+  // ---- Ambient soul context (chat wrapper auto-fills soulName) ----------
+
+  it('run() rejects when soulName is missing — external MCP path', async () => {
+    const { run } = await import('../../src/services/mcp/server/tools/studio/proposeSoulEdit.js');
+    const result = await run({
+      reason: 'External MCP client did not pass a soul name.',
+      proposedReplacement: 'whatever',
+    });
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('soulName is required');
+  });
+
+  it('chat wrapper auto-fills soulName from the active conversation', async () => {
+    const { createConversation } = await import('../../src/lib/db/chat.repo.js');
+    createConversation({
+      id: 'conv-with-test-soul',
+      title: 'fixture',
+      model: 'qwen3:14b',
+      created_at: Date.now(),
+      soul_name: 'test-soul',
+    });
+
+    const { getMcpToolsForChat } = await import('../../src/services/mcp/server/toolRegistry.js');
+    const tools = getMcpToolsForChat({ conversationId: 'conv-with-test-soul' });
+    const tool = tools['studio_propose_soul_edit'];
+    expect(tool).toBeDefined();
+
+    // Model omits soulName; wrapper must inject 'test-soul'.
+    const result = await tool!.tool.execute!(
+      {
+        reason: 'User asked the assistant to be more terse from now on.',
+        proposedReplacement: 'Keep answers tight; one short sentence is usually enough.',
+      },
+      {} as never,
+    );
+    const parsed = JSON.parse(result as string) as { ok: boolean; pendingEditId?: string };
+    expect(parsed.ok).toBe(true);
+    expect(typeof parsed.pendingEditId).toBe('string');
+
+    const pendingDir = join(fixture.dir, 'personalities', 'pending-soul-edits');
+    const files = readdirSync(pendingDir);
+    expect(files.length).toBe(1);
+    const raw = readFileSync(join(pendingDir, files[0]!), 'utf8');
+    const edit = JSON.parse(raw) as { soulName: string };
+    expect(edit.soulName).toBe('test-soul');
+  });
+
+  it('chat wrapper preserves an explicit soulName when the model passes one', async () => {
+    const { createConversation } = await import('../../src/lib/db/chat.repo.js');
+    createConversation({
+      id: 'conv-with-test-soul-2',
+      title: 'fixture',
+      model: 'qwen3:14b',
+      created_at: Date.now(),
+      soul_name: 'test-soul',
+    });
+
+    // Seed a SECOND soul so we can verify the wrapper doesn't overwrite the
+    // model's explicit choice with the conversation's active soul.
+    const soulsDir = join(fixture.dir, 'personalities', 'souls');
+    writeFileSync(join(soulsDir, 'second-soul.md'), '# Second soul\n');
+
+    const { getMcpToolsForChat } = await import('../../src/services/mcp/server/toolRegistry.js');
+    const tools = getMcpToolsForChat({ conversationId: 'conv-with-test-soul-2' });
+    const tool = tools['studio_propose_soul_edit']!;
+
+    await tool.tool.execute!(
+      {
+        soulName: 'second-soul',
+        reason: 'Model explicitly chose a different soul to edit.',
+        proposedReplacement: 'extra rule',
+      },
+      {} as never,
+    );
+
+    const pendingDir = join(fixture.dir, 'personalities', 'pending-soul-edits');
+    const files = readdirSync(pendingDir);
+    expect(files.length).toBe(1);
+    const edit = JSON.parse(readFileSync(join(pendingDir, files[0]!), 'utf8')) as { soulName: string };
+    expect(edit.soulName).toBe('second-soul');
   });
 });

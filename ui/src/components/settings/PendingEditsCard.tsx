@@ -2,18 +2,18 @@
 // The card is invisible when there are no pending edits (returns null), so
 // it can be unconditionally mounted above the souls list without leaving a
 // gap in normal usage.
+//
+// Reads the edits list from the shared system context (hydrated from
+// /api/system); accept/reject mutations call refreshSystem to re-read.
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { RefreshCw, GitMerge } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '../ui/card';
 import { Button } from '../ui/button';
 import { ButtonGroup } from '../ui/button-group';
 import { Badge } from '../ui/badge';
 import { api, type PendingEdit } from '../../services/comfyui';
-
-// Auto-poll interval in milliseconds. 30 s keeps the list fresh without
-// hammering a local file-based backend.
-const POLL_INTERVAL_MS = 30_000;
+import { useApp, useSystem } from '../../context/AppContext';
 
 // Relative time helper — avoids pulling in date-fns for a single use case.
 function relativeTime(unixMs: number): string {
@@ -59,7 +59,7 @@ function PendingEditRow({
   const handleAccept = async () => {
     setState({ busy: true, error: null, sectionMismatch: false });
     try {
-      const result = await api.personality.acceptPendingEdit(edit.id);
+      const result = await api.personality.acceptEdit(edit.id);
       if (!result.ok) {
         // The original section was not found in the soul body.
         setState({ busy: false, error: null, sectionMismatch: true });
@@ -79,7 +79,7 @@ function PendingEditRow({
   const handleReject = async () => {
     setState({ busy: true, error: null, sectionMismatch: false });
     try {
-      await api.personality.rejectPendingEdit(edit.id);
+      await api.personality.delete('edit', edit.id);
       onRemove(edit.id);
     } catch (err) {
       setState({
@@ -95,7 +95,7 @@ function PendingEditRow({
   const handleRetry = async () => {
     setState({ busy: true, error: null, sectionMismatch: false });
     try {
-      await api.personality.getPendingEdit(edit.id);
+      await api.personality.get('edit', edit.id);
       setState({ busy: false, error: null, sectionMismatch: false });
     } catch (err) {
       setState({
@@ -202,44 +202,23 @@ export interface PendingEditsCardProps {
 // ---- Main card ----
 
 export default function PendingEditsCard({ onSoulChanged }: PendingEditsCardProps) {
-  const [edits, setEdits] = useState<PendingEdit[]>([]);
-  const [loading, setLoading] = useState(true);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { personality } = useSystem();
+  const { refreshSystem } = useApp();
+  const [refreshing, setRefreshing] = useState(false);
 
-  const fetchEdits = useCallback(async () => {
-    // Don't throb the loading skeleton on background polls — only on the first
-    // fetch and on explicit manual refresh (handled below via setLoading(true)).
-    try {
-      const result = await api.personality.listPendingEdits();
-      setEdits(result.edits);
-    } catch (err) {
-      // Silently swallow poll errors; the list just stays stale rather than
-      // flashing an error on every background tick.
-      console.error('PendingEditsCard: fetch failed', err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const edits: PendingEdit[] = personality?.edits ?? [];
+  const loading = personality === null;
 
-  // Initial fetch + start poll on mount. Clear on unmount.
-  useEffect(() => {
-    void fetchEdits();
-    intervalRef.current = setInterval(() => { void fetchEdits(); }, POLL_INTERVAL_MS);
-    return () => {
-      if (intervalRef.current !== null) clearInterval(intervalRef.current);
-    };
-  }, [fetchEdits]);
-
-  const handleManualRefresh = () => {
-    setLoading(true);
-    void fetchEdits();
+  const handleManualRefresh = async () => {
+    setRefreshing(true);
+    try { await refreshSystem(); } finally { setRefreshing(false); }
   };
 
-  // Remove an edit from local state without a full re-fetch so the list
-  // updates instantly after accept/reject without a visible flicker.
-  const removeEdit = useCallback((id: string) => {
-    setEdits(prev => prev.filter(e => e.id !== id));
-  }, []);
+  // After accept/reject the row removes itself locally for instant feedback;
+  // refreshSystem fans out and the system context update reconciles state.
+  const removeEdit = useCallback((_id: string) => {
+    void refreshSystem();
+  }, [refreshSystem]);
 
   // Empty state: render nothing so the parent layout has no phantom gap.
   if (!loading && edits.length === 0) return null;
@@ -269,10 +248,10 @@ export default function PendingEditsCard({ onSoulChanged }: PendingEditsCardProp
             <Button
               variant="secondary"
               onClick={handleManualRefresh}
-              disabled={loading}
+              disabled={loading || refreshing}
               aria-label="Refresh pending edits"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${(loading || refreshing) ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
           </ButtonGroup>

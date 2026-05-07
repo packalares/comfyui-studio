@@ -8,7 +8,7 @@ import { logger } from '../../lib/logger.js';
 import * as repo from '../../lib/db/chat.repo.js';
 import * as settings from '../settings.js';
 import { emitChatEvent } from './broadcaster.js';
-import { TITLE_PROMPT } from './prompts.js';
+import { template as renderPrompt } from './promptsLoader.js';
 
 export interface AutoTitleArgs {
   conversationId: string;
@@ -33,7 +33,10 @@ export async function maybeAutoTitle(args: AutoTitleArgs): Promise<void> {
       || (args.userText.length > 0 && seeded.startsWith(args.userText.slice(0, 40)));
     if (!looksDefault) return;
 
-    const prompt = TITLE_PROMPT(args.userText, args.assistantText);
+    const prompt = renderPrompt('title', {
+      userText: args.userText.slice(0, 600),
+      assistantText: args.assistantText.slice(0, 600),
+    });
     const text = await callOllamaOneShot(args.baseUrl, args.model, prompt);
     const title = sanitizeTitle(text);
     if (!title) return;

@@ -15,7 +15,7 @@ import { ragUploadTool } from './ragUpload.js';
 import { generateImageTool } from './generateImage.js';
 import { getMcpToolsForChat } from '../../mcp/server/toolRegistry.js';
 import { snapshot as mcpClientSnapshot } from '../../mcp/client/snapshot.js';
-import { TOOL_LABELS, TOOL_LABEL_DESCRIPTIONS } from '../prompts.js';
+import { getToolLabels, getToolLabelDescriptions } from '../promptsLoader.js';
 import { logger } from '../../../lib/logger.js';
 import type { StudioTool } from './defineTool.js';
 
@@ -66,24 +66,27 @@ export async function getEnabledTools(ctx: ToolContext = {}): Promise<EnabledToo
     }
   }
 
-  // All 16 in-process MCP tools (10 comfy + 6 studio) — single source of truth
-  // in services/mcp/server/toolRegistry. Same defs feed Studio's MCP server.
+  // All in-process MCP tools — single source of truth in
+  // services/mcp/server/toolRegistry. Same defs feed Studio's MCP server.
   // Only tools explicitly set to `true` in enabledMcpTools reach the LLM.
+  // `conversationId` is forwarded so context-aware tools (e.g.
+  // `studio_propose_soul_edit`) can default args from the active soul.
   const enabledMcpTools = toolsSettings.getEnabledMcpTools();
-  const allMcpTools = getMcpToolsForChat();
+  const allMcpTools = getMcpToolsForChat({ conversationId: ctx.conversationId });
   for (const [name, tool] of Object.entries(allMcpTools)) {
     if (enabledMcpTools[name] === true) out[name] = tool;
   }
 
-  // External MCP servers (Context7, Crawl4AI, etc.) — only servers listed in
-  // the active profile surface their tools to the model. Failures here are
-  // non-fatal: chat continues without external tools.
+  // External MCP servers (Context7, Crawl4AI, etc.) surface through their
+  // own gate-stack: `server.enabled` → `mcpProfiles[default][serverId]` →
+  // tool. The `enabledMcpTools` map is reserved for in-process tools
+  // (`comfy_*`, `studio_*`) which have no profile to gate them. Re-applying
+  // it here would force users to hand-toggle a UI that doesn't exist for
+  // external tool names, so a server enabled in the modal would never
+  // reach the model. Trust the snapshot's profile filtering.
   try {
     const externalTools = await mcpClientSnapshot('studio-chat-default');
-    // Apply same enabledMcpTools gate to external (mcp__<server>__<name>) tools
-    for (const [name, tool] of Object.entries(externalTools)) {
-      if (enabledMcpTools[name] === true) out[name] = tool;
-    }
+    Object.assign(out, externalTools);
   } catch (err) {
     logger.warn('MCP client snapshot failed; external tools unavailable', {
       error: err instanceof Error ? err.message : String(err),
@@ -127,14 +130,17 @@ export interface ToolListing {
   description: string;
 }
 
-// Labels + descriptions live in `prompts.ts` so the LLM-facing tool
-// description and the human-facing UI description stay in one place.
+// Labels + descriptions live in `data/chat/default_prompts.md` so the
+// LLM-facing tool description and the human-facing UI description stay
+// in one place editable without a redeploy.
 export async function listAvailableTools(): Promise<ToolListing[]> {
   const names = await listEnabledToolNames();
+  const labels = getToolLabels();
+  const descriptions = getToolLabelDescriptions();
   return names.map((name) => ({
     name,
-    label: TOOL_LABELS[name],
-    description: TOOL_LABEL_DESCRIPTIONS[name],
+    label: labels[name],
+    description: descriptions[name],
   }));
 }
 

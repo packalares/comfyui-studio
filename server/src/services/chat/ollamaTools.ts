@@ -78,6 +78,18 @@ export async function toOllamaTools(
 }
 
 /**
+ * gpt-oss / Harmony models occasionally append channel markers like
+ * `<|channel|>commentary` or `<|return|>` to the tool-call function name
+ * (Harmony format leaking through the parser). Strip everything from the
+ * first `<|` onward so name lookup matches the registered tool.
+ */
+function sanitizeToolCallName(name: string): string {
+  const i = name.indexOf('<|');
+  const cleaned = i >= 0 ? name.slice(0, i) : name;
+  return cleaned.trim();
+}
+
+/**
  * Best-effort extraction of `tool_calls` from a streamed Ollama frame. The
  * field is optional and only present on the final assistant frame when the
  * model decided to call a tool.
@@ -93,8 +105,10 @@ export function extractToolCalls(frame: unknown): OllamaToolCall[] {
     if (!c || typeof c !== 'object') continue;
     const fn = (c as { function?: unknown }).function;
     if (!fn || typeof fn !== 'object') continue;
-    const name = (fn as { name?: unknown }).name;
-    if (typeof name !== 'string' || name.length === 0) continue;
+    const rawName = (fn as { name?: unknown }).name;
+    if (typeof rawName !== 'string' || rawName.length === 0) continue;
+    const name = sanitizeToolCallName(rawName);
+    if (name.length === 0) continue;
     const args = (fn as { arguments?: unknown }).arguments;
     out.push({ function: { name, arguments: args } });
   }

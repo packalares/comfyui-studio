@@ -277,10 +277,30 @@ async function start() {
   );
   snapshotSweepTimer.unref();
 
+  // Validate the bundled chat prompts file at boot — every required key
+  // must resolve, otherwise the chat path will silently fall back to ''.
+  try {
+    const { validatePromptsFile } = await import('./services/chat/promptsLoader.js');
+    validatePromptsFile();
+  } catch (err) {
+    logger.warn('promptsLoader: validation failed', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   // Boot the MCP client registry so external MCP servers (Context7, etc.)
   // get connected during startup and their tools are available on the very
   // first chat turn. Failures are non-fatal — chat works without them.
   try {
+    // One-shot rewrite of legacy `mcp__<UUID>__<tool>` keys in
+    // enabledMcpTools to the new slug-based `mcp__<slug>__<tool>` form.
+    // Idempotent: only writes when at least one key changes.
+    const { migrateEnabledMcpToolKeys } = await import('./services/settings.mcp.js');
+    const rewrites = migrateEnabledMcpToolKeys();
+    if (rewrites > 0) {
+      logger.info(`migrated ${rewrites} enabledMcpTools keys from server UUID to slug form`);
+    }
+
     const { getRegistry } = await import('./services/mcp/client/index.js');
     await getRegistry().boot();
   } catch (err) {

@@ -31,6 +31,16 @@ import type { DraftOverrides } from '../../pages/Chat';
 interface Props {
   conversationId: string | null;
   model: string;
+  /** Server-computed usage embedded in the conv hydrate response. Used as
+   *  the initial meter state on conv-switch — eliminates a round-trip; the
+   *  meter still re-fetches on post-turn events and explicit refresh signals. */
+  initialUsage: ChatUsageState | null;
+  /** Monotonically-incrementing trigger to force a /usage refresh — bumped by
+   *  the parent on user-initiated model picks. The meter doesn't auto-detect
+   *  mismatches between serverUsage.model and the picker's current model
+   *  because that races with the loadedConvModel snap and would fire spurious
+   *  fetches during conv-switch. */
+  usageVersion: number;
   /** Pre-chat overrides — when no conversation exists, the popover writes
    *  here instead of calling the per-conv API endpoints. Folded into
    *  `api.chat.start` on first send (see Chat.tsx + StudioTransport). */
@@ -94,13 +104,21 @@ function textColorFor(warning: ChatUsageState['warning'] | undefined): string {
 }
 
 export default function ContextMeter({
-  conversationId, model, draftOverrides, onDraftOverrideChange,
+  conversationId, model, initialUsage, usageVersion,
+  draftOverrides, onDraftOverrideChange,
   soulName, onSoulNameChange,
 }: Props) {
   const [serverUsage, setServerUsage] = useState<ChatUsageState | null>(null);
   const [compacting, setCompacting] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const { chat: chatDefaults } = useApp();
+
+  // Seed serverUsage from the conv hydrate response on conv-switch — saves
+  // the round-trip the meter used to do. Re-runs whenever conversationId
+  // changes, which is precisely when initialUsage is freshly delivered.
+  useEffect(() => {
+    setServerUsage(initialUsage);
+  }, [conversationId, initialUsage]);
 
   const refresh = useCallback(() => {
     if (!conversationId || !model) {
@@ -145,11 +163,22 @@ export default function ContextMeter({
   // unchanged.
   const usage = conversationId ? serverUsage : draftUsage;
 
-  useEffect(() => { refresh(); }, [refresh]);
+  // Explicit refresh signal from the parent — bumped on user-initiated model
+  // picks. Skips the initial render (version=0) so conv-switch doesn't fetch.
+  useEffect(() => {
+    if (usageVersion === 0) return;
+    refresh();
+  }, [usageVersion, refresh]);
 
   useEffect(() => {
     if (!conversationId) return;
-    return chatEvents.onDone(() => { refresh(); });
+    return chatEvents.onDone((p) => {
+      // Server pushes the freshly recomputed usage in the done envelope;
+      // adopt it directly. Falls back to a fetch when the server omitted it
+      // (upstream /api/show failed) so the meter still recovers.
+      if (p.usage) setServerUsage(p.usage);
+      else refresh();
+    });
   }, [conversationId, refresh]);
 
   // Always render — when no conversation / model / usage data we show 0%

@@ -13,7 +13,7 @@ import { Suggestion } from '../components/ai-elements/suggestion';
 import { Card } from '../components/ui/card';
 import {
   api, ApiError, type OllamaInstalledModel,
-  type ChatContextStrategy,
+  type ChatContextStrategy, type ChatUsageState,
 } from '../services/comfyui';
 import { chatEvents } from '../services/chatEvents';
 import {
@@ -27,7 +27,7 @@ import {
   buildUserUIMessageParts, chatMessageToUIMessage,
   type StudioUIMessage,
 } from '../components/chat/studioMessages';
-import { EMPTY_STATE_PROMPTS } from '../config/chat-suggestions';
+import { useSystem } from '../context/AppContext';
 
 // Pre-chat overrides — collected by the ContextMeter popover before any
 // conversation exists. Folded into `api.chat.start` on the first send
@@ -43,10 +43,10 @@ export interface DraftOverrides {
   soulName?: string | null;
 }
 
-// `EMPTY_STATE_PROMPTS` is imported at the top of this file from
-// `../config/chat-suggestions` and renders as the empty-state hero pills.
+// Empty-state pills are read from system context (system.chat.suggestions.emptyState)
+// which the server hydrates from server/data/chat/default_prompts.md.
 
-const LAST_CHAT_KEY = 'chat:lastConversationId';
+export const LAST_CHAT_KEY = 'chat:lastConversationId';
 
 export default function Chat() {
   // URL is the source of truth for which conversation is active. /chat (no
@@ -55,11 +55,28 @@ export default function Chat() {
   const { chatId } = useParams<{ chatId?: string }>();
   const navigate = useNavigate();
   const conversationId = chatId ?? null;
+  // Empty-state hero pills come from `system.chat.suggestions.emptyState`,
+  // populated server-side from `data/chat/default_prompts.md`.
+  const { chat: chatSettings } = useSystem();
+  const emptyStatePrompts = chatSettings?.suggestions?.emptyState ?? [];
   const [installed, setInstalled] = useState<OllamaInstalledModel[]>([]);
   // True until the first installed-models fetch resolves (success or error).
   // The composer shows a skeleton in the model-picker pill during this window
   // so the user never sees a flash of "No models installed" → real model name.
   const [installedLoading, setInstalledLoading] = useState(true);
+  // Capabilities map derived from the installed list (server attaches
+  // `capabilities` per row by joining with the cached ollama_library table).
+  // Keyed by base name (`gemma3`, not `gemma3:7b`) to match how downstream
+  // consumers look up vision/tools/etc. Empty values omitted so absent ===
+  // unknown (the modelIsVisionCapable helper treats missing as no-vision).
+  const libraryCaps = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const m of installed) {
+      const base = m.name.split(':')[0] ?? m.name;
+      if (m.capabilities && m.capabilities.length > 0) map[base] = m.capabilities;
+    }
+    return map;
+  }, [installed]);
   const [model, setModel] = useState<string>('');
   const [streamError, setStreamError] = useState<string>('');
   const [listKey, setListKey] = useState(0);
@@ -71,10 +88,6 @@ export default function Chat() {
   // Pending attachments staged in the composer + appended via drag-drop on
   // the thread. Owned here so both children read the same source of truth.
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
-  // Capabilities map (basename -> ['vision', ...]) sourced from the chat
-  // library endpoint. Used by the composer for an authoritative vision
-  // check before falling back to the name-pattern heuristic.
-  const [libraryCaps, setLibraryCaps] = useState<Record<string, string[]>>({});
   // Opt-in iframe previews for plain URLs in assistant text. Off by default —
   // automatic embedding can feel aggressive and some sites X-Frame-deny which
   // produces a blank iframe. Persisted in localStorage so the toggle sticks.
@@ -141,25 +154,15 @@ export default function Chat() {
   const draftOverridesRef = useRef<DraftOverrides>({});
   useEffect(() => { draftOverridesRef.current = draftOverrides; }, [draftOverrides]);
 
-  // /chat (no chatId) → redirect to last-opened conversation if we have one
-  // saved, else stay on the empty-state page. Verifies the stored id still
-  // exists on the server before redirecting; a deleted conv falls through
-  // to the empty state. Runs once on mount when chatId is undefined.
+  // /chat (no chatId) → optimistically redirect to the last-opened conversation.
+  // If that id was deleted (other tab, another device), the hydrate effect below
+  // catches the 404, clears LAST_CHAT_KEY, and bounces back to /chat. Runs once
+  // on mount; "New chat" navigates to /chat without a stored id so this no-ops.
   useEffect(() => {
     if (chatId !== undefined) return;
     if (typeof window === 'undefined') return;
     const last = window.localStorage.getItem(LAST_CHAT_KEY);
-    if (!last) return;
-    let cancelled = false;
-    api.chat.getConversation(last)
-      .then(() => { if (!cancelled) navigate(`/chat/c/${last}`, { replace: true }); })
-      .catch(() => {
-        // Stale id — drop it so we don't keep retrying on every /chat visit.
-        try { window.localStorage.removeItem(LAST_CHAT_KEY); } catch { /* ignore */ }
-      });
-    return () => { cancelled = true; };
-    // Intentionally only on mount — we don't want to re-redirect after the
-    // user explicitly clicks "New chat" (which navigates to /chat).
+    if (last) navigate(`/chat/c/${last}`, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -226,18 +229,6 @@ export default function Chat() {
     api.getSystemStats()
       .then(s => { if (s.chat?.defaultModel) setModel(s.chat.defaultModel); })
       .catch(() => { /* picker shows installed list */ });
-  }, []);
-
-  useEffect(() => {
-    // Best-effort. The library endpoint may be slow / unreachable when the
-    // upstream catalog is down — we just fall through to the heuristic.
-    api.chat.listLibrary()
-      .then(({ items }) => {
-        const map: Record<string, string[]> = {};
-        for (const m of items) map[m.name] = m.capabilities;
-        setLibraryCaps(map);
-      })
-      .catch(() => { /* heuristic fallback in attachments.ts */ });
   }, []);
 
   const refreshInstalled = useCallback(() => {
@@ -307,19 +298,28 @@ export default function Chat() {
     }
   }, [ollamaUnreachable, refreshInstalled]);
 
+  // Conv-saved model name, set when the load resolves. Held separately from
+  // the active `model` state so the model-snap effect below can re-run when
+  // `installed` arrives without re-triggering the load.
+  const [loadedConvModel, setLoadedConvModel] = useState<string | null>(null);
+  // Initial ContextMeter state, embedded in the conv hydrate response so the
+  // meter can render without its own /usage round-trip. ContextMeter resets
+  // its internal state to this on conv-switch.
+  const [initialUsage, setInitialUsage] = useState<ChatUsageState | null>(null);
+  // Increments to signal the meter to refetch /usage. Bumped only by explicit
+  // user actions (model picker change). Conv-switch + post-turn use other
+  // paths (initialUsage seed, chat:done WS payload) and do NOT fire HTTP.
+  const [usageVersion, setUsageVersion] = useState(0);
+
   // Hydrate useChat's messages whenever the user picks a different
   // conversation. `setMessages` is the canonical reset path; we don't switch
   // useChat's internal `id` because that would also reset transport
   // refs / callback wiring.
-  //
-  // Also snap the model picker to the conversation's saved model so the
-  // context meter / next-send goes to the model the user actually used in
-  // that chat. Falls through to the current selection when the saved model
-  // is no longer installed (the user can pick one manually; we don't want
-  // to nag with toasts).
   useEffect(() => {
     if (!conversationId) {
       setMessages([]);
+      setLoadedConvModel(null);
+      setInitialUsage(null);
       return;
     }
     let cancelled = false;
@@ -330,9 +330,8 @@ export default function Chat() {
       .then(([conv, { items }]) => {
         if (cancelled) return;
         setMessages(items.map(chatMessageToUIMessage));
-        if (conv.model && installed.some(m => m.name === conv.model)) {
-          setModel(conv.model);
-        }
+        setLoadedConvModel(conv.model ?? null);
+        setInitialUsage(conv.usage ?? null);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -340,6 +339,8 @@ export default function Chat() {
         // the messages list, drop the persisted last-chat id so /chat won't
         // bounce back here, and redirect to the empty-state.
         setMessages([]);
+        setLoadedConvModel(null);
+        setInitialUsage(null);
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes('404') || msg.toLowerCase().includes('not found')) {
           try { window.localStorage.removeItem(LAST_CHAT_KEY); } catch { /* ignore */ }
@@ -347,7 +348,35 @@ export default function Chat() {
         }
       });
     return () => { cancelled = true; };
-  }, [conversationId, setMessages, installed, navigate]);
+  }, [conversationId, setMessages, navigate]);
+
+  // Snap the model picker to the conversation's saved model. Runs whenever
+  // the loaded conv changes OR `installed` arrives — guarded by a presence
+  // check so we never set a model the user can't reach. Split out of the
+  // hydrate effect so the conv + messages aren't re-fetched when `installed`
+  // resolves on first paint.
+  useEffect(() => {
+    if (!loadedConvModel) return;
+    if (installed.some(m => m.name === loadedConvModel)) {
+      setModel(loadedConvModel);
+    }
+  }, [loadedConvModel, installed]);
+
+  // Persist model picks to the conv row so the choice sticks across refreshes.
+  // Pre-chat (no conversationId yet) only sets local state — the conv doesn't
+  // exist until the first send, which folds the model into createConversation.
+  // Bumps usageVersion so the meter re-fetches /usage with the new model.
+  const handleModelChange = useCallback((next: string) => {
+    setModel(next);
+    if (!conversationId) return;
+    if (next === loadedConvModel) return;
+    api.chat.renameConversation(conversationId, { model: next })
+      .then(() => {
+        setLoadedConvModel(next);
+        setUsageVersion(v => v + 1);
+      })
+      .catch(() => { /* meter stays optimistic; next refresh reconciles */ });
+  }, [conversationId, loadedConvModel]);
 
   // Auto-title broadcast updates the sidebar without a refetch.
   useEffect(() => {
@@ -502,6 +531,8 @@ export default function Chat() {
                   <ContextMeter
                     conversationId={conversationId}
                     model={model}
+                    initialUsage={initialUsage}
+                    usageVersion={usageVersion}
                     draftOverrides={draftOverrides}
                     onDraftOverrideChange={(patch) => setDraftOverrides(prev => ({ ...prev, ...patch }))}
                     soulName={soulName}
@@ -527,7 +558,7 @@ export default function Chat() {
                     installed={installed}
                     installedLoading={installedLoading || ollamaUnreachable}
                     model={model}
-                    onModelChange={setModel}
+                    onModelChange={handleModelChange}
                     busy={busy}
                     onSend={handleSend}
                     onStop={handleStop}
@@ -558,7 +589,7 @@ export default function Chat() {
                       installed={installed}
                       installedLoading={installedLoading || ollamaUnreachable}
                       model={model}
-                      onModelChange={setModel}
+                      onModelChange={handleModelChange}
                       busy={busy}
                       onSend={handleSend}
                       onStop={handleStop}
@@ -577,7 +608,7 @@ export default function Chat() {
                     />
                   </div>
                   <div className="flex max-w-4xl flex-wrap justify-center gap-2">
-                    {EMPTY_STATE_PROMPTS.map(p => (
+                    {emptyStatePrompts.map(p => (
                       <Suggestion
                         key={p}
                         suggestion={p}

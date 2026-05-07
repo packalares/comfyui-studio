@@ -601,6 +601,11 @@
   .field-stepper {
     @apply shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40;
   }
+  /* Browser-rendered "Choose File" button inside <input type="file">.
+     Applied conditionally by `<Input>` only when type === 'file'. */
+  .field-input-file-button {
+    @apply file:inline-flex file:h-6 file:border-0 file:bg-transparent file:px-2 file:text-[12px] file:font-medium file:text-foreground file:cursor-pointer hover:file:bg-muted;
+  }
   .info-box {
     @apply rounded-lg bg-muted px-3 py-2 ring-1 ring-inset ring-border text-xs text-muted-foreground;
   }

@@ -29,12 +29,22 @@ vi.mock('../../src/services/mcp/client/index.js', () => ({
   }),
 }));
 
-// ---- Mock settings (profiles) ---------------------------------------------
+// ---- Mock settings (profiles + servers) -----------------------------------
 
 let mockProfiles: Record<string, Profile> = {};
+const mockServers = [
+  { id: 'server-a', name: 'server-a', transport: 'http' as const, url: 'x', enabled: true },
+  { id: 'server-b', name: 'server-b', transport: 'http' as const, url: 'y', enabled: true },
+];
 
 vi.mock('../../src/services/settings.mcp.js', () => ({
   getMcpProfiles: () => mockProfiles,
+  // Server name == id in this fixture so slug(name) === id (the profile keys
+  // and the tool-key slug share the same literal). Real installs use a UUID
+  // for `id` and a human name for `name`; that mapping is exercised in the
+  // dedicated mcpSettings.slug.test.ts file.
+  getMcpServers: () => mockServers,
+  slugifyServerName: (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
   DEFAULT_PROFILE_NAME: 'studio-chat-default',
 }));
 

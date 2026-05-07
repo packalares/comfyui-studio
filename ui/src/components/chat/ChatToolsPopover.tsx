@@ -4,20 +4,15 @@
 // owned by the parent (`Chat.tsx`) and persisted in localStorage so it
 // sticks across reloads — a `null` selection means "every configured tool",
 // which is the legacy behavior before this control existed.
+// Tool list comes from the shared system context (chat.tools.availableTools).
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Wrench, Globe, BookOpen, ImagePlus, Upload } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import {
   Popover, PopoverContent, PopoverTrigger,
 } from '../ui/popover';
-import { api } from '../../services/comfyui';
-
-export interface ChatToolListing {
-  name: string;
-  label: string;
-  description: string;
-}
+import { useSystem } from '../../context/AppContext';
 
 interface Props {
   /** null = no filter (every configured tool). string[] = explicit allow-list. */
@@ -33,15 +28,10 @@ const ICON: Record<string, React.ComponentType<{ className?: string }>> = {
 };
 
 export default function ChatToolsPopover({ enabled, onChange }: Props) {
-  const [items, setItems] = useState<ChatToolListing[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const { chat } = useSystem();
   const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    api.chat.listTools()
-      .then(({ items }) => { setItems(items); setLoaded(true); })
-      .catch(() => { setItems([]); setLoaded(true); });
-  }, []);
+  const items = chat?.tools.availableTools ?? [];
+  const loaded = chat !== null;
 
   // Hide the entire control when no tools are configured server-side — there's
   // nothing for the user to toggle and the button would just confuse.

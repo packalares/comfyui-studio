@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Pencil, Trash2, FlaskConical, Terminal, Globe } from 'lucide-react';
+import { Spinner } from '../ui/spinner';
 import { toast } from 'sonner';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -123,7 +124,9 @@ export default function McpServerCard({ server, onEdit, onDelete, onStatusChange
                 disabled={testing}
                 onClick={handleTest}
               >
-                <FlaskConical className={`h-3.5 w-3.5 ${testing ? 'animate-pulse' : ''}`} />
+                {testing
+                  ? <Spinner size="sm" />
+                  : <FlaskConical className="h-3.5 w-3.5" />}
               </Button>
             </TooltipTrigger>
             <TooltipContent>Test connection</TooltipContent>

@@ -11,7 +11,6 @@ describe('chat repo', () => {
       id: 'c1',
       title: 'My chat',
       model: 'llama3.3',
-      system_prompt: null,
       created_at: now,
       updated_at: now,
     });
@@ -19,7 +18,7 @@ describe('chat repo', () => {
     expect(got).not.toBeNull();
     expect(got?.title).toBe('My chat');
     expect(got?.model).toBe('llama3.3');
-    expect(got?.system_prompt).toBeNull();
+    expect(got?.soul_name).toBeNull();
   });
 
   it('listConversations sorts by updated_at desc', () => {

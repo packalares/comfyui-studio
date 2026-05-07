@@ -17,14 +17,7 @@ import { enumerateTemplateWidgets } from '../../workflow/index.js';
 import { fetchTemplateWorkflow } from '../../templates/dependencyCheck.js';
 import { logger } from '../../../lib/logger.js';
 import { submitTemplate } from '../../templates/submitTemplate.js';
-import {
-  TOOL_DESCRIPTION_GENERATE_IMAGE,
-  GENERATE_IMAGE_QUEUED_RESULT,
-  GENERATE_IMAGE_PROMPT_FIELD_NOTE,
-  GENERATE_IMAGE_NO_FIELD_NOTE,
-  GENERATE_IMAGE_FAILED_PREFIX,
-  GENERATE_IMAGE_NO_TEMPLATE_ERROR,
-} from '../prompts.js';
+import { get, template as renderPrompt } from '../promptsLoader.js';
 
 export interface GenerateImageConfig {
   /** Template name to use when the LLM omits one. Empty = no default. */
@@ -82,7 +75,8 @@ async function buildPerTemplateDescription(templateName: string): Promise<string
   const cached = descriptionCache.get(templateName);
   if (cached && cached.expiresAt > now) return cached.value;
 
-  let value = TOOL_DESCRIPTION_GENERATE_IMAGE;
+  const baseDescription = get('tool-description.generate-image');
+  let value = baseDescription;
   try {
     const workflow = await fetchTemplateWorkflow(templateName);
     if (workflow) {
@@ -103,7 +97,7 @@ async function buildPerTemplateDescription(templateName: string): Promise<string
         json[w.widgetName] = entry;
       }
       if (Object.keys(json).length > 0) {
-        value = TOOL_DESCRIPTION_GENERATE_IMAGE
+        value = baseDescription
           + '\n\nOverridable fields for the active template (set any of these '
           + 'as args when the user requests them; omit to use the default):\n'
           + JSON.stringify(json);
@@ -158,7 +152,7 @@ export async function generateImageTool(config: GenerateImageConfig) {
       // see commit history / inputSchema docs for context.
       const templateName = (config.defaultTemplate ?? '').trim();
       if (!templateName) {
-        return GENERATE_IMAGE_NO_TEMPLATE_ERROR;
+        return get('generate-image.no-template-error');
       }
       // Execute-time readiness gate. Authoritative async check that backstops
       // the registration-time gate in tools/index.ts. Both gates run the same
@@ -186,9 +180,9 @@ export async function generateImageTool(config: GenerateImageConfig) {
           },
         });
         const fieldNote = out.fieldId
-          ? GENERATE_IMAGE_PROMPT_FIELD_NOTE(out.fieldId)
-          : GENERATE_IMAGE_NO_FIELD_NOTE;
-        const text = GENERATE_IMAGE_QUEUED_RESULT({
+          ? renderPrompt('generate-image.prompt-field-note', { fieldId: out.fieldId })
+          : get('generate-image.no-field-note');
+        const text = renderPrompt('generate-image.queued-result', {
           templateName: out.templateName,
           promptId: out.promptId,
           fieldNote,
@@ -197,7 +191,7 @@ export async function generateImageTool(config: GenerateImageConfig) {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         logger.warn('generate_image tool failed', { template: templateName, error: msg });
-        return GENERATE_IMAGE_FAILED_PREFIX + msg;
+        return get('generate-image.failed-prefix') + msg;
       }
     },
   });

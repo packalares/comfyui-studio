@@ -4,6 +4,7 @@ import { Plus, Trash2, MessageSquare, MoreHorizontal, Pin, PinOff, Pencil } from
 import { toast } from 'sonner';
 import { api, type ChatConversation } from '../../services/comfyui';
 import { chatEvents } from '../../services/chatEvents';
+import { LAST_CHAT_KEY } from '../../pages/Chat';
 import { Button } from '../ui/button';
 import { ButtonGroup } from '../ui/button-group';
 import { CardHeader } from '../ui/card';
@@ -186,7 +187,12 @@ export default function ConversationList({ activeId, refreshKey, onSelect, onNew
       await api.chat.deleteConversation(id);
       setItems(prev => prev.filter(c => c.id !== id));
       setTotal(t => Math.max(0, t - 1));
-      if (activeId === id) onSelect(null);
+      if (activeId === id) {
+        // Clear the persisted last-id so a subsequent /chat visit doesn't
+        // bounce back to the deleted conversation.
+        try { window.localStorage.removeItem(LAST_CHAT_KEY); } catch { /* ignore */ }
+        onSelect(null);
+      }
       setPendingDelete(null);
     } catch (err) {
       toast.error('Failed to delete conversation', {
@@ -201,6 +207,7 @@ export default function ConversationList({ activeId, refreshKey, onSelect, onNew
       setItems([]);
       setTotal(0);
       setHasMore(false);
+      try { window.localStorage.removeItem(LAST_CHAT_KEY); } catch { /* ignore */ }
       onSelect(null);
       setDeleteAllOpen(false);
     } catch (err) {

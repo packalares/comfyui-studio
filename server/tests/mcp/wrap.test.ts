@@ -8,10 +8,21 @@ import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js';
 // ---- namespacedToolName ---------------------------------------------------
 
 describe('namespacedToolName', () => {
-  it('produces mcp__<serverId>__<toolName>', () => {
-    expect(namespacedToolName('ctx7', 'resolve-library-id')).toBe(
-      'mcp__ctx7__resolve-library-id',
+  it('produces mcp__<serverSlug>__<toolName> with hyphens normalised to underscores', () => {
+    // Hyphens in MCP tool names round-trip badly through gpt-oss / Harmony,
+    // so we ship underscored names to inference servers. The upstream MCP
+    // call still uses the original tool name (see wrapMcpTool's executor).
+    expect(namespacedToolName('context7', 'resolve-library-id')).toBe(
+      'mcp__context7__resolve_library_id',
     );
+  });
+
+  it('normalises hyphens in the slug too', () => {
+    expect(namespacedToolName('context-7', 'a-b-c')).toBe('mcp__context_7__a_b_c');
+  });
+
+  it('passes through already-underscored names unchanged', () => {
+    expect(namespacedToolName('studio', 'remember')).toBe('mcp__studio__remember');
   });
 });
 
@@ -101,14 +112,14 @@ describe('wrapMcpTool', () => {
 
   it('returns a StudioTool with unloadGpuOnUse false', () => {
     const executor = vi.fn().mockResolvedValue('result');
-    const studioTool = wrapMcpTool('srv1', mcpTool, executor);
+    const studioTool = wrapMcpTool(mcpTool, executor);
     expect(studioTool.unloadGpuOnUse).toBe(false);
     expect(studioTool.tool).toBeDefined();
   });
 
   it('execute forwards args to executor', async () => {
     const executor = vi.fn().mockResolvedValue('found');
-    const studioTool = wrapMcpTool('srv1', mcpTool, executor);
+    const studioTool = wrapMcpTool(mcpTool, executor);
     const result = await studioTool.tool.execute!({ query: 'hello' }, {} as never);
     expect(executor).toHaveBeenCalledWith('search', { query: 'hello' });
     expect(result).toBe('found');
@@ -116,7 +127,7 @@ describe('wrapMcpTool', () => {
 
   it('execute returns error string on executor failure', async () => {
     const executor = vi.fn().mockRejectedValue(new Error('timeout'));
-    const studioTool = wrapMcpTool('srv1', mcpTool, executor);
+    const studioTool = wrapMcpTool(mcpTool, executor);
     const result = await studioTool.tool.execute!({ query: 'hi' }, {} as never);
     expect(typeof result).toBe('string');
     expect(result as string).toContain('timeout');

@@ -1,9 +1,9 @@
 // Slash-command popover for the chat composer.
 // Opens when the textarea value matches /^\/(\w*)$/ (slash at start, nothing else).
 // Uses the shadcn Command primitive for fuzzy search + keyboard navigation.
-// Fetches /api/commands once on mount and caches for the lifetime of this component.
+// Reads the commands list from the shared system context (already hydrated
+// from /api/system at app boot); no per-mount fetch.
 
-import { useEffect, useState, useRef } from 'react';
 import {
   Command,
   CommandEmpty,
@@ -13,8 +13,7 @@ import {
   CommandList,
 } from '../ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
-import type { CommandSummary } from '../../services/comfyui';
-import { api } from '../../services/comfyui';
+import { useSystem } from '../../context/AppContext';
 
 interface Props {
   open: boolean;
@@ -27,17 +26,8 @@ interface Props {
 }
 
 export default function SlashMenu({ open, query, onSelect, onClose, children }: Props) {
-  const [commands, setCommands] = useState<CommandSummary[]>([]);
-  const fetched = useRef(false);
-
-  // Fetch once per mount; subsequent opens reuse the cached list.
-  useEffect(() => {
-    if (fetched.current) return;
-    fetched.current = true;
-    api.commands.list()
-      .then(r => setCommands(r.commands))
-      .catch(() => { /* non-fatal; menu shows empty state */ });
-  }, []);
+  const { personality } = useSystem();
+  const commands = personality?.commands ?? [];
 
   return (
     <Popover open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
@@ -77,9 +67,9 @@ export default function SlashMenu({ open, query, onSelect, onClose, children }: 
                   <span className="truncate text-muted-foreground flex-1">
                     {cmd.description}
                   </span>
-                  {cmd.argument_hint && (
+                  {cmd.argumentHint && (
                     <span className="shrink-0 text-[10px] text-muted-foreground/60 italic">
-                      {cmd.argument_hint}
+                      {cmd.argumentHint}
                     </span>
                   )}
                 </CommandItem>

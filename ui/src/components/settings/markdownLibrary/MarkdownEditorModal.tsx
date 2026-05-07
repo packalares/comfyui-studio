@@ -12,6 +12,7 @@ import { Save, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import AppModal from '../../modals/AppModal';
 import { Button } from '../../ui/button';
+import { Input } from '../../ui/input';
 import ConfirmDialog from '../../modals/ConfirmDialog';
 
 export interface MarkdownEditorModalProps {
@@ -158,9 +159,7 @@ export default function MarkdownEditorModal({
       >
         <div className="space-y-4">
           {loadError && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2">
-              <p className="text-xs text-destructive">{loadError}</p>
-            </div>
+            <div className="alert-destructive text-xs">{loadError}</div>
           )}
 
           {/* Name field — locked in edit mode because renaming would orphan
@@ -169,15 +168,15 @@ export default function MarkdownEditorModal({
             <label className="field-label mb-1 block">
               Name <span className="text-destructive">*</span>
             </label>
-            <input
+            <Input
               type="text"
-              className={`field-input w-full rounded-md border px-2.5 py-1.5 text-sm ${nameError ? 'border-destructive' : 'border-input'}`}
               value={name}
               onChange={e => handleNameChange(e.target.value)}
               placeholder={namePlaceholder}
               disabled={busy || loading || isEdit}
               spellCheck={false}
               autoFocus={!isEdit}
+              aria-invalid={nameError ? true : undefined}
             />
             {nameError && (
               <p className="mt-1 text-xs text-destructive">{nameError}</p>

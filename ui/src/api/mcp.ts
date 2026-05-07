@@ -1,7 +1,9 @@
-// MCP server API client — plain fetch, no TanStack Query (not in this project).
-// Mirrors the pattern in services/comfyui.ts: fetchJson wrapper, typed error.
+// MCP server API client. Thin domain wrapper around the shared `fetchJson` in
+// `services/comfyui.ts` — same `/api` prefix, same error class, same in-flight
+// GET dedupe. This file owns the URL paths and response shapes; transport
+// concerns live next door.
 
-const BASE = '/api/mcp';
+import { fetchJson } from '../services/comfyui';
 
 export interface McpServerStatus {
   state: 'connected' | 'disconnected' | 'error';
@@ -29,60 +31,70 @@ export interface McpTestResult {
   error?: string;
 }
 
-class McpApiError extends Error {
-  readonly status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.name = 'McpApiError';
-    this.status = status;
-  }
+// The GET /api/mcp/servers wire shape nests runtime status under the key
+// `state` (e.g. { status: 'connected', toolCount: 2, lastError?: string })
+// while the UI domain uses `status` with the connection state under `state`.
+// Both keys are flipped at both levels — server wire `state.status` becomes
+// UI `status.state`. POST/PUT return `{ server: {...} }` without runtime
+// fields. All variants are normalised here so the rest of the UI only ever
+// sees McpServerConfig.
+interface WireServerState {
+  status: 'connected' | 'disconnected' | 'error' | 'connecting';
+  toolCount?: number;
+  lastError?: string;
+}
+interface RawServerItem extends Omit<McpServerConfig, 'status'> {
+  state?: WireServerState;
 }
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  });
-  if (!res.ok) {
-    let msg = `${res.status} ${res.statusText}`;
-    try {
-      const data = await res.json();
-      if (data && typeof data === 'object' && typeof data.error === 'string') {
-        msg = data.error;
-      }
-    } catch { /* ignore */ }
-    throw new McpApiError(res.status, msg);
-  }
-  return res.json() as Promise<T>;
+function normalizeServer(raw: RawServerItem): McpServerConfig {
+  const { state, ...rest } = raw;
+  if (!state) return rest;
+  // Treat 'connecting' as 'disconnected' for UI purposes — the badge has no
+  // dedicated visual for it, and it's a transient that resolves quickly.
+  const uiState: McpServerStatus['state'] =
+    state.status === 'connected' ? 'connected'
+    : state.status === 'error' ? 'error'
+    : 'disconnected';
+  return {
+    ...rest,
+    status: {
+      state: uiState,
+      toolCount: state.toolCount,
+      lastError: state.lastError,
+    },
+  };
 }
 
 export async function getMcpServers(): Promise<McpServerConfig[]> {
-  const data = await fetchJson<{ servers: McpServerConfig[] }>(`${BASE}/servers`);
-  return data.servers;
+  const data = await fetchJson<{ servers: RawServerItem[] }>('/mcp/servers');
+  return data.servers.map(normalizeServer);
 }
 
 export async function addMcpServer(input: McpServerInput): Promise<McpServerConfig> {
-  return fetchJson<McpServerConfig>(`${BASE}/servers`, {
+  const data = await fetchJson<{ server: RawServerItem }>('/mcp/servers', {
     method: 'POST',
     body: JSON.stringify(input),
   });
+  return normalizeServer(data.server);
 }
 
 export async function updateMcpServer(id: string, input: McpServerInput): Promise<McpServerConfig> {
-  return fetchJson<McpServerConfig>(`${BASE}/servers/${encodeURIComponent(id)}`, {
+  const data = await fetchJson<{ server: RawServerItem }>(`/mcp/servers/${encodeURIComponent(id)}`, {
     method: 'PUT',
     body: JSON.stringify(input),
   });
+  return normalizeServer(data.server);
 }
 
 export async function deleteMcpServer(id: string): Promise<void> {
-  await fetchJson<unknown>(`${BASE}/servers/${encodeURIComponent(id)}`, {
+  await fetchJson<unknown>(`/mcp/servers/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   });
 }
 
 export async function testMcpServer(id: string): Promise<McpTestResult> {
-  return fetchJson<McpTestResult>(`${BASE}/servers/${encodeURIComponent(id)}/test`, {
+  return fetchJson<McpTestResult>(`/mcp/servers/${encodeURIComponent(id)}/test`, {
     method: 'POST',
   });
 }
@@ -114,7 +126,7 @@ interface SystemPayload {
 }
 
 export async function getMcpToolsSettings(): Promise<McpToolsSettingsResponse> {
-  const sys = await fetchJson<SystemPayload>('/api/system');
+  const sys = await fetchJson<SystemPayload>('/system');
   const tools = sys.chat?.tools ?? {};
   return {
     listings: tools.mcpToolListings ?? [],
@@ -125,7 +137,7 @@ export async function getMcpToolsSettings(): Promise<McpToolsSettingsResponse> {
 export async function setMcpToolsEnabled(
   enabled: Record<string, boolean>,
 ): Promise<unknown> {
-  return fetchJson<unknown>('/api/settings/tools', {
+  return fetchJson<unknown>('/settings/tools', {
     method: 'PUT',
     body: JSON.stringify({ enabledMcpTools: enabled }),
   });
@@ -139,7 +151,7 @@ export interface StudioMcpStatus {
 }
 
 export async function getStudioMcpStatus(): Promise<StudioMcpStatus> {
-  const sys = await fetchJson<SystemPayload>('/api/system');
+  const sys = await fetchJson<SystemPayload>('/system');
   return sys.chat?.tools?.studioMcp ?? { enabled: false, token: null };
 }
 
@@ -150,7 +162,7 @@ export async function enableStudioMcp(): Promise<{ enabled: true; token: string 
   crypto.getRandomValues(bytes);
   const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
   const token = `studio_${hex}`;
-  await fetchJson<unknown>('/api/settings/secret', {
+  await fetchJson<unknown>('/settings/secret', {
     method: 'PUT',
     body: JSON.stringify({ studioMcpToken: token }),
   });
@@ -159,7 +171,7 @@ export async function enableStudioMcp(): Promise<{ enabled: true; token: string 
 
 export async function disableStudioMcp(): Promise<{ enabled: false }> {
   await fetchJson<unknown>(
-    `/api/settings/secret?name=studioMcpToken`,
+    '/settings/secret?name=studioMcpToken',
     { method: 'DELETE' },
   );
   return { enabled: false };

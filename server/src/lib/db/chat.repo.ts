@@ -32,7 +32,6 @@ export interface ConversationRow {
   id: string;
   title: string;
   model: string;
-  system_prompt: string | null;
   created_at: number;
   updated_at: number;
   context_strategy: ContextStrategy;
@@ -53,9 +52,9 @@ export interface ConversationRow {
   format: 'json' | null;
   /** Whether this conversation is pinned to the top of the list. */
   pinned: boolean;
-  /** Soul slug used when this conversation was created. NULL for legacy rows
-   *  that predate the souls feature; the chat route re-resolves via the
-   *  stored system_prompt snapshot in that case. */
+  /** Soul slug used by this conversation. The chat route re-resolves the
+   *  system prompt from this slug on every turn so memory updates take
+   *  effect. NULL means "use the default soul" (resolved at request time). */
   soul_name: string | null;
 }
 
@@ -109,7 +108,6 @@ function rowToConversation(r: Record<string, unknown>): ConversationRow {
     id: String(r.id),
     title: String(r.title ?? ''),
     model: String(r.model ?? ''),
-    system_prompt: nullableString(r.system_prompt),
     created_at: Number(r.created_at ?? 0),
     updated_at: Number(r.updated_at ?? 0),
     context_strategy: strategy,
@@ -144,7 +142,6 @@ export interface CreateConversationInput {
   id: string;
   title: string;
   model: string;
-  system_prompt?: string | null;
   created_at: number;
   updated_at: number;
   context_strategy?: ContextStrategy;
@@ -169,12 +166,12 @@ export function createConversation(
 ): void {
   db.prepare(
     `INSERT INTO conversations
-       (id, title, model, system_prompt, created_at, updated_at,
+       (id, title, model, created_at, updated_at,
         context_strategy, think_mode, num_ctx, temperature, format, soul_name)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     input.id, input.title, input.model,
-    input.system_prompt ?? null, input.created_at, input.updated_at,
+    input.created_at, input.updated_at,
     input.context_strategy ?? 'sliding',
     input.think_mode ?? null,
     input.num_ctx ?? null,
@@ -277,7 +274,6 @@ export function deleteMessage(
 export interface UpdateConversationPatch {
   title?: string;
   model?: string;
-  system_prompt?: string | null;
   soul_name?: string | null;
   num_ctx?: number | null;
   think_mode?: 'on' | 'off' | null;
@@ -296,9 +292,6 @@ export function renameConversation(
   const params: unknown[] = [];
   if (patch.title !== undefined) { sets.push('title = ?'); params.push(patch.title); }
   if (patch.model !== undefined) { sets.push('model = ?'); params.push(patch.model); }
-  if (patch.system_prompt !== undefined) {
-    sets.push('system_prompt = ?'); params.push(patch.system_prompt);
-  }
   if (patch.soul_name !== undefined) {
     sets.push('soul_name = ?'); params.push(patch.soul_name);
   }

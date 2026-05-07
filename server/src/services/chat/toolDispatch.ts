@@ -10,7 +10,7 @@
 
 import type { OllamaChatMessage, OllamaFinalFrame } from './ollamaChat.js';
 import type { OllamaToolCall, OllamaToolDef } from './ollamaTools.js';
-import { TOOL_ERROR_REPROMPT } from './prompts.js';
+import { template as renderPrompt } from './promptsLoader.js';
 
 /**
  * Persisted-on-message-row representation of one tool turn. Mirrors the
@@ -144,7 +144,7 @@ export async function runToolDispatch(input: ToolDispatchInput): Promise<ToolDis
         // hanging.
         messages.push({
           role: 'tool',
-          content: TOOL_ERROR_REPROMPT(exec.error),
+          content: renderPrompt('tool-error-reprompt', { errorMessage: exec.error }),
         });
       }
     }

@@ -1,36 +1,22 @@
 // Commands list section — thin specialisation of MarkdownLibrarySection.
 // Commands are slash-triggered shortcuts available in the chat composer.
+// Reads from the shared system context; mutations refresh /api/system.
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { SlashSquare } from 'lucide-react';
 import MarkdownLibrarySection from './markdownLibrary/MarkdownLibrarySection';
 import CommandEditorModal from './CommandEditorModal';
-import { api } from '../../services/comfyui';
-import type { LibraryItem } from './markdownLibrary/types';
+import { useApp, useSystem } from '../../context/AppContext';
 
 export default function CommandsSection() {
-  const [commands, setCommands] = useState<LibraryItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { personality } = useSystem();
+  const { refreshSystem } = useApp();
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editName, setEditName] = useState<string | undefined>(undefined);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await api.commands.list();
-      setCommands(result.commands);
-    } catch (err) {
-      setError('Could not load commands');
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { void fetchData(); }, [fetchData]);
+  const commands = personality?.commands ?? [];
+  const loading = personality === null;
 
   return (
     <>
@@ -40,10 +26,10 @@ export default function CommandsSection() {
         icon={SlashSquare}
         badgeIcon={SlashSquare}
         noun="command"
-        error={error}
+        error={null}
         loading={loading}
         items={commands}
-        onRefresh={() => void fetchData()}
+        onRefresh={() => void refreshSystem()}
         onCreate={() => { setEditName(undefined); setModalOpen(true); }}
         onEdit={(name) => { setEditName(name); setModalOpen(true); }}
       />
@@ -52,8 +38,8 @@ export default function CommandsSection() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         editName={editName}
-        onSaved={() => void fetchData()}
-        onDeleted={() => void fetchData()}
+        onSaved={() => void refreshSystem()}
+        onDeleted={() => void refreshSystem()}
       />
     </>
   );

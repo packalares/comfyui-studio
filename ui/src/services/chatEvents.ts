@@ -5,6 +5,8 @@
 // opening a second connection. Each `dispatch*` is called from the WS
 // onmessage branch when it sees a matching `type`.
 
+import type { ChatUsageState } from './comfyui';
+
 type Handler<T> = (payload: T) => void;
 
 export interface ChatChunkPayload { msgId: string; delta: string }
@@ -26,7 +28,15 @@ export interface ChatDoneStats {
    *  resident. Surfaced in the per-message TelemetryFooter as "loaded in 4.2s". */
   load_duration_ms: number | null;
 }
-export interface ChatDonePayload { msgId: string; stats: ChatDoneStats }
+export interface ChatDonePayload {
+  msgId: string;
+  stats: ChatDoneStats;
+  /** Server-recomputed context-window usage at the moment the turn finished.
+   *  Lets the ContextMeter refresh without a separate /usage HTTP round-trip.
+   *  Null when the upstream /api/show call failed; meter falls back to its
+   *  own fetch in that case. */
+  usage?: ChatUsageState | null;
+}
 export interface ChatErrorPayload { msgId: string; error: string }
 // Surfaced while the assistant is "warming up" — currently emitted by the
 // server when no token has arrived after a short delay (cold-load hint).

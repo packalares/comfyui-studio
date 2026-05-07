@@ -14,6 +14,13 @@ let profileStore: Record<string, import('../../src/services/settings.mcp.js').Pr
   'studio-chat-default': {},
 };
 
+class MockMcpSlugCollisionError extends Error {
+  constructor(slug: string) {
+    super(`mock collision: ${slug}`);
+    this.name = 'McpSlugCollisionError';
+  }
+}
+
 vi.mock('../../src/services/settings.mcp.js', async () => {
   const { randomUUID } = await import('crypto');
   return {
@@ -38,6 +45,8 @@ vi.mock('../../src/services/settings.mcp.js', async () => {
     upsertMcpProfile: (name: string, profile: unknown) => {
       profileStore[name] = profile as import('../../src/services/settings.mcp.js').Profile;
     },
+    slugifyServerName: (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
+    McpSlugCollisionError: MockMcpSlugCollisionError,
     DEFAULT_PROFILE_NAME: 'studio-chat-default',
   };
 });

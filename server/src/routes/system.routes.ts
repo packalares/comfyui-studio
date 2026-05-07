@@ -9,8 +9,11 @@ import * as settings from '../services/settings.js';
 import * as toolsSettings from '../services/settings.tools.js';
 import { getStudioMcpStatus } from '../services/settings.mcp.js';
 import { getMcpToolListings } from '../services/mcp/server/toolRegistry.js';
+import { listAvailableTools } from '../services/chat/tools/index.js';
+import { getSuggestions as getChatSuggestions } from '../services/chat/promptsLoader.js';
 import * as systemFacade from '../services/systemLauncher/system.service.js';
 import * as networkChecker from '../services/systemLauncher/networkChecker/service.js';
+import { getPersonalitySummary } from '../services/chat/personality/summary.js';
 import { env } from '../config/env.js';
 
 const router = Router();
@@ -22,10 +25,11 @@ const router = Router();
 // buffer. ComfyUI's history is volatile and session-scoped; the dashboard
 // needs the same authoritative count that the Gallery page shows.
 router.get('/system', async (_req: Request, res: Response) => {
-  const [statsResult, queueResult, galleryResult] = await Promise.allSettled([
+  const [statsResult, queueResult, galleryResult, toolsResult] = await Promise.allSettled([
     comfyui.getSystemStats(),
     comfyui.getQueue(),
     gallery.listPaginated({}, 1, 8),
+    listAvailableTools(),
   ]);
 
   const stats = statsResult.status === 'fulfilled' ? statsResult.value : null;
@@ -33,6 +37,7 @@ router.get('/system', async (_req: Request, res: Response) => {
   const galleryPage = galleryResult.status === 'fulfilled'
     ? galleryResult.value
     : { items: [], total: 0 };
+  const availableTools = toolsResult.status === 'fulfilled' ? toolsResult.value : [];
 
   // Network config + cached reachability snapshot — used to live behind the
   // standalone `GET /system/network-config` endpoint; folded in here so the
@@ -80,8 +85,21 @@ router.get('/system', async (_req: Request, res: Response) => {
       enabledMcpTools: toolsSettings.getEnabledMcpTools(),
       mcpToolListings: getMcpToolListings(),
       studioMcp: getStudioMcpStatus(),
+      // Resolved tool list for the chat composer (replaces /api/chat/tools).
+      // Reflects which integrations are configured + ready (e.g., generate_image
+      // requires the dep-check to pass against the default template).
+      availableTools,
     },
+    // Empty-state pills + contextual follow-ups, sourced from
+    // server/data/chat/default_prompts.md so the UI renders the same set
+    // every page mount without bundling a copy in its own file.
+    suggestions: getChatSuggestions(),
   };
+
+  // Personality lists folded in so chat + Settings pages get souls / skills /
+  // commands / default soul / pending edits with the existing system fetch
+  // instead of separate round-trips on every mount.
+  const personality = getPersonalitySummary();
 
   res.json({
     ...(stats as object || {}),
@@ -89,6 +107,7 @@ router.get('/system', async (_req: Request, res: Response) => {
     comfyuiConnected: stats !== null || queue !== null,
     network,
     chat,
+    personality,
     gallery: {
       total: galleryPage.total,
       recent: galleryPage.items,

@@ -16,7 +16,7 @@
 
 import { z } from 'zod';
 import { defineTool } from './defineTool.js';
-import { TOOL_DESCRIPTION_RAG_SEARCH, RAG_SEARCH_NO_KB_ERROR } from '../prompts.js';
+import { get } from '../promptsLoader.js';
 
 export interface RagSearchConfig {
   baseUrl: string;
@@ -152,11 +152,11 @@ export function formatChunks(chunks: RagflowChunk[], topK: number): string {
 
 export function ragSearchTool(config: RagSearchConfig) {
   return defineTool({
-    description: TOOL_DESCRIPTION_RAG_SEARCH,
+    description: get('tool-description.rag-search'),
     inputSchema,
     execute: async ({ query, knowledge_base_id, top_k }): Promise<RagSearchOutput> => {
       if (!knowledge_base_id) {
-        return RAG_SEARCH_NO_KB_ERROR;
+        return get('rag-search.no-kb-error');
       }
       const k = typeof top_k === 'number' ? Math.max(1, Math.min(20, top_k)) : 5;
       try {

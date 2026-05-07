@@ -8,6 +8,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { McpServerConfig } from '../../../services/settings.mcp.js';
 import {
@@ -26,7 +27,7 @@ export interface ConnectionState {
 
 export class McpConnection {
   private client: Client | null = null;
-  private transport: StdioClientTransport | StreamableHTTPClientTransport | null = null;
+  private transport: StdioClientTransport | StreamableHTTPClientTransport | SSEClientTransport | null = null;
   private toolCache: Tool[] | null = null;
 
   status: ConnectionStatus = 'disconnected';
@@ -124,14 +125,23 @@ export class McpConnection {
         stderr: 'pipe',
       });
     }
-    // http
+    // http — pick between Streamable HTTP (single-endpoint, newer) and the
+    // older HTTP+SSE transport (paired GET /sse / POST /messages). Heuristic:
+    // any URL whose path ends with `/sse` or `/sse/` is the older protocol
+    // (crawl4ai, mcpr, many uvicorn-based servers); everything else uses
+    // the modern Streamable HTTP transport (Context7 etc.). If we ever hit
+    // a server that breaks this convention, add an explicit `transport`
+    // field to McpServerConfig.
     if (!this.config.url) throw new Error('http transport requires url');
+    const url = new URL(this.config.url);
     const headers: Record<string, string> = {};
     if (this.config.auth?.type === 'bearer') {
       headers['Authorization'] = `Bearer ${this.config.auth.token}`;
     }
-    return new StreamableHTTPClientTransport(new URL(this.config.url), {
-      requestInit: { headers },
-    });
+    const isLegacySse = /\/sse\/?$/.test(url.pathname);
+    if (isLegacySse) {
+      return new SSEClientTransport(url, { requestInit: { headers } });
+    }
+    return new StreamableHTTPClientTransport(url, { requestInit: { headers } });
   }
 }

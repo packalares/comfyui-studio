@@ -38,7 +38,7 @@ import { generateImageTool } from '../../../../src/services/chat/tools/generateI
 import * as templates from '../../../../src/services/templates/index.js';
 import * as depCheck from '../../../../src/services/templates/dependencyCheck.js';
 import * as comfyui from '../../../../src/services/comfyui.js';
-import { GENERATE_IMAGE_NO_TEMPLATE_ERROR } from '../../../../src/services/chat/prompts.js';
+import { get as getPrompt } from '../../../../src/services/chat/promptsLoader.js';
 
 type ExecuteFn = (input: { prompt: string }, opts: unknown) => Promise<unknown>;
 
@@ -66,7 +66,7 @@ describe('generateImageTool readiness gate', () => {
   it('returns the no-template error when defaultTemplate is empty', async () => {
     const t = (await generateImageTool({ defaultTemplate: '' })).tool as unknown as { execute: ExecuteFn };
     const out = await t.execute({ prompt: 'a cat' }, {});
-    expect(envelopeText(out)).toBe(GENERATE_IMAGE_NO_TEMPLATE_ERROR);
+    expect(envelopeText(out)).toBe(getPrompt('generate-image.no-template-error'));
     expect(comfyui.submitPrompt).not.toHaveBeenCalled();
   });
 

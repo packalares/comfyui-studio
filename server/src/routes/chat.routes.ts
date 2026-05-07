@@ -14,7 +14,6 @@ import { startStream, abortStream } from '../services/chat/streamChat.js';
 import { resolveSystemPrompt } from '../services/chat/personality/index.js';
 import { computeUsage } from '../services/chat/contextWindow.js';
 import { compactConversation } from '../services/chat/contextCompact.js';
-import { listAvailableTools } from '../services/chat/tools/index.js';
 import { deleteAttachmentsForMessages } from '../services/chat/attachments.js';
 import { logger } from '../lib/logger.js';
 
@@ -42,7 +41,6 @@ router.post('/chat/start', (req: Request, res: Response) => {
     conversationId?: unknown;
     model?: unknown;
     messages?: unknown;
-    systemPrompt?: unknown;
     soulName?: unknown;
     enabledTools?: unknown;
     /** Pre-chat overrides set in the ContextMeter popover before any
@@ -68,8 +66,6 @@ router.post('/chat/start', (req: Request, res: Response) => {
     });
     return;
   }
-  // Prefer the new `soulName` field; fall back to legacy `systemPrompt` for
-  // older clients that haven't been updated yet.
   const soulName = typeof body.soulName === 'string' && body.soulName.length > 0
     ? body.soulName
     : null;
@@ -84,10 +80,9 @@ router.post('/chat/start', (req: Request, res: Response) => {
     ? body.conversationId
     : '';
 
-  // The system prompt we'll pass to the stream. For existing conversations we
-  // re-resolve using the stored soul_name so memory updates take effect on
-  // every turn while the soul identity stays stable. For legacy rows without
-  // soul_name we fall back to the snapshotted system_prompt column.
+  // The system prompt we'll pass to the stream. Always re-resolved from the
+  // conversation's `soul_name` so memory updates propagate on every turn
+  // while the soul identity stays stable for the life of the chat.
   let resolvedSystemPrompt: string | null;
 
   if (conversationId) {
@@ -96,13 +91,7 @@ router.post('/chat/start', (req: Request, res: Response) => {
       res.status(404).json({ error: 'conversation not found' });
       return;
     }
-    if (existing.soul_name !== null) {
-      // Re-resolve on each turn so memory updates propagate.
-      resolvedSystemPrompt = resolveSystemPrompt(existing.soul_name) || null;
-    } else {
-      // Legacy row: use the snapshotted system_prompt as-is.
-      resolvedSystemPrompt = existing.system_prompt;
-    }
+    resolvedSystemPrompt = resolveSystemPrompt(existing.soul_name) || null;
   } else {
     conversationId = makeId();
     const now = Date.now();
@@ -132,9 +121,6 @@ router.post('/chat/start', (req: Request, res: Response) => {
       id: conversationId,
       title: deriveTitle(messages),
       model: requestedModel,
-      // Snapshot the resolved text so old conversations stay reproducible
-      // even if the soul file changes later.
-      system_prompt: resolvedSystemPrompt,
       soul_name: soulName,
       created_at: now,
       updated_at: now,
@@ -172,10 +158,6 @@ router.post('/chat/stop/:msgId', (req: Request, res: Response) => {
   res.json({ aborted });
 });
 
-router.get('/chat/tools', async (_req: Request, res: Response) => {
-  res.json({ items: await listAvailableTools() });
-});
-
 router.get('/chat/conversations', (req: Request, res: Response) => {
   // Pagination + title-search support. Defaults preserve the legacy
   // "give me everything" caller (limit=20, offset=0, no search) — clients
@@ -188,10 +170,21 @@ router.get('/chat/conversations', (req: Request, res: Response) => {
   res.json(chatRepo.listConversations({ limit, offset, search: q }));
 });
 
-router.get('/chat/conversations/:id', (req: Request, res: Response) => {
-  const row = chatRepo.getConversation(paramStr(req.params.id));
+router.get('/chat/conversations/:id', async (req: Request, res: Response) => {
+  const id = paramStr(req.params.id);
+  const row = chatRepo.getConversation(id);
   if (!row) { res.status(404).json({ error: 'not found' }); return; }
-  res.json(row);
+  // Optional `?model=` lets the UI hydrate the ContextMeter in the same
+  // round-trip. Falls back to the conv's saved model when omitted; absent
+  // entirely when there's nothing to compute against (no saved model).
+  const queryModel = typeof req.query.model === 'string' ? req.query.model.trim() : '';
+  const model = queryModel || row.model || '';
+  let usage: Awaited<ReturnType<typeof computeUsage>> | null = null;
+  if (model) {
+    try { usage = await computeUsage({ conversationId: id, model }); }
+    catch { /* meter degrades to drafts; conv read still succeeds */ }
+  }
+  res.json({ ...row, usage });
 });
 
 router.get('/chat/conversations/:id/messages', (req: Request, res: Response) => {
@@ -289,7 +282,6 @@ router.patch('/chat/conversations/:id', (req: Request, res: Response) => {
   const body = req.body as {
     title?: unknown;
     model?: unknown;
-    system_prompt?: unknown;
     soul_name?: unknown;
     context_strategy?: unknown;
     num_ctx?: unknown;
@@ -301,18 +293,8 @@ router.patch('/chat/conversations/:id', (req: Request, res: Response) => {
   const patch: chatRepo.UpdateConversationPatch = {};
   if (typeof body.title === 'string') patch.title = body.title;
   if (typeof body.model === 'string') patch.model = body.model;
-  if (typeof body.system_prompt === 'string' || body.system_prompt === null) {
-    patch.system_prompt = body.system_prompt as string | null;
-  }
   if (typeof body.soul_name === 'string' || body.soul_name === null) {
     patch.soul_name = body.soul_name as string | null;
-    // Re-resolve and snapshot system_prompt so the stored snapshot stays
-    // coherent with the new soul. Subsequent turns re-resolve live anyway
-    // (see /chat/start handler), but keeping the snapshot in sync lets
-    // legacy read-paths (soul_name === null fallback) stay accurate.
-    if (patch.system_prompt === undefined) {
-      patch.system_prompt = resolveSystemPrompt(patch.soul_name) || null;
-    }
   }
   // num_ctx accepts a positive integer or null. Anything else (string,
   // negative, NaN) is treated as "no patch" so a typo in the body can't

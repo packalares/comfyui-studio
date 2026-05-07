@@ -131,6 +131,12 @@ export const paths = {
    */
   bundledCommandsDir: path.join(BUNDLED_DATA_DIR, 'commands'),
   /**
+   * Bundled read-only LLM prompt + chat-suggestion defaults. Single file.
+   * User overlay path resolves through `currentConfigRootOverride` so tests
+   * can swap it via STUDIO_CONFIG_ROOT — see promptsLoader for the lookup.
+   */
+  bundledPromptsFile: path.join(BUNDLED_DATA_DIR, 'chat', 'default_prompts.md'),
+  /**
    * Single sqlite database file backing the gallery + plugin catalog queries.
    * Overridable via `STUDIO_SQLITE_PATH` so tests can point it at a tmpdir
    * and swap the file on every test case. Resolved lazily via the getter

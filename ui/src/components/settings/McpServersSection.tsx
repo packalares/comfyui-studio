@@ -41,15 +41,22 @@ export default function McpServersSection() {
   useEffect(() => { void fetchServers(); }, [fetchServers]);
 
   const handleSaved = (saved: McpServerConfig) => {
+    // POST/PUT responses don't carry the runtime `status` (it's only populated
+    // on GET via the registry's getServerStates). Optimistically splice so the
+    // modal closes feeling responsive, preserving any prior status on edit;
+    // then refetch in the background so the row picks up the freshly-applied
+    // server state (auto-mirrored profile, reconnect, etc.) without the user
+    // needing to click Refresh.
     setServers(prev => {
       const idx = prev.findIndex(s => s.id === saved.id);
       if (idx >= 0) {
         const next = [...prev];
-        next[idx] = saved;
+        next[idx] = { ...saved, status: prev[idx]!.status };
         return next;
       }
       return [...prev, saved];
     });
+    void fetchServers();
   };
 
   const handleStatusChange = (_id: string, updated: McpServerConfig) => {

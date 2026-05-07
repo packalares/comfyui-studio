@@ -65,24 +65,42 @@ export class ApiError extends Error {
   }
 }
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${url}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  });
-  if (!res.ok) {
-    let data: unknown = null;
-    let msg = `${res.status} ${res.statusText}`;
-    try {
-      data = await res.json();
-      if (data && typeof data === 'object' && 'error' in data) {
-        const e = (data as { error?: unknown }).error;
-        if (typeof e === 'string' && e.length > 0) msg = e;
-      }
-    } catch { /* non-JSON body */ }
-    throw new ApiError(res.status, msg, data);
+// Sibling components frequently mount in parallel and each fetch the same
+// status endpoint (Settings/MCP tab is the obvious case — two cards both reading
+// slices of /api/system). In-flight GETs to the same URL share one promise so
+// the network only sees one request. Mutations always pass through unchanged.
+const inflightGets = new Map<string, Promise<unknown>>();
+
+export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? 'GET').toUpperCase();
+  if (method === 'GET') {
+    const cached = inflightGets.get(url);
+    if (cached) return cached as Promise<T>;
   }
-  return res.json();
+  const promise = (async (): Promise<T> => {
+    const res = await fetch(`${BASE}${url}`, {
+      headers: { 'Content-Type': 'application/json' },
+      ...init,
+    });
+    if (!res.ok) {
+      let data: unknown = null;
+      let msg = `${res.status} ${res.statusText}`;
+      try {
+        data = await res.json();
+        if (data && typeof data === 'object' && 'error' in data) {
+          const e = (data as { error?: unknown }).error;
+          if (typeof e === 'string' && e.length > 0) msg = e;
+        }
+      } catch { /* non-JSON body */ }
+      throw new ApiError(res.status, msg, data);
+    }
+    return res.json();
+  })();
+  if (method === 'GET') {
+    inflightGets.set(url, promise);
+    promise.finally(() => { inflightGets.delete(url); });
+  }
+  return promise;
 }
 
 /** Fetch a response body as text (used for the pip-source GET which returns a plain string). */
@@ -143,6 +161,21 @@ export interface NetworkConfigView {
   };
 }
 
+/** Empty-state pills + contextual follow-ups, sourced from the server's
+ *  bundled (and optionally user-overridden) default_prompts.md. Sent under
+ *  `GET /system.chat.suggestions` so the UI doesn't need its own copy. */
+export interface ContextualSuggestionGroups {
+  codeFenced: string[];
+  question: string[];
+  urlBearing: string[];
+  fallback: string[];
+  longReplyExtra: string;
+}
+export interface ChatSuggestionsView {
+  emptyState: string[];
+  contextual: ContextualSuggestionGroups;
+}
+
 /** Folded into `GET /system.chat`. The `tools` sub-field replaces the
  *  former `GET /settings/tools` endpoint. */
 export interface ChatSettingsView {
@@ -153,6 +186,7 @@ export interface ChatSettingsView {
   defaultThinkMode: 'on' | 'off' | 'auto';
   advanced: ChatAdvancedSettings;
   tools: ChatToolsSettings;
+  suggestions: ChatSuggestionsView;
 }
 
 /** Per-key body shapes for the consolidated `PUT /settings/:key` endpoint. */
@@ -172,7 +206,9 @@ export interface SettingsPatchByKey {
 /** Per-key response shapes returned by the consolidated PUT. */
 export interface SettingsResponseByKey {
   secret: { written: SecretName[] };
-  chat: Omit<ChatSettingsView, 'tools'>;
+  // PUT /settings/chat doesn't echo `suggestions` (file-driven, not user-set
+   // via this endpoint) — the UI reads them from /api/system instead.
+   chat: Omit<ChatSettingsView, 'tools' | 'suggestions'>;
   tools: ChatToolsSettings;
 }
 
@@ -193,6 +229,45 @@ export interface PendingEdit {
   proposedReplacement: string;
   /** Unix milliseconds timestamp of when the model proposed this edit. */
   createdAt: number;
+}
+
+// Personality types — the four item flavors the model and the user share.
+// `edit` is a pending proposal; the other three are markdown overlays.
+export type PersonalityType = 'soul' | 'skill' | 'command' | 'edit';
+
+export interface PersonalitySoul {
+  name: string;
+  description: string;
+}
+
+export interface PersonalitySkill {
+  name: string;
+  description: string;
+  scripts: string[];
+}
+
+export interface PersonalityCommand {
+  name: string;
+  description: string;
+  argumentHint: string;
+}
+
+export interface PersonalitySummary {
+  souls: PersonalitySoul[];
+  skills: PersonalitySkill[];
+  commands: PersonalityCommand[];
+  defaultSoul: string | null;
+  edits: PendingEdit[];
+}
+
+export interface PersonalityItemDetail {
+  name: string;
+  body: string;
+  frontmatter: Record<string, unknown>;
+  /** Skill-only: list of script files present in the SKILL folder. */
+  scripts?: string[];
+  /** Command-only: hint string shown next to the slash-menu entry. */
+  argumentHint?: string;
 }
 
 export const api = {
@@ -230,6 +305,7 @@ export const api = {
     comfyuiConnected?: boolean;
     network?: NetworkConfigView | null;
     chat?: ChatSettingsView;
+    personality?: PersonalitySummary;
     gallery?: { total: number; recent: GalleryItem[] };
     apiKeyConfigured?: boolean;
     hfTokenConfigured?: boolean;
@@ -1044,7 +1120,9 @@ export const api = {
       conversationId?: string;
       model?: string;
       messages: ChatUIMessage[];
-      systemPrompt?: string | null;
+      /** Soul slug to bind the conversation to. Server resolves the system
+       *  prompt from this on every turn. Omit to use the default soul. */
+      soulName?: string | null;
       /** Optional allow-list of tool names (e.g. ['web_search']). Omit to use
        *  every configured tool. Empty array disables tools for this turn. */
       enabledTools?: string[] | null;
@@ -1063,11 +1141,6 @@ export const api = {
         body: JSON.stringify(payload),
       }),
 
-    listTools: () =>
-      fetchJson<{ items: { name: string; label: string; description: string }[] }>(
-        '/chat/tools',
-      ),
-
     stop: (msgId: string) =>
       fetchJson<{ aborted: boolean }>(
         `/chat/stop/${encodeURIComponent(msgId)}`,
@@ -1085,8 +1158,14 @@ export const api = {
       }>(`/chat/conversations${qs ? `?${qs}` : ''}`);
     },
 
-    getConversation: (id: string) =>
-      fetchJson<ChatConversation>(`/chat/conversations/${encodeURIComponent(id)}`),
+    /** Fetch one conv. Pass `model` to also receive `usage` computed against
+     *  that model — saves a separate /usage round-trip on hydrate. */
+    getConversation: (id: string, model?: string) => {
+      const qs = model ? `?model=${encodeURIComponent(model)}` : '';
+      return fetchJson<ChatConversation>(
+        `/chat/conversations/${encodeURIComponent(id)}${qs}`,
+      );
+    },
 
     getMessages: (id: string) =>
       fetchJson<{ items: ChatMessage[] }>(
@@ -1117,7 +1196,7 @@ export const api = {
 
     renameConversation: (
       id: string,
-      patch: Partial<{ title: string; model: string; system_prompt: string | null; pinned: boolean }>,
+      patch: Partial<{ title: string; model: string; soul_name: string | null; pinned: boolean }>,
     ) =>
       fetchJson<ChatConversation>(
         `/chat/conversations/${encodeURIComponent(id)}`,
@@ -1253,84 +1332,52 @@ export const api = {
       ),
   },
 
-  // ---- Skills ----
-
-  skills: {
-    list: () => fetchJson<{ skills: SkillSummary[] }>('/skills'),
-    get: (name: string) => fetchJson<SkillDetail>(`/skills/${encodeURIComponent(name)}`),
-    put: (name: string, body: string) =>
-      fetchJson<{ ok: true }>(`/skills/${encodeURIComponent(name)}`, {
-        method: 'PUT',
-        body: JSON.stringify({ body }),
-      }),
-    delete: (name: string) =>
-      fetchJson<{ ok: true }>(`/skills/${encodeURIComponent(name)}`, { method: 'DELETE' }),
-  },
-
-  // ---- Commands ----
-
-  commands: {
-    list: () => fetchJson<{ commands: CommandSummary[] }>('/commands'),
-    get: (name: string) => fetchJson<CommandDetail>(`/commands/${encodeURIComponent(name)}`),
-    put: (name: string, body: string) =>
-      fetchJson<{ ok: true }>(`/commands/${encodeURIComponent(name)}`, {
-        method: 'PUT',
-        body: JSON.stringify({ body }),
-      }),
-    delete: (name: string) =>
-      fetchJson<{ ok: true }>(`/commands/${encodeURIComponent(name)}`, { method: 'DELETE' }),
-  },
-
-  // ---- Personality / Souls + Memory ----
-  // Agent A owns the real implementations. This namespace is defined here so
-  // Agent B's components can call api.personality.* and tsc exits 0 during
-  // parallel development. Agent A should replace these stubs with the real
-  // fetchJson calls pointing at the backend routes.
+  // ---- Personality (souls, skills, commands, edits, memory) ----
+  //
+  // Reads: prefer `useSystem().personality` — it's hydrated from the same
+  // /api/system payload that the app already fetches at boot. These helpers
+  // are for direct refreshes (e.g. after a mutation) and for the small number
+  // of consumers that need a single item's full body (not in the summary).
   personality: {
-    listSouls: (): Promise<{ souls: Array<{ name: string; description: string }> }> =>
-      fetchJson('/personality/souls'),
+    /** Read the full personality summary. Used as a manual refresh path; the
+     *  /api/system response carries the same shape under `personality`. */
+    getSummary: () => fetchJson<PersonalitySummary>('/personality'),
 
-    getSoul: (name: string): Promise<{ name: string; body: string; frontmatter: Record<string, unknown> }> =>
-      fetchJson(`/personality/souls/${encodeURIComponent(name)}`),
+    /** Read one item's full body + frontmatter. Type-specific extras
+     *  (`scripts`, `argumentHint`) come through on the same response. */
+    get: (type: PersonalityType, name: string) =>
+      fetchJson<PersonalityItemDetail>(
+        `/personality/${type}/${encodeURIComponent(name)}`,
+      ),
 
-    putSoul: (name: string, body: string): Promise<void> =>
-      fetchJson(`/personality/souls/${encodeURIComponent(name)}`, {
+    /** Write body. Valid for soul | skill | command (PUT). */
+    put: (type: 'soul' | 'skill' | 'command', name: string, body: string) =>
+      fetchJson<{ ok: true }>(
+        `/personality/${type}/${encodeURIComponent(name)}`,
+        { method: 'PUT', body: JSON.stringify({ body }) },
+      ),
+
+    /** Remove the user-dir override (or reject the pending edit when type='edit'). */
+    delete: (type: PersonalityType, name: string) =>
+      fetchJson<{ ok: true }>(
+        `/personality/${type}/${encodeURIComponent(name)}`,
+        { method: 'DELETE' },
+      ),
+
+    /** Apply a pending soul edit. Returns ok=false if the currentSection no
+     *  longer matches the soul body (model proposed a stale diff). */
+    acceptEdit: (id: string) =>
+      fetchJson<{ ok: boolean; soulName?: string }>(
+        `/personality/edit/${encodeURIComponent(id)}`,
+        { method: 'POST', body: JSON.stringify({ action: 'accept' }) },
+      ),
+
+    /** Memory — singleton file, no name dimension. */
+    getMemory: () => fetchJson<{ body: string }>('/personality/memory'),
+    putMemory: (body: string) =>
+      fetchJson<{ ok: true }>('/personality/memory', {
         method: 'PUT',
         body: JSON.stringify({ body }),
-      }),
-
-    deleteSoul: (name: string): Promise<void> =>
-      fetchJson(`/personality/souls/${encodeURIComponent(name)}`, { method: 'DELETE' }),
-
-    getMemory: (): Promise<{ body: string }> =>
-      fetchJson('/personality/memory'),
-
-    putMemory: (body: string): Promise<void> =>
-      fetchJson('/personality/memory', {
-        method: 'PUT',
-        body: JSON.stringify({ body }),
-      }),
-
-    getDefaultSoul: (): Promise<{ name: string | null }> =>
-      fetchJson('/personality/default-soul'),
-
-    listPendingEdits: (): Promise<{ edits: PendingEdit[] }> =>
-      fetchJson('/personality/pending-edits'),
-
-    getPendingEdit: (id: string): Promise<PendingEdit> =>
-      fetchJson(`/personality/pending-edits/${encodeURIComponent(id)}`),
-
-    // accept applies the proposed change to the soul file and removes the
-    // pending row. Returns ok=false if the currentSection no longer matches.
-    acceptPendingEdit: (id: string): Promise<{ ok: boolean; soulName?: string }> =>
-      fetchJson(`/personality/pending-edits/${encodeURIComponent(id)}/accept`, {
-        method: 'POST',
-      }),
-
-    // reject discards the pending row without touching the soul file.
-    rejectPendingEdit: (id: string): Promise<{ ok: boolean }> =>
-      fetchJson(`/personality/pending-edits/${encodeURIComponent(id)}`, {
-        method: 'DELETE',
       }),
   },
 };
@@ -1377,12 +1424,17 @@ export interface ChatConversation {
   id: string;
   title: string;
   model: string;
-  system_prompt: string | null;
+  soul_name: string | null;
   created_at: number;
   updated_at: number;
   context_strategy?: ChatContextStrategy;
   /** Whether this conversation is pinned to the top of the list. */
   pinned?: boolean;
+  /** Server-computed usage for this conv at hydrate time (only present on
+   *  GET /chat/conversations/:id, not on the list endpoint). Lets the
+   *  ContextMeter render without a separate /usage round-trip. May be null
+   *  when the model param resolved empty or the upstream call failed. */
+  usage?: ChatUsageState | null;
 }
 
 /** Mirrors `UsageState` returned by GET /chat/conversations/:id/usage. */
@@ -1431,11 +1483,20 @@ export interface ChatMessage {
 // only exposed to the LLM when its required URL/key are present. Empty means
 // disabled — the chat path simply hides the tool from the model's tool set.
 
+export interface ChatToolListing {
+  name: string;
+  label: string;
+  description: string;
+}
+
 export interface ChatToolsSettings {
   searxngUrl: string;
   ragflowUrl: string;
   ragflowApiKeyConfigured: boolean;
   defaultImageTemplate: string;
+  /** Resolved chat-composer tool list (replaces /api/chat/tools). Empty when
+   *  no integrations are configured / ready. */
+  availableTools: ChatToolListing[];
 }
 
 export interface ChatToolsSettingsInput {
@@ -1452,6 +1513,10 @@ export interface OllamaInstalledModel {
   size?: number;
   digest?: string;
   details?: Record<string, unknown>;
+  /** Server-attached: capabilities for this model's base name (e.g.
+   *  `['vision']`, `['tools']`). Looked up from the cached ollama_library
+   *  table; empty array when the model isn't in the catalog. */
+  capabilities?: string[];
 }
 
 export interface OllamaLibraryModel {
@@ -1486,7 +1551,3 @@ export interface HfModelSummary {
 
 // ---- Skills + Commands shared types ----
 
-export interface SkillSummary { name: string; description: string; }
-export interface SkillDetail { name: string; body: string; frontmatter: Record<string, unknown>; }
-export interface CommandSummary { name: string; description: string; argument_hint?: string; }
-export interface CommandDetail { name: string; body: string; frontmatter: Record<string, unknown>; }

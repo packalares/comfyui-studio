@@ -1,45 +1,26 @@
 // Souls list section for the Settings > Souls tab.
 // Thin specialisation of MarkdownLibrarySection. The default soul gets a badge.
-// Fetches the list and default-soul name on mount; delegates layout to the
-// generic component so this file stays ~80 lines.
+// Reads souls + defaultSoul from the shared system context (already hydrated
+// from /api/system on app boot); mutations trigger refreshSystem.
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import MarkdownLibrarySection from './markdownLibrary/MarkdownLibrarySection';
 import SoulEditorModal from './SoulEditorModal';
 import PendingEditsCard from './PendingEditsCard';
-import { api } from '../../services/comfyui';
-import type { LibraryItem } from './markdownLibrary/types';
+import { useApp, useSystem } from '../../context/AppContext';
 
 export default function SoulsSection() {
-  const [souls, setSouls] = useState<LibraryItem[]>([]);
-  const [defaultSoul, setDefaultSoul] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { personality } = useSystem();
+  const { refreshSystem } = useApp();
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editName, setEditName] = useState<string | undefined>(undefined);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [listResult, defaultResult] = await Promise.all([
-        api.personality.listSouls(),
-        api.personality.getDefaultSoul(),
-      ]);
-      setSouls(listResult.souls);
-      setDefaultSoul(defaultResult.name);
-    } catch (err) {
-      setError('Could not load souls');
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { void fetchData(); }, [fetchData]);
+  const souls = personality?.souls ?? [];
+  const defaultSoul = personality?.defaultSoul ?? null;
+  const loading = personality === null;
 
   return (
     <>
@@ -49,24 +30,24 @@ export default function SoulsSection() {
         icon={Sparkles}
         badgeIcon={Sparkles}
         noun="soul"
-        error={error}
+        error={null}
         loading={loading}
         items={souls}
-        onRefresh={() => void fetchData()}
+        onRefresh={() => void refreshSystem()}
         onCreate={() => { setEditName(undefined); setModalOpen(true); }}
         onEdit={(name) => { setEditName(name); setModalOpen(true); }}
         itemBadge={(item) =>
           defaultSoul === item.name ? <Badge variant="slate">default</Badge> : null
         }
-        above={<PendingEditsCard onSoulChanged={fetchData} />}
+        above={<PendingEditsCard onSoulChanged={() => void refreshSystem()} />}
       />
 
       <SoulEditorModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         editName={editName}
-        onSaved={() => void fetchData()}
-        onDeleted={() => void fetchData()}
+        onSaved={() => void refreshSystem()}
+        onDeleted={() => void refreshSystem()}
       />
     </>
   );

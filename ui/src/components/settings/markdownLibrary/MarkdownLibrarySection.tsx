@@ -92,9 +92,7 @@ export default function MarkdownLibrarySection({
 
         <CardContent className="space-y-3">
           {error && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2">
-              <p className="text-xs text-destructive">{error}</p>
-            </div>
+            <div className="alert-destructive text-xs">{error}</div>
           )}
 
           {loading ? (
@@ -104,13 +102,11 @@ export default function MarkdownLibrarySection({
               ))}
             </div>
           ) : items.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed bg-muted/40 px-4 py-6 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+            <div className="empty-box flex flex-col items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-background text-muted-foreground">
                 <Icon className="h-6 w-6" />
               </div>
-              <p className="text-sm text-muted-foreground max-w-sm">
-                No {noun}s yet. Create one to get started.
-              </p>
+              <p className="max-w-sm">No {noun}s yet. Create one to get started.</p>
               <Button onClick={onCreate}>
                 <Plus className="h-3.5 w-3.5" />
                 {newLabel}
@@ -121,7 +117,7 @@ export default function MarkdownLibrarySection({
               {items.map(item => (
                 <div
                   key={item.name}
-                  className="flex items-center gap-3 px-4 py-3 hover:bg-muted transition-colors group"
+                  className="flex items-center gap-3 px-4 py-3 row-hover group"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -141,7 +137,7 @@ export default function MarkdownLibrarySection({
                     size="icon"
                     aria-label={`Edit ${noun} ${item.name}`}
                     onClick={() => onEdit(item.name)}
-                    className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="shrink-0 hover-reveal"
                   >
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>

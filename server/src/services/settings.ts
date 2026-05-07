@@ -54,6 +54,11 @@ interface Settings {
   // 'auto' = model decides; 'on' / 'off' force the override on every new
   // chat row so the user doesn't have to flip the popover every time.
   chatDefaultThinkMode?: 'on' | 'off' | 'auto';
+  // Allow MCP `studio_run_skill_script` to run scripts from the
+  // user-writable skills dir. Off by default — only the bundled,
+  // code-reviewed skills under `server/data/skills/` execute.
+  // Flip to true after auditing any third-party skill you've installed.
+  chatEnableUserSkillScripts?: boolean;
 }
 
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
@@ -294,6 +299,11 @@ export function getChatDefaultThinkMode(): 'on' | 'off' | 'auto' {
   const v = load().chatDefaultThinkMode;
   return v === 'on' || v === 'off' || v === 'auto' ? v : DEFAULT_CHAT_DEFAULT_THINK_MODE;
 }
+/** Off by default. Whether `studio_run_skill_script` may execute scripts
+ *  from the user-writable skills dir; bundled scripts always run. */
+export function getChatEnableUserSkillScripts(): boolean {
+  return load().chatEnableUserSkillScripts === true;
+}
 
 // Setters — pass `undefined`/`null` to clear and fall back to the default.
 function setNumeric(
@@ -334,6 +344,15 @@ export function setChatSmartSuggestions(v: boolean | null | undefined): void {
     return;
   }
   save({ ...settings, chatSmartSuggestions: !!v });
+}
+export function setChatEnableUserSkillScripts(v: boolean | null | undefined): void {
+  const settings = load();
+  if (v === null || v === undefined) {
+    const { chatEnableUserSkillScripts: _r, ...rest } = settings;
+    save(rest);
+    return;
+  }
+  save({ ...settings, chatEnableUserSkillScripts: !!v });
 }
 export function setChatDefaultThinkMode(v: 'on' | 'off' | 'auto' | null | undefined): void {
   const settings = load();

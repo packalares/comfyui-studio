@@ -6,7 +6,7 @@ import type { AddressInfo } from 'net';
 import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { commandsRouter } from '../../src/routes/commands.routes.js';
+import { personalityRouter } from '../../src/routes/personality.routes.js';
 
 // ---------- test app ----------
 
@@ -25,7 +25,7 @@ function startApp(app: express.Express): Promise<{ url: string; close: () => Pro
 function makeCommandsApp(): express.Express {
   const app = express();
   app.use(express.json());
-  app.use('/api', commandsRouter);
+  app.use('/api', personalityRouter);
   return app;
 }
 
@@ -81,7 +81,7 @@ describe('commands endpoints', () => {
     const app = await startApp(makeCommandsApp());
     try {
       const { status, body } = await getJson<{ commands: Array<{ name: string }> }>(
-        `${app.url}/api/commands`,
+        `${app.url}/api/personality`,
       );
       expect(status).toBe(200);
       const names = body.commands.map(c => c.name);
@@ -90,11 +90,11 @@ describe('commands endpoints', () => {
     } finally { await app.close(); }
   });
 
-  it('GET /api/commands/:name returns body', async () => {
+  it('GET /api/personality/command/:name returns body', async () => {
     const app = await startApp(makeCommandsApp());
     try {
       const { status, body } = await getJson<{ name: string; body: string }>(
-        `${app.url}/api/commands/improve-prompt`,
+        `${app.url}/api/personality/command/improve-prompt`,
       );
       expect(status).toBe(200);
       expect(body.name).toBe('improve-prompt');
@@ -106,9 +106,9 @@ describe('commands endpoints', () => {
     const app = await startApp(makeCommandsApp());
     try {
       const cmdBody = '---\nname: my-cmd\ndescription: My command.\nargument_hint: <text>\n---\nDo: $ARGUMENTS\n';
-      await putJson<{ ok: boolean }>(`${app.url}/api/commands/my-cmd`, { body: cmdBody });
+      await putJson<{ ok: boolean }>(`${app.url}/api/personality/command/my-cmd`, { body: cmdBody });
 
-      const { status, body } = await getJson<{ body: string }>(`${app.url}/api/commands/my-cmd`);
+      const { status, body } = await getJson<{ body: string }>(`${app.url}/api/personality/command/my-cmd`);
       expect(status).toBe(200);
       expect(body.body).toContain('$ARGUMENTS');
     } finally { await app.close(); }
@@ -117,7 +117,7 @@ describe('commands endpoints', () => {
   it('DELETE bundled-only command returns 404', async () => {
     const app = await startApp(makeCommandsApp());
     try {
-      const del = await deleteReq<{ error: string }>(`${app.url}/api/commands/improve-prompt`);
+      const del = await deleteReq<{ error: string }>(`${app.url}/api/personality/command/improve-prompt`);
       expect(del.status).toBe(404);
     } finally { await app.close(); }
   });
@@ -125,7 +125,7 @@ describe('commands endpoints', () => {
   it('PUT invalid name returns 400', async () => {
     const app = await startApp(makeCommandsApp());
     try {
-      const res = await putJson<{ error: string }>(`${app.url}/api/commands/BAD NAME`, { body: 'x' });
+      const res = await putJson<{ error: string }>(`${app.url}/api/personality/command/BAD NAME`, { body: 'x' });
       expect(res.status).toBe(400);
     } finally { await app.close(); }
   });

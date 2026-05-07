@@ -11,6 +11,7 @@ import { env } from '../config/env.js';
 import { getOllamaLibrary, refreshOllamaLibrary } from '../services/chat/ollamaLibrary.js';
 import { getOllamaTags } from '../services/chat/ollamaTags.js';
 import { startPull, cancelPull } from '../services/chat/ollamaPull.js';
+import { getCapabilitiesForNames } from '../lib/db/ollamaLibrary.repo.js';
 
 const router = Router();
 
@@ -21,8 +22,27 @@ router.get('/chat/models', async (_req: Request, res: Response) => {
     const baseUrl = settings.getOllamaUrl();
     const r = await fetch(`${baseUrl}/api/tags`);
     if (!r.ok) { res.status(502).json({ error: `upstream ${r.status}` }); return; }
-    const body = await r.json();
-    res.json(body);
+    const body = await r.json() as { models?: Array<Record<string, unknown>> };
+    const models = Array.isArray(body.models) ? body.models : [];
+
+    // Enrich each installed tag with its capabilities (vision/tools/etc) from
+    // our cached ollama_library. Saves the chat page a separate /library
+    // round-trip whose only purpose was this same lookup. Tags strip on the
+    // first colon: `gemma3:7b` → base name `gemma3`. Models without a row in
+    // the library (custom / fresh-install before the first scrape) get [].
+    const baseNames = Array.from(new Set(
+      models
+        .map(m => typeof m.name === 'string' ? m.name.split(':')[0] : '')
+        .filter((s): s is string => s.length > 0),
+    ));
+    const capsByBase = getCapabilitiesForNames(baseNames);
+    const enriched = models.map(m => {
+      const name = typeof m.name === 'string' ? m.name : '';
+      const base = name.split(':')[0] ?? '';
+      return { ...m, capabilities: capsByBase[base] ?? [] };
+    });
+
+    res.json({ ...body, models: enriched });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
   }

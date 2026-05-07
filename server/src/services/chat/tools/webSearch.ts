@@ -15,7 +15,7 @@
 
 import { z } from 'zod';
 import { defineTool } from './defineTool.js';
-import { TOOL_DESCRIPTION_WEB_SEARCH } from '../prompts.js';
+import { get } from '../promptsLoader.js';
 
 export interface WebSearchConfig {
   baseUrl: string;
@@ -112,7 +112,7 @@ export function _toSources(results: SearxngResult[]): WebSearchSource[] {
 
 export function webSearchTool(config: WebSearchConfig) {
   return defineTool({
-    description: TOOL_DESCRIPTION_WEB_SEARCH,
+    description: get('tool-description.web-search'),
     inputSchema,
     execute: async ({ query, max }): Promise<WebSearchOutput> => {
       const cap = typeof max === 'number' ? Math.max(1, Math.min(20, max)) : 5;

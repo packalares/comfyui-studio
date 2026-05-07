@@ -1,6 +1,6 @@
 // Thin wrapper around MarkdownEditorModal for souls.
-// Owns the API calls (getSoul / putSoul / deleteSoul) and threading state
-// for the name + body fields. The generic modal owns all layout + validation.
+// Owns the personality API calls and threads the name + body field state.
+// The generic modal owns all layout + validation.
 
 import { useState, useEffect } from 'react';
 import MarkdownEditorModal from './markdownLibrary/MarkdownEditorModal';
@@ -35,7 +35,7 @@ export default function SoulEditorModal({ open, onClose, editName, onSaved, onDe
     if (editName) {
       setName(editName);
       setLoading(true);
-      api.personality.getSoul(editName)
+      api.personality.get('soul', editName)
         .then(data => { setBody(data.body); })
         .catch(err => {
           setLoadError(err instanceof Error ? err.message : 'Could not load soul');
@@ -49,13 +49,13 @@ export default function SoulEditorModal({ open, onClose, editName, onSaved, onDe
   }, [open, editName]);
 
   const handleSave = async () => {
-    await api.personality.putSoul(name.trim(), body);
+    await api.personality.put('soul', name.trim(), body);
     onSaved();
   };
 
   const handleDelete = editName
     ? async () => {
-        await api.personality.deleteSoul(editName);
+        await api.personality.delete('soul', editName);
         onDeleted();
       }
     : undefined;

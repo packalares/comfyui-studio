@@ -16,6 +16,7 @@ import * as settings from '../settings.js';
 import * as repo from '../../lib/db/chat.repo.js';
 import { getStrategy, lastAssistantMessage } from '../../lib/db/chat.context.repo.js';
 import { getLoadedContextLength } from './ollamaPs.js';
+import { resolveSystemPrompt } from './personality/index.js';
 
 export interface ContextWindowInfo {
   /** Total budget for the model. Ollama refers to this as `num_ctx`. */
@@ -182,9 +183,8 @@ export async function computeUsage(input: ComputeUsageInput): Promise<UsageState
   const lastAssistant = lastAssistantMessage(input.conversationId);
   const consumed = lastAssistant?.tokens_in ?? 0;
 
-  const systemTokens = conv?.system_prompt
-    ? estimateTokens(conv.system_prompt)
-    : 0;
+  const resolvedSystem = resolveSystemPrompt(conv?.soul_name ?? null);
+  const systemTokens = resolvedSystem ? estimateTokens(resolvedSystem) : 0;
   const pendingTokens = input.pendingUserText
     ? estimateTokens(input.pendingUserText)
     : 0;

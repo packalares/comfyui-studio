@@ -81,11 +81,6 @@ export class StudioTransport implements ChatTransport<StudioUIMessage> {
     // Snapshot drafts at send-time. Server applies them only on new
     // conversations; for existing convs the fields are silently ignored.
     const drafts = this.opts.draftOverridesRef.current;
-    // Build the payload as a variable so TypeScript's excess-property check
-    // does not fire on `soulName` (Agent A will add it to the typed payload
-    // shape; until then the extra field is forwarded through JSON without
-    // causing a compile error because assignability — not literal-excess-check
-    // — applies to variable-typed arguments).
     const startPayload = {
       conversationId: this.opts.conversationIdRef.current ?? undefined,
       model: this.opts.modelRef.current,

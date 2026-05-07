@@ -1,4 +1,4 @@
-// Unified registry for all 16 in-process MCP tools (10 comfy + 6 studio).
+// Unified registry for all in-process MCP tools (comfy + studio).
 //
 // Each tool exports a uniform shape: `description`, `inputShape` (zod), and
 // `run(args)` returning a plain JS value (string or object). This file:
@@ -9,7 +9,14 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { defineTool, type StudioTool } from '../../chat/tools/defineTool.js';
+import { getActiveSoulName } from '../../chat/personality/index.js';
+import { persistInlineMediaInResult } from '../../chat/toolMediaPersist.js';
 import { logger } from '../../../lib/logger.js';
+
+/** Conversation-level context the chat path can pass when wrapping tools. */
+export interface ChatToolWrapContext {
+  conversationId?: string;
+}
 
 // --- comfy tools (raw async funcs from artokun port) -----------------------
 
@@ -36,6 +43,7 @@ import * as remember from './tools/studio/remember.js';
 import * as proposeSoulEdit from './tools/studio/proposeSoulEdit.js';
 import * as loadSkill from './tools/studio/loadSkill.js';
 import * as listSkillsMcp from './tools/studio/listSkills.js';
+import * as runSkillScriptMcp from './tools/studio/runSkillScript.js';
 
 // --- types -----------------------------------------------------------------
 
@@ -174,6 +182,9 @@ const studioDefs: ToolDef[] = [
   { mcpName: 'studio.listSkills', chatName: 'studio_list_skills',
     description: listSkillsMcp.description, shape: listSkillsMcp.inputShape,
     run: listSkillsMcp.run },
+  { mcpName: 'studio.runSkillScript', chatName: 'studio_run_skill_script',
+    description: runSkillScriptMcp.description, shape: runSkillScriptMcp.inputShape,
+    run: runSkillScriptMcp.run },
 ];
 
 const TOOL_DEFS: ToolDef[] = [...comfyDefs, ...studioDefs];
@@ -197,7 +208,7 @@ export function registerAllTools(server: McpServer): void {
       }
     });
   }
-  logger.info(`MCP: registered ${TOOL_DEFS.length} tools (10 comfy + 10 studio)`);
+  logger.info(`MCP: registered ${TOOL_DEFS.length} tools`);
 }
 
 /** Public listing for the chat composer's tool-toggle popover. */
@@ -225,16 +236,27 @@ export function getMcpToolListings(): McpToolListing[] {
   }));
 }
 
-/** Wrap all 16 tools as StudioTool entries for the Ollama chat tool loop. */
-export function getMcpToolsForChat(): Record<string, StudioTool> {
+/** Wrap all in-process tools as StudioTool entries for the Ollama chat tool
+ *  loop. Pass `ctx.conversationId` so context-aware tools (e.g.
+ *  `studio_propose_soul_edit`) can default args from conversation state.
+ *
+ *  Tool results are post-processed to extract any inline binary content
+ *  (`{ type: "image" | "resource", data: <base64> }`) into Studio's chat
+ *  attachments so the model never sees the raw bytes — see `toolMediaPersist`. */
+export function getMcpToolsForChat(ctx: ChatToolWrapContext = {}): Record<string, StudioTool> {
   const out: Record<string, StudioTool> = {};
   for (const def of TOOL_DEFS) {
     out[def.chatName] = defineTool({
       description: def.description,
       inputSchema: z.object(def.shape),
-      execute: async (args: unknown) => {
+      execute: async (args: unknown, opts?: { toolCallId?: string }) => {
         try {
-          const result = await def.run(args);
+          const finalArgs = injectAmbientContext(def.chatName, args, ctx);
+          const raw = await def.run(finalArgs);
+          const result = persistInlineMediaInResult(raw, {
+            conversationId: ctx.conversationId,
+            toolCallId: opts?.toolCallId,
+          });
           return typeof result === 'string' ? result : JSON.stringify(result);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -246,4 +268,25 @@ export function getMcpToolsForChat(): Record<string, StudioTool> {
     });
   }
   return out;
+}
+
+/**
+ * Fill in conversation-derived defaults for tools that need them. Currently
+ * only `studio_propose_soul_edit` — when the model omits `soulName`, we
+ * default it to the active soul of the calling conversation. External MCP
+ * clients (no chat context) keep the strict explicit-arg contract because
+ * `ctx.conversationId` is undefined for them.
+ */
+function injectAmbientContext(
+  chatName: string,
+  args: unknown,
+  ctx: ChatToolWrapContext,
+): unknown {
+  if (chatName !== 'studio_propose_soul_edit') return args;
+  if (!args || typeof args !== 'object') return args;
+  const obj = args as Record<string, unknown>;
+  if (typeof obj.soulName === 'string' && obj.soulName.length > 0) return args;
+  const active = getActiveSoulName(ctx.conversationId);
+  if (active === null) return args;
+  return { ...obj, soulName: active };
 }

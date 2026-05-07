@@ -332,8 +332,8 @@ function applyOllamaLibraryUpdatedAgoMigration(db: DB): void {
  * Schema v16 adds `soul_name` to `conversations`. Stores the soul slug chosen
  * at conversation creation so re-resolution on each turn picks up memory
  * updates while keeping the soul identity stable for the life of the chat.
- * `system_prompt` is kept (not dropped) — it holds the resolved snapshot for
- * reproducibility.
+ * The companion `system_prompt` snapshot column was dropped in v17 — see
+ * `applyConversationsDropSystemPromptMigration` below.
  */
 function applyConversationsSoulNameMigration(db: DB): void {
   const cols = db.prepare('PRAGMA table_info(conversations)').all() as
@@ -341,6 +341,26 @@ function applyConversationsSoulNameMigration(db: DB): void {
   const present = new Set(cols.map(c => c.name));
   if (!present.has('soul_name')) {
     db.exec('ALTER TABLE conversations ADD COLUMN soul_name TEXT');
+  }
+}
+
+/**
+ * Schema v17 drops `system_prompt` from `conversations`. The column was a
+ * snapshot of the resolved soul body at creation time, but every read path
+ * already re-resolves through `soul_name` (so memory updates propagate). The
+ * snapshot was dead weight — drop it and backfill any pre-v16 rows with
+ * `soul_name = 'default'` so re-resolution has something to point at.
+ * SQLite 3.35+ supports `ALTER TABLE ... DROP COLUMN`.
+ */
+function applyConversationsDropSystemPromptMigration(db: DB): void {
+  const cols = db.prepare('PRAGMA table_info(conversations)').all() as
+    Array<{ name: string }>;
+  const present = new Set(cols.map(c => c.name));
+  if (present.has('soul_name')) {
+    db.exec("UPDATE conversations SET soul_name = 'default' WHERE soul_name IS NULL");
+  }
+  if (present.has('system_prompt')) {
+    db.exec('ALTER TABLE conversations DROP COLUMN system_prompt');
   }
 }
 
@@ -363,6 +383,7 @@ function openAndInit(dbPath: string): DB {
   applyConversationsPinnedMigration(db);
   applyGalleryProvenanceFingerprintMigration(db);
   applyConversationsSoulNameMigration(db);
+  applyConversationsDropSystemPromptMigration(db);
   const row = db.prepare('SELECT version FROM schema_version LIMIT 1').get() as
     | { version: number } | undefined;
   if (!row) {

@@ -21,6 +21,7 @@ import {
 import { runOllamaStep } from './ollamaStep.js';
 import { generateSuggestions } from './suggestionGenerator.js';
 import { isModelLoaded } from './ollamaPs.js';
+import { computeUsage } from './contextWindow.js';
 import { getEnabledTools, filterEnabledTools, toAiSdkToolMap } from './tools/index.js';
 import { toOllamaTools, executeOllamaToolCall } from './ollamaTools.js';
 import { runToolDispatch, type ToolPart } from './toolDispatch.js';
@@ -146,6 +147,12 @@ async function runStream(args: RunStreamArgs): Promise<void> {
   let reasoning = '';
   let finalFrame: OllamaFinalFrame | null = null;
   const toolParts: ToolPart[] = [];
+  // Captured below from conversations.think_mode. Some Ollama runners (gpt-oss
+  // notably) ignore `think: false` and keep emitting reasoning deltas anyway,
+  // so the stream callbacks below also gate on this flag client-side: when
+  // the user explicitly opted out of reasoning we drop incoming deltas
+  // instead of forwarding them to the UI.
+  let thinkMode: 'on' | 'off' | undefined;
 
   // Splits `<think>...</think>` segments out of the raw delta stream so we
   // can route the chain-of-thought to a separate `chat:reasoning` channel.
@@ -156,6 +163,7 @@ async function runStream(args: RunStreamArgs): Promise<void> {
       emitChatEvent({ type: 'chat:chunk', data: { msgId, delta } });
     },
     onReasoning: (delta) => {
+      if (thinkMode === 'off') return;
       reasoning += delta;
       emitChatEvent({ type: 'chat:reasoning', data: { msgId, delta } });
     },
@@ -224,7 +232,7 @@ async function runStream(args: RunStreamArgs): Promise<void> {
     // that as the budget so the percentage stays honest on Auto.
     const conv = repo.getConversation(conversationId);
     const numCtx = conv?.num_ctx ?? undefined;
-    const thinkMode = conv?.think_mode ?? undefined;
+    thinkMode = conv?.think_mode ?? undefined;
     const temperature = conv?.temperature ?? undefined;
     const format = conv?.format ?? undefined;
     const enabledTools = filterEnabledTools(
@@ -265,6 +273,11 @@ async function runStream(args: RunStreamArgs): Promise<void> {
             tracker.firstTokenAt = Date.now();
             clearTimeout(loadingTimer);
           }
+          // Per-conversation opt-out: gpt-oss et al. ignore `think:false`
+          // and keep streaming reasoning. Drop incoming deltas so the UI
+          // stays clean; we still cleared the loading hint above so the
+          // cold-load placeholder doesn't get stuck.
+          if (thinkMode === 'off') return;
           reasoning += delta;
           emitChatEvent({ type: 'chat:reasoning', data: { msgId, delta } });
         },
@@ -328,7 +341,14 @@ async function runStream(args: RunStreamArgs): Promise<void> {
     repo.updateMessageTelemetry(msgId, telemetry);
     repo.touchConversation(conversationId, Date.now());
 
-    emitChatEvent({ type: 'chat:done', data: { msgId, stats: telemetry } });
+    // Push the recomputed usage on the done envelope so the ContextMeter
+    // doesn't have to fire its own /usage round-trip after every turn.
+    // Failure is silently absorbed — the meter falls back to its own fetch.
+    let usage = null as Awaited<ReturnType<typeof computeUsage>> | null;
+    try { usage = await computeUsage({ conversationId, model }); }
+    catch { /* meter falls back to /usage on next interaction */ }
+
+    emitChatEvent({ type: 'chat:done', data: { msgId, stats: telemetry, usage } });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     thinkParser.flush();

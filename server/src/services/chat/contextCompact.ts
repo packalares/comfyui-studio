@@ -19,7 +19,7 @@ import {
 } from '../../lib/db/chat.context.repo.js';
 import * as settings from '../settings.js';
 import type { OllamaChatMessage } from './ollamaChat.js';
-import { COMPACT_SUMMARY_PROMPT_PREFIX, COMPACT_SUMMARY_WRAP } from './prompts.js';
+import { get, template as renderPrompt } from './promptsLoader.js';
 
 /** Render every chat message as a flat transcript for the summarizer prompt. */
 function renderTranscript(rows: repo.ChatMessageRow[]): string {
@@ -51,7 +51,7 @@ export async function summarizeText(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model,
-        messages: [{ role: 'user', content: COMPACT_SUMMARY_PROMPT_PREFIX + transcript }],
+        messages: [{ role: 'user', content: get('compact-summary-prefix') + '\n\n' + transcript }],
         stream: false,
       }),
       signal: ctrl.signal,
@@ -145,7 +145,7 @@ export async function compactConversation(
     id: makeId(),
     conversation_id: conversationId,
     role: 'system',
-    parts: JSON.stringify([{ type: 'text', text: COMPACT_SUMMARY_WRAP(summary) }]),
+    parts: JSON.stringify([{ type: 'text', text: renderPrompt('compact-summary-wrap', { summary }) }]),
     created_at: summaryCreatedAt,
   });
   repo.touchConversation(conversationId, Date.now());

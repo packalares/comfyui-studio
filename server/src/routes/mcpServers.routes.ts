@@ -16,6 +16,7 @@ import {
   removeMcpServer,
   getMcpProfiles,
   upsertMcpProfile,
+  McpSlugCollisionError,
   type McpServerConfig,
 } from '../services/settings.mcp.js';
 import { getRegistry } from '../services/mcp/client/index.js';
@@ -36,26 +37,42 @@ router.post('/mcp/servers', (req: Request, res: Response) => {
     res.status(400).json({ error: 'name and transport are required' });
     return;
   }
-  const server = addMcpServer({
-    name: body.name,
-    transport: body.transport,
-    command: body.command,
-    args: body.args,
-    url: body.url,
-    auth: body.auth,
-    enabled: body.enabled ?? true,
-  });
-  getRegistry().scheduleReload();
-  res.status(201).json({ server });
+  try {
+    const server = addMcpServer({
+      name: body.name,
+      transport: body.transport,
+      command: body.command,
+      args: body.args,
+      url: body.url,
+      auth: body.auth,
+      enabled: body.enabled ?? true,
+    });
+    getRegistry().scheduleReload();
+    res.status(201).json({ server });
+  } catch (err) {
+    if (err instanceof McpSlugCollisionError) {
+      res.status(409).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
 });
 
 router.put('/mcp/servers/:id', (req: Request, res: Response) => {
   const id = String(req.params['id']);
   const patch = req.body as Partial<Omit<McpServerConfig, 'id'>>;
-  const ok = updateMcpServer(id, patch);
-  if (!ok) {
-    res.status(404).json({ error: 'server not found' });
-    return;
+  try {
+    const ok = updateMcpServer(id, patch);
+    if (!ok) {
+      res.status(404).json({ error: 'server not found' });
+      return;
+    }
+  } catch (err) {
+    if (err instanceof McpSlugCollisionError) {
+      res.status(409).json({ error: err.message });
+      return;
+    }
+    throw err;
   }
   getRegistry().scheduleReload();
   const servers = getMcpServers();

@@ -43,7 +43,14 @@ export function applyFormInputs(
       entry.inputs.audio = val;
       entry.inputs.upload = 'audio';
     } else if (binding.mediaType === 'video') {
-      entry.inputs.video = val;
+      // Two video loaders ship the user-supplied filename under different
+      // input keys: ComfyUI mainline `LoadVideo` uses `file`, while
+      // VideoHelperSuite's `VHS_LoadVideo` (and ffmpeg variants) use
+      // `video`. Without this dispatch the new built-in LoadVideo silently
+      // keeps its baked-in default and ComfyUI rejects it with
+      // "file - Invalid video file: <default>".
+      const videoKey = binding.nodeType === 'LoadVideo' ? 'file' : 'video';
+      entry.inputs[videoKey] = val;
       entry.inputs.upload = 'video';
     }
   }

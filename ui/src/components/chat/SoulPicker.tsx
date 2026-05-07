@@ -4,14 +4,15 @@
 //   'pill'    — used in the Composer footer, matches the model-picker button style.
 //   'compact' — used in the ContextMeter popover next to other tweakables.
 //
-// Fetches /api/personality/souls and /api/personality/default-soul on first
-// render; results are cached in component state for the lifetime of the mount.
+// Reads souls + default-soul name from the shared system context (already
+// hydrated from /api/system at app boot); no per-instance fetching.
 // When no conversation exists (pre-chat) the value is persisted in localStorage
 // under 'studio.chat.soulName'. Mid-chat changes are handled by the parent.
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ChevronDown, UserCircle2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useSystem } from '../../context/AppContext';
 import {
   Popover, PopoverContent, PopoverTrigger,
 } from '../ui/popover';
@@ -43,12 +44,6 @@ export interface SoulPickerProps {
 
 const NULL_VALUE = '__default__';
 
-async function apiFetch<T>(url: string): Promise<T> {
-  const res = await fetch(url, { headers: { 'Content-Type': 'application/json' } });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.json() as Promise<T>;
-}
-
 export default function SoulPicker({
   value,
   onChange,
@@ -57,25 +52,11 @@ export default function SoulPicker({
   disabled = false,
 }: SoulPickerProps) {
   const [open, setOpen] = useState(false);
-  const [souls, setSouls] = useState<Soul[]>([]);
-  const [defaultName, setDefaultName] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { personality } = useSystem();
 
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all([
-      apiFetch<{ souls: Soul[] }>('/api/personality/souls'),
-      apiFetch<{ name: string | null }>('/api/personality/default-soul'),
-    ])
-      .then(([soulsResp, defaultResp]) => {
-        if (cancelled) return;
-        setSouls(soulsResp.souls);
-        setDefaultName(defaultResp.name);
-      })
-      .catch(() => { /* non-fatal: show "Default" without a name */ })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, []);
+  const souls: Soul[] = personality?.souls ?? [];
+  const defaultName = personality?.defaultSoul ?? null;
+  const loading = personality === null;
 
   const defaultLabel = defaultName ? `Default (${defaultName})` : 'Default';
   const selectedLabel = value === null

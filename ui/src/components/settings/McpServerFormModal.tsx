@@ -205,7 +205,7 @@ export default function McpServerFormModal({ open, onClose, server, onSaved }: P
           <div>
             <div className="text-sm font-medium text-foreground">Enabled</div>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Disabled servers are stored but not connected on startup.
+              When enabled the server connects on startup and all its tools become available to the chat LLM. Disabled servers are stored but inert.
             </p>
           </div>
           <Switch

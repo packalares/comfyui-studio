@@ -32,7 +32,7 @@ export default function SkillEditorModal({ open, onClose, editName, onSaved, onD
     if (editName) {
       setName(editName);
       setLoading(true);
-      api.skills.get(editName)
+      api.personality.get('skill', editName)
         .then(data => { setBody(data.body); })
         .catch(err => {
           setLoadError(err instanceof Error ? err.message : 'Could not load skill');
@@ -46,13 +46,13 @@ export default function SkillEditorModal({ open, onClose, editName, onSaved, onD
   }, [open, editName]);
 
   const handleSave = async () => {
-    await api.skills.put(name.trim(), body);
+    await api.personality.put('skill', name.trim(), body);
     onSaved();
   };
 
   const handleDelete = editName
     ? async () => {
-        await api.skills.delete(editName);
+        await api.personality.delete('skill', editName);
         onDeleted();
       }
     : undefined;

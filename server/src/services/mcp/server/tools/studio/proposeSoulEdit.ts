@@ -17,18 +17,19 @@ export const inputShape = {
     .describe('Exact text from the current soul to replace. Null/omitted = append at end.'),
   proposedReplacement: z.string().min(1).max(5000)
     .describe('New text. Markdown, no frontmatter.'),
-  // Conversation context is not threaded into MCP tool calls (see toolRegistry.ts
-  // — run() receives only the parsed args object). The caller must therefore
-  // supply soulName explicitly; there is no ambient "active soul" available here.
-  soulName: z.string()
-    .describe('Which soul to edit. Must be a valid soul name (alphanumeric + hyphens).'),
+  // Optional: the chat-side wrapper in services/chat/tools/index.ts injects
+  // the active conversation's `soul_name` when the model omits this field.
+  // External MCP clients (no conversation context) MUST supply it explicitly
+  // — `run()` rejects calls where soulName is missing.
+  soulName: z.string().optional()
+    .describe('Which soul to edit. Defaults to the active conversation\'s soul when called from chat.'),
 };
 
 export interface ProposeSoulEditArgs {
   reason: string;
   currentSection?: string | null;
   proposedReplacement: string;
-  soulName: string;
+  soulName?: string;
 }
 
 export async function run(
@@ -37,6 +38,12 @@ export async function run(
   const { soulName, reason, proposedReplacement } = args;
   const currentSection = args.currentSection ?? null;
 
+  if (typeof soulName !== 'string' || soulName.length === 0) {
+    return {
+      ok: false,
+      message: 'soulName is required. Pass the soul to edit explicitly when calling outside of a chat conversation.',
+    };
+  }
   if (!isValidSoulName(soulName)) {
     return { ok: false, message: `Invalid soul name: "${soulName}"` };
   }

@@ -110,6 +110,27 @@ export function list(opts: ListOpts = {}, db: Database.Database = getDb()): List
 }
 
 /**
+ * Look up `capabilities` for a set of base model names in one query. Used by
+ * the chat installed-models route to enrich each installed tag with its
+ * vision/tools/embedding flags without a second round-trip from the UI. Names
+ * not in the table simply don't appear in the result map; the caller treats
+ * absence as `[]`.
+ */
+export function getCapabilitiesForNames(
+  names: string[],
+  db: Database.Database = getDb(),
+): Record<string, string[]> {
+  if (names.length === 0) return {};
+  const placeholders = names.map(() => '?').join(',');
+  const rows = db.prepare(
+    `SELECT name, capabilities FROM ollama_library WHERE name IN (${placeholders})`,
+  ).all(...names) as Array<{ name: string; capabilities: string }>;
+  const out: Record<string, string[]> = {};
+  for (const r of rows) out[r.name] = parseJsonArray(r.capabilities);
+  return out;
+}
+
+/**
  * Atomic full-replace: clear the table and insert every scraped row inside
  * one transaction. If the scraper returned an empty list the caller is
  * expected NOT to call this (we never want to wipe the table just because

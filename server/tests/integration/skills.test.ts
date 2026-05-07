@@ -6,7 +6,7 @@ import type { AddressInfo } from 'net';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { skillsRouter } from '../../src/routes/skills.routes.js';
+import { personalityRouter } from '../../src/routes/personality.routes.js';
 
 // ---------- test app ----------
 
@@ -25,7 +25,7 @@ function startApp(app: express.Express): Promise<{ url: string; close: () => Pro
 function makeSkillsApp(): express.Express {
   const app = express();
   app.use(express.json());
-  app.use('/api', skillsRouter);
+  app.use('/api', personalityRouter);
   return app;
 }
 
@@ -81,7 +81,7 @@ describe('skills endpoints', () => {
     const app = await startApp(makeSkillsApp());
     try {
       const { status, body } = await getJson<{ skills: Array<{ name: string; description: string }> }>(
-        `${app.url}/api/skills`,
+        `${app.url}/api/personality`,
       );
       expect(status).toBe(200);
       expect(Array.isArray(body.skills)).toBe(true);
@@ -91,11 +91,11 @@ describe('skills endpoints', () => {
     } finally { await app.close(); }
   });
 
-  it('GET /api/skills/:name returns skill body', async () => {
+  it('GET /api/personality/skill/:name returns skill body', async () => {
     const app = await startApp(makeSkillsApp());
     try {
       const { status, body } = await getJson<{ name: string; body: string }>(
-        `${app.url}/api/skills/flux-prompting`,
+        `${app.url}/api/personality/skill/flux-prompting`,
       );
       expect(status).toBe(200);
       expect(body.name).toBe('flux-prompting');
@@ -108,11 +108,11 @@ describe('skills endpoints', () => {
     const app = await startApp(makeSkillsApp());
     try {
       const skillBody = '---\nname: my-skill\ndescription: A custom skill.\n---\n\nCustom skill content.\n';
-      const put = await putJson<{ ok: boolean }>(`${app.url}/api/skills/my-skill`, { body: skillBody });
+      const put = await putJson<{ ok: boolean }>(`${app.url}/api/personality/skill/my-skill`, { body: skillBody });
       expect(put.status).toBe(200);
       expect(put.body.ok).toBe(true);
 
-      const { body } = await getJson<{ skills: Array<{ name: string }> }>(`${app.url}/api/skills`);
+      const { body } = await getJson<{ skills: Array<{ name: string }> }>(`${app.url}/api/personality`);
       expect(body.skills.map(s => s.name)).toContain('my-skill');
     } finally { await app.close(); }
   });
@@ -121,9 +121,9 @@ describe('skills endpoints', () => {
     const app = await startApp(makeSkillsApp());
     try {
       const userBody = '---\nname: flux-prompting\ndescription: Custom override.\n---\n\nOverridden content.\n';
-      await putJson(`${app.url}/api/skills/flux-prompting`, { body: userBody });
+      await putJson(`${app.url}/api/personality/skill/flux-prompting`, { body: userBody });
 
-      const { body } = await getJson<{ body: string }>(`${app.url}/api/skills/flux-prompting`);
+      const { body } = await getJson<{ body: string }>(`${app.url}/api/personality/skill/flux-prompting`);
       expect(body.body).toBe('Overridden content.\n');
     } finally { await app.close(); }
   });
@@ -131,15 +131,15 @@ describe('skills endpoints', () => {
   it('DELETE user skill; bundled seed remains listed', async () => {
     const app = await startApp(makeSkillsApp());
     try {
-      await putJson(`${app.url}/api/skills/flux-prompting`, {
+      await putJson(`${app.url}/api/personality/skill/flux-prompting`, {
         body: '---\nname: flux-prompting\ndescription: Custom.\n---\nCustom.\n',
       });
 
-      const del = await deleteReq<{ ok: boolean }>(`${app.url}/api/skills/flux-prompting`);
+      const del = await deleteReq<{ ok: boolean }>(`${app.url}/api/personality/skill/flux-prompting`);
       expect(del.status).toBe(200);
 
       // Bundled seed is back after user override is removed.
-      const { status } = await getJson<{ name: string }>(`${app.url}/api/skills/flux-prompting`);
+      const { status } = await getJson<{ name: string }>(`${app.url}/api/personality/skill/flux-prompting`);
       expect(status).toBe(200);
     } finally { await app.close(); }
   });
@@ -147,7 +147,7 @@ describe('skills endpoints', () => {
   it('DELETE bundled-only skill returns 404', async () => {
     const app = await startApp(makeSkillsApp());
     try {
-      const del = await deleteReq<{ error: string }>(`${app.url}/api/skills/flux-prompting`);
+      const del = await deleteReq<{ error: string }>(`${app.url}/api/personality/skill/flux-prompting`);
       expect(del.status).toBe(404);
       expect(typeof del.body.error).toBe('string');
     } finally { await app.close(); }
@@ -156,7 +156,7 @@ describe('skills endpoints', () => {
   it('PUT with invalid name returns 400', async () => {
     const app = await startApp(makeSkillsApp());
     try {
-      const res = await putJson<{ error: string }>(`${app.url}/api/skills/INVALID NAME`, { body: 'x' });
+      const res = await putJson<{ error: string }>(`${app.url}/api/personality/skill/INVALID NAME`, { body: 'x' });
       expect(res.status).toBe(400);
     } finally { await app.close(); }
   });

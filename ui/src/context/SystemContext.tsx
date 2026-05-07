@@ -1,6 +1,10 @@
 import React, { createContext, useContext, useState, useRef } from 'react';
 import type { SystemStats, MonitorStats, LauncherStatus } from '../types';
-import type { NetworkConfigView, ChatSettingsView } from '../services/comfyui';
+import type {
+  NetworkConfigView,
+  ChatSettingsView,
+  PersonalitySummary,
+} from '../services/comfyui';
 
 export interface SystemContextType {
   systemStats: SystemStats | null;
@@ -16,6 +20,7 @@ export interface SystemContextType {
   uploadMaxBytes: number;
   network: NetworkConfigView | null;
   chat: ChatSettingsView | null;
+  personality: PersonalitySummary | null;
   // Internal setters/refs exposed to sibling providers (Ws, façade).
   _setConnected: React.Dispatch<React.SetStateAction<boolean>>;
   _setMonitorStats: React.Dispatch<React.SetStateAction<MonitorStats | null>>;
@@ -30,6 +35,7 @@ export interface SystemContextType {
   _setUploadMaxBytes: React.Dispatch<React.SetStateAction<number>>;
   _setNetwork: React.Dispatch<React.SetStateAction<NetworkConfigView | null>>;
   _setChat: React.Dispatch<React.SetStateAction<ChatSettingsView | null>>;
+  _setPersonality: React.Dispatch<React.SetStateAction<PersonalitySummary | null>>;
   _systemStatsRef: React.MutableRefObject<SystemStats | null>;
 }
 
@@ -50,6 +56,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
   const [uploadMaxBytes, setUploadMaxBytes] = useState(500 * 1024 * 1024);
   const [network, setNetwork] = useState<NetworkConfigView | null>(null);
   const [chat, setChat] = useState<ChatSettingsView | null>(null);
+  const [personality, setPersonality] = useState<PersonalitySummary | null>(null);
   const systemStatsRef = useRef<SystemStats | null>(null);
 
   return (
@@ -68,6 +75,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
         uploadMaxBytes,
         network,
         chat,
+        personality,
         _setConnected: setConnected,
         _setMonitorStats: setMonitorStats,
         _setSystemStats: setSystemStats,
@@ -81,6 +89,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
         _setUploadMaxBytes: setUploadMaxBytes,
         _setNetwork: setNetwork,
         _setChat: setChat,
+        _setPersonality: setPersonality,
         _systemStatsRef: systemStatsRef,
       }}
     >

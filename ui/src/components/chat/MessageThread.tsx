@@ -33,7 +33,8 @@ import {
 } from '../ai-elements/reasoning';
 import { Loader } from '../ai-elements/loader';
 import { Spinner } from '../ui/spinner';
-import { api } from '../../services/comfyui';
+import { api, type ContextualSuggestionGroups } from '../../services/comfyui';
+import { useSystem } from '../../context/AppContext';
 import {
   Sources, SourcesContent, SourcesTrigger, Source,
 } from '../ai-elements/sources';
@@ -55,11 +56,22 @@ import { chatEvents, type GalleryAddedItem } from '../../services/chatEvents';
 import { formatBytes } from './attachments';
 import {
   collectToolSources, deriveSuggestions, extractGenerateImageRefs,
-  extractInlineUrls, type ToolSourceList,
+  extractInlineUrls, extractToolAttachments,
+  type ToolSourceList, type ToolAttachment,
 } from './messageParts';
 import type { StudioUIMessage, StudioUIMessagePart } from './studioMessages';
 
-interface ImageAttachment { kind: 'image'; url: string; mediaType?: string; name?: string; size?: number }
+/** Remove `![alt](/api/chat/attachments/...)` markdown image syntax from
+ *  assistant text before it hits Streamdown. The image is already rendered
+ *  inline by `<ToolAttachmentCard>` (driven from the tool's structured
+ *  output, which is more reliable than Streamdown's harden plugin —
+ *  Streamdown sometimes shows "[Image blocked]" for path-relative URLs).
+ *  Stripping the markdown gives one image per attachment, every time.
+ *  Pure markdown links (`[label](...)`) are left alone — only the leading
+ *  `!` image form is stripped. */
+function stripAttachmentImageMarkdown(text: string): string {
+  return text.replace(/!\[[^\]]*\]\(\/api\/chat\/attachments\/[^)]+\)/g, '');
+}
 interface FileAttachment { kind: 'file'; name: string; size?: number; mediaType?: string }
 type RenderedAttachment = ImageAttachment | FileAttachment;
 
@@ -126,6 +138,12 @@ export default function MessageThread({
 }: Props) {
   const [dragActive, setDragActive] = useState(false);
   const [zoomed, setZoomed] = useState<string | null>(null);
+  // Contextual suggestion groups arrive via system context (server reads
+  // them from data/chat/default_prompts.md) — pass down to each row so
+  // deriveSuggestions can pick groups by reply shape.
+  const { chat: chatSettings } = useSystem();
+  const contextualSuggestions: ContextualSuggestionGroups | null =
+    chatSettings?.suggestions?.contextual ?? null;
   // Prompt-id -> resolved gallery item, populated from `gallery:added` WS
   // events keyed by `promptId`. The `generate_image` tool returns a promptId
   // synchronously; the rendered image lands here when ComfyUI finishes the
@@ -286,6 +304,7 @@ export default function MessageThread({
                 showToolDetails={!!showToolDetails}
                 galleryByPrompt={galleryByPrompt}
                 dynamicSuggestions={suggestionsByMsg[m.id] ?? null}
+                contextualSuggestions={contextualSuggestions}
                 onZoom={setZoomed}
                 onSuggestionClick={onSuggestionClick}
                 onRegenerate={onRegenerate}
@@ -350,6 +369,9 @@ interface RowProps {
    *  arrived yet (or the smart-suggestions toggle is off). When present,
    *  these replace the static heuristic pills from `deriveSuggestions`. */
   dynamicSuggestions: string[] | null;
+  /** Static contextual-suggestion groups from system.chat.suggestions.contextual.
+   *  null when the system fetch hasn't landed yet — empty pills in that case. */
+  contextualSuggestions: ContextualSuggestionGroups | null;
   onZoom: (url: string) => void;
   onSuggestionClick?: (text: string) => void;
   onRegenerate?: () => void;
@@ -358,7 +380,7 @@ interface RowProps {
 
 function MessageRow({
   msg, isStreaming, isLastAssistant, webPreviews, showToolDetails, galleryByPrompt,
-  dynamicSuggestions,
+  dynamicSuggestions, contextualSuggestions,
   onZoom, onSuggestionClick, onRegenerate, onDelete,
 }: RowProps) {
   const isUser = msg.role === 'user';
@@ -377,6 +399,10 @@ function MessageRow({
     () => (isUser ? [] : extractGenerateImageRefs(msg.parts)),
     [isUser, msg.parts],
   );
+  const toolAttachments = useMemo(
+    () => (isUser ? [] : extractToolAttachments(msg.parts)),
+    [isUser, msg.parts],
+  );
   const previewUrls = useMemo(
     () => (isUser || !webPreviews || isStreaming ? [] : extractInlineUrls(text)),
     [isUser, webPreviews, isStreaming, text],
@@ -388,8 +414,8 @@ function MessageRow({
   const suggestions = useMemo(() => {
     if (!isLastAssistant || isStreaming) return [];
     if (dynamicSuggestions && dynamicSuggestions.length > 0) return dynamicSuggestions;
-    return deriveSuggestions(msg);
-  }, [isLastAssistant, isStreaming, msg, dynamicSuggestions]);
+    return deriveSuggestions(msg, contextualSuggestions);
+  }, [isLastAssistant, isStreaming, msg, dynamicSuggestions, contextualSuggestions]);
 
   // User-message Actions (delete only) — rendered as a sibling of the bubble
   // so the bubble's padding isn't disturbed by an always-reserved row of
@@ -449,6 +475,13 @@ function MessageRow({
                 key={`gi-${ref.toolCallId}`}
                 refData={ref}
                 resolved={galleryByPrompt[ref.promptId]}
+                onZoom={onZoom}
+              />
+            ))}
+            {toolAttachments.map(att => (
+              <ToolAttachmentCard
+                key={`ta-${att.toolCallId}-${att.filename}`}
+                att={att}
                 onZoom={onZoom}
               />
             ))}
@@ -672,7 +705,8 @@ function renderAssistantPart(part: StudioUIMessagePart, key: number, isStreaming
   }
   if (part.type === 'text') {
     if (part.text.length === 0 && !isStreaming) return null;
-    return <MessageResponse key={`m-${key}`}>{part.text || ' '}</MessageResponse>;
+    const text = stripAttachmentImageMarkdown(part.text);
+    return <MessageResponse key={`m-${key}`}>{text || ' '}</MessageResponse>;
   }
   // Source / file / data parts on assistant messages aren't rendered yet —
   // Phase E intentionally leaves Sources & generated-image rendering to a
@@ -769,5 +803,39 @@ function RenderedAttachmentChip({ att, onZoom }: ChipProps) {
         )}
       </div>
     </div>
+  );
+}
+
+interface ToolAttachmentCardProps {
+  att: ToolAttachment;
+  onZoom: (url: string) => void;
+}
+/** Inline render for tool-generated binary content (screenshots, PDFs,
+ *  etc.) that the server saved into chat-attachments. Image kinds get a
+ *  click-to-zoom thumbnail; everything else falls back to a download
+ *  link with the appropriate icon. */
+function ToolAttachmentCard({ att, onZoom }: ToolAttachmentCardProps) {
+  if (att.kind === 'image') {
+    return (
+      <button
+        type="button"
+        onClick={() => onZoom(att.url)}
+        className="mt-2 block max-w-md overflow-hidden rounded-lg border bg-card transition-colors hover:bg-muted"
+      >
+        <img src={att.url} alt={att.filename} className="block max-h-72 w-auto" />
+      </button>
+    );
+  }
+  return (
+    <a
+      href={att.url}
+      target="_blank"
+      rel="noreferrer"
+      className="mt-2 inline-flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-muted"
+    >
+      <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+      <span className="font-mono">{att.filename}</span>
+      <span className="text-muted-foreground">({att.kind})</span>
+    </a>
   );
 }

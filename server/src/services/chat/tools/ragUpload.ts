@@ -9,7 +9,7 @@
 
 import { z } from 'zod';
 import { defineTool } from './defineTool.js';
-import { TOOL_DESCRIPTION_RAG_UPLOAD } from '../prompts.js';
+import { get } from '../promptsLoader.js';
 
 export interface RagUploadConfig {
   baseUrl: string;
@@ -86,7 +86,7 @@ async function uploadFromUrl(args: UploadArgs): Promise<string> {
 
 export function ragUploadTool(config: RagUploadConfig) {
   return defineTool({
-    description: TOOL_DESCRIPTION_RAG_UPLOAD,
+    description: get('tool-description.rag-upload'),
     inputSchema,
     execute: async ({ file_url, knowledge_base_id }) => {
       try {
