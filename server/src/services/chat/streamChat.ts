@@ -80,15 +80,19 @@ export function startStream(input: StreamChatInput): StreamChatStarted {
   let userMsgId: string | null = null;
   if (lastUser) {
     userMsgId = makeId();
-    const rawParts = (lastUser.parts ?? []) as Record<string, unknown>[];
-    const { rewrittenParts } = extractAndPersistAttachments(userMsgId, rawParts);
+    // Insert the row with a placeholder first so the chat_attachments FK
+    // (`message_id REFERENCES chat_messages(id)`) is satisfied before we
+    // start writing attachment rows in extractAndPersistAttachments.
     repo.appendMessage({
       id: userMsgId,
       conversation_id: conversationId,
       role: 'user',
-      parts: JSON.stringify(rewrittenParts),
+      parts: '[]',
       created_at: now,
     });
+    const rawParts = (lastUser.parts ?? []) as Record<string, unknown>[];
+    const { rewrittenParts } = extractAndPersistAttachments(conversationId, userMsgId, rawParts);
+    repo.updateMessageParts(userMsgId, JSON.stringify(rewrittenParts));
   }
 
   const msgId = makeId();
@@ -282,7 +286,9 @@ async function runStream(args: RunStreamArgs): Promise<void> {
           emitChatEvent({ type: 'chat:reasoning', data: { msgId, delta } });
         },
       }),
-      executeToolCall: (call) => executeOllamaToolCall(aiSdkTools, call),
+      executeToolCall: (call, callId) => executeOllamaToolCall(
+        aiSdkTools, call, callId, { conversationId, messageId: msgId },
+      ),
       onBeforeTool: async (toolName) => {
         const studioTool = enabledTools[toolName];
         if (!studioTool) return;

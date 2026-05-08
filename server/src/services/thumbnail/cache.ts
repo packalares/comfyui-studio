@@ -15,7 +15,7 @@ import { env } from '../../config/env.js';
 const REMOTE_BUCKET_MS = 24 * 60 * 60 * 1000;
 
 export function cacheRoot(): string {
-  return path.join(env.COMFYUI_PATH || '/root/ComfyUI', '.cache', 'thumbs');
+  return path.join(env.COMFYUI_PATH, '.cache', 'thumbs');
 }
 
 export function legacyFlatDir(): string {
@@ -25,7 +25,7 @@ export function legacyFlatDir(): string {
 }
 
 export function legacyVideoDir(): string {
-  return path.join(env.COMFYUI_PATH || '/root/ComfyUI', '.cache', 'video-thumbs');
+  return path.join(env.COMFYUI_PATH, '.cache', 'video-thumbs');
 }
 
 export interface CachePath {

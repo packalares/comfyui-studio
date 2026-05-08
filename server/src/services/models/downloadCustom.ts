@@ -22,6 +22,7 @@ import {
   processHfEndpoint, validateHfUrl, validateCivitaiUrl,
   validateGithubUrl, validateGenericUrl, normaliseGithubUrl,
   detectDownloadHost, buildResolveUrl, ensureSaveDirectory,
+  composeModelSaveDir,
 } from './download.service.js';
 import { createDownloadTask, getTaskProgress } from '../downloadController/downloadController.service.js';
 import { walkAndDownload } from '../downloadController/walker.js';
@@ -62,7 +63,7 @@ export async function downloadCustom(
 
   const taskId = createDownloadTask();
   setModelMapping(fileName, taskId);
-  const saveDir = `models/${modelDir}`;
+  const saveDir = composeModelSaveDir(modelDir);
   ensureSaveDirectory(saveDir);
   const outputPath = path.join(env.COMFYUI_PATH, saveDir, fileName);
   logger.info('custom download starting', { url, path: outputPath });

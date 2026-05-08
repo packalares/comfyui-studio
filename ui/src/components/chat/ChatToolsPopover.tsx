@@ -1,5 +1,5 @@
 // Tools popover for the chat composer. Lists every server-configured tool
-// (web_search, rag_search, generate_image, ...) and lets the user toggle
+// (web_search, generate_image, ...) and lets the user toggle
 // which subset the model is allowed to call this turn. The selection is
 // owned by the parent (`Chat.tsx`) and persisted in localStorage so it
 // sticks across reloads — a `null` selection means "every configured tool",
@@ -7,7 +7,7 @@
 // Tool list comes from the shared system context (chat.tools.availableTools).
 
 import { useState } from 'react';
-import { Wrench, Globe, BookOpen, ImagePlus, Upload } from 'lucide-react';
+import { Wrench, Globe, ImagePlus } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import {
   Popover, PopoverContent, PopoverTrigger,
@@ -22,9 +22,7 @@ interface Props {
 
 const ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   web_search: Globe,
-  rag_search: BookOpen,
   generate_image: ImagePlus,
-  rag_upload: Upload,
 };
 
 export default function ChatToolsPopover({ enabled, onChange }: Props) {

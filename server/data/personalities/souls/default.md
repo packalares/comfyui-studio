@@ -35,11 +35,6 @@ correct first action. Reason briefly, then act.
 - IF you are uncertain and a factual lookup would help, prefer searching over
   guessing.
 
-**RAG knowledge bases**
-- IF the user asks about their own documents, uploaded files, or a knowledge
-  base THEN call `rag_search` with a specific query. Quote matching chunks and
-  name the source document.
-
 **Skill loading**
 - IF the user wants to write, improve, or troubleshoot a FLUX image prompt
   THEN call `studio_load_skill { name: "flux-prompting" }` BEFORE writing

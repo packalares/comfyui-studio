@@ -65,14 +65,22 @@ export function wrapMcpTool(
     unloadGpuOnUse: false,
     execute: async (
       args: Record<string, unknown>,
-      opts?: { toolCallId?: string },
+      opts?: { toolCallId?: string; conversationId?: string; messageId?: string },
     ): Promise<unknown> => {
       try {
         const raw = await executor(mcpTool.name, args ?? {});
-        // Inline binary content (screenshots, PDFs, etc.) gets moved into
-        // Studio's chat-attachments dir; the tool result the model sees is
-        // a tiny URL string instead of a multi-megabyte base64 blob.
-        return persistInlineMediaInResult(raw, { toolCallId: opts?.toolCallId });
+        // Inline binary content (screenshots, PDFs, etc.) is persisted into
+        // chat_attachments — the tool result the model sees is a small URL
+        // string instead of a multi-megabyte base64 blob. We require both
+        // `conversationId` and `messageId` to attribute the row correctly;
+        // if either is missing (external MCP caller without chat context),
+        // skip persistence and return the raw result unchanged.
+        if (!opts?.conversationId || !opts?.messageId) return raw;
+        return persistInlineMediaInResult(raw, {
+          conversationId: opts.conversationId,
+          messageId: opts.messageId,
+          toolCallId: opts.toolCallId,
+        });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return `mcp tool error (${mcpTool.name}): ${msg}`;

@@ -28,8 +28,6 @@ import {
   processFile, type PendingAttachment,
 } from './attachments';
 import ChatModelPickerModal from './ChatModelPickerModal';
-import RagUploadButton from './RagUploadButton';
-import { useSystem } from '../../context/AppContext';
 import ChatToolsPopover from './ChatToolsPopover';
 import SoulPicker from './SoulPicker';
 import SlashMenu from './SlashMenu';
@@ -73,12 +71,6 @@ export default function Composer({
   soulName, onSoulNameChange,
   centered = false,
 }: Props) {
-  // RAG upload button is gated on RAGFlow being configured. Both URL +
-  // API key must be set; the api-key field on `chat.tools` is a presence
-  // boolean (the actual key is server-side only).
-  const { chat: chatSettings } = useSystem();
-  const ragConfigured = !!chatSettings?.tools?.ragflowUrl
-    && !!chatSettings?.tools?.ragflowApiKeyConfigured;
   // The ref attached to <PromptInputTextarea> won't actually land on the
   // underlying <textarea> because the ai-elements wrapper is a plain
   // function component (not React.forwardRef) and we're on React 18 where
@@ -372,7 +364,6 @@ export default function Composer({
                   enabled={enabledTools}
                   onChange={onEnabledToolsChange}
                 />
-                <RagUploadButton disabled={!ragConfigured} />
                 <WebPreviewToggle enabled={webPreviews} onToggle={onWebPreviewsChange} />
                 <ToolDetailsToggle enabled={showToolDetails} onToggle={onShowToolDetailsChange} />
               </PromptInputTools>

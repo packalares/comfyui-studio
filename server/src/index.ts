@@ -16,7 +16,6 @@ import {
 import { setDownloadBroadcaster, getAllDownloads } from './services/downloads.js';
 import { setChatBroadcaster } from './services/chat/broadcaster.js';
 import { sweepStaleUploads } from './routes/upload.routes.js';
-import { sweepOrphanedAttachments } from './services/chat/attachments.js';
 import * as promptSnapshotsRepo from './lib/db/promptSnapshots.repo.js';
 import { getStatus as getLocalComfyUIStatus } from './services/comfyui/status.service.js';
 import { startComfyUIProxy } from './services/comfyui/proxy.service.js';
@@ -265,10 +264,6 @@ async function start() {
   // Sweep leftover files in the uploads tmp dir (orphans from any prior
   // crash mid-upload). Safe because we only delete files older than 1h.
   sweepStaleUploads();
-
-  // Sweep orphaned chat attachment files once per day (7-day TTL).
-  const attachSweepTimer = setInterval(sweepOrphanedAttachments, 24 * 60 * 60 * 1000);
-  attachSweepTimer.unref();
 
   // Sweep prompt snapshots older than 1 hour every 10 minutes.
   const snapshotSweepTimer = setInterval(

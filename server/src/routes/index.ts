@@ -28,7 +28,6 @@ import thumbnail from './thumbnail.routes.js';
 import chat from './chat.routes.js';
 import chatAttachments from './chat.attachments.routes.js';
 import chatModels from './chat.models.routes.js';
-import rag from './rag.routes.js';
 import mcp from './mcp.routes.js';
 import mcpServers from './mcpServers.routes.js';
 import { personalityRouter } from './personality.routes.js';
@@ -61,7 +60,6 @@ router.use(thumbnail);
 router.use(chat);
 router.use(chatAttachments);
 router.use(chatModels);
-router.use(rag);                   // /api/rag/kbs and /api/rag/upload (UI-driven)
 router.use('/mcp', mcp);          // /api/mcp — Studio's MCP server endpoint
 router.use(mcpServers);            // /api/mcp/servers and /api/mcp/profiles
 router.use(personalityRouter);

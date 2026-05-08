@@ -121,14 +121,27 @@ export class McpClientRegistry {
 
   // ---- Status --------------------------------------------------------------
 
-  getServerStates(): Array<McpServerConfig & { state: ConnectionState }> {
+  getServerStates(): Array<Omit<McpServerConfig, 'auth'> & {
+    auth?: { type: 'bearer'; tokenConfigured: boolean };
+    state: ConnectionState;
+  }> {
+    // SECURITY: strip `auth.token` before returning. The settings UI shows
+    // each external MCP server's row but never displays its bearer token —
+    // including it here would leak it through `GET /api/mcp/servers` to
+    // every settings page load + any XSS that could read the response. We
+    // surface only `tokenConfigured: bool` so the UI can render a "token
+    // set" indicator without ever transporting the secret.
     const servers = getMcpServers();
     return servers.map((s) => {
       const conn = this.connections.get(s.id);
       const state: ConnectionState = conn
         ? conn.getState()
         : { status: 'disconnected', toolCount: 0 };
-      return { ...s, state };
+      const { auth, ...rest } = s;
+      const safeAuth = auth?.token
+        ? { type: 'bearer' as const, tokenConfigured: true }
+        : undefined;
+      return { ...rest, auth: safeAuth, state };
     });
   }
 

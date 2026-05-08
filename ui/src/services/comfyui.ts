@@ -1491,8 +1491,6 @@ export interface ChatToolListing {
 
 export interface ChatToolsSettings {
   searxngUrl: string;
-  ragflowUrl: string;
-  ragflowApiKeyConfigured: boolean;
   defaultImageTemplate: string;
   /** Resolved chat-composer tool list (replaces /api/chat/tools). Empty when
    *  no integrations are configured / ready. */
@@ -1501,8 +1499,6 @@ export interface ChatToolsSettings {
 
 export interface ChatToolsSettingsInput {
   searxngUrl?: string;
-  ragflowUrl?: string;
-  ragflowApiKey?: string;
   defaultImageTemplate?: string;
 }
 

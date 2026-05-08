@@ -115,6 +115,14 @@ export function extractToolCalls(frame: unknown): OllamaToolCall[] {
   return out;
 }
 
+/** Per-call context threaded into `tool.execute` via `opts`. Used by the MCP
+ *  wrappers so tool media gets attributed to the right conversation/message
+ *  when persisted as chat attachments. */
+export interface ToolExecCtx {
+  conversationId: string;
+  messageId: string;
+}
+
 /**
  * Execute a single tool call against the AI-SDK tool descriptor. Catches every
  * failure and returns it as a structured payload — tool errors must NEVER
@@ -124,6 +132,8 @@ export function extractToolCalls(frame: unknown): OllamaToolCall[] {
 export async function executeOllamaToolCall(
   tools: Record<string, unknown>,
   call: OllamaToolCall,
+  callId: string,
+  ctx: ToolExecCtx,
 ): Promise<{ ok: true; output: unknown } | { ok: false; error: string }> {
   const t = tools[call.function.name];
   if (!isToolLike(t) || typeof t.execute !== 'function') {
@@ -137,7 +147,12 @@ export async function executeOllamaToolCall(
     try { input = JSON.parse(input); } catch { /* leave as-is */ }
   }
   try {
-    const output = await t.execute(input, { toolCallId: '', messages: [] });
+    const output = await t.execute(input, {
+      toolCallId: callId,
+      messages: [],
+      conversationId: ctx.conversationId,
+      messageId: ctx.messageId,
+    });
     return { ok: true, output };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };

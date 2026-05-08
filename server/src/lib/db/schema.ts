@@ -15,7 +15,7 @@
 // `author`, `installed`, `category`, `model_filename`, `plugin_id`). Anything
 // else stays unindexed or lives inside `raw_json` / `workflow_json`.
 
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 18;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -150,6 +150,21 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   load_duration_ms    INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_chat_messages_conv ON chat_messages(conversation_id, created_at);
+
+CREATE TABLE IF NOT EXISTS chat_attachments (
+  id              TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  message_id      TEXT NOT NULL REFERENCES chat_messages(id) ON DELETE CASCADE,
+  display_name    TEXT,
+  mime_type       TEXT NOT NULL,
+  ext             TEXT NOT NULL,
+  size_bytes      INTEGER NOT NULL,
+  content_hash    TEXT NOT NULL,
+  source          TEXT NOT NULL,
+  created_at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_attachments_msg  ON chat_attachments(message_id);
+CREATE INDEX IF NOT EXISTS idx_chat_attachments_conv ON chat_attachments(conversation_id);
 
 CREATE TABLE IF NOT EXISTS ollama_library (
   name            TEXT PRIMARY KEY,

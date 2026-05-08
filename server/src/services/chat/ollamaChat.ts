@@ -6,12 +6,30 @@
 
 import type { UIMessage } from 'ai';
 
+/** Wire shape of a single tool call echoed on an assistant message — mirrors
+ *  the OpenAI/Ollama tool-call protocol so the model sees the same call ids
+ *  on its own request as on the subsequent tool-role results. */
+export interface AssistantToolCall {
+  id: string;
+  type: 'function';
+  function: { name: string; arguments: unknown };
+}
+
 /** A native Ollama chat message — the wire shape we POST to /api/chat. */
 export interface OllamaChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
   /** Base64 image strings (no data: prefix) for multimodal models. */
   images?: string[];
+  /** Echoed on tool-role messages so the model can correlate result-to-call
+   *  when a single turn fires multiple tools. Ollama-native ignores it
+   *  silently; the OpenAI-compatible shim and ID-validating models use it
+   *  to attribute results to the right call. */
+  tool_call_id?: string;
+  /** Tool calls the assistant requested in this turn. Sent on the
+   *  assistant-role echo before the corresponding tool-role results so the
+   *  call→result correspondence is captured in the on-wire history. */
+  tool_calls?: AssistantToolCall[];
 }
 
 /**

@@ -41,3 +41,6 @@ coverage/
 
 # Workflow JSONs — kept locally only, not tracked in git
 workflows/
+
+# Python rewrite (work-in-progress; not ready to ship in commits yet).
+server/pysrc/

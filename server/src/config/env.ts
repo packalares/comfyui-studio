@@ -27,6 +27,9 @@ const STUDIO = {
   NODE_ENV: process.env.NODE_ENV ?? 'development',
   PORT: readPort(),
   COMFYUI_URL: process.env.COMFYUI_URL ?? 'http://localhost:8188',
+  /** Default Ollama HTTP base URL. The persisted setting `ollamaUrl` overrides
+   *  this at runtime — this is only the seed when no explicit value is set. */
+  OLLAMA_URL: process.env.OLLAMA_URL ?? 'http://localhost:11434',
   /** Root of ComfyUI's model tree on disk. Empty string disables stat-fallback. */
   MODELS_DIR: process.env.MODELS_DIR ?? '',
   MAX_CONCURRENT_DOWNLOADS: readNumber(process.env.MAX_CONCURRENT_DOWNLOADS, 2),
@@ -101,6 +104,9 @@ const LAUNCHER = {
   COMFYUI_PROXY_PORT: readNumber(process.env.COMFYUI_PROXY_PORT, 8190),
   /** Path to the ComfyUI runner entrypoint script (launcher's bash runner). */
   COMFYUI_ENTRYPOINT: process.env.COMFYUI_ENTRYPOINT ?? '/runner-scripts/entrypoint.sh',
+  /** Path to the runner-bundled recovery script invoked by the reset flow. */
+  COMFYUI_RECOVERY_SCRIPT: process.env.COMFYUI_RECOVERY_SCRIPT
+    ?? '/runner-scripts/up-version-cp.sh',
   /** ComfyUI cache directory (optional, used by reset). */
   CACHE_DIR: process.env.CACHE_DIR ?? '',
   /** Max ComfyUI start retries (5s per retry). Default 120 (~10 min). */

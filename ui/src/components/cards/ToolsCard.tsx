@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Wrench, Save, Check, Globe, Database, HelpCircle } from 'lucide-react';
+import { Wrench, Save, Check, Globe, HelpCircle } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { toast } from 'sonner';
 import { api } from '../../services/comfyui';
@@ -10,25 +10,19 @@ import { Card, CardContent, CardFooter, CardHeader } from '../ui/card';
 import InputField from '../forms/InputField';
 import { SelectField, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../forms/SelectField';
 
-// Settings card for chat-tool integrations: SearXNG, RAGFlow, default image
-// template. Sits BELOW the existing Chat / LLM card; never modifies it.
+// Settings card for chat-tool integrations: SearXNG + default image template.
+// Sits BELOW the existing Chat / LLM card; never modifies it.
 //
-// Each tool's enable-state is implicit: empty URL/key = tool hidden from the
-// LLM. The server enforces this in `services/chat/tools/index.ts`.
+// Each tool's enable-state is implicit: empty URL = tool hidden from the LLM.
+// The server enforces this in `services/chat/tools/index.ts`.
 
 interface ToolsState {
   searxngUrl: string;
-  ragflowUrl: string;
-  ragflowApiKey: string;
-  ragflowApiKeyConfigured: boolean;
   defaultImageTemplate: string;
 }
 
 const EMPTY_STATE: ToolsState = {
   searxngUrl: '',
-  ragflowUrl: '',
-  ragflowApiKey: '',
-  ragflowApiKeyConfigured: false,
   defaultImageTemplate: '',
 };
 
@@ -47,9 +41,6 @@ export default function ToolsCard() {
     if (!live) return;
     setState({
       searxngUrl: live.searxngUrl,
-      ragflowUrl: live.ragflowUrl,
-      ragflowApiKey: '',
-      ragflowApiKeyConfigured: live.ragflowApiKeyConfigured,
       defaultImageTemplate: live.defaultImageTemplate,
     });
   }, [live]);
@@ -68,12 +59,6 @@ export default function ToolsCard() {
     try {
       await api.updateSettings('tools', {
         searxngUrl: state.searxngUrl.trim(),
-        ragflowUrl: state.ragflowUrl.trim(),
-        // Send the API key only when the user typed a value; an empty string
-        // would be treated as "clear" by the server.
-        ...(state.ragflowApiKey.trim()
-          ? { ragflowApiKey: state.ragflowApiKey.trim() }
-          : {}),
         defaultImageTemplate: state.defaultImageTemplate.trim(),
       });
       await app.refreshSystem();
@@ -83,16 +68,6 @@ export default function ToolsCard() {
       toast.error('Failed to save tools settings', {
         description: err instanceof Error ? err.message : String(err),
       });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleClearKey = async () => {
-    setBusy(true);
-    try {
-      await api.updateSettings('tools', { ragflowApiKey: '' });
-      await app.refreshSystem();
     } finally {
       setBusy(false);
     }
@@ -143,30 +118,6 @@ export default function ToolsCard() {
             >
               Test
             </Button>
-          }
-        />
-        <InputField
-          label="RAGFlow URL"
-          tooltip="Base URL of a RAGFlow instance. Combined with the API key below, enables the rag_search + rag_upload tools."
-          value={state.ragflowUrl}
-          onChange={v => setState(s => ({ ...s, ragflowUrl: v }))}
-          placeholder="https://ragflow.example.com"
-          disabled={!loaded}
-          leftIcon={<Database />}
-        />
-        <InputField
-          label="RAGFlow API key"
-          tooltip="Sent as Authorization: Bearer on every RAGFlow call. Stored server-side in the same 0o600 config file as the rest of the secrets."
-          type="password"
-          value={state.ragflowApiKey}
-          onChange={v => setState(s => ({ ...s, ragflowApiKey: v }))}
-          placeholder="ragflow-XXXXXXXX"
-          disabled={!loaded}
-          leftIcon={<Database />}
-          configured={
-            state.ragflowApiKeyConfigured
-              ? { onClear: handleClearKey, clearDisabled: busy }
-              : undefined
           }
         />
         <div>

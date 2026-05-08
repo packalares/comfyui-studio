@@ -37,7 +37,7 @@ export interface ToolDispatchInput {
     finalFrame: OllamaFinalFrame | null;
     toolCalls: OllamaToolCall[];
   }>;
-  executeToolCall: (call: OllamaToolCall)
+  executeToolCall: (call: OllamaToolCall, callId: string)
     => Promise<{ ok: true; output: unknown } | { ok: false; error: string }>;
   /** GPU-orchestrator hook. Awaited BEFORE each tool dispatch so the unload
    *  completes before ComfyUI starts grabbing VRAM. Awaiting also means a
@@ -71,7 +71,7 @@ function nextCallId(): string {
 
 function toContentString(value: unknown): string {
   if (typeof value === 'string') return value;
-  // Tools (web_search / rag_search) may return a structured envelope of the
+  // Tools (e.g. web_search) may return a structured envelope of the
   // shape `{ text, sources?, images? }` so the chat UI can render side-channel
   // citation cards / image previews. The model only needs the human-readable
   // `text`; stripping the side-channels here keeps the in-context tool message
@@ -94,24 +94,36 @@ export async function runToolDispatch(input: ToolDispatchInput): Promise<ToolDis
 
     if (stepResult.toolCalls.length === 0) return { finalFrame };
 
+    // Pre-mint one id per tool call so the assistant's `tool_calls` echo
+    // matches the `tool_call_id` on each subsequent tool-role result. Models
+    // that validate ids (multi-tool turns + OpenAI-shim) need the round-trip
+    // tight; models that ignore them are unaffected.
+    const callIds = stepResult.toolCalls.map(() => nextCallId());
+
     // Append the assistant frame that asked for the tools, then each tool
     // result. Matches the OpenAI / Ollama tool-call protocol — without this
     // round trip the next step would lose the model's request context.
     messages.push({
       role: 'assistant',
       content: stepResult.accumulated,
+      tool_calls: stepResult.toolCalls.map((call, i) => ({
+        id: callIds[i],
+        type: 'function' as const,
+        function: { name: call.function.name, arguments: call.function.arguments },
+      })),
     });
 
     let asyncDeferredHit = false;
-    for (const call of stepResult.toolCalls) {
-      const callId = nextCallId();
+    for (let i = 0; i < stepResult.toolCalls.length; i += 1) {
+      const call = stepResult.toolCalls[i];
+      const callId = callIds[i];
       // GPU orchestrator gate — fires only if the named tool is registered
       // with `unloadGpuOnUse: true` AND the orchestrator's runtime gates
       // pass (co-located + model loaded). See `gpuOrchestrator.beforeTool`.
       if (input.onBeforeTool) {
         await input.onBeforeTool(call.function.name);
       }
-      const exec = await input.executeToolCall(call);
+      const exec = await input.executeToolCall(call, callId);
       if (exec.ok) {
         const part: ToolPart = {
           type: 'tool-invocation',
@@ -125,6 +137,7 @@ export async function runToolDispatch(input: ToolDispatchInput): Promise<ToolDis
         messages.push({
           role: 'tool',
           content: toContentString(exec.output),
+          tool_call_id: callId,
         });
         if (input.isAsyncDeferred?.(call.function.name, exec.output)) {
           asyncDeferredHit = true;
@@ -145,6 +158,7 @@ export async function runToolDispatch(input: ToolDispatchInput): Promise<ToolDis
         messages.push({
           role: 'tool',
           content: renderPrompt('tool-error-reprompt', { errorMessage: exec.error }),
+          tool_call_id: callId,
         });
       }
     }

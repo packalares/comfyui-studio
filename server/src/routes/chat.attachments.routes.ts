@@ -1,12 +1,17 @@
-// Serves chat attachment files written by `extractAndPersistAttachments`.
+// Serves chat attachment files. The URL slug is `<id>.<ext>` where `<id>`
+// is the chat_attachments primary key. We look up the row to verify the
+// attachment exists, then sendFile from disk.
 //
-// GET /api/chat/attachments/:filename
-//   Path traversal guard: rejects filenames with `..`, `/`, or `\`;
-//   additionally verifies the resolved path is inside attachmentDir().
+// GET /api/chat/attachments/:slug
+//   Path traversal guard: rejects slugs with `..`, `/`, or `\`.
+//   Slug must match `<base64url>.<ext>` shape. 404 when row missing.
 
 import path from 'path';
 import { Router, type Request, type Response } from 'express';
 import { attachmentDir } from '../services/chat/attachments.js';
+import { getAttachment } from '../lib/db/chat.repo.js';
+
+const SLUG_RX = /^([A-Za-z0-9_-]+)\.([A-Za-z0-9]+)$/;
 
 const MIME_MAP: Record<string, string> = {
   png: 'image/png',
@@ -17,6 +22,12 @@ const MIME_MAP: Record<string, string> = {
   bmp: 'image/bmp',
   tiff: 'image/tiff',
   svg: 'image/svg+xml',
+  pdf: 'application/pdf',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
   bin: 'application/octet-stream',
 };
 
@@ -26,44 +37,38 @@ function mimeFromExt(ext: string): string {
 
 const router = Router();
 
-router.get('/chat/attachments/:filename', (req: Request, res: Response) => {
-  const rawParam = req.params['filename'];
+router.get('/chat/attachments/:slug', (req: Request, res: Response) => {
+  const rawParam = req.params['slug'];
   const raw = typeof rawParam === 'string' ? rawParam : '';
 
-  // Reject obviously malicious filenames before any path resolution.
+  // Reject obviously malicious slugs.
   if (raw.includes('..') || raw.includes('/') || raw.includes('\\')) {
-    res.status(400).json({ error: 'invalid filename' });
-    return;
+    res.status(400).json({ error: 'invalid slug' }); return;
   }
 
-  // Canonicalize: strip directory components (belt-and-suspenders).
-  const filename = path.basename(raw);
-  if (!filename || filename !== raw) {
-    res.status(400).json({ error: 'invalid filename' });
-    return;
+  const m = SLUG_RX.exec(raw);
+  if (!m) { res.status(400).json({ error: 'invalid slug' }); return; }
+  const id = m[1];
+  const ext = m[2];
+
+  const row = getAttachment(id);
+  if (!row || row.ext !== ext) {
+    res.status(404).json({ error: 'not found' }); return;
   }
 
   const dir = attachmentDir();
+  const filename = `${row.id}.${row.ext}`;
   const resolved = path.resolve(dir, filename);
-
-  // Verify resolved path is strictly inside the attachment directory.
   const rel = path.relative(dir, resolved);
   if (rel.startsWith('..') || path.isAbsolute(rel)) {
-    res.status(400).json({ error: 'invalid filename' });
-    return;
+    res.status(400).json({ error: 'invalid path' }); return;
   }
 
-  const ext = filename.includes('.') ? filename.split('.').pop()! : 'bin';
-  const contentType = mimeFromExt(ext);
-
-  res.setHeader('Content-Type', contentType);
+  res.setHeader('Content-Type', row.mime_type || mimeFromExt(ext));
   res.sendFile(filename, { root: dir }, (err) => {
     if (err) {
       const code = (err as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT') {
-        res.status(404).json({ error: 'not found' });
-      }
-      // If headers already sent, Express handles it.
+      if (code === 'ENOENT') res.status(404).json({ error: 'not found' });
     }
   });
 });

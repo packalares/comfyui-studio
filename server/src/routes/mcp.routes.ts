@@ -10,6 +10,7 @@
 
 import { Router } from 'express';
 import type { Request, Response } from 'express';
+import { timingSafeEqual } from 'crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createStudioMcpServer } from '../services/mcp/server/index.js';
 import { getStudioMcpToken } from '../services/settings.mcp.js';
@@ -33,7 +34,14 @@ function checkAuth(req: Request, res: Response): boolean {
   }
   const header = req.headers.authorization ?? '';
   const bearer = header.startsWith('Bearer ') ? header.slice(7) : '';
-  if (bearer !== token) {
+  // Constant-time compare. JS `!==` short-circuits on the first differing
+  // character, leaking the prefix length via response timing. timingSafeEqual
+  // requires equal-length buffers, so we pre-check length to avoid a throw.
+  const bearerBuf = Buffer.from(bearer);
+  const tokenBuf = Buffer.from(token);
+  const matches = bearerBuf.length === tokenBuf.length
+    && timingSafeEqual(bearerBuf, tokenBuf);
+  if (!matches) {
     res.status(401).json({ error: 'Unauthorized' });
     return false;
   }

@@ -49,6 +49,10 @@ export const paths = {
     ?? path.join(STUDIO_CONFIG_ROOT, 'exposed_widgets'),
   /** Absolute root of ComfyUI's model tree on disk. May be empty - stat-fallback disabled. */
   modelsDir: env.MODELS_DIR,
+  /** ComfyUI's per-prompt output tree (gallery files land here). */
+  comfyOutputDir: env.COMFYUI_PATH ? path.join(env.COMFYUI_PATH, 'output') : '',
+  /** ComfyUI's input tree (uploaded source images for img2img / video init). */
+  comfyInputDir: env.COMFYUI_PATH ? path.join(env.COMFYUI_PATH, 'input') : '',
   /**
    * Directory holding bundled READ-ONLY seeds (all_nodes.mirrored.json,
    * model-list.json). Do NOT write here — use the named runtime-state paths

@@ -72,7 +72,8 @@ import type { StudioUIMessage, StudioUIMessagePart } from './studioMessages';
 function stripAttachmentImageMarkdown(text: string): string {
   return text.replace(/!\[[^\]]*\]\(\/api\/chat\/attachments\/[^)]+\)/g, '');
 }
-interface FileAttachment { kind: 'file'; name: string; size?: number; mediaType?: string }
+interface ImageAttachment { kind: 'image'; url: string; name?: string; size?: number; mediaType?: string }
+interface FileAttachment  { kind: 'file';  name: string;  size?: number; mediaType?: string }
 type RenderedAttachment = ImageAttachment | FileAttachment;
 
 interface Props {
@@ -315,7 +316,7 @@ export default function MessageThread({
           {showColdLoadHint && lastMessage?.role !== 'assistant' && (
             <Message from="assistant">
               <MessageContent>
-                <ColdLoadLoader />
+                <ColdLoadLoader msgId={inFlightAssistantId ?? undefined} />
               </MessageContent>
             </Message>
           )}
@@ -460,7 +461,7 @@ function MessageRow({
                 were emitted, not bucketed at the top of the row. */}
             {msg.parts.map((p, i) => renderAssistantPart(p, i, isStreaming, showToolDetails))}
             {isStreaming && text.length === 0 && msg.parts.every(p => p.type !== 'reasoning' && p.type !== 'dynamic-tool') && (
-              <ColdLoadLoader />
+              <ColdLoadLoader msgId={msg.id} />
             )}
             {/* Sources panel (one per qualifying tool call). Sits as a
                 sibling of the <Tool> card — readers see the tool collapse
@@ -562,11 +563,11 @@ function SourcesBlock({ list }: { list: ToolSourceList }) {
 
 function InlineCitationCarouselWrap({ list }: { list: ToolSourceList }) {
   // <InlineCitationCardTrigger> parses the first URL via `new URL()` to
-  // render the hostname pill. Limit to http(s) URLs so the synthetic
-  // `ragflow://` scheme used by rag_search doesn't slip through and end up
-  // showing a meaningless "ragflow" hostname. Drops the inline citation
-  // rendering entirely when no http(s) URL is available — the full Sources
-  // collapse above already covers that case.
+  // render the hostname pill. Limit to http(s) URLs so synthetic / opaque
+  // URI schemes (e.g. tool-internal pseudo-URLs) don't slip through and
+  // render a meaningless hostname. Drops the inline citation rendering
+  // entirely when no http(s) URL is available — the full Sources collapse
+  // above already covers that case.
   const urls = list.sources
     .map(s => s.url)
     .filter(u => /^https?:\/\//i.test(u));
@@ -754,18 +755,26 @@ const STATUS_CODE_LABELS: Record<string, string> = {
   freeing_gpu: 'Freeing GPU for tool…',
 };
 
-function ColdLoadLoader() {
+function ColdLoadLoader({ msgId }: { msgId?: string }) {
   const [status, setStatus] = useState('');
   useEffect(() => {
-    const off = chatEvents.onStatus(({ code, message }) => {
-      if (code && STATUS_CODE_LABELS[code]) {
-        setStatus(STATUS_CODE_LABELS[code]);
-      } else if (message) {
-        setStatus(message);
+    // Without a target msgId we can't tell our events from a sibling
+    // tab's, so subscribe only when we know who we are. The brief pre-
+    // assistant-placeholder window (status === 'submitted') falls under
+    // this — server-side `chat:status` doesn't fire until after /chat/start
+    // returns, by which point the placeholder exists and the line-463
+    // render path (with strict msg.id filter) takes over.
+    if (!msgId) return;
+    const off = chatEvents.onStatus((evt) => {
+      if (evt.msgId !== msgId) return;
+      if (evt.code && STATUS_CODE_LABELS[evt.code]) {
+        setStatus(STATUS_CODE_LABELS[evt.code]);
+      } else if (evt.message) {
+        setStatus(evt.message);
       }
     });
     return off;
-  }, []);
+  }, [msgId]);
   return <Loader status={status} />;
 }
 

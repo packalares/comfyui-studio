@@ -20,12 +20,6 @@ Conversation summary so far: {{summary}}
 ## tool-description.web-search
 Search the public web via a SearXNG metasearch engine. Returns a numbered list of titles, URLs, and snippets — use the URLs as citations when answering the user.
 
-## tool-description.rag-search
-Search the user's RAGFlow knowledge bases for relevant chunks. Each result includes the source document name plus the matching text — quote the chunks back when answering and cite the source document name.
-
-## tool-description.rag-upload
-Upload a publicly reachable file URL into a RAGFlow knowledge base. The file is downloaded server-side and forwarded to RAGFlow which queues it for chunking + embedding asynchronously.
-
 ## tool-description.generate-image
 Generate an image from a text prompt. Call this whenever the user asks for a picture, image, photo, illustration, render, painting, drawing, or any visual. Pass the user's request as `prompt`; optionally set width / height / steps / seed / cfg / sampler / negative_prompt when the user specifies (e.g. "4K" → width=3840, height=2160). The image appears in chat when ready.
 
@@ -34,18 +28,6 @@ Web search
 
 ## tool-label-description.web-search
 Search the public web via SearXNG and cite results.
-
-## tool-label.rag-search
-RAG search
-
-## tool-label-description.rag-search
-Search your RAGFlow knowledge bases for relevant chunks.
-
-## tool-label.rag-upload
-RAG upload
-
-## tool-label-description.rag-upload
-Upload a public file URL into a RAGFlow knowledge base.
 
 ## tool-label.generate-image
 Generate image
@@ -71,16 +53,12 @@ generate_image failed:
 ## generate-image.no-template-error
 generate_image failed: no template selected and no default image template is configured. Ask the user to set a default in Settings → Tools, or pass an explicit `template` argument.
 
-## rag-search.no-kb-error
-rag_search failed: knowledge_base_id is required. Ask the user which knowledge base to search before retrying.
-
 ## tool-error-reprompt
 tool error: {{errorMessage}}
 
 ## suggestions.empty-state
 - Generate an image of a cyberpunk city at night
 - Search the web for the latest local LLM benchmarks
-- Search my docs for setup instructions
 - Explain this code
 - Brainstorm names for a new project
 - Summarize a topic for me

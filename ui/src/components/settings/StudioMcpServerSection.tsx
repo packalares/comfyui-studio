@@ -109,7 +109,11 @@ export default function StudioMcpServerSection() {
     try {
       const data = await getStudioMcpStatus();
       setEnabled(data.enabled);
-      setToken(data.token);
+      // Server no longer returns the raw token (it would leak on every
+      // dashboard load). On status read we only know IF a token is set, not
+      // what it is. The mint/regenerate handlers below set the raw token in
+      // local state for one-time display.
+      setToken(null);
       setError(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

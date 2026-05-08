@@ -103,7 +103,21 @@ export class StudioTransport implements ChatTransport<StudioUIMessage> {
       start: (controller) => {
         let textOpen = false;
         let reasoningOpen = false;
+        let closed = false;
+        let abortWatchdog: ReturnType<typeof setTimeout> | null = null;
         const cleanups: Array<() => void> = [];
+
+        // Single close path: idempotent, runs cleanup callbacks, clears the
+        // abort watchdog. Every termination route (done / error / abort
+        // timeout / pre-aborted) funnels through here so a forgotten cleanup
+        // can't leave the chat stuck in "streaming" state.
+        const finalize = (): void => {
+          if (closed) return;
+          closed = true;
+          if (abortWatchdog !== null) { clearTimeout(abortWatchdog); abortWatchdog = null; }
+          try { controller.close(); } catch { /* already closed */ }
+          for (const fn of cleanups) { try { fn(); } catch { /* ignore */ } }
+        };
 
         // The `start` chunk lets us hand `useChat` the server-generated id,
         // which becomes the assistant `UIMessage.id`. Without this, useChat
@@ -166,7 +180,7 @@ export class StudioTransport implements ChatTransport<StudioUIMessage> {
         }));
 
         cleanups.push(chatEvents.onDone(({ msgId: id, stats }) => {
-          if (id !== msgId) return;
+          if (id !== msgId || closed) return;
           if (textOpen) controller.enqueue({ type: 'text-end', id: msgId });
           if (reasoningOpen) controller.enqueue({ type: 'reasoning-end', id: msgId });
           controller.enqueue({ type: 'finish-step' });
@@ -186,15 +200,13 @@ export class StudioTransport implements ChatTransport<StudioUIMessage> {
               conversationId,
             },
           });
-          controller.close();
-          for (const fn of cleanups) fn();
+          finalize();
         }));
 
         cleanups.push(chatEvents.onError(({ msgId: id, error }) => {
-          if (id !== msgId) return;
+          if (id !== msgId || closed) return;
           controller.enqueue({ type: 'error', errorText: error });
-          controller.close();
-          for (const fn of cleanups) fn();
+          finalize();
         }));
 
         // `chat:status` ("loading model into VRAM..." cold-load hint) has no
@@ -205,14 +217,24 @@ export class StudioTransport implements ChatTransport<StudioUIMessage> {
         if (abortSignal) {
           if (abortSignal.aborted) {
             void api.chat.stop(msgId).catch(() => { /* swallow */ });
-            controller.close();
-            for (const fn of cleanups) fn();
+            finalize();
           } else {
             abortSignal.addEventListener('abort', () => {
               void api.chat.stop(msgId).catch(() => { /* swallow */ });
-              // Don't close the stream here — the server still emits a `done`
-              // for the partial response. `chatEvents.onDone` will run the
-              // close + cleanup path normally.
+              // Don't close the stream immediately — the server normally
+              // emits a `done` for the partial response and `onDone` will
+              // run the close path. But if the server crashes or the WS
+              // drops mid-abort, neither `done` nor `error` ever arrives
+              // and the chat would hang in "streaming" until a page reload.
+              // Fall back to a short watchdog: if no terminal frame lands
+              // within the budget, force-close locally with a stop notice
+              // so `useChat` transitions out of `streaming`.
+              if (closed || abortWatchdog !== null) return;
+              abortWatchdog = setTimeout(() => {
+                if (closed) return;
+                controller.enqueue({ type: 'error', errorText: 'Stream stopped (no server ack)' });
+                finalize();
+              }, 3000);
             }, { once: true });
           }
         }

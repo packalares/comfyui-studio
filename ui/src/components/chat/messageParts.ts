@@ -1,7 +1,7 @@
 // Helpers for surfacing rich UI affordances out of `StudioUIMessage` parts:
 //
 // * `collectToolSources` walks `dynamic-tool` parts and pulls a typed
-//   `{ title, url, snippet }` list out of `web_search` / `rag_search` results
+//   `{ title, url, snippet }` list out of `web_search` results
 //   so the thread can render an ai-elements `<Sources>` block alongside the
 //   tool card.
 // * `extractGenerateImageRefs` finds `generate_image` tool calls that
@@ -19,7 +19,7 @@ import type { StudioUIMessage, StudioUIMessagePart } from './studioMessages';
 import type { ContextualSuggestionGroups } from '../../services/comfyui';
 
 /** Source row consumed by `<Sources>` / `<InlineCitation>`. Mirrors the
- *  server-side `WebSearchSource` / `RagSearchSource` shape. */
+ *  server-side `WebSearchSource` shape. */
 export interface ToolSource {
   title: string;
   url: string;
@@ -27,7 +27,7 @@ export interface ToolSource {
 }
 
 export interface ToolSourceList {
-  toolName: 'web_search' | 'rag_search';
+  toolName: 'web_search';
   toolCallId: string;
   sources: ToolSource[];
 }
@@ -53,7 +53,7 @@ export function collectToolSources(parts: StudioUIMessagePart[]): ToolSourceList
   const out: ToolSourceList[] = [];
   for (const p of parts) {
     if (p.type !== 'dynamic-tool') continue;
-    if (p.toolName !== 'web_search' && p.toolName !== 'rag_search') continue;
+    if (p.toolName !== 'web_search') continue;
     if (p.state !== 'output-available') continue;
     const output = p.output;
     if (!output || typeof output !== 'object') continue;

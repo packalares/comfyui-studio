@@ -1,5 +1,6 @@
 import fs from 'fs';
 import { paths } from '../config/paths.js';
+import { env } from '../config/env.js';
 import { atomicWrite } from '../lib/fs.js';
 
 const CONFIG_FILE = paths.configFile;
@@ -19,10 +20,6 @@ interface Settings {
   chatKeepAlive?: string;
   /** Base URL of a SearXNG instance with JSON output enabled. */
   searxngUrl?: string;
-  /** Base URL of a RAGFlow instance (e.g. `https://ragflow.example.com`). */
-  ragflowUrl?: string;
-  /** RAGFlow API key — sent as `Authorization: Bearer <key>` on every call. */
-  ragflowApiKey?: string;
   /** Template name used when the chat `generate_image` tool runs without an explicit template. */
   defaultImageTemplate?: string;
   /** Default context-window management strategy applied to brand-new conversations. */
@@ -61,7 +58,9 @@ interface Settings {
   chatEnableUserSkillScripts?: boolean;
 }
 
-const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
+// Default Ollama base URL lives in env.ts so it can be overridden via the
+// `OLLAMA_URL` env var without a code edit. Persisted setting still wins.
+const DEFAULT_OLLAMA_URL = env.OLLAMA_URL;
 const DEFAULT_CHAT_KEEP_ALIVE = '5m';
 
 // Defaults for the chat-advanced tunables. Exported so tests can pin them

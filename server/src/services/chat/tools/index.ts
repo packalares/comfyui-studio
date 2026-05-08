@@ -10,8 +10,6 @@
 import * as toolsSettings from '../../settings.tools.js';
 import { checkTemplateDependencies } from '../../templates/dependencyCheck.js';
 import { webSearchTool } from './webSearch.js';
-import { ragSearchTool } from './ragSearch.js';
-import { ragUploadTool } from './ragUpload.js';
 import { generateImageTool } from './generateImage.js';
 import { getMcpToolsForChat } from '../../mcp/server/toolRegistry.js';
 import { snapshot as mcpClientSnapshot } from '../../mcp/client/snapshot.js';
@@ -19,7 +17,7 @@ import { getToolLabels, getToolLabelDescriptions } from '../promptsLoader.js';
 import { logger } from '../../../lib/logger.js';
 import type { StudioTool } from './defineTool.js';
 
-export type ToolName = 'web_search' | 'rag_search' | 'rag_upload' | 'generate_image';
+export type ToolName = 'web_search' | 'generate_image';
 
 // Each entry pairs the AI-SDK tool descriptor (consumed by `streamText` /
 // `toOllamaTools`) with Studio-specific metadata (currently just
@@ -48,12 +46,6 @@ export async function getEnabledTools(ctx: ToolContext = {}): Promise<EnabledToo
   if (searx) {
     out.web_search = webSearchTool({ baseUrl: searx });
   }
-  const ragUrl = toolsSettings.getRagflowUrl();
-  const ragKey = toolsSettings.getRagflowApiKey();
-  if (ragUrl && ragKey) {
-    out.rag_search = ragSearchTool({ baseUrl: ragUrl, apiKey: ragKey });
-    out.rag_upload = ragUploadTool({ baseUrl: ragUrl, apiKey: ragKey });
-  }
   const defaultImageTemplate = toolsSettings.getDefaultImageTemplate();
   if (defaultImageTemplate) {
     const dep = await checkTemplateDependencies(defaultImageTemplate);
@@ -72,7 +64,10 @@ export async function getEnabledTools(ctx: ToolContext = {}): Promise<EnabledToo
   // `conversationId` is forwarded so context-aware tools (e.g.
   // `studio_propose_soul_edit`) can default args from the active soul.
   const enabledMcpTools = toolsSettings.getEnabledMcpTools();
-  const allMcpTools = getMcpToolsForChat({ conversationId: ctx.conversationId });
+  const allMcpTools = getMcpToolsForChat({
+    conversationId: ctx.conversationId,
+    messageId: ctx.messageId,
+  });
   for (const [name, tool] of Object.entries(allMcpTools)) {
     if (enabledMcpTools[name] === true) out[name] = tool;
   }
@@ -110,12 +105,6 @@ export function toAiSdkToolMap(map: EnabledToolMap): Record<string, unknown> {
 export async function listEnabledToolNames(): Promise<ToolName[]> {
   const names: ToolName[] = [];
   if (toolsSettings.getSearxngUrl()) names.push('web_search');
-  const ragUrl = toolsSettings.getRagflowUrl();
-  const ragKey = toolsSettings.getRagflowApiKey();
-  if (ragUrl && ragKey) {
-    names.push('rag_search');
-    names.push('rag_upload');
-  }
   const defaultImageTemplate = toolsSettings.getDefaultImageTemplate();
   if (defaultImageTemplate) {
     const dep = await checkTemplateDependencies(defaultImageTemplate);
@@ -148,7 +137,7 @@ export async function listAvailableTools(): Promise<ToolListing[]> {
  * Names matching this regex bypass the chat-composer chip allow-list because
  * they have their own admin gate in Settings → Integrated MCP Tools (the
  * `enabledMcpTools` map already filtered them upstream in `getEnabledTools`).
- * The chip popover only knows about the 4 legacy tools; without this bypass,
+ * The chip popover only knows about the legacy tools; without this bypass,
  * its allow-list silently strips every MCP tool the user enabled in Settings.
  */
 const MCP_TOOL_PREFIX = /^(comfy_|studio_|mcp__)/;

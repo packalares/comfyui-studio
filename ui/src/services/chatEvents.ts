@@ -54,7 +54,7 @@ export interface ChatStatusPayload {
 export interface ChatTitlePayload { conversationId: string; title: string }
 
 // Tool-invocation envelope emitted whenever the LLM calls a configured tool
-// (web_search / rag_search / generate_image / ...). The shape mirrors the
+// (web_search / generate_image / ...). The shape mirrors the
 // persisted `parts` entry on `chat_messages` so the UI can append the
 // streamed live part directly to the assistant message in flight.
 export interface ChatToolPart {

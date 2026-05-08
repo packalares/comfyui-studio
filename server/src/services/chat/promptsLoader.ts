@@ -24,7 +24,7 @@ import { logger } from '../../lib/logger.js';
 
 // ---- Public types --------------------------------------------------------
 
-export type ToolName = 'web_search' | 'rag_search' | 'rag_upload' | 'generate_image';
+export type ToolName = 'web_search' | 'generate_image';
 
 export interface ContextualSuggestions {
   codeFenced: string[];
@@ -181,7 +181,7 @@ export function getSuggestions(): ChatSuggestions {
   };
 }
 
-const TOOL_NAMES: readonly ToolName[] = ['web_search', 'rag_search', 'rag_upload', 'generate_image'] as const;
+const TOOL_NAMES: readonly ToolName[] = ['web_search', 'generate_image'] as const;
 
 function toolKey(name: ToolName): string {
   return name.replace(/_/g, '-');

@@ -1,5 +1,6 @@
-// Tests for GET /api/chat/attachments/:filename — path traversal guards and
-// happy-path file serving. Uses a lightweight http.createServer + fetch to
+// Tests for GET /api/chat/attachments/:slug — DB-backed lookup + traversal
+// guards. The route resolves <id>.<ext>, looks up the chat_attachments row,
+// then serves the file. Uses a lightweight http.createServer + fetch to
 // avoid a supertest dependency.
 
 import { describe, expect, it, beforeAll, afterAll, vi } from 'vitest';
@@ -12,19 +13,43 @@ import os from 'os';
 let tmpDir: string;
 let server: http.Server;
 let baseUrl: string;
+let goodId = '';
 
-vi.mock('../../../src/services/chat/attachments.js', async (importActual) => {
-  const actual = await importActual<typeof import('../../../src/services/chat/attachments.js')>();
+vi.mock('../../../src/config/paths.js', async (importActual) => {
+  const actual = await importActual<typeof import('../../../src/config/paths.js')>();
   return {
     ...actual,
-    attachmentDir: () => tmpDir,
+    paths: {
+      ...actual.paths,
+      get runtimeStateDir() { return tmpDir; },
+      get sqlitePath() {
+        const override = process.env.STUDIO_SQLITE_PATH;
+        return (override && override.length > 0)
+          ? override
+          : path.join(tmpDir, 'studio.db');
+      },
+    },
   };
 });
 
 beforeAll(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'attach-route-test-'));
-  // Write a test PNG file (4 bytes magic).
-  fs.writeFileSync(path.join(tmpDir, 'test-abc123.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  process.env.STUDIO_SQLITE_PATH = path.join(tmpDir, 'studio.db');
+
+  const { resetForTests } = await import('../../../src/lib/db/connection.js');
+  resetForTests();
+  const repo = await import('../../../src/lib/db/chat.repo.js');
+  const attach = await import('../../../src/services/chat/attachments.js');
+
+  // Seed conv + msg + attachment row + on-disk file.
+  const now = Date.now();
+  repo.createConversation({ id: 'c1', title: 't', model: 'm', created_at: now, updated_at: now });
+  repo.appendMessage({ id: 'm1', conversation_id: 'c1', role: 'user', parts: '[]', created_at: now });
+  const buf = Buffer.from([0x89, 0x50, 0x4E, 0x47]);
+  const { id } = attach.persistAttachmentBytes(buf, {
+    conversationId: 'c1', messageId: 'm1', mimeType: 'image/png', source: 'user',
+  });
+  goodId = id;
 
   const { default: router } = await import('../../../src/routes/chat.attachments.routes.js');
   const app = express();
@@ -35,8 +60,11 @@ beforeAll(async () => {
   baseUrl = `http://127.0.0.1:${addr.port}`;
 });
 
-afterAll(() => {
+afterAll(async () => {
   server?.close();
+  const { resetForTests } = await import('../../../src/lib/db/connection.js');
+  resetForTests();
+  delete process.env.STUDIO_SQLITE_PATH;
   try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
 });
 
@@ -45,32 +73,35 @@ async function get(url: string): Promise<{ status: number; contentType: string }
   return { status: res.status, contentType: res.headers.get('content-type') ?? '' };
 }
 
-describe('GET /chat/attachments/:filename', () => {
-  it('serves an existing file with the correct Content-Type', async () => {
-    const { status, contentType } = await get('/chat/attachments/test-abc123.png');
+describe('GET /chat/attachments/:slug', () => {
+  it('serves the file when a row + bytes exist', async () => {
+    const { status, contentType } = await get(`/chat/attachments/${goodId}.png`);
     expect(status).toBe(200);
     expect(contentType).toMatch(/image\/png/);
   });
 
-  it('returns 404 for a missing file', async () => {
-    const { status } = await get('/chat/attachments/does-not-exist.png');
+  it('returns 404 when the row does not exist', async () => {
+    const { status } = await get('/chat/attachments/doesnotexist.png');
     expect(status).toBe(404);
   });
 
-  it('rejects filename with .. (URL-encoded)', async () => {
+  it('returns 404 when the row exists but extension does not match', async () => {
+    const { status } = await get(`/chat/attachments/${goodId}.jpg`);
+    expect(status).toBe(404);
+  });
+
+  it('rejects slug with .. (URL-encoded)', async () => {
     const { status } = await get('/chat/attachments/..%2Fetc%2Fpasswd');
     expect([400, 404]).toContain(status);
   });
 
-  it('rejects filename with backslash', async () => {
+  it('rejects slug with backslash', async () => {
     const { status } = await get('/chat/attachments/foo%5Cbar.png');
     expect(status).toBe(400);
   });
 
-  it('rejects filename containing a forward slash after decode', async () => {
+  it('rejects slug containing a forward slash after decode', async () => {
     const { status } = await get('/chat/attachments/foo%2Fbar.png');
-    // Express may handle the slash as a different route segment (404) or
-    // the guard catches it (400). Either is correct security-wise.
     expect([400, 404]).toContain(status);
   });
 });

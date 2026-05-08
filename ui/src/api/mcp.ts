@@ -147,12 +147,16 @@ export async function setMcpToolsEnabled(
 
 export interface StudioMcpStatus {
   enabled: boolean;
-  token: string | null;
+  /** True when a token is configured. The raw token is NEVER returned by
+   *  `GET /api/system` (it would leak to every dashboard load). The mint
+   *  flow `enableStudioMcp()` is the only path that surfaces the raw value,
+   *  and only once at mint time. */
+  tokenConfigured: boolean;
 }
 
 export async function getStudioMcpStatus(): Promise<StudioMcpStatus> {
   const sys = await fetchJson<SystemPayload>('/system');
-  return sys.chat?.tools?.studioMcp ?? { enabled: false, token: null };
+  return sys.chat?.tools?.studioMcp ?? { enabled: false, tokenConfigured: false };
 }
 
 /** Generate a fresh `studio_<32 hex>` token client-side and persist it via

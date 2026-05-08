@@ -14,7 +14,13 @@ import { startStream, abortStream } from '../services/chat/streamChat.js';
 import { resolveSystemPrompt } from '../services/chat/personality/index.js';
 import { computeUsage } from '../services/chat/contextWindow.js';
 import { compactConversation } from '../services/chat/contextCompact.js';
-import { deleteAttachmentsForMessages } from '../services/chat/attachments.js';
+import {
+  deleteAllAttachmentFiles,
+  deleteConversationAttachmentFiles,
+  deleteMessageAttachmentFiles,
+  hydrateParts,
+  buildAttachmentMap,
+} from '../services/chat/attachments.js';
 import { logger } from '../lib/logger.js';
 
 const router = Router();
@@ -191,9 +197,18 @@ router.get('/chat/conversations/:id/messages', (req: Request, res: Response) => 
   const id = paramStr(req.params.id);
   const conv = chatRepo.getConversation(id);
   if (!conv) { res.status(404).json({ error: 'not found' }); return; }
-  const rows = chatRepo.listMessages(id).map((m) => {
+  const messages = chatRepo.listMessages(id);
+  // Single batch lookup of attachments for every message in the conversation,
+  // then per-message hydration. Cheaper than N+1 even for chats that don't
+  // carry attachments at all (the IN-clause query short-circuits to no rows).
+  const byMsg = chatRepo.listAttachmentsForMessages(messages.map(m => m.id));
+  const rows = messages.map((m) => {
     let parts: unknown = [];
     try { parts = JSON.parse(m.parts); } catch { parts = []; }
+    const attachments = byMsg.get(m.id) ?? [];
+    if (attachments.length > 0) {
+      parts = hydrateParts(parts, buildAttachmentMap(attachments));
+    }
     return {
       id: m.id,
       conversationId: m.conversation_id,
@@ -215,63 +230,31 @@ router.get('/chat/conversations/:id/messages', (req: Request, res: Response) => 
 // Must be declared BEFORE the /:id route so Express doesn't interpret
 // the literal string "conversations" as a param value.
 router.delete('/chat/conversations', (_req: Request, res: Response) => {
-  // Best-effort attachment cleanup before wiping rows.
-  try {
-    // Fetch all conversations (paginated) to gather their messages' parts.
-    const allParts: Record<string, unknown>[][] = [];
-    let offset = 0;
-    const pageSize = 100;
-    while (true) {
-      const page = chatRepo.listConversations({ limit: pageSize, offset });
-      for (const conv of page.items) {
-        for (const m of chatRepo.listMessages(conv.id)) {
-          try { allParts.push(JSON.parse(m.parts) as Record<string, unknown>[]); } catch { /* skip */ }
-        }
-      }
-      if (!page.hasMore) break;
-      offset += pageSize;
-    }
-    deleteAttachmentsForMessages(allParts);
-  } catch (err) {
-    logger.warn('bulk delete: attachment cleanup failed', { error: String(err) });
-  }
+  // Unlink files first while metadata still exists; FK cascade then
+  // removes the chat_attachments rows when the conversations are deleted.
+  try { deleteAllAttachmentFiles(); }
+  catch (err) { logger.warn('bulk delete: attachment cleanup failed', { error: String(err) }); }
   const deleted = chatRepo.deleteAllConversations();
   res.json({ deleted });
 });
 
 router.delete('/chat/conversations/:id', (req: Request, res: Response) => {
   const id = paramStr(req.params.id);
-  // Best-effort attachment cleanup before cascade-deleting rows.
-  try {
-    const msgs = chatRepo.listMessages(id);
-    const parts = msgs.map((m) => {
-      try { return JSON.parse(m.parts) as Record<string, unknown>[]; } catch { return []; }
-    });
-    deleteAttachmentsForMessages(parts);
-  } catch (err) {
-    logger.warn('conversation delete: attachment cleanup failed', { id, error: String(err) });
-  }
+  try { deleteConversationAttachmentFiles(id); }
+  catch (err) { logger.warn('conversation delete: attachment cleanup failed', { id, error: String(err) }); }
   const ok = chatRepo.deleteConversation(id);
   if (!ok) { res.status(404).json({ error: 'not found' }); return; }
   res.json({ deleted: true, id });
 });
 
-// Per-message delete used by the new in-thread Trash action. Scoped by
+// Per-message delete used by the in-thread Trash action. Scoped by
 // conversation id so a stale ui state can't accidentally delete a message
 // from a different chat. Returns 404 when nothing matched (no-op).
 router.delete('/chat/conversations/:id/messages/:msgId', (req: Request, res: Response) => {
   const id = paramStr(req.params.id);
   const msgId = paramStr(req.params.msgId);
-  // Best-effort attachment cleanup.
-  try {
-    const msg = chatRepo.getMessage(msgId);
-    if (msg) {
-      const parts = [JSON.parse(msg.parts) as Record<string, unknown>[]];
-      deleteAttachmentsForMessages(parts);
-    }
-  } catch (err) {
-    logger.warn('message delete: attachment cleanup failed', { msgId, error: String(err) });
-  }
+  try { deleteMessageAttachmentFiles(msgId); }
+  catch (err) { logger.warn('message delete: attachment cleanup failed', { msgId, error: String(err) }); }
   const ok = chatRepo.deleteMessage(id, msgId);
   if (!ok) { res.status(404).json({ error: 'not found' }); return; }
   res.json({ deleted: true, id, msgId });

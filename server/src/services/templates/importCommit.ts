@@ -7,7 +7,6 @@
 
 import fs from 'fs';
 import { safeResolve } from '../../lib/fs.js';
-import { env } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
 import { extractDeps } from './depExtract.js';
 import { resolutionsToRepoKeys } from './extractDepsAsync.js';
@@ -82,7 +81,9 @@ export function validateCommitReady(
 }
 
 function inputDir(): string {
-  return safeResolve(env.COMFYUI_PATH, 'input');
+  // Re-resolve through safeResolve so existing trust-boundary checks
+  // (`safeResolve` rejects path traversal) still apply.
+  return safeResolve(paths.comfyInputDir);
 }
 
 // Bounded loop so a degenerate collection of past imports can't lock the

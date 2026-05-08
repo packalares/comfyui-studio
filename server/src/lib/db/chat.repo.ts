@@ -399,3 +399,118 @@ export function updateMessageParts(
 export function _rowToMessage(r: Record<string, unknown>): ChatMessageRow {
   return rowToMessage(r);
 }
+
+/* ───────────────────── chat_attachments ────────────────────── */
+
+export type AttachmentSource = 'user' | 'tool';
+
+export interface AttachmentRow {
+  id: string;
+  conversation_id: string;
+  message_id: string;
+  display_name: string | null;
+  mime_type: string;
+  ext: string;
+  size_bytes: number;
+  content_hash: string;
+  source: AttachmentSource;
+  created_at: number;
+}
+
+export interface AppendAttachmentInput {
+  id: string;
+  conversation_id: string;
+  message_id: string;
+  display_name?: string | null;
+  mime_type: string;
+  ext: string;
+  size_bytes: number;
+  content_hash: string;
+  source: AttachmentSource;
+  created_at: number;
+}
+
+function rowToAttachment(r: Record<string, unknown>): AttachmentRow {
+  return {
+    id: String(r.id),
+    conversation_id: String(r.conversation_id),
+    message_id: String(r.message_id),
+    display_name: nullableString(r.display_name),
+    mime_type: String(r.mime_type),
+    ext: String(r.ext),
+    size_bytes: Number(r.size_bytes ?? 0),
+    content_hash: String(r.content_hash),
+    source: r.source === 'tool' ? 'tool' : 'user',
+    created_at: Number(r.created_at ?? 0),
+  };
+}
+
+export function appendAttachment(
+  input: AppendAttachmentInput, db: Database.Database = getDb(),
+): void {
+  db.prepare(
+    `INSERT INTO chat_attachments
+       (id, conversation_id, message_id, display_name, mime_type, ext,
+        size_bytes, content_hash, source, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    input.id, input.conversation_id, input.message_id,
+    input.display_name ?? null,
+    input.mime_type, input.ext,
+    input.size_bytes, input.content_hash,
+    input.source, input.created_at,
+  );
+}
+
+export function getAttachment(
+  id: string, db: Database.Database = getDb(),
+): AttachmentRow | null {
+  const r = db.prepare('SELECT * FROM chat_attachments WHERE id = ?').get(id) as
+    | Record<string, unknown> | undefined;
+  return r ? rowToAttachment(r) : null;
+}
+
+export function listAttachmentsForMessage(
+  messageId: string, db: Database.Database = getDb(),
+): AttachmentRow[] {
+  const rows = db.prepare(
+    'SELECT * FROM chat_attachments WHERE message_id = ?',
+  ).all(messageId) as Record<string, unknown>[];
+  return rows.map(rowToAttachment);
+}
+
+/** Batch lookup keyed by message_id — used to hydrate a whole conversation
+ *  in one round-trip rather than N+1 queries. */
+export function listAttachmentsForMessages(
+  messageIds: readonly string[], db: Database.Database = getDb(),
+): Map<string, AttachmentRow[]> {
+  const out = new Map<string, AttachmentRow[]>();
+  if (messageIds.length === 0) return out;
+  const placeholders = messageIds.map(() => '?').join(',');
+  const rows = db.prepare(
+    `SELECT * FROM chat_attachments WHERE message_id IN (${placeholders})`,
+  ).all(...messageIds) as Record<string, unknown>[];
+  for (const raw of rows) {
+    const a = rowToAttachment(raw);
+    const list = out.get(a.message_id);
+    if (list) list.push(a); else out.set(a.message_id, [a]);
+  }
+  return out;
+}
+
+export function listAttachmentsForConversation(
+  conversationId: string, db: Database.Database = getDb(),
+): AttachmentRow[] {
+  const rows = db.prepare(
+    'SELECT * FROM chat_attachments WHERE conversation_id = ?',
+  ).all(conversationId) as Record<string, unknown>[];
+  return rows.map(rowToAttachment);
+}
+
+export function listAllAttachments(
+  db: Database.Database = getDb(),
+): AttachmentRow[] {
+  const rows = db.prepare('SELECT * FROM chat_attachments').all() as
+    Record<string, unknown>[];
+  return rows.map(rowToAttachment);
+}

@@ -101,9 +101,12 @@ function buildSandboxEnv(skillDir: string): NodeJS.ProcessEnv {
     PYTHONDONTWRITEBYTECODE: '1',
     PYTHONUNBUFFERED: '1',
     PYTHONNOUSERSITE: '1',
-    // Pass the skill's bundled scripts dir to scripts that want to import
-    // siblings, but nothing else.
-    SKILL_DIR: skillDir,
+    // Skill scripts run with `cwd` set to the skill's directory, so a literal
+    // `.` lets them reference sibling files (`$SKILL_DIR/template.txt`)
+    // without exposing the absolute install path in the env. A script that
+    // genuinely needs the absolute path can still call `realpath .`, but it
+    // becomes an explicit choice rather than something we hand out.
+    SKILL_DIR: '.',
   };
 }
 

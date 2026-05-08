@@ -1685,15 +1685,13 @@ function StorageCard() {
    Page
    ================================================================= */
 
-type SettingsTab = 'general' | 'mcp' | 'comfy' | 'souls' | 'skills' | 'commands';
+type SettingsTab = 'general' | 'mcp' | 'comfy' | 'repertoire';
 
 const TABS: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
   { id: 'general', label: 'General', icon: SettingsIcon },
   { id: 'mcp', label: 'MCP', icon: Plug },
   { id: 'comfy', label: 'Comfy', icon: CpuTabIcon },
-  { id: 'souls', label: 'Souls', icon: Sparkles },
-  { id: 'skills', label: 'Skills', icon: BookOpen },
-  { id: 'commands', label: 'Commands', icon: SlashSquare },
+  { id: 'repertoire', label: 'Repertoire', icon: Sparkles },
 ];
 
 export default function Settings() {
@@ -1729,10 +1727,13 @@ export default function Settings() {
           <div className="space-y-3">
             <div className="grid gap-3 lg:grid-cols-2">
               <ChatLlmCard />
-              <ChatAdvancedCard />
+              <ToolsCard />
+              
             </div>
-            <ToolsCard />
-            <SecretsCard />
+            <div className="grid gap-3 md:grid-cols-2">
+               <SecretsCard />
+               <ChatAdvancedCard />
+            </div>
             <div className="grid gap-3 md:grid-cols-2">
               <StorageCard />
               <NetworkCard />
@@ -1758,25 +1759,17 @@ export default function Settings() {
           </div>
         )}
 
-        {/* Souls — soul list + memory */}
-        {tab === 'souls' && (
+        {/* Repertoire — soul list + memory */}
+        {tab === 'repertoire' && (
           <div className="space-y-3">
-            <SoulsSection />
-            <MemorySection />
-          </div>
-        )}
-
-        {/* Skills — reusable instruction blocks */}
-        {tab === 'skills' && (
-          <div className="space-y-3">
-            <SkillsSection />
-          </div>
-        )}
-
-        {/* Commands — slash-triggered shortcuts for the composer */}
-        {tab === 'commands' && (
-          <div className="space-y-3">
-            <CommandsSection />
+            <div className="grid gap-3 lg:grid-cols-2">
+              <SkillsSection />
+              <CommandsSection />
+            </div>
+            <div className="grid gap-3 lg:grid-cols-2">
+              <SoulsSection />
+              <MemorySection />
+            </div>
           </div>
         )}
       </div>

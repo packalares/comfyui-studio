@@ -136,8 +136,6 @@ export function putChat(req: Request, res: Response): void {
 function toolsSettingsResponse() {
   return {
     searxngUrl: toolsSettings.getSearxngUrl() ?? '',
-    ragflowUrl: toolsSettings.getRagflowUrl() ?? '',
-    ragflowApiKeyConfigured: toolsSettings.isRagflowApiKeyConfigured(),
     defaultImageTemplate: toolsSettings.getDefaultImageTemplate() ?? '',
     enabledMcpTools: toolsSettings.getEnabledMcpTools(),
   };
@@ -146,8 +144,6 @@ function toolsSettingsResponse() {
 export function putTools(req: Request, res: Response): void {
   const body = req.body as {
     searxngUrl?: unknown;
-    ragflowUrl?: unknown;
-    ragflowApiKey?: unknown;
     defaultImageTemplate?: unknown;
     enabledMcpTools?: unknown;
   };
@@ -173,16 +169,6 @@ export function putTools(req: Request, res: Response): void {
     const trimmed = body.searxngUrl.trim();
     if (trimmed.length === 0) toolsSettings.clearSearxngUrl();
     else toolsSettings.setSearxngUrl(trimmed);
-  }
-  if (typeof body.ragflowUrl === 'string') {
-    const trimmed = body.ragflowUrl.trim();
-    if (trimmed.length === 0) toolsSettings.clearRagflowUrl();
-    else toolsSettings.setRagflowUrl(trimmed);
-  }
-  if (typeof body.ragflowApiKey === 'string') {
-    const trimmed = body.ragflowApiKey.trim();
-    if (trimmed.length === 0) toolsSettings.clearRagflowApiKey();
-    else toolsSettings.setRagflowApiKey(trimmed);
   }
   if (typeof body.defaultImageTemplate === 'string') {
     const trimmed = body.defaultImageTemplate.trim();

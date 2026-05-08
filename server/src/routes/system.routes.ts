@@ -79,8 +79,6 @@ router.get('/system', async (_req: Request, res: Response) => {
     },
     tools: {
       searxngUrl: toolsSettings.getSearxngUrl() ?? '',
-      ragflowUrl: toolsSettings.getRagflowUrl() ?? '',
-      ragflowApiKeyConfigured: toolsSettings.isRagflowApiKeyConfigured(),
       defaultImageTemplate: toolsSettings.getDefaultImageTemplate() ?? '',
       enabledMcpTools: toolsSettings.getEnabledMcpTools(),
       mcpToolListings: getMcpToolListings(),

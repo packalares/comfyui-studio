@@ -16,6 +16,11 @@ import { logger } from '../../../lib/logger.js';
 /** Conversation-level context the chat path can pass when wrapping tools. */
 export interface ChatToolWrapContext {
   conversationId?: string;
+  /** Assistant message id of the in-flight stream — required so any tool
+   *  media (images/PDFs/etc.) gets attributed to the right chat_attachments
+   *  row. Absent for non-chat callers (external MCP server entry path),
+   *  which simply skip media persistence. */
+  messageId?: string;
 }
 
 // --- comfy tools (raw async funcs from artokun port) -----------------------
@@ -253,10 +258,16 @@ export function getMcpToolsForChat(ctx: ChatToolWrapContext = {}): Record<string
         try {
           const finalArgs = injectAmbientContext(def.chatName, args, ctx);
           const raw = await def.run(finalArgs);
-          const result = persistInlineMediaInResult(raw, {
-            conversationId: ctx.conversationId,
-            toolCallId: opts?.toolCallId,
-          });
+          // Persist inline media only when we have full conv+msg attribution;
+          // outside the chat path (e.g. external MCP entry) the ctx is empty
+          // and we let the raw payload through unchanged.
+          const result = (ctx.conversationId && ctx.messageId)
+            ? persistInlineMediaInResult(raw, {
+                conversationId: ctx.conversationId,
+                messageId: ctx.messageId,
+                toolCallId: opts?.toolCallId,
+              })
+            : raw;
           return typeof result === 'string' ? result : JSON.stringify(result);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);

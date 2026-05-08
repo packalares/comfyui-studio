@@ -153,7 +153,9 @@ export function appendMemoryFact(fact: string): void {
   const existing = loadMemoryBody();
   const factKey = trimmed.toLowerCase();
   const alreadyHas = existing.split('\n').some(rawLine => {
-    const m = rawLine.match(/^-\s+\d{4}-\d{2}-\d{2}:\s*(.+)$/);
+    // Accept any markdown bullet (`-`, `*`, `+`) so hand-edited memory.md
+    // files using a non-default style still participate in dedup.
+    const m = rawLine.match(/^[-*+]\s+\d{4}-\d{2}-\d{2}:\s*(.+)$/);
     return m !== null && m[1].trim().toLowerCase() === factKey;
   });
   if (alreadyHas) return;

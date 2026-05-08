@@ -99,8 +99,12 @@ const handleHistory: RequestHandler = async (req, res) => {
     // `endTime ?? startTime` descending so newest is always page 1;
     // matches the client-side per-page sort in `DownloadsTab.tsx:175`
     // so the two layers agree on order.
-    const history = [...listHistory()].sort((a, b) =>
-      (b.endTime ?? b.startTime ?? 0) - (a.endTime ?? a.startTime ?? 0));
+    // Strip `savePath` before sending: it carries an absolute filesystem path
+    // (`/root/ComfyUI/models/loras/foo.safetensors`) the client doesn't need
+    // and shouldn't see. The internal store keeps it for lookups.
+    const history = [...listHistory()]
+      .map(({ savePath: _drop, ...rest }) => rest)
+      .sort((a, b) => (b.endTime ?? b.startTime ?? 0) - (a.endTime ?? a.startTime ?? 0));
     const pq = parsePageQuery(req, { defaultPageSize: 20, maxPageSize: 100 });
     if (!pq.isPaginated) {
       res.json({ success: true, count: history.length, history });
@@ -174,7 +178,7 @@ const handleDownloadCustom: RequestHandler = async (req: Request, res: Response)
     try {
       const out = await models.downloadCustom(hfUrl, modelDir, tokens, resolvedFilename);
       trackDownload(out.taskId, { modelName: out.fileName, filename: out.fileName });
-      res.json({ success: true, taskId: out.taskId, message: `Starting download: ${out.fileName} -> ${out.saveDir}` });
+      res.json({ success: true, taskId: out.taskId, message: `Starting download: ${out.fileName}` });
     } catch (err) {
       if (resolvedFilename) {
         try { markDownloadFailed(resolvedFilename, err instanceof Error ? err.message : String(err)); }

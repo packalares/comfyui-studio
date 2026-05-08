@@ -1,5 +1,5 @@
 // Persist inline binary content from MCP tool results to Studio's
-// chat-attachments dir, then rewrite the result so the model sees a small
+// chat-attachments store, then rewrite the result so the model sees a small
 // URL string instead of a multi-megabyte base64 blob.
 //
 // Without this, an MCP tool that returns a screenshot or PDF as inline
@@ -7,22 +7,22 @@
 // produces a tool message the LLM treats as opaque text — and many models
 // will dutifully echo it back into chat token-by-token, blocking the
 // stream for minutes. Here we intercept BEFORE the result is shown to
-// the model: save the bytes once, swap the entry for a tiny text reference
-// pointing at `/api/chat/attachments/<filename>`. The chat UI's renderer
-// detects the URL and inlines an `<img>` / download link.
+// the model: save the bytes once via `persistAttachmentBytes` (which
+// inserts a chat_attachments row + writes the file), swap the entry for a
+// tiny text reference pointing at `/api/chat/attachments/<id>.<ext>`. The
+// chat UI's renderer detects the URL and inlines an `<img>` / download link.
 
-import fs from 'fs';
-import path from 'path';
-import { createHash } from 'crypto';
-import { attachmentDir, extFromMime } from './attachments.js';
 import { logger } from '../../lib/logger.js';
+import { persistAttachmentBytes } from './attachments.js';
 
 const ATTACH_URL_PREFIX = '/api/chat/attachments/';
 
-/** Optional context the wrapper passes through so saved files are namespaced
- *  per tool call (helps debugging and the 7-day attachment sweep). */
+/** Per-call context. `conversationId` and `messageId` are required so each
+ *  persisted attachment is owned by a real message row (FK constraint). */
 export interface ToolMediaContext {
-  conversationId?: string;
+  conversationId: string;
+  messageId: string;
+  /** Optional — kept for log correlation only; not used in the file path. */
   toolCallId?: string;
 }
 
@@ -83,7 +83,6 @@ function readEmbeddedBinaryFromTextJson(item: unknown):
   if (!item || typeof item !== 'object') return null;
   const o = item as Record<string, unknown>;
   if (o.type !== 'text' || typeof o.text !== 'string') return null;
-  // Cheap rejection: must look like JSON.
   const trimmed = o.text.trim();
   if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) return null;
   let parsed: unknown;
@@ -93,29 +92,21 @@ function readEmbeddedBinaryFromTextJson(item: unknown):
   for (const { key, mime } of KNOWN_BINARY_FIELDS) {
     const v = fields[key];
     if (typeof v !== 'string' || v.length < 100) continue;
-    // First 100 chars must be pure base64 alphabet — guards against e.g.
-    // `screenshot: "/path/to/file.png"` returning a path string.
     if (!BASE64_HEAD_RX.test(v.slice(0, 100))) continue;
     return { base64: v, mimeType: mime };
   }
   return null;
 }
 
-/** Decode base64 + write to attachment dir. Returns the filename. */
-function persistBase64(b64: string, mimeType: string, ctx: ToolMediaContext): string {
+function persist(b64: string, mimeType: string, ctx: ToolMediaContext): { url: string } {
   const buf = Buffer.from(b64, 'base64');
-  const sha = createHash('sha256').update(buf).digest('hex').slice(0, 12);
-  const ext = extFromMime(mimeType);
-  // Studio's executeOllamaToolCall currently passes `toolCallId: ''` (empty
-  // string), which the older `??` fallback didn't catch — leaving filenames
-  // like `-80a262c24e2a.png` with a stray leading dash. Treat empty as
-  // missing so the prefix collapses cleanly to `tool-<sha>.<ext>`.
-  const prefix = ctx.toolCallId && ctx.toolCallId.length > 0 ? ctx.toolCallId : 'tool';
-  const filename = `${prefix}-${sha}.${ext}`;
-  const dir = attachmentDir();
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(path.join(dir, filename), buf, { mode: 0o600 });
-  return filename;
+  const { url } = persistAttachmentBytes(buf, {
+    conversationId: ctx.conversationId,
+    messageId: ctx.messageId,
+    mimeType,
+    source: 'tool',
+  });
+  return { url };
 }
 
 function humanLabel(mimeType: string): string {
@@ -129,9 +120,9 @@ function humanLabel(mimeType: string): string {
 /** Tool result message the LLM sees after we persist a piece of binary
  *  content. Worded as a *terminal* event so the model stops retrying — it
  *  has the file, the user sees it inline, the job is done. */
-function persistedMessage(mimeType: string, filename: string): string {
+function persistedMessage(mimeType: string, url: string): string {
   const label = humanLabel(mimeType);
-  return `${label} saved and rendered to the user → ${ATTACH_URL_PREFIX}${filename}. `
+  return `${label} saved and rendered to the user → ${url}. `
     + `This call succeeded; do NOT call the tool again for the same URL.`;
 }
 
@@ -146,7 +137,7 @@ function persistedMessage(mimeType: string, filename: string): string {
  */
 export function persistInlineMediaInResult(
   result: unknown,
-  ctx: ToolMediaContext = {},
+  ctx: ToolMediaContext,
 ): unknown {
   if (!result || typeof result !== 'object') return result;
   const obj = result as McpResult;
@@ -158,31 +149,22 @@ export function persistInlineMediaInResult(
   for (const item of content) {
     try {
       if (isInlineImage(item)) {
-        const filename = persistBase64(item.data, item.mimeType, ctx);
-        rewritten.push({
-          type: 'text',
-          text: persistedMessage(item.mimeType, filename),
-        });
+        const { url } = persist(item.data, item.mimeType, ctx);
+        rewritten.push({ type: 'text', text: persistedMessage(item.mimeType, url) });
         didRewrite = true;
         continue;
       }
       const resource = readResourceBlob(item);
       if (resource) {
-        const filename = persistBase64(resource.blob, resource.mimeType, ctx);
-        rewritten.push({
-          type: 'text',
-          text: persistedMessage(resource.mimeType, filename),
-        });
+        const { url } = persist(resource.blob, resource.mimeType, ctx);
+        rewritten.push({ type: 'text', text: persistedMessage(resource.mimeType, url) });
         didRewrite = true;
         continue;
       }
       const embedded = readEmbeddedBinaryFromTextJson(item);
       if (embedded) {
-        const filename = persistBase64(embedded.base64, embedded.mimeType, ctx);
-        rewritten.push({
-          type: 'text',
-          text: persistedMessage(embedded.mimeType, filename),
-        });
+        const { url } = persist(embedded.base64, embedded.mimeType, ctx);
+        rewritten.push({ type: 'text', text: persistedMessage(embedded.mimeType, url) });
         didRewrite = true;
         continue;
       }
@@ -198,3 +180,5 @@ export function persistInlineMediaInResult(
   if (!didRewrite) return result;
   return { ...obj, content: rewritten };
 }
+
+export { ATTACH_URL_PREFIX };

@@ -103,7 +103,7 @@ export async function clearComfyuiRoot(
  * skip. Errors are logged but do not abort the reset flow.
  */
 export async function runRecoveryScript(log: ComfyUILogStore): Promise<void> {
-  const script = '/runner-scripts/up-version-cp.sh';
+  const script = env.COMFYUI_RECOVERY_SCRIPT;
   if (!fs.existsSync(script)) {
     log.addResetLog('No recovery script present; skipping');
     return;

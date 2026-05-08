@@ -6,7 +6,7 @@ import { getGalleryItems, getHistoryForPrompt, deleteHistoryPrompts } from './co
 import type { GalleryItem, GalleryListItem } from '../contracts/generation.contract.js';
 import * as repo from '../lib/db/gallery.repo.js';
 import { logger } from '../lib/logger.js';
-import { env } from '../config/env.js';
+import { paths } from '../config/paths.js';
 import { safeResolve } from '../lib/fs.js';
 import { buildRowsFromHistory, normalisePromptField } from './gallery.rowBuilder.js';
 import { getPromptMeta, clearPromptMeta } from './gallery.promptMeta.js';
@@ -183,9 +183,7 @@ function removeItemInternal(id: string): RemoveItemResult {
   let fileDeleted = false;
   let fileError: string | undefined;
 
-  const outputRoot = env.COMFYUI_PATH
-    ? path.join(env.COMFYUI_PATH, 'output')
-    : '';
+  const outputRoot = paths.comfyOutputDir;
   if (outputRoot) {
     try {
       const segments: string[] = [];

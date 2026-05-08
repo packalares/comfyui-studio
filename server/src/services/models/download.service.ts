@@ -17,6 +17,12 @@ export {
 } from './download.urlBuild.js';
 export type { CatalogModelEntry } from './download.urlBuild.js';
 
+/** Compose a `models/<subdir>` path from a raw subdir name (e.g. 'loras').
+ *  Single source for the `models/` prefix so callers don't bake it inline. */
+export function composeModelSaveDir(modelDir: string): string {
+  return `models/${modelDir}`;
+}
+
 /** Models directory category -> subdir mapping (matches launcher exactly). */
 export function getModelSaveDir(modelType: string): string {
   switch (modelType) {

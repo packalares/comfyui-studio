@@ -1,20 +1,31 @@
-// Chat attachment persistence. Moves inline base64 `data:` URLs from chat
-// message `parts` to disk so the SQLite DB doesn't balloon with image bytes.
-//
-// Layout: ~/.config/comfyui-studio/runtime/chat-attachments/<msgId>-<hash12>.<ext>
-// Served via GET /api/chat/attachments/:filename.
+// Chat attachment persistence. File bytes live on disk under
+// `runtime/chat-attachments/<id>.<ext>`; metadata lives in the
+// `chat_attachments` table (FK-cascaded to messages + conversations).
+// `parts` JSON carries only `{ type:'file', attachmentId }`; the route layer
+// hydrates that into `{ url, mediaType, name, size }` on read.
 
 import fs from 'fs';
 import path from 'path';
-import { createHash } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { paths } from '../../config/paths.js';
 import { logger } from '../../lib/logger.js';
-import { getDb } from '../../lib/db/connection.js';
+import {
+  appendAttachment, listAttachmentsForMessage, listAttachmentsForConversation,
+  listAllAttachments, type AttachmentRow, type AttachmentSource,
+} from '../../lib/db/chat.repo.js';
 
 const ATTACH_SUBDIR = 'chat-attachments';
 const ATTACH_URL_PREFIX = '/api/chat/attachments/';
 
-/** Absolute path to the chat-attachments storage directory. */
+const MIME_TO_EXT: Record<string, string> = {
+  'image/png': 'png', 'image/jpeg': 'jpg', 'image/jpg': 'jpg',
+  'image/gif': 'gif', 'image/webp': 'webp', 'image/bmp': 'bmp',
+  'image/tiff': 'tiff', 'image/svg+xml': 'svg',
+  'application/pdf': 'pdf',
+  'audio/mpeg': 'mp3', 'audio/mp3': 'mp3', 'audio/wav': 'wav', 'audio/ogg': 'ogg',
+  'video/mp4': 'mp4', 'video/webm': 'webm',
+};
+
 export function attachmentDir(): string {
   return path.join(paths.runtimeStateDir, ATTACH_SUBDIR);
 }
@@ -23,194 +34,164 @@ function ensureDir(): void {
   fs.mkdirSync(attachmentDir(), { recursive: true, mode: 0o700 });
 }
 
-/** MIME type → file extension mapping. Shared with `toolMediaPersist`. */
-export function extFromMime(mime: string): string {
-  const m = mime.toLowerCase().split(';')[0].trim();
-  const map: Record<string, string> = {
-    'image/png': 'png',
-    'image/jpeg': 'jpg',
-    'image/jpg': 'jpg',
-    'image/gif': 'gif',
-    'image/webp': 'webp',
-    'image/bmp': 'bmp',
-    'image/tiff': 'tiff',
-    'image/svg+xml': 'svg',
-    'application/pdf': 'pdf',
-    'audio/mpeg': 'mp3',
-    'audio/mp3': 'mp3',
-    'audio/wav': 'wav',
-    'audio/ogg': 'ogg',
-    'video/mp4': 'mp4',
-    'video/webm': 'webm',
-  };
-  return map[m] ?? 'bin';
+/** 16-char base64url id, ~96 bits of entropy. */
+export function makeAttachmentId(): string {
+  return randomBytes(12).toString('base64')
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-/** Parse a data URL, return buffer + mime. Returns null for non-data URLs. */
+export function extFromMime(mime: string): string {
+  return MIME_TO_EXT[mime.toLowerCase().split(';')[0].trim()] ?? 'bin';
+}
+
 function parseDataUrl(url: string): { buf: Buffer; mime: string } | null {
   if (!url.startsWith('data:')) return null;
   const comma = url.indexOf(',');
   if (comma < 0) return null;
-  const header = url.slice(5, comma); // e.g. "image/png;base64"
-  const parts = header.split(';');
-  const mime = parts[0] ?? '';
-  const encoding = parts[1] ?? '';
-  const raw = url.slice(comma + 1);
+  const [mime, encoding] = url.slice(5, comma).split(';');
   if (encoding !== 'base64') return null;
-  try {
-    const buf = Buffer.from(raw, 'base64');
-    return { buf, mime };
-  } catch {
-    return null;
-  }
+  try { return { buf: Buffer.from(url.slice(comma + 1), 'base64'), mime: mime ?? '' }; }
+  catch { return null; }
 }
 
-export interface FilePart {
-  type: 'file';
-  mediaType?: string;
-  url?: string;
-  name?: string;
-  [k: string]: unknown;
-}
-
-type Part = FilePart | Record<string, unknown>;
+type Part = Record<string, unknown>;
 
 export interface ExtractResult {
   rewrittenParts: Part[];
-  savedFiles: string[];
+  attachmentIds: string[];
 }
 
-/**
- * For each `{ type: 'file', url: 'data:...' }` part, write the bytes to disk
- * and replace the URL with `/api/chat/attachments/<filename>`. Non-data URLs
- * pass through unchanged. Idempotent: same msgId + same content hash reuses
- * the existing file without re-writing.
- */
+/** Persist a single buffer as a file + chat_attachments row. */
+export function persistAttachmentBytes(
+  buf: Buffer,
+  opts: {
+    conversationId: string;
+    messageId: string;
+    mimeType: string;
+    displayName?: string | null;
+    source: AttachmentSource;
+  },
+): { id: string; ext: string; url: string; size: number } {
+  const id = makeAttachmentId();
+  const ext = extFromMime(opts.mimeType);
+  const filename = `${id}.${ext}`;
+  ensureDir();
+  fs.writeFileSync(path.join(attachmentDir(), filename), buf, { mode: 0o600 });
+  appendAttachment({
+    id,
+    conversation_id: opts.conversationId,
+    message_id: opts.messageId,
+    display_name: opts.displayName ?? null,
+    mime_type: opts.mimeType,
+    ext,
+    size_bytes: buf.byteLength,
+    content_hash: createHash('sha256').update(buf).digest('hex'),
+    source: opts.source,
+    created_at: Date.now(),
+  });
+  return { id, ext, url: `${ATTACH_URL_PREFIX}${filename}`, size: buf.byteLength };
+}
+
+/** Walk parts; for each `{ type:'file', url:'data:...' }` entry, persist
+ *  bytes + insert a row, replacing the part with `{ type:'file', attachmentId }`. */
 export function extractAndPersistAttachments(
-  msgId: string,
+  conversationId: string,
+  messageId: string,
   parts: Part[],
 ): ExtractResult {
-  const savedFiles: string[] = [];
+  const attachmentIds: string[] = [];
   const rewrittenParts: Part[] = parts.map((part) => {
-    if (
-      !part
-      || typeof part !== 'object'
-      || (part as { type?: unknown }).type !== 'file'
-    ) return part;
-    const fp = part as FilePart;
-    const url = fp.url ?? '';
+    if (!part || typeof part !== 'object' || (part as { type?: unknown }).type !== 'file') return part;
+    const url = typeof part.url === 'string' ? part.url : '';
     if (!url.startsWith('data:')) return part;
-
     const parsed = parseDataUrl(url);
     if (!parsed) return part;
 
-    const { buf, mime } = parsed;
-    const hash12 = createHash('sha256').update(buf).digest('hex').slice(0, 12);
-    const ext = extFromMime(mime || fp.mediaType || '');
-    const filename = `${msgId}-${hash12}.${ext}`;
-    const filePath = path.join(attachmentDir(), filename);
+    const mime = parsed.mime
+      || (typeof part.mediaType === 'string' ? part.mediaType : '')
+      || 'application/octet-stream';
+    const displayName = typeof part.name === 'string' ? part.name : null;
 
     try {
-      ensureDir();
-      if (!fs.existsSync(filePath)) {
-        fs.writeFileSync(filePath, buf, { mode: 0o600 });
-      }
-      savedFiles.push(filename);
-      return { ...fp, url: `${ATTACH_URL_PREFIX}${filename}` };
-    } catch (err) {
-      logger.warn('chat attachments: failed to persist file', {
-        msgId, hash: hash12, error: String(err),
+      const { id } = persistAttachmentBytes(parsed.buf, {
+        conversationId, messageId, mimeType: mime, displayName, source: 'user',
       });
-      return part; // keep inline on error so the message still renders
+      attachmentIds.push(id);
+      const rewritten: Part = { type: 'file', attachmentId: id };
+      if (displayName) rewritten.name = displayName;
+      return rewritten;
+    } catch (err) {
+      logger.warn('chat attachments: failed to persist file', { messageId, error: String(err) });
+      return part;
     }
   });
-
-  return { rewrittenParts, savedFiles };
+  return { rewrittenParts, attachmentIds };
 }
 
-/**
- * Given the `parts` arrays of messages being deleted, unlink any files
- * referenced by `/api/chat/attachments/` URLs. Best-effort; ENOENT is ignored.
- * Returns the count of files successfully deleted.
- */
-export function deleteAttachmentsForMessages(
-  partArrays: Part[][],
-): number {
-  let count = 0;
-  for (const parts of partArrays) {
-    for (const part of parts) {
-      if (!part || typeof part !== 'object') continue;
-      const fp = part as FilePart;
-      const url = fp.url ?? '';
-      if (!url.startsWith(ATTACH_URL_PREFIX)) continue;
-      const filename = url.slice(ATTACH_URL_PREFIX.length);
-      // Safety: reject traversal attempts even during cleanup
-      if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) continue;
-      const filePath = path.join(attachmentDir(), path.basename(filename));
-      try {
-        fs.unlinkSync(filePath);
-        count++;
-      } catch (err) {
-        const code = (err as NodeJS.ErrnoException).code;
-        if (code !== 'ENOENT') {
-          logger.warn('chat attachments: cleanup unlink failed', {
-            filename, error: String(err),
-          });
-        }
-      }
-    }
-  }
-  return count;
+/* hydration (read path) ────────────────────────────────────────── */
+
+export interface HydratedFilePart {
+  type: 'file';
+  url: string;
+  mediaType: string;
+  name?: string;
+  size?: number;
 }
 
-/**
- * Scan attachmentDir() for files older than 7 days that are NOT referenced by
- * any current chat_messages.parts row. Best-effort; never throws.
- */
-export function sweepOrphanedAttachments(): void {
-  const dir = attachmentDir();
-  if (!fs.existsSync(dir)) return;
+/** Replace `{ type:'file', attachmentId }` parts with `{ url, mediaType, name,
+ *  size }`. Missing rows yield a stub so a stale ref still renders. */
+export function hydrateParts(
+  parts: unknown,
+  attachmentsById: Map<string, AttachmentRow>,
+): unknown {
+  if (!Array.isArray(parts)) return parts;
+  return parts.map((part) => {
+    if (!part || typeof part !== 'object' || (part as { type?: unknown }).type !== 'file') return part;
+    const aid = (part as { attachmentId?: unknown }).attachmentId;
+    if (typeof aid !== 'string') return part;
+    const row = attachmentsById.get(aid);
+    if (!row) return { type: 'file', name: 'missing', mediaType: 'application/octet-stream' };
+    const hydrated: HydratedFilePart = {
+      type: 'file',
+      url: `${ATTACH_URL_PREFIX}${row.id}.${row.ext}`,
+      mediaType: row.mime_type,
+      size: row.size_bytes,
+    };
+    if (row.display_name) hydrated.name = row.display_name;
+    return hydrated;
+  });
+}
 
-  const TTL_MS = 7 * 24 * 60 * 60 * 1000;
-  const cutoff = Date.now() - TTL_MS;
+export function buildAttachmentMap(rows: AttachmentRow[]): Map<string, AttachmentRow> {
+  const m = new Map<string, AttachmentRow>();
+  for (const r of rows) m.set(r.id, r);
+  return m;
+}
 
-  let referenced: Set<string>;
-  try {
-    const db = getDb();
-    const rows = db.prepare('SELECT parts FROM chat_messages').all() as { parts: string }[];
-    referenced = new Set<string>();
-    for (const row of rows) {
-      try {
-        const parts = JSON.parse(row.parts) as Part[];
-        for (const part of parts) {
-          if (!part || typeof part !== 'object') continue;
-          const url = (part as FilePart).url ?? '';
-          if (url.startsWith(ATTACH_URL_PREFIX)) {
-            referenced.add(url.slice(ATTACH_URL_PREFIX.length));
-          }
-        }
-      } catch { /* skip malformed parts */ }
+/* delete-time file unlink ──────────────────────────────────────── */
+
+function unlinkAttachmentFile(row: AttachmentRow): void {
+  const filename = `${row.id}.${row.ext}`;
+  if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) return;
+  try { fs.unlinkSync(path.join(attachmentDir(), filename)); }
+  catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') {
+      logger.warn('chat attachments: unlink failed', { id: row.id, error: String(err) });
     }
-  } catch (err) {
-    logger.warn('chat attachments sweep: DB scan failed', { error: String(err) });
-    return;
   }
+}
 
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return;
-  }
+/** Unlink files for one message. DB rows go via FK cascade — call this
+ *  BEFORE deleting the parent row. */
+export function deleteMessageAttachmentFiles(messageId: string): void {
+  for (const row of listAttachmentsForMessage(messageId)) unlinkAttachmentFile(row);
+}
 
-  for (const entry of entries) {
-    if (!entry.isFile()) continue;
-    if (referenced.has(entry.name)) continue;
-    try {
-      const stat = fs.statSync(path.join(dir, entry.name));
-      if (stat.mtimeMs < cutoff) {
-        fs.unlinkSync(path.join(dir, entry.name));
-      }
-    } catch { /* best-effort */ }
-  }
+export function deleteConversationAttachmentFiles(conversationId: string): void {
+  for (const row of listAttachmentsForConversation(conversationId)) unlinkAttachmentFile(row);
+}
+
+export function deleteAllAttachmentFiles(): void {
+  for (const row of listAllAttachments()) unlinkAttachmentFile(row);
 }

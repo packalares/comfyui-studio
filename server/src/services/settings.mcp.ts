@@ -226,10 +226,16 @@ export function disableStudioMcp(): { enabled: false } {
   return { enabled: false };
 }
 
-/** Current Studio MCP server enable state (for the settings UI). */
-export function getStudioMcpStatus(): { enabled: boolean; token: string | null } {
+/** Current Studio MCP server enable state (for the settings UI).
+ *
+ * SECURITY: never includes the raw token. Returning the token here would leak
+ * it through `GET /api/system` to every dashboard load + any XSS that could
+ * read the response. The settings UI only needs to know IF the token is set,
+ * not what it is. The raw value is shown ONCE at mint-time via
+ * `enableStudioMcp()` and never returned by a read endpoint. */
+export function getStudioMcpStatus(): { enabled: boolean; tokenConfigured: boolean } {
   const token = getStudioMcpToken();
-  return { enabled: token !== null, token };
+  return { enabled: token !== null, tokenConfigured: token !== null };
 }
 
 // ---- enabledMcpTools UUID → slug migration ------------------------------

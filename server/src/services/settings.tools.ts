@@ -40,35 +40,6 @@ export function clearSearxngUrl(): void {
   dropKey('searxngUrl');
 }
 
-export function getRagflowUrl(): string | undefined {
-  return readTrimmedUrl(_loadInternal().ragflowUrl);
-}
-
-export function setRagflowUrl(url: string): void {
-  update({ ragflowUrl: url });
-}
-
-export function clearRagflowUrl(): void {
-  dropKey('ragflowUrl');
-}
-
-export function getRagflowApiKey(): string | undefined {
-  const v = _loadInternal().ragflowApiKey;
-  return typeof v === 'string' && v.length > 0 ? v : undefined;
-}
-
-export function isRagflowApiKeyConfigured(): boolean {
-  return typeof getRagflowApiKey() === 'string';
-}
-
-export function setRagflowApiKey(key: string): void {
-  update({ ragflowApiKey: key });
-}
-
-export function clearRagflowApiKey(): void {
-  dropKey('ragflowApiKey');
-}
-
 export function getDefaultImageTemplate(): string | undefined {
   const v = _loadInternal().defaultImageTemplate;
   return typeof v === 'string' && v.trim().length > 0 ? v.trim() : undefined;
