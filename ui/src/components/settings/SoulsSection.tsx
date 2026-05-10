@@ -37,7 +37,7 @@ export default function SoulsSection() {
         onCreate={() => { setEditName(undefined); setModalOpen(true); }}
         onEdit={(name) => { setEditName(name); setModalOpen(true); }}
         itemBadge={(item) =>
-          defaultSoul === item.name ? <Badge variant="slate">default</Badge> : null
+          defaultSoul === item.name ? <Badge variant="neutral">default</Badge> : null
         }
         above={<PendingEditsCard onSoulChanged={() => void refreshSystem()} />}
       />

@@ -9,6 +9,7 @@ import { Button } from '../ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from '../ui/card';
 import InputField from '../forms/InputField';
 import { SelectField, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../forms/SelectField';
+import { useTransientFlag } from '../../hooks/useTransientFlag';
 
 // Settings card for chat-tool integrations: SearXNG + default image template.
 // Sits BELOW the existing Chat / LLM card; never modifies it.
@@ -32,7 +33,7 @@ export default function ToolsCard() {
   const loaded = live !== null;
   const [state, setState] = useState<ToolsState>(EMPTY_STATE);
   const [imageTemplates, setImageTemplates] = useState<TemplateSummary[]>([]);
-  const [saved, setSaved] = useState(false);
+  const [saved, markSaved] = useTransientFlag(2000);
   const [busy, setBusy] = useState(false);
 
   // Re-seed local edit buffers from the live AppContext snapshot — initial
@@ -62,8 +63,7 @@ export default function ToolsCard() {
         defaultImageTemplate: state.defaultImageTemplate.trim(),
       });
       await app.refreshSystem();
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      markSaved();
     } catch (err) {
       toast.error('Failed to save tools settings', {
         description: err instanceof Error ? err.message : String(err),

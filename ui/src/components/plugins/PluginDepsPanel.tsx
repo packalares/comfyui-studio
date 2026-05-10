@@ -119,13 +119,13 @@ export default function PluginDepsPanel() {
               const open = expanded[r.plugin];
               const status: {
                 label: string;
-                variant: 'emerald' | 'amber';
+                variant: 'success' | 'warning';
                 icon: JSX.Element;
               } = missing === 0
-                ? { label: 'OK', variant: 'emerald', icon: <CheckCircle2 className="w-3 h-3" /> }
+                ? { label: 'OK', variant: 'success', icon: <CheckCircle2 className="w-3 h-3" /> }
                 : {
                     label: `${missing} missing`,
-                    variant: 'amber',
+                    variant: 'warning',
                     icon: <AlertTriangle className="w-3 h-3" />,
                   };
               return (

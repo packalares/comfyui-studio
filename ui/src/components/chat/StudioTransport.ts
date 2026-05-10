@@ -220,23 +220,20 @@ export class StudioTransport implements ChatTransport<StudioUIMessage> {
             void api.chat.stop(msgId).catch(() => { /* swallow */ });
             finalize();
           } else {
-            abortSignal.addEventListener('abort', () => {
+            // Listener pinned the closure (controller, cleanups, watchdog) on
+            // the AbortSignal until the next message replaced the signal.
+            // Track it so finalize() can detach on the happy path.
+            const onAbort = () => {
               void api.chat.stop(msgId).catch(() => { /* swallow */ });
-              // Don't close the stream immediately — the server normally
-              // emits a `done` for the partial response and `onDone` will
-              // run the close path. But if the server crashes or the WS
-              // drops mid-abort, neither `done` nor `error` ever arrives
-              // and the chat would hang in "streaming" until a page reload.
-              // Fall back to a short watchdog: if no terminal frame lands
-              // within the budget, force-close locally with a stop notice
-              // so `useChat` transitions out of `streaming`.
               if (closed || abortWatchdog !== null) return;
               abortWatchdog = setTimeout(() => {
                 if (closed) return;
                 controller.enqueue({ type: 'error', errorText: 'Stream stopped (no server ack)' });
                 finalize();
               }, 3000);
-            }, { once: true });
+            };
+            abortSignal.addEventListener('abort', onAbort, { once: true });
+            cleanups.push(() => abortSignal.removeEventListener('abort', onAbort));
           }
         }
       },

@@ -22,7 +22,7 @@ import { Card, CardContent, CardHeader } from '../ui/card';
 function StatusBadge({ status }: { status: PluginHistoryEntry['status'] }) {
   if (status === 'success') {
     return (
-      <Badge variant="emerald">
+      <Badge variant="success">
         <CheckCircle2 className="h-3 w-3" />
         Success
       </Badge>
@@ -30,7 +30,7 @@ function StatusBadge({ status }: { status: PluginHistoryEntry['status'] }) {
   }
   if (status === 'running') {
     return (
-      <Badge variant="teal">
+      <Badge variant="brand">
         <Spinner size="xs" />
         Running
       </Badge>
@@ -38,13 +38,13 @@ function StatusBadge({ status }: { status: PluginHistoryEntry['status'] }) {
   }
   if (status === 'failed') {
     return (
-      <Badge variant="rose">
+      <Badge variant="danger">
         <XCircle className="h-3 w-3" />
         Failed
       </Badge>
     );
   }
-  return <Badge variant="slate">{status}</Badge>;
+  return <Badge variant="neutral">{status}</Badge>;
 }
 
 export default function PluginHistoryPanel() {

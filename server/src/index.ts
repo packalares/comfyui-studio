@@ -133,7 +133,7 @@ async function pollLauncherStatus() {
   }
 }
 
-setInterval(pollLauncherStatus, 5000);
+setInterval(pollLauncherStatus, 5000).unref();
 pollLauncherStatus();
 
 // Hook up downloads service so it can broadcast progress to all WS clients.

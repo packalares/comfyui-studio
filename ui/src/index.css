@@ -4,6 +4,14 @@
 @import "./themes.css";
 /* ---break---
 */
+
+/* Streamdown emits dynamic Tailwind classes (`text-[var(--sdm-c,inherit)]`,
+   `bg-[var(--sdm-tbg)]`, dark variants) at runtime when highlighting code
+   blocks. Tailwind v4 only scans src/** by default — without this @source
+   directive, those arbitrary classes never make it into the compiled CSS
+   and code blocks render plain. Adding the dist tree fixes syntax colors. */
+@source "../node_modules/streamdown/dist";
+
 @custom-variant dark (&:is(.dark *));
 
 @plugin "@tailwindcss/typography";
@@ -514,37 +522,33 @@
     @apply bg-card rounded-xl border shadow-sm hover:shadow-md transition-shadow;
   }
 
-  /* ===== Badges =====
-     `.badge-{blue,green,purple,orange}` were retired (zero usages found in
-     the audit). Studio's tone variants live in `components/ui/badge.tsx`
-     under `<Badge variant="emerald|amber|rose|slate|teal">`. */
+  /* ===== Badges ===== */
+
+  /* Base */
   .badge {
-    @apply inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1
-           overflow-hidden rounded-full border border-transparent
-           px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-colors;
+    @apply inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium whitespace-nowrap transition-colors;
   }
-  .badge > svg {
-    @apply size-3 pointer-events-none;
+
+  /* Soft variants (default treatment) */
+  .badge-success    { @apply bg-success/10 text-success ring-1 ring-inset ring-success/30; }
+  .badge-warning    { @apply bg-warning/10 text-warning ring-1 ring-inset ring-warning/30; }
+  .badge-danger     { @apply bg-destructive/10 text-destructive ring-1 ring-inset ring-destructive/30; }
+  .badge-brand      { @apply bg-brand/10 text-brand ring-1 ring-inset ring-brand/30; }
+  .badge-neutral    { @apply bg-muted text-foreground ring-1 ring-inset ring-border; }
+  .badge-secondary  { @apply bg-secondary text-secondary-foreground; }
+
+  /* Overlay variant — for media-tile dark-glass overlays. Rounded full because
+     it sits on top of images and the pill silhouette reads cleaner there. */
+  .badge-overlay {
+    @apply rounded-full bg-foreground/60 text-background;
   }
-  /* Studio tone variants — `<Badge variant="emerald">` etc emit
-     `class="badge badge-emerald"`. Mirrors the cva config in
-     `components/ui/badge.tsx`. */
-  /* Semantic success/warning resolve through `--success` / `--warning`
-     tokens (light/dark flipped in :root / .dark). */
-  .badge-emerald   { @apply bg-success/10 text-success ring-1 ring-inset ring-success/30; }
-  .badge-amber     { @apply bg-warning/10 text-warning ring-1 ring-inset ring-warning/30; }
-  /* Destructive — uses --destructive token (red). `.badge-rose` kept as alias. */
-  .badge-destructive { @apply bg-destructive/10 text-destructive ring-1 ring-inset ring-destructive/30; }
-  .badge-rose      { @apply bg-destructive/10 text-destructive ring-1 ring-inset ring-destructive/30; }
-  .badge-slate     { @apply bg-muted text-foreground ring-1 ring-inset ring-border; }
-  .badge-teal      { @apply bg-brand/10 text-brand ring-1 ring-inset ring-brand/30; }
-  .badge-outline   { @apply border text-foreground; }
-  .badge-secondary { @apply bg-secondary text-secondary-foreground; }
-  /* Plain-CSS shortcut used by direct `<span class="badge-gray">` consumers
-     (TemplateCard "User Workflows" indicator). */
-  .badge-gray {
-    @apply bg-muted text-muted-foreground ring-1 ring-inset ring-border;
-  }
+
+  /* Solid treatment — pair with a variant. Drops the soft tint + ring. */
+  .badge-solid.badge-success   { @apply bg-success text-success-foreground ring-0; }
+  .badge-solid.badge-warning   { @apply bg-warning text-warning-foreground ring-0; }
+  .badge-solid.badge-danger    { @apply bg-destructive text-primary-foreground ring-0; }
+  .badge-solid.badge-brand     { @apply bg-brand text-brand-foreground ring-0; }
+  .badge-solid.badge-neutral   { @apply bg-foreground text-background ring-0; }
 
   /* `.stat-box` / `.stat-box-label` / `.stat-box-value` removed in Phase C —
      no consumers remained after the refactor. `.stat-label` (the small

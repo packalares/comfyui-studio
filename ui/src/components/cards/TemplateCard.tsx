@@ -15,6 +15,7 @@ import DescriptionModal from '../modals/DescriptionModal';
 import DependencyModal from '../modals/DependencyModal';
 import ApiExportModal from '../modals/ApiExportModal';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { ButtonGroup } from '../ui/button-group';
 import ConfirmDialog from '../modals/ConfirmDialog';
@@ -196,32 +197,24 @@ function TemplateCardInner({ template, onDeleted }: Props) {
           })()}
           <div className="absolute top-2 right-2 flex items-center gap-1.5">
             {template.ready === true && (
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-success/90 text-success-foreground">
-                Ready
-              </span>
+              <Badge variant="success" treatment="solid">Ready</Badge>
             )}
             {isUser && (
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand/90 text-brand-foreground">
-                User
-              </span>
+              <Badge variant="brand" treatment="solid">User</Badge>
             )}
             {template.openSource !== undefined && (
-              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                template.openSource
-                  ? 'bg-success/90 text-success-foreground'
-                  : 'bg-muted-foreground/80 text-primary-foreground'
-              }`}>
-                {template.openSource ? 'Open Source' : 'API'}
-              </span>
+              template.openSource
+                ? <Badge variant="success" treatment="solid">Open Source</Badge>
+                : <Badge variant="neutral" treatment="solid">API</Badge>
             )}
-            <span className={`badge ${
-              template.mediaType === 'image' ? 'badge-teal' :
-              template.mediaType === 'video' ? 'badge-rose' :
-              template.mediaType === 'audio' ? 'badge-amber' :
-              'badge-gray'
-            }`}>
+            <Badge variant={
+              template.mediaType === 'image' ? 'brand' :
+              template.mediaType === 'video' ? 'danger' :
+              template.mediaType === 'audio' ? 'warning' :
+              'neutral'
+            }>
               {template.mediaType}
-            </span>
+            </Badge>
           </div>
           {/* Overflow menu — user-imported workflows only. Absolutely positioned
               on top of the thumbnail; clicking never propagates to the card. */}
@@ -273,12 +266,14 @@ function TemplateCardInner({ template, onDeleted }: Props) {
               {template.title}
             </h3>
             {civitaiMeta && (
-              <span
-                className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand/90 text-brand-foreground shrink-0"
+              <Badge
+                variant="brand"
+                treatment="solid"
+                className="shrink-0"
                 title={civitaiMeta.originalUrl ?? `CivitAI model ${civitaiMeta.modelId}`}
               >
                 CivitAI
-              </span>
+              </Badge>
             )}
           </div>
           <div className="mt-auto">
@@ -589,13 +584,11 @@ function CivitaiTemplateCardInner({ item, onStagedImport }: CivitaiTemplateCardP
           </div>
         )}
         <div className="absolute top-2 right-2 flex items-center gap-1.5">
-          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand/90 text-brand-foreground">
-            CivitAI
-          </span>
+          <Badge variant="brand" treatment="solid">CivitAI</Badge>
           {item.type && (
-            <span className="badge badge-gray !bg-popover/90 !text-foreground">
+            <Badge variant="neutral" className="!bg-popover/90 !text-foreground">
               {item.type}
-            </span>
+            </Badge>
           )}
         </div>
       </button>
@@ -605,22 +598,23 @@ function CivitaiTemplateCardInner({ item, onStagedImport }: CivitaiTemplateCardP
         </h3>
         <div className="flex items-center justify-between gap-2 mb-2">
           {creator ? (
-            <span
-              className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-normal text-muted-foreground ring-1 ring-inset ring-border/70 max-w-[60%]"
+            <Badge
+              variant="neutral"
+              className="max-w-[60%]"
               title={creator}
             >
               <UserIcon className="w-2.5 h-2.5 shrink-0" />
               <span className="truncate">{creator}</span>
-            </span>
+            </Badge>
           ) : <span />}
           {typeof downloads === 'number' && (
-            <span
-              className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-normal text-muted-foreground ring-1 ring-inset ring-border/70"
+            <Badge
+              variant="neutral"
               title={`${downloads.toLocaleString()} downloads`}
             >
               <Download className="w-2.5 h-2.5" />
               {formatCompact(downloads)}
-            </span>
+            </Badge>
           )}
         </div>
       </div>

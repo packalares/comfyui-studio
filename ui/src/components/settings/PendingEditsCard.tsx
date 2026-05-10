@@ -118,7 +118,7 @@ function PendingEditRow({
             proposed {relativeTime(edit.createdAt)}
           </span>
         </div>
-        <Badge variant="slate">
+        <Badge variant="neutral">
           {isAppend ? 'Append at end' : 'Replace section'}
         </Badge>
       </div>
@@ -239,7 +239,7 @@ export default function PendingEditsCard({ onSoulChanged }: PendingEditsCardProp
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {!loading && edits.length > 0 && (
-            <Badge variant="slate">
+            <Badge variant="neutral">
               <GitMerge className="h-3 w-3" />
               {edits.length} pending
             </Badge>

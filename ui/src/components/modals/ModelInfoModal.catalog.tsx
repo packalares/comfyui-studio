@@ -95,7 +95,7 @@ function SourcesSection(p: { sources: UrlSource[]; winnerUrl?: string }): JSX.El
                   <li key={s.url} className="flex items-start gap-1.5 text-[11px]">
                     {s.url === p.winnerUrl && (
                       <Star
-                        className="w-3 h-3 text-amber-500 mt-0.5 shrink-0"
+                        className="w-3 h-3 text-warning mt-0.5 shrink-0"
                         aria-label="primary"
                       />
                     )}
@@ -129,7 +129,7 @@ function StatusSection(p: { gated?: boolean; gatedMessage?: string; error?: stri
       <div className="space-y-1.5">
         {p.gated && (
           <div className="flex items-start gap-1.5">
-            <Badge variant="amber">
+            <Badge variant="warning">
               <AlertCircle className="w-3 h-3" />
               Gated
             </Badge>
@@ -140,7 +140,7 @@ function StatusSection(p: { gated?: boolean; gatedMessage?: string; error?: stri
         )}
         {p.error && (
           <div className="flex items-start gap-1.5">
-            <Badge variant="rose">
+            <Badge variant="danger">
               <XCircle className="w-3 h-3" />
               Error
             </Badge>
@@ -178,11 +178,11 @@ export function CatalogModelBody(p: { model: CatalogModel }): JSX.Element {
     <div className="space-y-4">
       <section>
         <div className="flex flex-wrap gap-1.5">
-          {model.base && <Badge variant="slate">{model.base}</Badge>}
-          {fileFormat && <Badge variant="slate">.{fileFormat}</Badge>}
+          {model.base && <Badge variant="neutral">{model.base}</Badge>}
+          {fileFormat && <Badge variant="neutral">.{fileFormat}</Badge>}
           {model.installed
-            ? <Badge variant="emerald">Installed</Badge>
-            : <Badge variant="slate">Not installed</Badge>}
+            ? <Badge variant="success">Installed</Badge>
+            : <Badge variant="neutral">Not installed</Badge>}
         </div>
       </section>
 

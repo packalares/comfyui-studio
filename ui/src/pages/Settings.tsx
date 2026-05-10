@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import PageSubbar from '../components/layout/PageSubbar';
 import { usePersistedState } from '../hooks/usePersistedState';
+import { useTransientFlag } from '../hooks/useTransientFlag';
 import ToolsCard from '../components/cards/ToolsCard';
 import {
   Copy,
@@ -323,7 +324,7 @@ function SecretsCard() {
     githubToken: '',
     pexelsApiKey: '',
   }));
-  const [saved, setSaved] = useState(false);
+  const [saved, markSaved] = useTransientFlag(2000);
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState<SecretName | null>(null);
 
@@ -350,8 +351,7 @@ function SecretsCard() {
         for (const name of dirty) next[name] = '';
         return next;
       });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      markSaved();
     } catch (err) {
       toast.error('Save failed', {
         description: err instanceof Error ? err.message : String(err),
@@ -468,7 +468,7 @@ function ChatLlmCard() {
   const [defaultStrategy, setDefaultStrategy] = useState<'sliding' | 'auto'>('sliding');
   const [defaultThinkMode, setDefaultThinkMode] = useState<'on' | 'off' | 'auto'>('auto');
   const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [saved, markSaved] = useTransientFlag(2000);
   // Holds a failed-probe result so we can offer a "Save anyway" escape hatch
   // without losing the typed URL between clicks.
   const [probeFailedUrl, setProbeFailedUrl] = useState<string | null>(null);
@@ -495,8 +495,7 @@ function ChatLlmCard() {
       defaultThinkMode,
     });
     await app.refreshSystem();
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    markSaved();
   };
 
   const handleSave = async () => {
@@ -754,7 +753,7 @@ function ChatAdvancedCard() {
   const liveAdvanced = app.chat?.advanced ?? null;
   const [advanced, setAdvanced] = useState<ChatAdvancedSettings | null>(null);
   const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [saved, markSaved] = useTransientFlag(2000);
 
   useEffect(() => {
     if (liveAdvanced) setAdvanced(liveAdvanced);
@@ -775,8 +774,7 @@ function ChatAdvancedCard() {
     try {
       await api.updateSettings('chat', { advanced });
       await app.refreshSystem();
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      markSaved();
     } catch (err) {
       toast.error('Failed to save advanced chat settings', {
         description: err instanceof Error ? err.message : String(err),
@@ -964,7 +962,7 @@ function CategorySection({
 }
 
 function CommandPreview({ text, loading }: { text: string; loading: boolean }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, markCopied] = useTransientFlag(1500);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(text);
@@ -976,8 +974,7 @@ function CommandPreview({ text, loading }: { text: string; loading: boolean }) {
       document.execCommand('copy');
       document.body.removeChild(ta);
     }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    markCopied();
   };
 
   return (
@@ -999,13 +996,13 @@ function CommandPreview({ text, loading }: { text: string; loading: boolean }) {
           {copied ? 'Copied' : 'Copy'}
         </Button>
       </div>
-      <div className="overflow-x-auto rounded-lg border bg-slate-950 px-3 py-3">
-        <code className="block whitespace-pre-wrap break-all font-mono text-sm text-emerald-400">
+      <div className="overflow-x-auto rounded-lg border bg-card px-3 py-3">
+        <code className="block whitespace-pre-wrap break-all font-mono text-sm text-success">
           {loading ? (
-            <span className="text-slate-500">Loading...</span>
+            <span className="text-muted-foreground">Loading...</span>
           ) : (
             <>
-              <span className="select-none text-slate-500">$ </span>
+              <span className="select-none text-muted-foreground">$ </span>
               {text}
             </>
           )}
@@ -1020,7 +1017,7 @@ function LaunchOptionsCard() {
   const [items, setItems] = useState<LaunchOptionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [saved, markSaved] = useTransientFlag(3000);
   const [error, setError] = useState<string | null>(null);
 
   const parseResponse = useCallback((raw: Record<string, unknown>) => {
@@ -1134,8 +1131,7 @@ function LaunchOptionsCard() {
       }));
       await api.updateLaunchOptions({ items: payload });
       await api.restartComfyUI();
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+      markSaved();
       setError(null);
     } catch (err) {
       setError('Failed to save launch options');
@@ -1164,7 +1160,7 @@ function LaunchOptionsCard() {
         right={
           <div className="flex items-center gap-2">
             {!loading && items.length > 0 && (
-              <Badge variant="slate">
+              <Badge variant="neutral">
                 <SlidersHorizontal className="h-3 w-3" />
                 {totalEnabled} of {items.length} enabled
               </Badge>
@@ -1337,15 +1333,15 @@ function NetworkCard() {
   const [allowPrivateIp, setAllowPrivateIp] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savingHf, setSavingHf] = useState(false);
-  const [savedHf, setSavedHf] = useState(false);
+  const [savedHf, markSavedHf] = useTransientFlag(2000);
   const [savingGh, setSavingGh] = useState(false);
-  const [savedGh, setSavedGh] = useState(false);
+  const [savedGh, markSavedGh] = useTransientFlag(2000);
   const [savingPip, setSavingPip] = useState(false);
-  const [savedPip, setSavedPip] = useState(false);
+  const [savedPip, markSavedPip] = useTransientFlag(2000);
   const [savingHosts, setSavingHosts] = useState(false);
-  const [savedHosts, setSavedHosts] = useState(false);
+  const [savedHosts, markSavedHosts] = useTransientFlag(2000);
   const [savingModelHosts, setSavingModelHosts] = useState(false);
-  const [savedModelHosts, setSavedModelHosts] = useState(false);
+  const [savedModelHosts, markSavedModelHosts] = useTransientFlag(2000);
   const [savingAllow, setSavingAllow] = useState(false);
 
   const loading = cfg === null;
@@ -1368,8 +1364,7 @@ function NetworkCard() {
     setSavingHf(true);
     try {
       await api.setSystemConfig('huggingface-endpoint', hfEndpoint);
-      setSavedHf(true);
-      setTimeout(() => setSavedHf(false), 2000);
+      markSavedHf();
       void refreshNetwork();
     } catch {
       setError('Failed to save HuggingFace endpoint');
@@ -1381,8 +1376,7 @@ function NetworkCard() {
     setSavingGh(true);
     try {
       await api.setSystemConfig('github-proxy', githubProxy);
-      setSavedGh(true);
-      setTimeout(() => setSavedGh(false), 2000);
+      markSavedGh();
       void refreshNetwork();
     } catch {
       setError('Failed to save GitHub proxy');
@@ -1394,8 +1388,7 @@ function NetworkCard() {
     setSavingPip(true);
     try {
       await api.setSystemConfig('pip-source', pipSource);
-      setSavedPip(true);
-      setTimeout(() => setSavedPip(false), 2000);
+      markSavedPip();
       void refreshNetwork();
     } catch {
       setError('Failed to save pip source');
@@ -1408,8 +1401,7 @@ function NetworkCard() {
     try {
       const hosts = trustedHosts.split(',').map(s => s.trim()).filter(Boolean);
       await api.setSystemConfig('plugin-trusted-hosts', hosts);
-      setSavedHosts(true);
-      setTimeout(() => setSavedHosts(false), 2000);
+      markSavedHosts();
       void refreshNetwork();
     } catch {
       setError('Failed to save plugin trusted hosts');
@@ -1422,8 +1414,7 @@ function NetworkCard() {
     try {
       const hosts = modelTrustedHosts.split(',').map(s => s.trim()).filter(Boolean);
       await api.setSystemConfig('model-trusted-hosts', hosts);
-      setSavedModelHosts(true);
-      setTimeout(() => setSavedModelHosts(false), 2000);
+      markSavedModelHosts();
       void refreshNetwork();
     } catch {
       setError('Failed to save model trusted hosts');
@@ -1570,7 +1561,7 @@ const STORAGE_PATHS = [
 ];
 
 function StorageRowCopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, markCopied] = useTransientFlag(1500);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(text);
@@ -1582,8 +1573,7 @@ function StorageRowCopyButton({ text }: { text: string }) {
       document.execCommand('copy');
       document.body.removeChild(ta);
     }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    markCopied();
   };
   return (
     <Button onClick={copy} variant="ghost" size="icon" title="Copy to clipboard">

@@ -318,7 +318,7 @@ export default function Gallery() {
                     <span className="font-mono text-sm font-semibold text-foreground">{paged.total}</span>
                   </div>
                   <div className="flex items-center gap-2 px-3 py-2">
-                    <Star className="w-4 h-4 text-amber-500 shrink-0" />
+                    <Star className="w-4 h-4 text-warning shrink-0" />
                     <span className="text-xs text-muted-foreground flex-1">Favorites</span>
                     <span className="font-mono text-sm font-semibold text-foreground">{favorites.size}</span>
                   </div>
@@ -406,17 +406,14 @@ export default function Gallery() {
                 </div>
               )}
 
-              <div className="mt-4">
-                <Pagination
-                  page={paged.page}
-                  pageSize={paged.pageSize}
-                  total={paged.total}
-                  hasMore={paged.hasMore}
-                  onPageChange={paged.setPage}
-                  onPageSizeChange={paged.setPageSize}
-                  className="rounded-lg border bg-muted"
-                />
-              </div>
+              <Pagination
+                page={paged.page}
+                pageSize={paged.pageSize}
+                total={paged.total}
+                hasMore={paged.hasMore}
+                onPageChange={paged.setPage}
+                onPageSizeChange={paged.setPageSize}
+              />
           </div>
         </section>
       </div>

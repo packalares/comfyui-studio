@@ -15,6 +15,7 @@ import AppModal from './AppModal';
 import { Button } from '../ui/button';
 import { ButtonGroup } from '../ui/button-group';
 import { Spinner } from '../ui/spinner';
+import { useTransientFlag } from '../../hooks/useTransientFlag';
 
 interface Props {
   open: boolean;
@@ -26,13 +27,13 @@ export default function ApiExportModal({ open, templateName, onClose }: Props) {
   const [loading, setLoading] = useState(false);
   const [payload, setPayload] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, markCopied, resetCopied] = useTransientFlag(1600);
 
   useEffect(() => {
     if (!open) {
       setPayload('');
       setError(null);
-      setCopied(false);
+      resetCopied();
       return;
     }
     // AbortController stops the in-flight fetch when the modal closes
@@ -70,8 +71,7 @@ export default function ApiExportModal({ open, templateName, onClose }: Props) {
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(payload);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
+      markCopied();
     } catch {
       toast.error('Copy failed', { description: 'Clipboard write was rejected.' });
     }

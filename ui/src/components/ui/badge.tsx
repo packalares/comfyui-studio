@@ -1,53 +1,45 @@
-import * as React from "react"
-import { Slot } from "radix-ui"
+import { type ComponentType, type HTMLAttributes } from 'react';
+import { cn } from '../../lib/utils';
 
-import { cn } from "@/lib/utils"
+export type BadgeVariant =
+  | 'success'
+  | 'warning'
+  | 'danger'
+  | 'brand'
+  | 'neutral'
+  | 'secondary'
+  | 'overlay';
 
-// Each variant maps to a `.badge-*` shortcut class defined in `index.css`.
-// Same render as the previous cva chain — same pixels, less DOM noise.
-//
-// Of the eleven variants the cva used to expose, only seven actually have
-// consumers in the codebase (`slate`, `emerald`, `teal`, `rose`, `amber`,
-// `outline`, `secondary`). The four unused shadcn-default variants are kept
-// in the type union but currently fall through to the bare `.badge` base —
-// styling is bg-transparent / text-inherit until someone needs them.
+export type BadgeTreatment = 'soft' | 'solid';
 
-const VARIANT_CLASS: Record<string, string> = {
-  emerald: "badge-emerald",
-  amber: "badge-amber",
-  rose: "badge-rose",
-  slate: "badge-slate",
-  teal: "badge-teal",
-  outline: "badge-outline",
-  secondary: "badge-secondary",
-  // shadcn defaults retained for type-compat. No tone class — caller
-  // composes via `className` prop if they want one.
-  default: "",
-  destructive: "",
-  ghost: "",
-  link: "",
+export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
+  variant?: BadgeVariant;
+  treatment?: BadgeTreatment;
+  /** Optional left-side icon. Pass the component reference (`icon={Wand2}`),
+   *  not a pre-rendered element. Sized to 12px to fit the badge height. */
+  icon?: ComponentType<{ className?: string }>;
 }
 
-export type BadgeVariant = keyof typeof VARIANT_CLASS
-
-function Badge({
+export function Badge({
+  variant = 'neutral',
+  treatment = 'soft',
+  icon: Icon,
   className,
-  variant = "default",
-  asChild = false,
-  ...props
-}: React.ComponentProps<"span"> & {
-  variant?: BadgeVariant
-  asChild?: boolean
-}) {
-  const Comp = asChild ? Slot.Root : "span"
+  children,
+  ...rest
+}: BadgeProps) {
   return (
-    <Comp
-      data-slot="badge"
-      data-variant={variant}
-      className={cn("badge", VARIANT_CLASS[variant] ?? "", className)}
-      {...props}
-    />
-  )
+    <span
+      className={cn(
+        'badge',
+        `badge-${variant}`,
+        treatment === 'solid' && 'badge-solid',
+        className,
+      )}
+      {...rest}
+    >
+      {Icon && <Icon className="h-3 w-3" />}
+      {children}
+    </span>
+  );
 }
-
-export { Badge }

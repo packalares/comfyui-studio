@@ -1100,16 +1100,14 @@ export default function Models() {
                   (the required-model list is a fixed set, paging would just
                   hide rows the user picked the workflow to surface). */}
               {source === 'local' && !selectedWorkflow && paged.total > 0 && (
-                <div className="mt-4">
-                  <Pagination
-                    page={paged.page}
-                    pageSize={paged.pageSize}
-                    total={paged.total}
-                    hasMore={paged.hasMore}
-                    onPageChange={paged.setPage}
-                    onPageSizeChange={paged.setPageSize}
-                  />
-                </div>
+                <Pagination
+                  page={paged.page}
+                  pageSize={paged.pageSize}
+                  total={paged.total}
+                  hasMore={paged.hasMore}
+                  onPageChange={paged.setPage}
+                  onPageSizeChange={paged.setPageSize}
+                />
               )}
               </>
               )}

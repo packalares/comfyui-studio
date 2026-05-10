@@ -628,7 +628,6 @@ export default function Explore() {
                     hasMore={paged.hasMore}
                     onPageChange={paged.setPage}
                     onPageSizeChange={paged.setPageSize}
-                    className="rounded-lg border bg-muted"
                   />
                 )}
               </div>

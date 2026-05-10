@@ -67,7 +67,7 @@ export default function MarkdownLibrarySection({
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {!loading && items.length > 0 && (
-              <Badge variant="slate">
+              <Badge variant="neutral">
                 {BadgeIcon && <BadgeIcon className="h-3 w-3" />}
                 {items.length} {items.length === 1 ? noun : `${noun}s`}
               </Badge>

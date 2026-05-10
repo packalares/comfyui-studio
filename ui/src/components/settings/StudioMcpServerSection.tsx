@@ -14,11 +14,12 @@ import {
   enableStudioMcp,
   disableStudioMcp,
 } from '../../api/mcp';
+import { useTransientFlag } from '../../hooks/useTransientFlag';
 
 /* ---- copy button ---- */
 
 function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, markCopied] = useTransientFlag(1500);
   const copy = async () => {
     try { await navigator.clipboard.writeText(text); }
     catch {
@@ -27,8 +28,7 @@ function CopyButton({ text }: { text: string }) {
       ta.select(); document.execCommand('copy');
       document.body.removeChild(ta);
     }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    markCopied();
   };
   return (
     <Button variant="ghost" size="icon" title="Copy" onClick={copy}>

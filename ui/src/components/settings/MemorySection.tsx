@@ -11,13 +11,14 @@ import { toast } from 'sonner';
 import { Card, CardContent, CardFooter, CardHeader } from '../ui/card';
 import { Button } from '../ui/button';
 import { api } from '../../services/comfyui';
+import { useTransientFlag } from '../../hooks/useTransientFlag';
 
 export default function MemorySection() {
   const [body, setBody] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [saved, markSaved] = useTransientFlag(2000);
 
   const fetchMemory = useCallback(async () => {
     setLoading(true);
@@ -39,8 +40,7 @@ export default function MemorySection() {
     setSaving(true);
     try {
       await api.personality.putMemory(body);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      markSaved();
     } catch (err) {
       toast.error('Failed to save memory', {
         description: err instanceof Error ? err.message : String(err),

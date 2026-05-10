@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 import {
   Download, Trash2,
   Image as ImageIcon, Music, Sparkles,
-  AlertCircle, ChevronLeft, ChevronRight,
+  AlertCircle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, SlidersHorizontal,
 } from 'lucide-react';
 import type { GalleryItem } from '../../types';
 import { api } from '../../services/comfyui';
@@ -48,6 +48,10 @@ export default function GalleryDetailModal({
   const [randomizeSeed, setRandomizeSeed] = useState<boolean>(false);
   const [regenerating, setRegenerating] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  // Generation-details panel hidden by default — most users open the modal
+  // to look at the media, not the metadata. Click the toggle below the
+  // viewer to reveal prompts / seed / sampler / etc.
+  const [showDetails, setShowDetails] = useState<boolean>(false);
 
   // Wave P: the list endpoint returns slim rows (no `workflowJson` / prompt /
   // KSampler fields). Fetch the full row on open so the metadata panel +
@@ -204,8 +208,28 @@ export default function GalleryDetailModal({
           )}
         </div>
 
-        {/* Metadata grid */}
-        <MetadataSection item={detail} />
+        {/* Generation-details disclosure: external toggle replaces the
+            in-card section header so the panel only takes pixels when the
+            user wants to inspect the metadata. */}
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowDetails(v => !v)}
+            aria-expanded={showDetails}
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer transition-colors"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            Generation details
+            {showDetails
+              ? <ChevronUp className="h-3.5 w-3.5" />
+              : <ChevronDown className="h-3.5 w-3.5" />}
+          </button>
+          {showDetails && (
+            <div className="mt-2">
+              <MetadataSection item={detail} />
+            </div>
+          )}
+        </div>
 
         {error && (
           <div className="flex items-start gap-2 rounded-md bg-destructive/10 border border-destructive/30 px-3 py-2 text-xs text-destructive">
@@ -355,22 +379,22 @@ function MetadataSection({ item }: { item: GalleryItem }): JSX.Element | null {
   const compactRows = rows.filter((r) => !r.multiline);
 
   return (
-    <div className="rounded-lg border bg-card">
-      <div className="border-b px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-        Generation details
-      </div>
+    <div className="rounded-lg border bg-card overflow-hidden">
       {wideRows.length > 0 && (
         <div className="divide-y divide-border">
           {wideRows.map((r) => (
-            <div
-              key={r.label}
-              className={
-                'px-3 py-2 text-xs text-foreground whitespace-pre-wrap break-words '
-                + (r.mono ? 'font-mono ' : '')
-              }
-              title={r.value ?? ''}
-            >
-              {r.value}
+            <div key={r.label} className="px-3 py-2">
+              <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                {r.label}
+              </div>
+              <div
+                className={
+                  'text-xs text-foreground whitespace-pre-wrap break-words '
+                  + (r.mono ? 'font-mono ' : '')
+                }
+              >
+                {r.value}
+              </div>
             </div>
           ))}
         </div>

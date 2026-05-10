@@ -7,6 +7,7 @@ import { Button } from '../ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { SidebarTrigger } from '../ui/sidebar';
 import { useTheme } from '../../context/ThemeContext';
+import ThemeSwitcher from './ThemeSwitcher';
 
 export default function TopBar() {
   const { theme, toggleTheme } = useTheme();
@@ -15,7 +16,8 @@ export default function TopBar() {
       <div className="flex items-center gap-2">
         <SidebarTrigger />
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1">
+        <ThemeSwitcher />
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

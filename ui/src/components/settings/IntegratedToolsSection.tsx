@@ -156,7 +156,7 @@ export default function IntegratedToolsSection() {
           </div>
         </div>
         {!loading && listings.length > 0 && (
-          <Badge variant="slate">
+          <Badge variant="neutral">
             <Wrench className="h-3 w-3" />
             {totalEnabled} of {listings.length} enabled
           </Badge>

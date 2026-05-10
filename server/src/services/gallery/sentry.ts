@@ -41,7 +41,10 @@ export async function onQueueStatus(activeIds: Set<string>): Promise<void> {
     if (!activeIds.has(pid)) finished.push(pid);
   }
   if (finished.length === 0) return;
-  for (const pid of finished) watched.delete(pid);
+  for (const pid of finished) {
+    watched.delete(pid);
+    clearPromptMeta(pid);
+  }
   for (const pid of finished) {
     try {
       const inserted = await appendHistoryEntry(pid);

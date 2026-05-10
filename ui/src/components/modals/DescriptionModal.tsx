@@ -110,7 +110,7 @@ export default function DescriptionModal(props: Props): JSX.Element | null {
             <h3 className="field-label mb-1.5">Tags</h3>
             <div className="flex flex-wrap gap-1.5">
               {tags.map((tag) => (
-                <Badge key={tag} variant="slate">
+                <Badge key={tag} variant="neutral">
                   {tag}
                 </Badge>
               ))}
@@ -145,7 +145,7 @@ export default function DescriptionModal(props: Props): JSX.Element | null {
             {civitaiMeta.tags && civitaiMeta.tags.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {civitaiMeta.tags.map((tag) => (
-                  <Badge key={`civ-${tag}`} variant="teal">
+                  <Badge key={`civ-${tag}`} variant="brand">
                     {tag}
                   </Badge>
                 ))}

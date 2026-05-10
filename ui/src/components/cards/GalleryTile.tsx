@@ -42,14 +42,13 @@ function formatDuration(ms: number | null | undefined): string | null {
 
 // Type badge — one visual language for every media type. Rendered bottom-
 // left on the tile; duration pill (when available) sits to its right.
-// Translucent black overlay pill used over media. We bypass the default
-// shadcn Badge background by passing an explicit `bg-*` className (cn()
-// merges later classes last).
-const OVERLAY_PILL = "bg-black/60 text-white border-transparent text-[10px] px-1.5 py-0.5";
-
+// Translucent overlay pill used over media. Uses `bg-foreground/60` +
+// `text-background` so the pill inverts cleanly with the active theme
+// (the previous `bg-black/60 text-white` was hardcoded and looked wrong
+// on light themes).
 function TypeBadge({ icon: Icon, label }: { icon: typeof Video; label: string }) {
   return (
-    <Badge variant="outline" className={OVERLAY_PILL}>
+    <Badge variant="overlay">
       <Icon className="w-3 h-3" />
       {label}
     </Badge>
@@ -60,7 +59,7 @@ function DurationBadge({ ms }: { ms: number | null | undefined }) {
   const text = formatDuration(ms);
   if (!text) return null;
   return (
-    <Badge variant="outline" className={OVERLAY_PILL}>
+    <Badge variant="overlay">
       <Clock className="w-3 h-3" />
       {text}
     </Badge>
@@ -124,11 +123,11 @@ export default function GalleryTile({
       <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
           onClick={(e) => { e.stopPropagation(); onToggleFavorite(); }}
-          className="p-1 rounded-full border border-border bg-popover/80 text-foreground hover:text-yellow-500 backdrop-blur transition-colors"
+          className="p-1 rounded-full border border-border bg-popover/80 text-foreground hover:text-warning backdrop-blur transition-colors"
           aria-label={isFav ? 'Unfavorite' : 'Favorite'}
         >
           {isFav
-            ? <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />
+            ? <Star className="w-3.5 h-3.5 fill-warning text-warning" />
             : <StarOff className="w-3.5 h-3.5" />}
         </button>
         <button
@@ -143,7 +142,7 @@ export default function GalleryTile({
       {/* Persistent favorite mark when starred (even without hover). */}
       {isFav && (
         <div className="absolute bottom-2 right-2 opacity-100 group-hover:opacity-0 transition-opacity pointer-events-none">
-          <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400 drop-shadow" />
+          <Star className="w-3.5 h-3.5 fill-warning text-warning drop-shadow" />
         </div>
       )}
     </div>
@@ -218,7 +217,7 @@ function VideoPreview({ item }: { item: GalleryItem }) {
   if (!item.url) {
     return (
       <div className="w-full h-full bg-primary flex items-center justify-center">
-        <Play className="w-8 h-8 text-white/80" fill="currentColor" />
+        <Play className="w-8 h-8 text-primary-foreground/80" fill="currentColor" />
       </div>
     );
   }
@@ -263,7 +262,7 @@ function VideoPreview({ item }: { item: GalleryItem }) {
         />
       ) : (
         <div className={`w-full h-full bg-primary flex items-center justify-center ${hover && videoLoaded ? 'opacity-0' : 'opacity-100'} transition-opacity`}>
-          <Play className="w-8 h-8 text-white/80" fill="currentColor" />
+          <Play className="w-8 h-8 text-primary-foreground/80" fill="currentColor" />
         </div>
       )}
       <video
@@ -275,9 +274,9 @@ function VideoPreview({ item }: { item: GalleryItem }) {
         preload="none"
       />
       {!hover && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/20 pointer-events-none">
-          <div className="bg-black/60 rounded-full p-2">
-            <Play className="w-5 h-5 text-white" fill="currentColor" />
+        <div className="absolute inset-0 flex items-center justify-center bg-foreground/20 pointer-events-none">
+          <div className="bg-foreground/60 rounded-full p-2">
+            <Play className="w-5 h-5 text-background" fill="currentColor" />
           </div>
         </div>
       )}

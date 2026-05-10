@@ -327,7 +327,7 @@ function ImageField({ input, value, onChange }: Props) {
         <img src={imageValue.preview} alt="Upload preview" className="w-full h-36 object-cover" />
         <button
           onClick={handleClear}
-          className="absolute top-2 right-2 p-1 bg-black/50 rounded-full text-white hover:bg-black/70 transition-colors"
+          className="absolute top-2 right-2 p-1 bg-foreground/50 rounded-full text-background hover:bg-foreground/70 transition-colors"
         >
           <X className="w-4 h-4" />
         </button>

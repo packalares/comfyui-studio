@@ -90,7 +90,7 @@ function capsForModel(
 }
 
 function CapBadge({ cap }: { cap: KnownCap }) {
-  const variant = cap === 'vision' ? 'teal' : 'secondary';
+  const variant = cap === 'vision' ? 'brand' : 'secondary';
   return <Badge variant={variant} className="text-[10px]">{cap}</Badge>;
 }
 

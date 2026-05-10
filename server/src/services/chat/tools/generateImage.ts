@@ -61,6 +61,12 @@ const inputSchema = z.object({
 const DESCRIPTION_TTL_MS = 5 * 60 * 1000;
 const descriptionCache = new Map<string, { value: string; expiresAt: number }>();
 
+function pruneExpiredDescriptions(now: number): void {
+  for (const [name, entry] of descriptionCache) {
+    if (entry.expiresAt <= now) descriptionCache.delete(name);
+  }
+}
+
 /**
  * Build the per-template tool description: base prompt-trigger string plus a
  * compact JSON summary of every overridable widget on the active template.
@@ -107,6 +113,7 @@ async function buildPerTemplateDescription(templateName: string): Promise<string
     // Fall through with the base description — better the model can call the
     // tool than refuse because of a transient enumeration failure.
   }
+  pruneExpiredDescriptions(now);
   descriptionCache.set(templateName, { value, expiresAt: now + DESCRIPTION_TTL_MS });
   return value;
 }

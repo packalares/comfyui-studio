@@ -18,6 +18,7 @@ import {
 } from '../services/comfyui';
 import { chatEvents } from '../services/chatEvents';
 import { usePersistedState } from '../hooks/usePersistedState';
+import { usePaginated } from '../hooks/usePaginated';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from './ui/card';
@@ -123,7 +124,6 @@ export default function OllamaModelsPanel() {
   );
 
   const [installed, setInstalled] = useState<OllamaInstalledModel[]>([]);
-  const [library, setLibrary] = useState<OllamaLibraryModel[]>([]);
   const [hf, setHf] = useState<HfModelSummary[]>([]);
   // Debounced mirror of `hfQuery` — matches the Models/Explore pattern so
   // search auto-fires 350ms after the last keystroke (no Search button).
@@ -134,15 +134,24 @@ export default function OllamaModelsPanel() {
   const [hfBusy, setHfBusy] = useState(false);
   const [loadingTab, setLoadingTab] = useState(false);
   const [pulls, setPulls] = useState<Record<string, PullState>>({});
-  // Server-side pagination for the library tab. `libraryPage` is 1-indexed;
-  // `libraryTotal` is the row count returned by the server for the current
-  // search filter. Page size is persisted (matches the `<Pagination>` UI's
-  // size selector — the layout component drives it).
-  const [libraryPage, setLibraryPage] = useState(1);
-  const [libraryPageSize, setLibraryPageSize] = usePersistedState<number>(
-    'models.ollama.libraryPageSize', 25,
-  );
-  const [libraryTotal, setLibraryTotal] = useState(0);
+
+  // Library-tab pagination via the shared `usePaginated` hook — gives URL
+  // sync (?page=&pageSize=) and global pageSize persistence. The fetcher
+  // short-circuits when the active tab isn't `library` so switching to
+  // `installed` / `huggingface` doesn't waste an upstream call.
+  const libraryFetcher = useCallback(async ({ page, pageSize }: { page: number; pageSize: number }) => {
+    if (tab !== 'library') return { items: [], total: 0, hasMore: false };
+    const { items, total } = await api.chat.listLibrary({
+      q: debouncedLibraryQuery || undefined,
+      page,
+      pageSize,
+    });
+    return { items, total, hasMore: page * pageSize < total };
+  }, [tab, debouncedLibraryQuery]);
+  const libraryPaged = usePaginated<OllamaLibraryModel>(libraryFetcher, {
+    deps: [tab, debouncedLibraryQuery],
+    initialPageSize: 25,
+  });
 
   const refreshInstalled = useCallback(() => {
     setLoadingTab(true);
@@ -157,62 +166,29 @@ export default function OllamaModelsPanel() {
       .finally(() => setLoadingTab(false));
   }, []);
 
-  // Read from the persisted `ollama_library` table. Cheap; no upstream call.
-  // First call after a fresh DB cold-start will trigger a server-side seed
-  // scrape transparently (~1s). The Refresh button uses `forceRefreshLibrary`
-  // below to actually re-scrape.
-  const fetchLibraryPage = useCallback((page: number, q: string, pageSize: number) => {
-    setLoadingTab(true);
-    api.chat.listLibrary({ q: q || undefined, page, pageSize })
-      .then(({ items, total }) => {
-        setLibrary(items);
-        setLibraryTotal(total);
-      })
-      .catch((err) => {
-        toast.error('Failed to load Ollama library', {
-          description: err instanceof Error ? err.message : String(err),
-        });
-        setLibrary([]);
-        setLibraryTotal(0);
-      })
-      .finally(() => setLoadingTab(false));
-  }, []);
-
   // Force-rescrape upstream (POST /refresh) then re-list page 1. Triggered
   // from the Refresh button while the Library tab is active so the user
   // has an explicit way to pick up new models without waiting on a TTL.
-  const forceRefreshLibrary = useCallback(() => {
+  const forceRefreshLibrary = useCallback(async () => {
     setLoadingTab(true);
-    api.chat.refreshLibrary()
-      .then(() => {
-        setLibraryPage(1);
-        return api.chat.listLibrary({
-          q: debouncedLibraryQuery || undefined,
-          page: 1,
-          pageSize: libraryPageSize,
-        });
-      })
-      .then(({ items, total }) => {
-        setLibrary(items);
-        setLibraryTotal(total);
-      })
-      .catch((err) => {
-        toast.error('Failed to refresh Ollama library', {
-          description: err instanceof Error ? err.message : String(err),
-        });
-      })
-      .finally(() => setLoadingTab(false));
-  }, [debouncedLibraryQuery, libraryPageSize]);
+    try {
+      await api.chat.refreshLibrary();
+      libraryPaged.setPage(1);
+      await libraryPaged.refetch();
+    } catch (err) {
+      toast.error('Failed to refresh Ollama library', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setLoadingTab(false);
+    }
+  }, [libraryPaged]);
 
   // Library cards need to know which models are already installed (the
   // "Installed" badge + pull-button gate) — load the installed list once on
   // mount so the Library tab reflects state even if the user lands there
   // before ever visiting the Installed tab.
   useEffect(() => { refreshInstalled(); }, [refreshInstalled]);
-
-  useEffect(() => {
-    if (tab === 'library') fetchLibraryPage(libraryPage, debouncedLibraryQuery, libraryPageSize);
-  }, [tab, fetchLibraryPage, libraryPage, debouncedLibraryQuery, libraryPageSize]);
 
   useEffect(() => {
     const offProgress = chatEvents.onPullProgress((p) => {
@@ -280,14 +256,10 @@ export default function OllamaModelsPanel() {
     return () => clearTimeout(t);
   }, [hfQuery]);
 
-  // Same debounce for the library search box. Resetting `libraryPage` to 1
-  // ensures we don't end up viewing page 5 of a result set that only has 2
-  // pages after the user typed a narrower query.
+  // Same debounce for the library search box. `usePaginated` resets page→1
+  // automatically when the debounced query changes (it's in `deps`).
   useEffect(() => {
-    const t = setTimeout(() => {
-      setDebouncedLibraryQuery(libraryQuery);
-      setLibraryPage(1);
-    }, 350);
+    const t = setTimeout(() => setDebouncedLibraryQuery(libraryQuery), 350);
     return () => clearTimeout(t);
   }, [libraryQuery]);
 
@@ -419,11 +391,11 @@ export default function OllamaModelsPanel() {
           <button
             type="button"
             onClick={tab === 'installed' ? refreshInstalled : tab === 'library' ? forceRefreshLibrary : handleHfRefresh}
-            disabled={loadingTab || hfBusy}
+            disabled={loadingTab || libraryPaged.loading || hfBusy}
             aria-label="Refresh"
             className="tab-strip-item text-brand hover:text-brand/90 hover:bg-brand/10 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loadingTab || hfBusy ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${loadingTab || libraryPaged.loading || hfBusy ? 'animate-spin' : ''}`} />
             Refresh
           </button>
         </div>
@@ -462,15 +434,15 @@ export default function OllamaModelsPanel() {
 
       {tab === 'library' && (
         <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
-          {loadingTab && <div className="col-span-full py-8 text-center"><Spinner size="lg" className="mx-auto text-muted-foreground" /></div>}
-          {!loadingTab && library.length === 0 && (
+          {(loadingTab || libraryPaged.loading) && <div className="col-span-full py-8 text-center"><Spinner size="lg" className="mx-auto text-muted-foreground" /></div>}
+          {!loadingTab && !libraryPaged.loading && libraryPaged.items.length === 0 && (
             <div className="col-span-full py-8 text-center text-sm text-muted-foreground">
               {debouncedLibraryQuery
                 ? `No models match "${debouncedLibraryQuery}".`
                 : "Couldn't load the Ollama library (the upstream may be unreachable)."}
             </div>
           )}
-          {library.map(m => {
+          {libraryPaged.items.map(m => {
             const selectedTag = librarySelectedTag[m.name] ?? 'latest';
             const pullRef = `${m.name}:${selectedTag}`;
             const pull = pulls[pullRef] ?? pulls[m.name];
@@ -497,14 +469,14 @@ export default function OllamaModelsPanel() {
                   {m.sizes.length > 0 && (
                     <div className="flex flex-wrap gap-1">
                       {m.sizes.map(s => (
-                        <Badge key={s} variant="slate">{s}</Badge>
+                        <Badge key={s} variant="neutral">{s}</Badge>
                       ))}
                     </div>
                   )}
                   {m.capabilities.length > 0 && (
                     <div className="flex flex-wrap gap-1">
                       {m.capabilities.map(c => (
-                        <Badge key={c} variant="teal">{c}</Badge>
+                        <Badge key={c} variant="brand">{c}</Badge>
                       ))}
                     </div>
                   )}
@@ -546,7 +518,7 @@ export default function OllamaModelsPanel() {
                         : `Pulls ${pullRef}`}
                   </p>
                   {isInstalled && !pull ? (
-                    <Badge variant="emerald">
+                    <Badge variant="success">
                       <Check className="w-3 h-3" />
                       Installed
                     </Badge>
@@ -567,17 +539,16 @@ export default function OllamaModelsPanel() {
         </div>
       )}
 
-      {/* Library pager — server-side pagination via `?page=&pageSize=`.
-          Re-uses the shared `<Pagination>` chrome (border-t / slate-50 /
-          rows-per-page selector) so the look matches Models / Downloads. */}
+      {/* Library pager — server-side pagination driven by `usePaginated`
+          (URL-synced page/pageSize, global rows-per-page persistence). */}
       {tab === 'library' && (
         <Pagination
-          page={libraryPage}
-          pageSize={libraryPageSize}
-          total={libraryTotal}
-          hasMore={libraryPage * libraryPageSize < libraryTotal}
-          onPageChange={setLibraryPage}
-          onPageSizeChange={(size) => { setLibraryPageSize(size); setLibraryPage(1); }}
+          page={libraryPaged.page}
+          pageSize={libraryPaged.pageSize}
+          total={libraryPaged.total}
+          hasMore={libraryPaged.hasMore}
+          onPageChange={libraryPaged.setPage}
+          onPageSizeChange={libraryPaged.setPageSize}
         />
       )}
 
@@ -606,7 +577,7 @@ export default function OllamaModelsPanel() {
                   {m.tags.length > 0 && (
                     <div className="flex flex-wrap gap-1">
                       {m.tags.slice(0, 6).map(t => (
-                        <Badge key={t} variant="slate">{t}</Badge>
+                        <Badge key={t} variant="neutral">{t}</Badge>
                       ))}
                     </div>
                   )}

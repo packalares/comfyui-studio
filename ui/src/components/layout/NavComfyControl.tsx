@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Wifi, WifiOff, Play, ChevronsUpDown, Square, RotateCw, FileText,
-  Trash2, AlertTriangle, CheckCircle2, X,
+  Trash2, AlertTriangle, CheckCircle2, X, ExternalLink,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/comfyui';
@@ -23,6 +23,15 @@ import { SidebarMenu, SidebarMenuItem, SidebarMenuButton } from '../ui/sidebar';
 
 type ProcessStatus = 'running' | 'stopped' | 'starting' | 'unknown';
 type WipePhase = 'confirm' | 'running' | 'done' | 'error';
+
+// Sibling-subdomain swap: studio.foo.bar → comfyuieditor.foo.bar.
+// Same helper Sidebar.tsx used before the redesign.
+function editorHref(): string {
+  const { protocol, host } = window.location;
+  const parts = host.split('.');
+  if (parts.length <= 1) return `${protocol}//comfyuieditor`;
+  return `${protocol}//comfyuieditor.${parts.slice(1).join('.')}`;
+}
 
 export default function NavComfyControl() {
   const { connected, launcherStatus, loading } = useApp();
@@ -235,6 +244,13 @@ export default function NavComfyControl() {
               <DropdownMenuLabel className="text-xs text-muted-foreground">
                 ComfyUI
               </DropdownMenuLabel>
+              <DropdownMenuItem asChild disabled={!connected}>
+                <a href={editorHref()} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="text-muted-foreground" />
+                  Open ComfyUI editor
+                </a>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleStop} disabled={actionsDisabled}>
                 <Square className="text-destructive" />
                 Stop

@@ -3,7 +3,6 @@ import AppSidebar from './AppSidebar';
 import TopBar from './TopBar';
 import { SidebarProvider, SidebarInset } from '../ui/sidebar';
 import { Toaster } from '../ui/sonner';
-import ThemeSwitcher from './ThemeSwitcher';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -21,7 +20,6 @@ export default function Layout({ children }: LayoutProps) {
         {children}
       </SidebarInset>
       <Toaster position="top-center" />
-      <ThemeSwitcher />
     </SidebarProvider>
   );
 }

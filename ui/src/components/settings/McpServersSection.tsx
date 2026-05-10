@@ -97,7 +97,7 @@ export default function McpServersSection() {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {!loading && servers.length > 0 && (
-              <Badge variant="slate">
+              <Badge variant="neutral">
                 <Network className="h-3 w-3" />
                 {connectedCount}/{servers.length} connected
               </Badge>

@@ -97,9 +97,9 @@ export default function SwitchVersionModal({ plugin, onClose, onConfirm }: Props
                   disabled={busy || isCurrent}
                 />
                 <span className="text-xs font-mono text-foreground">{v.version || v.id}</span>
-                {isCurrent && <Badge variant="slate" className="!text-[10px]">Current</Badge>}
+                {isCurrent && <Badge variant="neutral" className="!text-[10px]">Current</Badge>}
                 {v.deprecated && (
-                  <Badge variant="amber" className="!text-[10px]">
+                  <Badge variant="warning" className="!text-[10px]">
                     Deprecated
                   </Badge>
                 )}

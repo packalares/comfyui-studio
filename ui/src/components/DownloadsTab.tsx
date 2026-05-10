@@ -71,7 +71,7 @@ function extractHistory(raw: unknown): DownloadHistoryEntry[] {
 function StatusBadge({ status }: { status: DownloadStatus }) {
   if (status === 'success') {
     return (
-      <Badge variant="emerald">
+      <Badge variant="success">
         <CheckCircle2 className="h-3 w-3" />
         Success
       </Badge>
@@ -79,7 +79,7 @@ function StatusBadge({ status }: { status: DownloadStatus }) {
   }
   if (status === 'downloading') {
     return (
-      <Badge variant="teal">
+      <Badge variant="brand">
         <Spinner size="xs" />
         Downloading
       </Badge>
@@ -87,7 +87,7 @@ function StatusBadge({ status }: { status: DownloadStatus }) {
   }
   if (status === 'queued') {
     return (
-      <Badge variant="slate">
+      <Badge variant="neutral">
         <Spinner size="xs" />
         Queued
       </Badge>
@@ -95,7 +95,7 @@ function StatusBadge({ status }: { status: DownloadStatus }) {
   }
   if (status === 'failed') {
     return (
-      <Badge variant="rose">
+      <Badge variant="danger">
         <XCircle className="h-3 w-3" />
         Failed
       </Badge>
@@ -103,14 +103,14 @@ function StatusBadge({ status }: { status: DownloadStatus }) {
   }
   if (status === 'canceled') {
     return (
-      <Badge variant="slate">
+      <Badge variant="neutral">
         <Ban className="h-3 w-3" />
         Canceled
       </Badge>
     );
   }
   return (
-    <Badge variant="slate">
+    <Badge variant="neutral">
       {status || 'Unknown'}
     </Badge>
   );

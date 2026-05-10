@@ -124,7 +124,7 @@ export default function ModelDropdown({ templates, selected, onSelect }: Props) 
                       <p className="text-[11px] text-muted-foreground truncate">{getSubtitle(t)}</p>
                     </div>
                     {t.models.length > 0 && (
-                      <span className="ml-auto text-[10px] font-medium text-slate-600 bg-slate-100 dark:text-slate-300 dark:bg-slate-800 px-1.5 py-0.5 rounded shrink-0">
+                      <span className="ml-auto text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">
                         {t.models[0]}
                       </span>
                     )}

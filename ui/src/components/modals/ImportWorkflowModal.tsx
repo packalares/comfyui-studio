@@ -10,6 +10,7 @@ import { api, ApiError } from '../../services/comfyui';
 import { Checkbox } from '../ui/checkbox';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';
 import AppModal from './AppModal';
+import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Spinner } from '../ui/spinner';
 
@@ -845,13 +846,13 @@ function ReviewStep(p: ReviewStepProps): JSX.Element {
                 <span className="text-sm font-medium text-foreground truncate" title={wf.title}>
                   {wf.title}
                 </span>
-                <span className={`badge ${
-                  wf.mediaType === 'video' ? 'badge-rose' :
-                  wf.mediaType === 'audio' ? 'badge-amber' :
-                  'badge-teal'
-                }`}>
+                <Badge variant={
+                  wf.mediaType === 'video' ? 'danger' :
+                  wf.mediaType === 'audio' ? 'warning' :
+                  'brand'
+                }>
                   {wf.mediaType}
-                </span>
+                </Badge>
               </div>
               <div className="mt-1 text-[11px] text-muted-foreground flex items-center gap-3 flex-wrap">
                 <span className="inline-flex items-center gap-1">
@@ -1199,27 +1200,25 @@ function MissingModelRowView(p: MissingModelRowViewProps): JSX.Element {
           {row.fileName}
         </span>
         {row.kind.state === 'resolved' && (
-          <span className="inline-flex items-center gap-1 rounded bg-success/10 border border-success/30 px-1.5 py-0.5 text-[10px] font-medium text-success"
-            title={row.kind.downloadUrl}>
+          <Badge variant="success" title={row.kind.downloadUrl}>
             <CheckCircle2 className="w-3 h-3" />
             resolved via {row.kind.source}
             {row.kind.suggestedFolder ? ` (${row.kind.suggestedFolder})` : ''}
-          </span>
+          </Badge>
         )}
         {row.kind.state === 'auto' && (
-          <span className="inline-flex items-center gap-1 rounded bg-success/10 border border-success/30 px-1.5 py-0.5 text-[10px] font-medium text-success"
-            title={row.kind.hfRepo || row.kind.downloadUrl}>
+          <Badge variant="success" title={row.kind.hfRepo || row.kind.downloadUrl}>
             <CheckCircle2 className="w-3 h-3" />
             auto-resolved {viaLabel(row.kind.source)}
             {row.kind.source === 'hfRepo' && row.kind.hfRepo ? ` — ${row.kind.hfRepo}` : ''}
             {row.kind.suggestedFolder ? ` (${row.kind.suggestedFolder})` : ''}
-          </span>
+          </Badge>
         )}
         {row.kind.state === 'unresolved' && (
-          <span className="inline-flex items-center gap-1 rounded bg-destructive/10 border border-destructive/30 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+          <Badge variant="danger">
             <AlertCircle className="w-3 h-3" />
             Unresolved — paste URL below
-          </span>
+          </Badge>
         )}
       </div>
       {row.kind.state === 'unresolved' && (

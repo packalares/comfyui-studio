@@ -272,6 +272,6 @@ let scheduled = false;
 export function scheduleSweeps(): void {
   if (scheduled) return;
   scheduled = true;
-  setTimeout(() => { void runSweep(); }, 30_000);
-  setInterval(() => { void runSweep(); }, 6 * 60 * 60 * 1000);
+  setTimeout(() => { void runSweep(); }, 30_000).unref();
+  setInterval(() => { void runSweep(); }, 6 * 60 * 60 * 1000).unref();
 }

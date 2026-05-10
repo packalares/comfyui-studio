@@ -123,10 +123,10 @@ export default function ModelInfoModal({ open, onClose, source }: Props): JSX.El
             <h3 className="field-label mb-1.5">Version</h3>
             <div className="flex flex-wrap gap-1.5">
               {primaryVersion?.baseModel && (
-                <Badge variant="slate">{primaryVersion.baseModel}</Badge>
+                <Badge variant="neutral">{primaryVersion.baseModel}</Badge>
               )}
               {fileFormat && (
-                <Badge variant="slate">.{fileFormat}</Badge>
+                <Badge variant="neutral">.{fileFormat}</Badge>
               )}
               {sizeBytes !== null && (
                 <StatPill icon={HardDrive} label="size" value={formatBytes(sizeBytes)} />
@@ -156,7 +156,7 @@ export default function ModelInfoModal({ open, onClose, source }: Props): JSX.El
             <h3 className="field-label mb-1.5">Tags</h3>
             <div className="flex flex-wrap gap-1.5">
               {tags.map((tag) => (
-                <Badge key={tag} variant="slate">
+                <Badge key={tag} variant="neutral">
                   {tag}
                 </Badge>
               ))}

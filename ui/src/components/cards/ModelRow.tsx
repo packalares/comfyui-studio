@@ -95,7 +95,7 @@ function CatalogRow({
         </p>
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
           {showTypeBadge && model.type && (
-            <Badge variant="slate">{model.type}</Badge>
+            <Badge variant="neutral">{model.type}</Badge>
           )}
           {model.fileSize ? (
             <span className="text-[11px] text-muted-foreground">{formatBytes(model.fileSize)}</span>
@@ -103,21 +103,21 @@ function CatalogRow({
             <span className="text-[11px] text-muted-foreground">{model.size_pretty || formatBytes(model.size_bytes)}</span>
           ) : null}
           {isDownloading ? (
-            <Badge variant="teal">
+            <Badge variant="brand">
               <Spinner size="xs" /> Downloading
             </Badge>
           ) : model.installed && model.fileStatus !== 'corrupt' && model.fileStatus !== 'incomplete' ? (
-            <Badge variant="emerald">Installed</Badge>
+            <Badge variant="success">Installed</Badge>
           ) : model.fileStatus === 'corrupt' ? (
             <Badge
-              variant="rose"
+              variant="danger"
               title={`On disk: ${formatBytes(model.fileSize || 0)} — expected ${model.size_pretty || formatBytes(model.size_bytes)}`}
             >
               <AlertTriangle className="w-3 h-3" /> Corrupt
             </Badge>
           ) : model.fileStatus === 'incomplete' ? (
             <Badge
-              variant="amber"
+              variant="warning"
               title={`On disk: ${formatBytes(model.fileSize || 0)} — expected ${model.size_pretty || formatBytes(model.size_bytes)}`}
             >
               <AlertTriangle className="w-3 h-3" /> Incomplete
@@ -127,14 +127,14 @@ function CatalogRow({
           )}
           {model.gated && (
             <Badge
-              variant="slate"
+              variant="neutral"
               title={model.gated_message || 'Requires HuggingFace token'}
             >
               <Lock className="w-3 h-3" /> Gated
             </Badge>
           )}
           {isRequired && selectedWorkflow && (
-            <Badge variant="amber">Required</Badge>
+            <Badge variant="warning">Required</Badge>
           )}
         </div>
         {model.error && !isDownloading && !model.installed && (
@@ -145,7 +145,7 @@ function CatalogRow({
       </div>
       <div className="shrink-0 flex items-center gap-2">
         {download && download.status === 'queued' ? (
-          <Badge variant="slate">
+          <Badge variant="neutral">
             <Spinner size="xs" /> Queued
           </Badge>
         ) : download ? (
@@ -271,7 +271,7 @@ function CivitaiRow({
         </p>
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
           {showTypeBadge && civ.item.type && (
-            <Badge variant="slate">{civ.item.type}</Badge>
+            <Badge variant="neutral">{civ.item.type}</Badge>
           )}
           {civ.sizeBytes && (
             <span className="text-[11px] text-muted-foreground">{formatBytes(civ.sizeBytes)}</span>
@@ -281,9 +281,9 @@ function CivitaiRow({
             <span className="text-[11px] text-muted-foreground">{downloads.toLocaleString()} dl</span>
           )}
           {primaryVersion?.baseModel && (
-            <Badge variant="slate" className="!text-[10px]">{primaryVersion.baseModel}</Badge>
+            <Badge variant="neutral" className="!text-[10px]">{primaryVersion.baseModel}</Badge>
           )}
-          <Badge variant="teal">CivitAI</Badge>
+          <Badge variant="brand">CivitAI</Badge>
         </div>
         {civ.error && (
           <p className="text-[11px] text-destructive mt-1" title={civ.error}>

@@ -343,19 +343,19 @@ export default function DependencyModal({
                         {p.classType}
                       </span>
                       {status === 'installed' && (
-                        <Badge variant="emerald">
+                        <Badge variant="success">
                           <CheckCircle2 className="w-3 h-3" />
                           installed
                         </Badge>
                       )}
                       {status === 'queued' && (
-                        <Badge variant="amber">
+                        <Badge variant="warning">
                           <Spinner size="xs" />
                           installing
                         </Badge>
                       )}
                       {status === 'error' && (
-                        <Badge variant="rose">
+                        <Badge variant="danger">
                           <AlertCircle className="w-3 h-3" />
                           error
                         </Badge>
@@ -426,19 +426,19 @@ export default function DependencyModal({
                       {model.name}
                     </span>
                     {model.gated && (
-                      <Badge variant="amber" title={model.gated_message || ''}>
+                      <Badge variant="warning" title={model.gated_message || ''}>
                         <Lock className="w-3 h-3" />
                         gated
                       </Badge>
                     )}
                     {dl?.status === 'completed' && (
-                      <Badge variant="emerald">
+                      <Badge variant="success">
                         <CheckCircle2 className="w-3 h-3" />
                         installed
                       </Badge>
                     )}
                     {dl?.status === 'error' && (
-                      <Badge variant="rose">
+                      <Badge variant="danger">
                         <AlertCircle className="w-3 h-3" />
                         error
                       </Badge>

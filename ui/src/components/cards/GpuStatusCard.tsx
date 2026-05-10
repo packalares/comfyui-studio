@@ -33,7 +33,7 @@ function clampPct(pct: number): number {
 function vramTone(pct: number): string {
   // Green under 70 %, amber 70–90, red above. Tracks the same thresholds
   // the dashboard's old GPU card used so the visual cue is consistent.
-  if (pct > 90) return 'bg-red-500';
+  if (pct > 90) return 'bg-destructive';
   if (pct > 70) return 'bg-warning';
   return 'bg-brand';
 }

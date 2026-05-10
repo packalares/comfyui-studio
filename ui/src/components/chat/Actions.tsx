@@ -20,6 +20,7 @@ import { toast } from 'sonner';
 import { Button } from '../ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import ConfirmDialog from '../modals/ConfirmDialog';
+import { useTransientFlag } from '../../hooks/useTransientFlag';
 
 interface Props {
   text: string;
@@ -38,7 +39,7 @@ const FLOATING_BTN_DANGER =
   'inline-flex h-7 w-7 items-center justify-center rounded-md border bg-card/60 backdrop-blur-sm text-muted-foreground shadow-sm hover:bg-destructive/15 hover:text-destructive cursor-pointer transition-colors';
 
 export default function Actions({ text, onRegenerate, onDelete, variant = 'row' }: Props) {
-  const [copied, setCopied] = useState(false);
+  const [copied, markCopied] = useTransientFlag(1500);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const onCopy = async () => {
@@ -48,8 +49,7 @@ export default function Actions({ text, onRegenerate, onDelete, variant = 'row' 
     }
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
+      markCopied();
     } catch (err) {
       toast.error('Copy failed', {
         description: err instanceof Error ? err.message : String(err),

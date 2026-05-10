@@ -69,6 +69,12 @@ interface CacheEntry {
 const memo = new Map<string, CacheEntry>();
 const MEMO_TTL_MS = 5_000;
 
+function pruneExpiredMemo(now: number): void {
+  for (const [name, entry] of memo) {
+    if (entry.expiresAt <= now) memo.delete(name);
+  }
+}
+
 /**
  * Test-only helper to drop the in-memory memoization. Production code never
  * calls this — the TTL takes care of expiry on its own.
@@ -122,6 +128,7 @@ export async function checkTemplateDependencies(
   const cached = memo.get(templateName);
   if (cached && cached.expiresAt > now) return cached.result;
   const result = await computeTemplateDependencies(templateName);
+  pruneExpiredMemo(now);
   memo.set(templateName, { result, expiresAt: now + MEMO_TTL_MS });
   return result;
 }

@@ -27,19 +27,19 @@ interface Props {
 
 function statusBadge(p: Plugin) {
   if (!p.installed) {
-    return <Badge variant="slate">Not installed</Badge>;
+    return <Badge variant="neutral">Not installed</Badge>;
   }
   if (p.disabled) {
-    return <Badge variant="amber">Disabled</Badge>;
+    return <Badge variant="warning">Disabled</Badge>;
   }
   if (p.status === 'NodeStatusBanned' || p.status === 'NodeStatusDeprecated') {
     return (
-      <Badge variant="rose">
+      <Badge variant="danger">
         {p.status.replace('NodeStatus', '').toLowerCase()}
       </Badge>
     );
   }
-  return <Badge variant="emerald">Installed</Badge>;
+  return <Badge variant="success">Installed</Badge>;
 }
 
 function PluginRowInner({
@@ -188,7 +188,7 @@ function PluginRowInner({
           {plugin.tags && plugin.tags.length > 0 && (
             <div className="flex items-center gap-1 flex-wrap">
               {plugin.tags.map((t) => (
-                <Badge key={t} variant="slate" className="!text-[10px]">
+                <Badge key={t} variant="neutral" className="!text-[10px]">
                   {t}
                 </Badge>
               ))}

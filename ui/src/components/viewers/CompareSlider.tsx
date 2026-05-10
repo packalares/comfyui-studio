@@ -73,7 +73,7 @@ export default function CompareSlider({ beforeSrc, afterSrc, beforeLabel = 'Inpu
 
       {/* Divider line */}
       <div
-        className="absolute top-0 bottom-0 w-0.5 bg-white shadow-lg"
+        className="absolute top-0 bottom-0 w-0.5 bg-background shadow-lg"
         style={{ left: `${position}%`, transform: 'translateX(-50%)' }}
       >
         {/* Handle */}
@@ -84,10 +84,10 @@ export default function CompareSlider({ beforeSrc, afterSrc, beforeLabel = 'Inpu
       </div>
 
       {/* Labels */}
-      <div className="absolute top-3 left-3 px-2 py-1 bg-black/50 rounded text-xs text-white font-medium pointer-events-none">
+      <div className="absolute top-3 left-3 px-2 py-1 bg-foreground/50 rounded text-xs text-background font-medium pointer-events-none">
         {beforeLabel}
       </div>
-      <div className="absolute top-3 right-3 px-2 py-1 bg-black/50 rounded text-xs text-white font-medium pointer-events-none">
+      <div className="absolute top-3 right-3 px-2 py-1 bg-foreground/50 rounded text-xs text-background font-medium pointer-events-none">
         {afterLabel}
       </div>
     </div>

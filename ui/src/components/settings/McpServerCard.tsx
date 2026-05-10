@@ -20,14 +20,14 @@ interface Props {
 function StatusPill({ status }: { status?: McpServerConfig['status'] }) {
   if (!status) {
     return (
-      <Badge variant="slate" className="text-[10px]">
+      <Badge variant="neutral" className="text-[10px]">
         Unknown
       </Badge>
     );
   }
   if (status.state === 'connected') {
     return (
-      <Badge variant="emerald" className="text-[10px]">
+      <Badge variant="success" className="text-[10px]">
         Connected{status.toolCount != null ? ` · ${status.toolCount} tools` : ''}
       </Badge>
     );
@@ -36,7 +36,7 @@ function StatusPill({ status }: { status?: McpServerConfig['status'] }) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <Badge variant="rose" className="cursor-help text-[10px]">
+          <Badge variant="danger" className="cursor-help text-[10px]">
             Error
           </Badge>
         </TooltipTrigger>
@@ -47,7 +47,7 @@ function StatusPill({ status }: { status?: McpServerConfig['status'] }) {
     );
   }
   return (
-    <Badge variant="slate" className="text-[10px]">
+    <Badge variant="neutral" className="text-[10px]">
       Disconnected
     </Badge>
   );
@@ -93,11 +93,11 @@ export default function McpServerCard({ server, onEdit, onDelete, onStatusChange
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium text-foreground truncate">{server.name}</span>
-          <Badge variant="slate" className="text-[10px]">
+          <Badge variant="neutral" className="text-[10px]">
             {server.transport}
           </Badge>
           {!server.enabled && (
-            <Badge variant="amber" className="text-[10px]">
+            <Badge variant="warning" className="text-[10px]">
               Disabled
             </Badge>
           )}
