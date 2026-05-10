@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDownloadUrl, getAllDownloadUrls, validateHfUrl, buildResolveUrl,
   inferModelType, getModelSaveDir,
-} from '../../src/services/models/download.service.js';
+} from '../../src/services/models/downloadUrl.js';
 
 describe('buildDownloadUrl', () => {
   it('prefers hf when source = hf', () => {

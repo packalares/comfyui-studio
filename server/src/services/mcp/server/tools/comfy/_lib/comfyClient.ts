@@ -2,7 +2,7 @@
 // Wraps Studio's existing `fetchComfyUI` / `getComfyUIUrl()` from
 // `services/comfyui.ts` so MCP tools never import env vars directly.
 
-import { fetchComfyUI, getComfyUIUrl, ComfyUIHttpError } from '../../../../../comfyui.js';
+import { fetchComfyUI, getComfyUIUrl, ComfyUIHttpError } from '../../../../../comfyui/api.js';
 import { logger } from '../../../../../../lib/logger.js';
 
 export { ComfyUIHttpError };

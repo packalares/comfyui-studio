@@ -17,8 +17,8 @@
 // permanent failure (404 / network error) so we don't retry.
 
 import { logger } from '../../lib/logger.js';
-import { resolveHuggingfaceUrl, type ResolvedModel } from '../models/resolveHuggingface.js';
-import { resolveCivitaiUrl } from '../models/resolveCivitai.js';
+import { resolveHuggingfaceUrl, type ResolvedModel } from '../models/resolvers.js';
+import { resolveCivitaiUrl } from '../models/resolvers.js';
 
 const REQUEST_TIMEOUT_MS = 4000;
 

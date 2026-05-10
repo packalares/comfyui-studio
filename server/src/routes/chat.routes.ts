@@ -9,9 +9,9 @@ import { Router, type Request, type Response } from 'express';
 import type { UIMessage } from 'ai';
 import * as chatRepo from '../lib/db/chat.repo.js';
 import * as chatContextRepo from '../lib/db/chat.context.repo.js';
-import * as settings from '../services/settings.js';
+import * as settings from '../services/settings/index.js';
 import { startStream, abortStream } from '../services/chat/streamChat.js';
-import { resolveSystemPrompt } from '../services/chat/personality/index.js';
+import { resolveSystemPrompt } from '../services/chat/personality.js';
 import { computeUsage } from '../services/chat/contextWindow.js';
 import { compactConversation } from '../services/chat/contextCompact.js';
 import {
@@ -197,10 +197,31 @@ router.get('/chat/conversations/:id/messages', (req: Request, res: Response) => 
   const id = paramStr(req.params.id);
   const conv = chatRepo.getConversation(id);
   if (!conv) { res.status(404).json({ error: 'not found' }); return; }
-  const messages = chatRepo.listMessages(id);
-  // Single batch lookup of attachments for every message in the conversation,
-  // then per-message hydration. Cheaper than N+1 even for chats that don't
-  // carry attachments at all (the IN-clause query short-circuits to no rows).
+
+  // Parse + validate query params.
+  const limitRaw = req.query.limit !== undefined
+    ? Number.parseInt(String(req.query.limit), 10)
+    : 50;
+  if (!Number.isFinite(limitRaw) || limitRaw < 1 || limitRaw > 200) {
+    res.status(400).json({ error: 'limit must be an integer between 1 and 200' });
+    return;
+  }
+  const before = req.query.before !== undefined ? String(req.query.before) : undefined;
+  // Reject obviously malformed cursors (empty string, whitespace-only) early
+  // so the repo never executes a query with a blank id.
+  if (before !== undefined && before.trim() === '') {
+    res.status(400).json({ error: 'before must be a non-empty message id' });
+    return;
+  }
+
+  const { items: messages, hasMore, oldestId } = chatRepo.listMessagesPage(id, {
+    limit: limitRaw,
+    before,
+  });
+
+  // Batch lookup of attachments scoped to only this page's message ids —
+  // that is the point of paginating: avoid loading the entire conversation's
+  // attachment metadata when only a page of messages is requested.
   const byMsg = chatRepo.listAttachmentsForMessages(messages.map(m => m.id));
   const rows = messages.map((m) => {
     let parts: unknown = [];
@@ -223,7 +244,7 @@ router.get('/chat/conversations/:id/messages', (req: Request, res: Response) => 
       created_at: m.created_at,
     };
   });
-  res.json({ items: rows });
+  res.json({ items: rows, hasMore, oldestId });
 });
 
 // Bulk-delete: wipes every conversation and all cascaded messages.

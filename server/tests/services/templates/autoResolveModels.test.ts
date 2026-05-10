@@ -12,8 +12,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StagedWorkflowEntry } from '../../../src/services/templates/importStaging.js';
 import { autoResolveWorkflowModels } from '../../../src/services/templates/autoResolveModels.js';
-import * as catalog from '../../../src/services/catalog.js';
-import * as catalogStore from '../../../src/services/catalogStore.js';
+import * as catalog from '../../../src/services/catalog/index.js';
+import * as catalogStore from '../../../src/services/catalog/store.js';
 
 function makeWf(
   models: string[], modelUrls: string[] = [],

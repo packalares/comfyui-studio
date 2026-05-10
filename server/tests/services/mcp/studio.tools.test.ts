@@ -26,7 +26,7 @@ vi.mock('../../../src/services/templates/submitTemplate.js', () => ({
   submitTemplate: vi.fn(),
 }));
 
-vi.mock('../../../src/services/comfyui.js', () => ({
+vi.mock('../../../src/services/comfyui/api.js', () => ({
   getQueuePromptIds: vi.fn(),
   getHistoryForPrompt: vi.fn(),
 }));
@@ -42,7 +42,7 @@ import { createStudioMcpServer } from '../../../src/services/mcp/server/index.js
 import * as tmpl from '../../../src/services/templates/index.js';
 import * as depCheck from '../../../src/services/templates/dependencyCheck.js';
 import * as submitMod from '../../../src/services/templates/submitTemplate.js';
-import * as comfyui from '../../../src/services/comfyui.js';
+import * as comfyui from '../../../src/services/comfyui/api.js';
 import * as galleryRepo from '../../../src/lib/db/gallery.repo.js';
 import type { TemplateData } from '../../../src/services/templates/types.js';
 

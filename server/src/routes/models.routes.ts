@@ -1,47 +1,124 @@
-// Model management routes. Backed by local services (ported from launcher's
-// models + download + essential-models controllers).
-//
-// NOTE on /models/download-custom (unified downloader):
-//   The `hfUrl` request-body field is historical; it now accepts both
-//   huggingface.co / hf-mirror.com URLs and civitai.com URLs of the form
-//   `https://civitai.com/api/download/models/:versionId`. The handler routes
-//   each to the correct auth header (HF vs CivitAI bearer token).
-//   CivitAI downloads MUST include an explicit `filename` body field — the
-//   civitai URL itself does not encode the filename (it arrives via
-//   Content-Disposition on the 302 redirect).
+// Model management routes: scan, delete, cancel, install, download-custom,
+// download-hf-repo, download-history, folders.
 
 import { Router, type Request, type Response, type RequestHandler } from 'express';
-import * as models from '../services/models/models.service.js';
-import { NoDownloadSourceError } from '../services/models/download.service.js';
+import * as models from '../services/models/service.js';
+import { NoDownloadSourceError } from '../services/models/downloadUrl.js';
 import * as modelIndex from '../services/models/modelIndex.js';
-import { refreshModelListFromUpstream } from '../services/models/modelListCache.js';
-import { invalidateModelListMemo } from '../services/models/info.service.js';
+import { refreshModelListFromUpstream, invalidateModelListMemo } from '../services/models/info.js';
 import { logger } from '../lib/logger.js';
-import { handleDownloadHfRepo } from './models.downloadHfRepo.js';
-import { toWireEntry } from '../services/models/models.wire.js';
-import * as settings from '../services/settings.js';
+import { toWireEntry } from '../services/models/service.js';
+import * as settings from '../services/settings/index.js';
 import {
   enqueueDownload, findByIdentity, findQueuedByIdentity, isAtCapacity,
   stopTracking, trackDownload,
-} from '../services/downloads.js';
+} from '../services/downloads/index.js';
 import {
   listHistory, clearHistory, deleteHistoryItem,
-} from '../services/downloadController/downloadHistory.js';
+} from '../services/downloads/history.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { sendError } from '../middleware/errors.js';
-import { handleFolders } from './models.folders.js';
 import {
   validateAllowedUrl, urlEncodesFilename,
-} from '../services/models/downloadAllowlist.js';
+} from '../services/models/downloadUrl.js';
 import { parsePageQuery, paginate } from '../lib/pagination.js';
-import { prepopulateCatalog, type DownloadCustomMeta } from './models.prepopulate.js';
-import { markDownloadFailed } from '../services/catalog.js';
+import { markDownloadFailed } from '../services/catalog/index.js';
+import * as catalog from '../services/catalog/index.js';
+import { formatBytes } from '../lib/format.js';
+import { env } from '../config/env.js';
 
 const router = Router();
 
-// 30 req/min per IP. download-custom triggers upstream HTTP fetches, so the
-// budget is tighter than /generate.
+// 30 req/min per IP — download-custom triggers upstream HTTP fetches.
 const downloadCustomLimiter = rateLimit({ windowMs: 60_000, max: 30 });
+
+// ---- /models/folders ----
+
+const FOLDERS_CACHE_TTL_MS = 60_000;
+let foldersCache: { value: string[]; expiresAt: number } | null = null;
+
+export function clearFoldersCache(): void {
+  foldersCache = null;
+}
+
+const handleFolders: RequestHandler = async (_req, res) => {
+  const now = Date.now();
+  if (foldersCache && foldersCache.expiresAt > now) {
+    res.json(foldersCache.value);
+    return;
+  }
+  try {
+    const upstream = await fetch(`${env.COMFYUI_URL}/experiment/models`);
+    if (!upstream.ok) throw new Error(`upstream status ${upstream.status}`);
+    const raw = await upstream.json() as Array<{ name?: unknown }> | unknown;
+    const list = Array.isArray(raw) ? raw : [];
+    const names = list
+      .map((row) => (row && typeof row === 'object' ? (row as { name?: unknown }).name : null))
+      .filter((n): n is string => typeof n === 'string' && n.length > 0)
+      .sort((a, b) => a.localeCompare(b));
+    foldersCache = { value: names, expiresAt: now + FOLDERS_CACHE_TTL_MS };
+    res.json(names);
+  } catch (err) {
+    logger.warn('models folders fetch failed', {
+      message: err instanceof Error ? err.message : String(err),
+    });
+    res.json([]);
+  }
+};
+
+// ---- download-custom helpers ----
+
+/**
+ * Optional metadata a client supplies at download start. Pre-populating the
+ * catalog lets the Models page show a rich row + "Downloading…" badge
+ * immediately instead of waiting for the disk scan.
+ */
+export interface DownloadCustomMeta {
+  type?: string;
+  description?: string;
+  reference?: string;
+  size_bytes?: number;
+  thumbnail?: string;
+  gated?: boolean;
+  source?: string;
+}
+
+/**
+ * Additive catalog pre-populate — existing `name`/`url`/etc. is preserved;
+ * only new fields (thumbnail, downloading flag, error clear, size hint) are
+ * merged in. Never throws — pre-populate is best-effort.
+ */
+function prepopulateCatalog(
+  filename: string,
+  modelDir: string,
+  hfUrl: string,
+  meta: DownloadCustomMeta | undefined,
+  modelName: string | undefined,
+): void {
+  if (!filename) return;
+  try {
+    catalog.upsertModel({
+      filename,
+      name: modelName || filename,
+      type: meta?.type || 'other',
+      save_path: modelDir,
+      url: hfUrl,
+      description: meta?.description,
+      reference: meta?.reference,
+      thumbnail: meta?.thumbnail,
+      gated: meta?.gated,
+      size_bytes: meta?.size_bytes,
+      size_pretty: meta?.size_bytes ? formatBytes(meta.size_bytes) : '',
+      size_fetched_at: meta?.size_bytes ? new Date().toISOString() : null,
+      source: meta?.source || 'user',
+      downloading: true,
+      // explicit undefined clears a prior error on retry
+      error: undefined,
+    });
+  } catch {
+    // best-effort; never block the download path
+  }
+}
 
 // ---- Handlers ----
 
@@ -92,16 +169,8 @@ const handleInstall: RequestHandler = async (req, res) => {
 
 const handleHistory: RequestHandler = async (req, res) => {
   try {
-    // listHistory returns rows in raw insertion order (oldest pushed
-    // first). Without this sort the paginator gives back page 1 = oldest
-    // 25, and any in-progress / newly added download lives on the last
-    // page — invisible to the user who's watching the list. Sort by
-    // `endTime ?? startTime` descending so newest is always page 1;
-    // matches the client-side per-page sort in `DownloadsTab.tsx:175`
-    // so the two layers agree on order.
-    // Strip `savePath` before sending: it carries an absolute filesystem path
-    // (`/root/ComfyUI/models/loras/foo.safetensors`) the client doesn't need
-    // and shouldn't see. The internal store keeps it for lookups.
+    // Sort newest-first so page 1 always shows active/recent downloads.
+    // Strip `savePath` — absolute filesystem path the client doesn't need.
     const history = [...listHistory()]
       .map(({ savePath: _drop, ...rest }) => rest)
       .sort((a, b) => (b.endTime ?? b.startTime ?? 0) - (a.endTime ?? a.startTime ?? 0));
@@ -140,10 +209,7 @@ const handleDownloadCustom: RequestHandler = async (req: Request, res: Response)
       if (!v.ok) { res.status(400).json({ error: v.error }); return; }
     }
     // Resolve filename. HF/GitHub URLs encode it in the last path segment;
-    // civitai `/api/download/models/:versionId` does NOT — caller must
-    // supply it explicitly. The walker re-derives this from the dispatch
-    // result; here we only need a best-guess for the dedup key + catalog
-    // pre-populate.
+    // civitai `/api/download/models/:versionId` does NOT — caller must supply it.
     let resolvedFilename = filename;
     if (!resolvedFilename && hfUrl && urlEncodesFilename(hfUrl)) {
       resolvedFilename = hfUrl.split('/').pop();
@@ -154,8 +220,7 @@ const handleDownloadCustom: RequestHandler = async (req: Request, res: Response)
     const queued = findQueuedByIdentity(id);
     if (queued) { res.json({ success: true, taskId: queued.synthId, queued: true }); return; }
     if (isAtCapacity() && hfUrl && modelDir) {
-      // Even when queued, populate the catalog row so the UI shows the
-      // pending entry instead of nothing.
+      // Pre-populate even when queued so the UI shows the pending entry.
       if (resolvedFilename) prepopulateCatalog(resolvedFilename, modelDir, hfUrl, meta, modelName);
       const synthId = enqueueDownload({ hfUrl, modelDir, ...id });
       res.json({ success: true, taskId: synthId, queued: true });
@@ -169,11 +234,9 @@ const handleDownloadCustom: RequestHandler = async (req: Request, res: Response)
       githubToken: githubToken || settings.getGithubToken(),
     };
     // Prepopulate FIRST so the catalog row exists before the async download
-    // can fire `model:installed`. Tiny files (a few MB over fast networks)
-    // can finish in &lt;100ms and the legacy "populate after" order leaked rows
-    // stuck at `downloading: true` because the completion event hit a missing
-    // row and silently no-op'd. On sync validation failure below, we roll
-    // back via `markDownloadFailed`.
+    // fires `model:installed`. Tiny files can finish in <100ms; pre-populate
+    // prevents a stuck `downloading:true` row when the completion event hits
+    // a missing row and silently no-ops.
     if (resolvedFilename) prepopulateCatalog(resolvedFilename, modelDir, hfUrl, meta, modelName);
     try {
       const out = await models.downloadCustom(hfUrl, modelDir, tokens, resolvedFilename);
@@ -189,8 +252,6 @@ const handleDownloadCustom: RequestHandler = async (req: Request, res: Response)
   } catch (err) { sendError(res, err, 500, 'Download failed'); }
 };
 
-// ---- Mount canonical + legacy aliases ----
-
 const handleRescan: RequestHandler = async (_req, res) => {
   try {
     const refresh = await refreshModelListFromUpstream();
@@ -204,6 +265,30 @@ const handleRescan: RequestHandler = async (_req, res) => {
     res.json({ ...result, modelListRefreshed: refresh.ok });
   } catch (err) { sendError(res, err, 500, 'Rescan failed'); }
 };
+
+const handleDownloadHfRepo: RequestHandler = async (req: Request, res: Response) => {
+  try {
+    const { hfRepo, directory, name, hfToken } = (req.body || {}) as {
+      hfRepo?: string; directory?: string; name?: string; hfToken?: string;
+    };
+    if (!hfRepo || !/^[A-Za-z0-9_.\-]+\/[A-Za-z0-9_.\-]+$/.test(hfRepo)) {
+      res.status(400).json({ error: 'hfRepo required (format "owner/repo")' });
+      return;
+    }
+    if (!directory || directory.includes('..') || directory.startsWith('/')) {
+      res.status(400).json({ error: 'directory required; must be relative without ".."' });
+      return;
+    }
+    const out = await models.downloadHfRepo(
+      hfRepo, directory, name || hfRepo,
+      { hfToken: hfToken || settings.getHfToken() },
+    );
+    trackDownload(out.taskId, { modelName: out.modelName, filename: out.modelName });
+    res.json({ success: true, taskId: out.taskId, modelName: out.modelName });
+  } catch (err) { sendError(res, err, 500, 'HF repo download failed'); }
+};
+
+// ---- Routes ----
 
 router.get('/models/folders', handleFolders);
 router.post('/models/rescan', handleRescan);

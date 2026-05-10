@@ -12,11 +12,11 @@
 // Cached per model with a 1h TTL — the value is set at load time and only
 // changes when the user re-pulls / re-imports a model file.
 
-import * as settings from '../settings.js';
+import * as settings from '../settings/index.js';
 import * as repo from '../../lib/db/chat.repo.js';
 import { getStrategy, lastAssistantMessage } from '../../lib/db/chat.context.repo.js';
-import { getLoadedContextLength } from './ollamaPs.js';
-import { resolveSystemPrompt } from './personality/index.js';
+import { getLoadedContextLength } from './ollama.js';
+import { resolveSystemPrompt } from './personality.js';
 
 export interface ContextWindowInfo {
   /** Total budget for the model. Ollama refers to this as `num_ctx`. */

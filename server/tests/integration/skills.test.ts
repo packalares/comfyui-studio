@@ -211,7 +211,7 @@ describe('resolveSystemPrompt skills section', () => {
   afterEach(() => { fixture.cleanup(); });
 
   it('appends skills index when skills are available', async () => {
-    const { resolveSystemPrompt } = await import('../../src/services/chat/personality/index.js');
+    const { resolveSystemPrompt } = await import('../../src/services/chat/personality.js');
     const prompt = resolveSystemPrompt(null);
     expect(prompt).toContain('Skills available');
     expect(prompt).toContain('flux-prompting');
@@ -228,7 +228,7 @@ describe('resolveSystemPrompt skills section', () => {
     // appears. The "omit when empty" behaviour is tested indirectly by confirming the
     // section is present with the real seeds.
     try {
-      const { resolveSystemPrompt } = await import('../../src/services/chat/personality/index.js');
+      const { resolveSystemPrompt } = await import('../../src/services/chat/personality.js');
       const prompt = resolveSystemPrompt(null);
       // With bundled seeds present, the section must appear.
       expect(prompt).toContain('# Skills available');
@@ -247,21 +247,21 @@ describe('runSkillScript', () => {
   afterEach(() => { fixture.cleanup(); });
 
   it('rejects invalid skill name', async () => {
-    const { runSkillScript } = await import('../../src/services/chat/skills/scriptRunner.js');
+    const { runSkillScript } = await import('../../src/services/chat/skills.js');
     await expect(
       runSkillScript({ skillName: 'INVALID NAME', scriptName: 'run.py' }),
     ).rejects.toThrow('Invalid skill name');
   });
 
   it('rejects invalid script name', async () => {
-    const { runSkillScript } = await import('../../src/services/chat/skills/scriptRunner.js');
+    const { runSkillScript } = await import('../../src/services/chat/skills.js');
     await expect(
       runSkillScript({ skillName: 'flux-prompting', scriptName: '../escape.py' }),
     ).rejects.toThrow('Invalid script name');
   });
 
   it('throws when script is not found', async () => {
-    const { runSkillScript } = await import('../../src/services/chat/skills/scriptRunner.js');
+    const { runSkillScript } = await import('../../src/services/chat/skills.js');
     // flux-prompting has no scripts dir, so this should throw "Script not found".
     await expect(
       runSkillScript({ skillName: 'flux-prompting', scriptName: 'run.py' }),
@@ -276,7 +276,7 @@ describe('runSkillScript', () => {
     writeFileSync(join(skillDir, 'SKILL.md'), '---\nname: test-skill\ndescription: Test.\n---\nTest.\n');
     writeFileSync(join(scriptsDir, 'echo.sh'), '#!/bin/bash\necho hello\n', { mode: 0o755 });
 
-    const { runSkillScript } = await import('../../src/services/chat/skills/scriptRunner.js');
+    const { runSkillScript } = await import('../../src/services/chat/skills.js');
     const result = await runSkillScript({ skillName: 'test-skill', scriptName: 'echo.sh' });
     expect(result.exitCode).toBe(0);
     expect(result.stdout.trim()).toBe('hello');

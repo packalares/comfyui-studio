@@ -1,0 +1,28 @@
+// Public re-exports from the catalog/ folder.
+
+export type { CatalogModel, MergedModel, FileStatus } from './service.js';
+export {
+  seedFromComfyUI,
+  markInstalled,
+  markDownloadFailed,
+  getAllModels,
+  getModel,
+  upsertModel,
+  isSizeStale,
+  refreshSize,
+  getMergedModels,
+  refreshMany,
+  wireCatalogEventHandlers,
+  rewireForTests,
+} from './service.js';
+
+export { load, persist, persistCurrent } from './store.js';
+
+export {
+  detectUrlHost,
+  sortUrlSources,
+  mergeUrlSources,
+  urlSourceFor,
+  declaredByFor,
+  mergeIntoExisting,
+} from './urlSources.js';

@@ -5,7 +5,7 @@
 // unrestricted because they are read-only and polled frequently.
 
 import { Router, type RequestHandler } from 'express';
-import * as plugins from '../services/plugins/plugins.service.js';
+import * as plugins from '../services/plugins/index.js';
 import { fetchUpstreamCatalog } from '../services/plugins/upstreamFetch.js';
 import { sendError } from '../middleware/errors.js';
 import { rateLimit } from '../middleware/rateLimit.js';

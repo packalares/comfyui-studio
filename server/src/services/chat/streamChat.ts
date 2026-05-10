@@ -9,7 +9,7 @@
 import type { UIMessage } from 'ai';
 import { logger } from '../../lib/logger.js';
 import * as repo from '../../lib/db/chat.repo.js';
-import * as settings from '../settings.js';
+import * as settings from '../settings/index.js';
 import { emitChatEvent } from './broadcaster.js';
 import { maybeAutoTitle, lastUserText } from './autoTitle.js';
 import {
@@ -17,19 +17,20 @@ import {
   summarizeFinalFrame,
   type OllamaChatMessage,
   type OllamaFinalFrame,
-} from './ollamaChat.js';
-import { runOllamaStep } from './ollamaStep.js';
+  runOllamaStep,
+  isModelLoaded,
+  toOllamaTools,
+  executeOllamaToolCall,
+} from './ollama.js';
 import { generateSuggestions } from './suggestionGenerator.js';
-import { isModelLoaded } from './ollamaPs.js';
 import { computeUsage } from './contextWindow.js';
 import { getEnabledTools, filterEnabledTools, toAiSdkToolMap } from './tools/index.js';
-import { toOllamaTools, executeOllamaToolCall } from './ollamaTools.js';
 import { runToolDispatch, type ToolPart } from './toolDispatch.js';
 import { extractAndPersistAttachments } from './attachments.js';
 import { ThinkParser } from './thinkParser.js';
 import { enforceContextStrategy } from './contextEnforce.js';
 import { beforeTool as gpuBeforeTool } from './gpuOrchestrator.js';
-import { expandLatestSlashCommand } from './commands/expander.js';
+import { expandLatestSlashCommand } from './commands.js';
 
 // `LOADING_HINT_MS` and `MAX_TOOL_STEPS` are now `settings.chatLoadingHintMs`
 // and `settings.chatMaxToolSteps`. Resolved at call sites below.

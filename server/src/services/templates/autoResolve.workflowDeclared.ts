@@ -14,8 +14,8 @@
 // Pulled out of `autoResolveModels.ts` so that file stays under the 250-line
 // per-file cap (it was already a baseline structure offender pre-split).
 
-import { resolveHuggingfaceUrl, type ResolvedModel } from '../models/resolveHuggingface.js';
-import { resolveCivitaiUrl } from '../models/resolveCivitai.js';
+import { resolveHuggingfaceUrl, type ResolvedModel } from '../models/resolvers.js';
+import { resolveCivitaiUrl } from '../models/resolvers.js';
 import type { AutoResolvedModel } from './importStaging.js';
 
 function sameFile(a: string, b: string): boolean { return a.toLowerCase() === b.toLowerCase(); }

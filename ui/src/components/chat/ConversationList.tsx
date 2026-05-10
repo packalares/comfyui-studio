@@ -1,15 +1,21 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Trash2, MessageSquare, MoreHorizontal, Pin, PinOff, Pencil } from 'lucide-react';
+import {
+  Plus, Trash2, MessageSquare, MoreHorizontal, Pin, PinOff, Pencil,
+  Search, Settings,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { api, type ChatConversation } from '../../services/comfyui';
 import { chatEvents } from '../../services/chatEvents';
 import { LAST_CHAT_KEY } from '../../pages/Chat';
+import { cn } from '../../lib/utils';
+import { Spinner } from '../ui/spinner';
 import { Button } from '../ui/button';
 import { ButtonGroup } from '../ui/button-group';
-import { CardHeader } from '../ui/card';
-import { Spinner } from '../ui/spinner';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import ConfirmDialog from '../modals/ConfirmDialog';
+import ChatSearch from './ChatSearch';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -25,6 +31,12 @@ interface Props {
   refreshKey: number;
   onSelect: (id: string | null) => void;
   onNew: () => void;
+  /** Popover content for the Settings icon (context strategy / temperature /
+   *  format / soul). The Settings icon is wired as the popover trigger. */
+  settingsContent?: ReactNode;
+  /** Rendered as a non-scrolling footer below the list — typically the
+   *  always-visible ContextMeterSummary. */
+  footerSlot?: ReactNode;
 }
 
 function formatRelative(ts: number): string {
@@ -106,7 +118,21 @@ function RenameInput({ initialValue, onSave, onCancel }: RenameInputProps) {
 }
 
 // ---- Main component -------------------------------------------------------
-export default function ConversationList({ activeId, refreshKey, onSelect, onNew }: Props) {
+export default function ConversationList({ activeId, refreshKey, onSelect, onNew, settingsContent, footerSlot }: Props) {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Cmd-K / Ctrl-K opens the search dialog from anywhere in the page.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchOpen(o => !o);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('keydown', onKey); };
+  }, []);
   const [items, setItems] = useState<ChatConversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -292,7 +318,7 @@ export default function ConversationList({ activeId, refreshKey, onSelect, onNew
             <MoreHorizontal className="w-3.5 h-3.5" />
           </DropdownMenuTrigger>
           
-          <DropdownMenuContent align="end" className="min-w-[140px]">
+          <DropdownMenuContent align="end">
             <DropdownMenuItem
               onClick={(e) => { e.stopPropagation(); void handleTogglePin(c); }}
             >
@@ -323,33 +349,87 @@ export default function ConversationList({ activeId, refreshKey, onSelect, onNew
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <CardHeader className="flex items-center justify-between gap-3">
-        <h2 className="panel-header-title">Conversations</h2>
-        <ButtonGroup>
-          <Button onClick={onNew}  aria-label="New chat">
-            <Plus className="w-3.5 h-3.5" />
-            New
-          </Button>
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger
-              aria-label="More options"
-              className="btn btn-secondary"
-            >
-              <MoreHorizontal className="w-3.5 h-3.5" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-[160px]">
-              <DropdownMenuItem
-                variant="destructive"
-                disabled={items.length === 0}
-                onClick={() => setDeleteAllOpen(true)}
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                Delete all ({total})
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </ButtonGroup>
-      </CardHeader>
+      {/* Header — title eyebrow + small ghost icon row on the right (search,
+          settings, delete-all), then a full-width primary New button below.
+          The icons share a uniform muted-on-hover style so the row reads as
+          one quiet toolbar; only Settings can swap to a "pressed" look while
+          its popover is open. The Settings popover uses a plain <button> for
+          its trigger because the cva-style <Button> drops refs through
+          Radix's `asChild` Slot, which silently breaks the popover. */}
+      <div className="border-b p-3 shrink-0 space-y-2.5">
+        <div className="flex items-center justify-between gap-1">
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Conversations
+          </div>
+          {/* Three icon-only buttons connected as one segmented strip — same
+              uniform muted-on-hover style; only Delete tints red on hover
+              (universal danger affordance) and Settings shows a "pressed"
+              look while its popover is open. */}
+          <ButtonGroup>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => setSearchOpen(true)}
+                  aria-label="Search conversations"
+                  className="btn btn-secondary"
+                >
+                  <Search className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Search (⌘K)</TooltipContent>
+            </Tooltip>
+            {settingsContent && (
+              <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    aria-pressed={settingsOpen}
+                    aria-label="Context settings"
+                    className="btn btn-secondary"
+                  >
+                    <Settings className="h-3.5 w-3.5" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="end"
+                  className="w-80 max-h-[80vh] overflow-y-auto p-0"
+                >
+                  {settingsContent}
+                </PopoverContent>
+              </Popover>
+            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  disabled={items.length === 0}
+                  onClick={() => setDeleteAllOpen(true)}
+                  aria-label={`Delete all conversations${total ? ` (${total})` : ''}`}
+                  className="btn btn-secondary"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Delete all</TooltipContent>
+            </Tooltip>
+          </ButtonGroup>
+        </div>
+        <Button
+          onClick={onNew}
+          aria-label="New chat"
+          className="w-full cursor-pointer"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          New conversation
+        </Button>
+      </div>
+
+      <ChatSearch
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+        onSelect={(id) => onSelect(id)}
+      />
 
       <div className="flex-1 min-h-0 overflow-y-auto py-1">
         {items.length === 0 && !loading && (
@@ -383,6 +463,10 @@ export default function ConversationList({ activeId, refreshKey, onSelect, onNew
         )}
       </div>
 
+      {footerSlot && (
+        <div className="border-t p-3 shrink-0">{footerSlot}</div>
+      )}
+
       {/* Per-row delete dialog */}
       <ConfirmDialog
         open={pendingDelete !== null}
@@ -411,3 +495,4 @@ export default function ConversationList({ activeId, refreshKey, onSelect, onNew
     </div>
   );
 }
+

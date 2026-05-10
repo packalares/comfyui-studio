@@ -13,7 +13,7 @@ const tmpPath = path.join(tmpDir, 'history.json');
 process.env.PLUGIN_HISTORY_PATH = tmpPath;
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const history = await import('../../src/services/plugins/history.service.js');
+const history = await import('../../src/services/plugins/history.js');
 
 function clearFile(): void {
   try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }

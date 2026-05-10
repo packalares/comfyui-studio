@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractToolCalls } from '../../src/services/chat/ollamaTools.js';
+import { extractToolCalls } from '../../src/services/chat/ollama.js';
 
 function frame(toolCalls: unknown): unknown {
   return { message: { tool_calls: toolCalls } };

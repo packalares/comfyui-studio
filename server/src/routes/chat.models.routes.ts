@@ -6,12 +6,13 @@
 // HuggingFace search are server-side aggregations cached separately.
 
 import { Router, type Request, type Response } from 'express';
-import * as settings from '../services/settings.js';
+import * as settings from '../services/settings/index.js';
 import { env } from '../config/env.js';
-import { getOllamaLibrary, refreshOllamaLibrary } from '../services/chat/ollamaLibrary.js';
-import { getOllamaTags } from '../services/chat/ollamaTags.js';
-import { startPull, cancelPull } from '../services/chat/ollamaPull.js';
+import { getOllamaLibrary, refreshOllamaLibrary } from '../services/chat/ollamaScraper.js';
+import { getOllamaTags } from '../services/chat/ollamaScraper.js';
+import { startPull, cancelPull } from '../services/chat/ollama.js';
 import { getCapabilitiesForNames } from '../lib/db/ollamaLibrary.repo.js';
+import { stripTrailingSlash } from '../lib/url.js';
 
 const router = Router();
 
@@ -167,7 +168,7 @@ router.get('/chat/models/search-hf', async (req: Request, res: Response) => {
     if (token) headers.Authorization = `Bearer ${token}`;
     // Honor the configurable HF endpoint (mirror) when present; fall back to
      // the canonical host. Matches the rest of the HF-touching code paths.
-    const hfBase = (env.HF_ENDPOINT || 'https://huggingface.co').replace(/\/+$/, '');
+    const hfBase = stripTrailingSlash(env.HF_ENDPOINT || 'https://huggingface.co');
     const url = `${hfBase}/api/models?search=${encodeURIComponent(q)}&filter=gguf&limit=25`;
     const r = await fetch(url, { headers, signal: ctrl.signal });
     if (!r.ok) { res.status(502).json({ error: `upstream ${r.status}` }); return; }

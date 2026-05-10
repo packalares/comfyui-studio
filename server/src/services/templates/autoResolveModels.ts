@@ -19,13 +19,13 @@
 // HF / CivitAI. Search caches are scoped to a single staging op via
 // `newSearchCaches()` — don't reuse across stagings.
 
-import * as catalog from '../catalog.js';
+import * as catalog from '../catalog/index.js';
 import { logger } from '../../lib/logger.js';
 import { env, autoResolveSearchEnabled } from '../../config/env.js';
-import { resolveHuggingfaceUrl, type ResolvedModel } from '../models/resolveHuggingface.js';
-import { resolveCivitaiUrl } from '../models/resolveCivitai.js';
-import { getModelInfo } from '../models/info.service.js';
-import { buildDownloadUrl } from '../models/download.urlBuild.js';
+import { resolveHuggingfaceUrl, type ResolvedModel } from '../models/resolvers.js';
+import { resolveCivitaiUrl } from '../models/resolvers.js';
+import { getModelInfo } from '../models/info.js';
+import { buildDownloadUrl } from '../models/downloadUrl.js';
 import { hfFindExactMatch, type HfSearchCache } from './autoResolve.hf.js';
 import { civitaiFindExactMatch, type CivitaiSearchCache } from './autoResolve.civitai.js';
 import { pluginReadmeFindUrl, type PluginReadmeCache } from './autoResolve.pluginReadme.js';

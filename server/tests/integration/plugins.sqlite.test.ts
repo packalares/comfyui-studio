@@ -7,7 +7,7 @@ import express from 'express';
 import type { AddressInfo } from 'net';
 import pluginsRouter from '../../src/routes/plugins.routes.js';
 import * as repo from '../../src/lib/db/plugins.repo.js';
-import * as cacheService from '../../src/services/plugins/cache.service.js';
+import * as cacheService from '../../src/services/plugins/cache.js';
 import { useFreshDb } from '../lib/db/_helpers.js';
 
 function startApp(): Promise<{ url: string; close: () => Promise<void> }> {

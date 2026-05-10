@@ -6,7 +6,7 @@ import express from 'express';
 import type { AddressInfo } from 'net';
 
 // ---- mock settings -------------------------------------------------------
-vi.mock('../../../src/services/settings.mcp.js', () => ({
+vi.mock('../../../src/services/settings/mcp.js', () => ({
   getStudioMcpToken: vi.fn(),
 }));
 
@@ -16,7 +16,7 @@ vi.mock('../../../src/services/mcp/server/index.js', () => ({
 }));
 
 import mcpRouter from '../../../src/routes/mcp.routes.js';
-import * as settingsMcp from '../../../src/services/settings.mcp.js';
+import * as settingsMcp from '../../../src/services/settings/mcp.js';
 import * as serverFactory from '../../../src/services/mcp/server/index.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 

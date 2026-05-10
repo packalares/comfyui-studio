@@ -28,9 +28,9 @@ vi.mock('../../src/config/paths.js', async (orig) => {
   };
 });
 
-const urlSrc = await import('../../src/services/catalog.urlSources.js');
-const catalog = await import('../../src/services/catalog.js');
-const catalogStore = await import('../../src/services/catalogStore.js');
+const urlSrc = await import('../../src/services/catalog/urlSources.js');
+const catalog = await import('../../src/services/catalog/index.js');
+const catalogStore = await import('../../src/services/catalog/store.js');
 
 function reset(): void {
   try { if (fs.existsSync(CATALOG_FILE)) fs.unlinkSync(CATALOG_FILE); } catch { /* ignore */ }

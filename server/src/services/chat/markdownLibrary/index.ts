@@ -14,3 +14,6 @@ export {
   deleteUser,
   isBundledOnlyItem,
 } from './overlayLoader.js';
+
+export { createMarkdownRegistry } from './registry.js';
+export type { Registry, RegistryItem, RegistryOpts } from './registry.js';

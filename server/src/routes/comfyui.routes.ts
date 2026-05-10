@@ -2,13 +2,13 @@
 // reset / launch-options.
 
 import { Router, type Request, type Response, type RequestHandler } from 'express';
-import { getProcessService } from '../services/comfyui/singleton.js';
+import { getProcessService } from '../services/comfyui/process.js';
 import {
   getLaunchCommandView,
   resetToDefault,
   updateLaunchOptions,
   type LaunchOptionsConfig,
-} from '../services/comfyui/launchOptions.service.js';
+} from '../services/comfyui/launchOptions.js';
 import { sendError } from '../middleware/errors.js';
 
 const router = Router();

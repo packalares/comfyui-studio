@@ -17,7 +17,7 @@ import {
 import { WorkflowNameCollisionError } from '../../../src/services/templates/errors.js';
 import { stageFromJson } from '../../../src/services/templates/importZip.js';
 import { commitStaging } from '../../../src/services/templates/importCommit.js';
-import * as catalog from '../../../src/services/catalog.js';
+import * as catalog from '../../../src/services/catalog/index.js';
 import { seedObjectInfoCache } from '../../../src/services/workflow/objectInfo.js';
 import { paths } from '../../../src/config/paths.js';
 

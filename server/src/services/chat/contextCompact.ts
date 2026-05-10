@@ -17,9 +17,10 @@ import * as repo from '../../lib/db/chat.repo.js';
 import {
   deleteAllMessages, deleteMessagesNotIn,
 } from '../../lib/db/chat.context.repo.js';
-import * as settings from '../settings.js';
-import type { OllamaChatMessage } from './ollamaChat.js';
+import * as settings from '../settings/index.js';
+import type { OllamaChatMessage } from './ollama.js';
 import { get, template as renderPrompt } from './promptsLoader.js';
+import { stripTrailingSlash } from '../../lib/url.js';
 
 /** Render every chat message as a flat transcript for the summarizer prompt. */
 function renderTranscript(rows: repo.ChatMessageRow[]): string {
@@ -46,7 +47,7 @@ export async function summarizeText(
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), settings.getChatSummaryTimeoutMs());
   try {
-    const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/api/chat`, {
+    const res = await fetch(`${stripTrailingSlash(baseUrl)}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

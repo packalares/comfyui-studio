@@ -5,7 +5,7 @@
 // state transitions.
 
 import { describe, expect, it, beforeEach } from 'vitest';
-import * as tracker from '../../src/services/downloadController/progressTracker.js';
+import * as tracker from '../../src/services/downloads/controller.js';
 
 describe('progressTracker', () => {
   beforeEach(() => tracker.__resetForTests());

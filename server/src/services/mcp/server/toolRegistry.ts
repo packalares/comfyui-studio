@@ -9,7 +9,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { defineTool, type StudioTool } from '../../chat/tools/defineTool.js';
-import { getActiveSoulName } from '../../chat/personality/index.js';
+import { getActiveSoulName } from '../../chat/personality.js';
 import { persistInlineMediaInResult } from '../../chat/toolMediaPersist.js';
 import { logger } from '../../../lib/logger.js';
 

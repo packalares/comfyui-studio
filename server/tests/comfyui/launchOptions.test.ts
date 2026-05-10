@@ -20,7 +20,7 @@ vi.mock('../../src/config/paths.js', async (orig) => {
   };
 });
 
-const svc = await import('../../src/services/comfyui/launchOptions.service.js');
+const svc = await import('../../src/services/comfyui/launchOptions.js');
 
 function cleanupConfig(): void {
   const p = path.join(TMP, 'comfyui-launch-options.json');

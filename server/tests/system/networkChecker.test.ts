@@ -11,8 +11,8 @@ import path from 'path';
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'netcheck-test-'));
 
-const logs = await import('../../src/services/systemLauncher/networkChecker/logs.js');
-const svc = await import('../../src/services/systemLauncher/networkChecker/service.js');
+const logs = await import('../../src/services/networkChecker.js');
+const svc = logs; // single merged module
 
 logs.__setDirForTests(tmpDir);
 

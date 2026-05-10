@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { parseLibraryHtml } from '../../src/services/chat/ollamaLibrary.js';
+import { parseLibraryHtml } from '../../src/services/chat/ollamaScraper.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE = readFileSync(

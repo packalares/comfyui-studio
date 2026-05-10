@@ -10,7 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   parseGithubReleaseUrl, resolveGithubReleaseUrl,
-} from '../../../src/services/models/resolveGithub.js';
+} from '../../../src/services/models/resolvers.js';
 
 describe('parseGithubReleaseUrl', () => {
   it('accepts owner/repo/releases/download/tag/file', () => {

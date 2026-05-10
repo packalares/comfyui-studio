@@ -6,28 +6,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockedWalk = vi.fn();
-vi.mock('../../../src/services/downloadController/walker.js', () => ({
+vi.mock('../../../src/services/downloads/walker.js', () => ({
   walkAndDownload: mockedWalk,
 }));
 
 const mockedLoad = vi.fn();
-vi.mock('../../../src/services/catalogStore.js', () => ({
+vi.mock('../../../src/services/catalog/store.js', () => ({
   load: mockedLoad,
 }));
 
 const mockedGetInfo = vi.fn();
-vi.mock('../../../src/services/models/info.service.js', () => ({
+vi.mock('../../../src/services/models/info.js', () => ({
   getModelInfo: mockedGetInfo,
   getModelList: () => [],
   updateCache: () => undefined,
   convertEssentialModelsToEntries: () => [],
 }));
 
-const { installFromCatalog } = await import('../../../src/services/models/models.service.js');
+const { installFromCatalog } = await import('../../../src/services/models/service.js');
 const { NoDownloadSourceError } =
-  await import('../../../src/services/models/download.service.js');
+  await import('../../../src/services/models/downloadUrl.js');
 const { __resetForTests: resetProgressTracker } =
-  await import('../../../src/services/downloadController/progressTracker.js');
+  await import('../../../src/services/downloads/controller.js');
 
 describe('installFromCatalog → walker candidates', () => {
   beforeEach(() => {

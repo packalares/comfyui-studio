@@ -16,9 +16,9 @@ import JsonEditor from '../components/viewers/JsonEditor';
 import DependencyModal from '../components/modals/DependencyModal';
 import ExposeWidgetsModal from '../components/modals/ExposeWidgetsModal';
 import PageSubbar from '../components/layout/PageSubbar';
+import PageAside from '../components/layout/PageAside';
 import { Tooltip, TooltipTrigger, TooltipContent } from '../components/ui/tooltip';
 import { Switch } from '../components/ui/switch';
-import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { api, ApiError } from '../services/comfyui';
 import { isThreeDFilename } from '../lib/media';
@@ -560,11 +560,11 @@ export default function Studio() {
         }
       />
 
-      <div className="page-container">
-        <Card>
-          <div className="flex flex-col lg:flex-row lg:h-[calc(100vh-180px)]">
-            {/* Left aside: form */}
-            <aside className="w-full lg:w-[420px] shrink-0 border-b lg:border-b-0 lg:border-r bg-card flex flex-col">
+      <div className="flex flex-col lg:flex-row gap-4 p-4">
+        {/* Left aside: form. Override the default 320px width with the
+            wider 420px Studio needs for two-column form fields. `open`
+            stays true so mobile stacks the form above the result. */}
+        <PageAside open className="lg:w-[420px]">
             <div className="border-b px-4 py-3 flex items-center justify-between">
               <div className="min-w-0">
                 <h2 className="text-sm font-semibold text-foreground">{categoryTitles[activeCategory]}</h2>
@@ -741,10 +741,11 @@ export default function Studio() {
                 </div>
               </div>
             </div>
-            </aside>
+        </PageAside>
 
-            {/* Right main: result */}
-            <main className="flex-1 flex flex-col min-w-0">
+        {/* Right main: result. Detached card so it visually pairs with
+            the form aside on the left. */}
+        <section className="flex flex-1 min-w-0 flex-col rounded-xl border bg-card shadow-sm overflow-hidden">
             <div className="border-b bg-card px-4 py-3 flex items-center justify-between gap-3">
               <h3 className="text-sm font-semibold text-foreground">Result</h3>
               <div className="flex items-center gap-3">
@@ -880,9 +881,7 @@ export default function Studio() {
                 </div>
               )}
             </div>
-            </main>
-          </div>
-        </Card>
+        </section>
       </div>
     </>
   );

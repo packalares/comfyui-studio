@@ -6,10 +6,10 @@
 import { extractDepsWithPluginResolution } from './extractDepsAsync.js';
 import {
   isPluginInstalled, getInstalledPluginKeys,
-} from '../plugins/installedKeys.js';
+} from '../plugins/cache.js';
 import {
   canonicalize, dedupKey, normalizeRepoKey,
-} from '../plugins/canonicalId.js';
+} from '../plugins/nodes.js';
 import { findSubgraphDef } from '../workflow/proxyLabels.js';
 import type { RequiredPluginInfo } from '../../contracts/generation.contract.js';
 

@@ -3,7 +3,7 @@
 // before the frontend shows a download progress bar.
 
 import { Router, type Request, type Response } from 'express';
-import * as catalog from '../services/catalog.js';
+import * as catalog from '../services/catalog/index.js';
 import { parsePageQuery, paginate } from '../lib/pagination.js';
 
 const router = Router();

@@ -11,7 +11,7 @@ import { stageFromJson } from '../../src/services/templates/importZip.js';
 import {
   invalidate as invalidateNodeMap,
   _seedForTests as seedNodeMap,
-} from '../../src/services/plugins/nodeMap.service.js';
+} from '../../src/services/plugins/nodes.js';
 import {
   seedObjectInfoCache,
   resetObjectInfoCache,

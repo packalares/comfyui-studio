@@ -12,7 +12,7 @@ process.env.HF_ENDPOINT = 'https://hf.seed.example.com/';
 process.env.GITHUB_PROXY = 'https://gh.seed.example.com/';
 process.env.PIP_INDEX_URL = 'https://pypi.seed.example.com/';
 
-const liveSettings = await import('../../src/services/systemLauncher/liveSettings.js');
+const liveSettings = await import('../../src/services/settings/network.js');
 
 function resetSnapshot(): void {
   liveSettings.hydrate({
@@ -81,7 +81,7 @@ describe('liveSettings consumer delegation', () => {
   beforeEach(() => resetSnapshot());
 
   it('models/download.processHfEndpoint reads through liveSettings', async () => {
-    const mod = await import('../../src/services/models/download.service.js');
+    const mod = await import('../../src/services/models/downloadUrl.js');
     liveSettings.setHfEndpoint('https://new-hf.example.com/');
     const rewritten = mod.processHfEndpoint('https://huggingface.co/foo/bar');
     expect(rewritten).toBe('https://new-hf.example.com/foo/bar');
@@ -91,7 +91,7 @@ describe('liveSettings consumer delegation', () => {
     // We can't call the internal `resolveProxy` directly (not exported), but
     // we can at least confirm the module imports liveSettings — it does, via
     // the successful import + the structure test env-var discipline check.
-    const installMod = await import('../../src/services/plugins/install.service.js');
+    const installMod = await import('../../src/services/plugins/install.js');
     expect(installMod).toBeDefined();
   });
 });

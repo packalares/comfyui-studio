@@ -1126,10 +1126,10 @@ export const api = {
       /** Optional allow-list of tool names (e.g. ['web_search']). Omit to use
        *  every configured tool. Empty array disables tools for this turn. */
       enabledTools?: string[] | null;
-      /** Pre-chat overrides from the ContextMeter popover. Honored only when
-       *  creating a fresh conversation; ignored when targeting an existing
-       *  conversationId. Server falls back to global defaults for any field
-       *  left undefined here. */
+      /** Pre-chat overrides surfaced by the model + context-settings popovers.
+       *  Honored only when creating a fresh conversation; ignored when target-
+       *  ing an existing conversationId. Server falls back to global defaults
+       *  for any field left undefined here. */
       initialContextStrategy?: ChatContextStrategy;
       initialThinkMode?: 'on' | 'off' | null;
       initialNumCtx?: number | null;
@@ -1167,10 +1167,29 @@ export const api = {
       );
     },
 
-    getMessages: (id: string) =>
-      fetchJson<{ items: ChatMessage[] }>(
-        `/chat/conversations/${encodeURIComponent(id)}/messages`,
-      ),
+    /** Cursor-paginated message fetch.
+     *  - `limit` clamps server-side to 1..200 (default 50 if omitted).
+     *  - `before` is a message id; the page returned is strictly older
+     *    than that id, ordered ASC. Items also come back ASC within a
+     *    page so callers can append/prepend by id directly.
+     *  - `oldestId` is the cursor for the next call; null when items=[].
+     */
+    getMessages: (
+      id: string,
+      opts?: { limit?: number; before?: string },
+    ) => {
+      const params = new URLSearchParams();
+      if (opts?.limit !== undefined) params.set('limit', String(opts.limit));
+      if (opts?.before) params.set('before', opts.before);
+      const qs = params.toString() ? `?${params.toString()}` : '';
+      return fetchJson<{
+        items: ChatMessage[];
+        hasMore: boolean;
+        oldestId: string | null;
+      }>(
+        `/chat/conversations/${encodeURIComponent(id)}/messages${qs}`,
+      );
+    },
 
     deleteConversation: (id: string) =>
       fetchJson<{ deleted: boolean; id: string }>(
@@ -1431,9 +1450,9 @@ export interface ChatConversation {
   /** Whether this conversation is pinned to the top of the list. */
   pinned?: boolean;
   /** Server-computed usage for this conv at hydrate time (only present on
-   *  GET /chat/conversations/:id, not on the list endpoint). Lets the
-   *  ContextMeter render without a separate /usage round-trip. May be null
-   *  when the model param resolved empty or the upstream call failed. */
+   *  GET /chat/conversations/:id, not on the list endpoint). Lets the meter
+   *  UI render without a separate /usage round-trip. May be null when the
+   *  model param resolved empty or the upstream call failed. */
   usage?: ChatUsageState | null;
 }
 

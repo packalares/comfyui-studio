@@ -17,7 +17,7 @@ import { paths } from '../../config/paths.js';
 import { logger } from '../../lib/logger.js';
 import { generateFormInputs } from './templates.formInputs.js';
 import { readMeta, writeMeta, deleteMeta } from './userTemplatesMeta.js';
-import { dedupKey } from '../plugins/canonicalId.js';
+import { dedupKey } from '../plugins/nodes.js';
 import { WorkflowNameCollisionError } from './errors.js';
 import type { TemplateData, RawTemplate, TemplatePluginEntry, TemplateCivitaiMeta } from './types.js';
 

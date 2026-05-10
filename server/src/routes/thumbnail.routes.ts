@@ -11,9 +11,10 @@ import { createReadStream } from 'fs';
 import { logger } from '../lib/logger.js';
 import {
   thumbnailForGalleryItem, thumbnailForTemplateAsset, thumbnailForUrl,
-} from '../services/thumbnail/service.js';
-import { collectStats, clearCache, scheduleSweeps } from '../services/thumbnail/sweep.js';
-import { isThumbError, type ThumbResult } from '../services/thumbnail/types.js';
+  collectStats, clearCache, scheduleSweeps,
+  isThumbError,
+} from '../services/thumbnail/index.js';
+import type { ThumbResult } from '../services/thumbnail/index.js';
 
 // Boot-time side effect: register the 30s-delayed first sweep + 6h interval
 // on first import of this router module. Idempotent — subsequent imports

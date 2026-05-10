@@ -14,6 +14,7 @@ import { useApp } from '../context/AppContext';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { usePaginated } from '../hooks/usePaginated';
 import PageSubbar from '../components/layout/PageSubbar';
+import PageAside from '../components/layout/PageAside';
 import Pagination from '../components/layout/Pagination';
 import DownloadsTab from '../components/DownloadsTab';
 import OllamaModelsPanel from '../components/OllamaModelsPanel';
@@ -122,6 +123,11 @@ export default function Models() {
   useEffect(() => {
     if (urlSource === 'civitai' && source !== 'civitai') setSource('civitai');
     else if (urlSource === 'ollama' && source !== 'ollama') setSource('ollama');
+    // /models (no source) is the Comfy template's home. If we landed here
+    // from /models?source=ollama, drop back to the comfy default — without
+    // this the persisted ollama state survives the navigation and the
+    // Comfy submenu would show the Ollama panel.
+    else if (!urlSource && source === 'ollama') setSource('local');
     // URL → state sync is one-way; we don't want the source to ping-pong.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlSource]);
@@ -230,6 +236,12 @@ export default function Models() {
 
   const fetcher = useCallback(
     async ({ page, pageSize }: { page: number; pageSize: number }) => {
+      // Ollama owns its own panel + fetches — skip the catalog round-trip
+      // when the page is in Ollama mode (otherwise we'd burn a request on
+      // local-catalog rows the user never sees).
+      if (source === 'ollama') {
+        return { items: [], total: 0, hasMore: false };
+      }
       if (source === 'civitai') {
         // Cursor threading: Civitai's Most-Downloaded sort silently ignores
         // `page=`. We pass the previous response's `nextCursor` on every
@@ -669,11 +681,13 @@ export default function Models() {
           ) : null
         }
       />
-      <div className="page-container">
-        <Card>
-          <div className="flex flex-col lg:flex-row min-h-[calc(100vh-180px)] relative">
-            {/* ===== Left sidebar (Models tab only) ===== */}
-            <aside className={`${tab === 'models' ? '' : 'hidden'} ${filtersOpen ? 'block' : 'hidden'} lg:block w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r p-4 space-y-5 bg-card ${tab !== 'models' ? 'lg:hidden' : ''}`}>
+      <div className="flex flex-col lg:flex-row gap-4 p-4">
+        {/* ===== Left aside (Models tab + Comfy-side sources only).
+            Ollama is its own top-level template — driven by the sidebar's
+            Comfy/Ollama submenu — and its panel owns its sub-navigation,
+            so we skip the aside entirely when source === 'ollama'. */}
+        {tab === 'models' && source !== 'ollama' && (
+          <PageAside open={filtersOpen} className="p-4 space-y-5 overflow-y-auto">
               {/* Source — local catalog vs. CivitAI remote search. */}
               <div>
                 <label className="field-label mb-1.5 block">Source</label>
@@ -684,8 +698,10 @@ export default function Models() {
                   <SelectContent>
                     <SelectItem value="local">Local catalog</SelectItem>
                     <SelectItem value="civitai">CivitAI</SelectItem>
-                    <SelectItem value="ollama">Ollama (chat models)</SelectItem>
-                    {/* HuggingFace is a placeholder for a future source. */}
+                    {/* Ollama is reached via the sidebar submenu now — it's
+                        its own top-level template (no aside, no shared
+                        source picker). HuggingFace is a placeholder for a
+                        future Comfy-side source. */}
                     <SelectItem value="huggingface" disabled>HuggingFace (coming soon)</SelectItem>
                   </SelectContent>
                 </SelectField>
@@ -826,10 +842,13 @@ export default function Models() {
                   </div>
                 </div>
               )}
-            </aside>
+          </PageAside>
+        )}
 
-            {/* ===== Right content ===== */}
-            <main className="flex-1 p-4 overflow-y-auto">
+        {/* ===== Right content. No outer card wrapper — page rows already
+            render their own cards/panels and a card-in-card looks heavy. */}
+        <section className="flex flex-1 min-w-0 flex-col">
+          <div className="flex-1">
               {/* Ollama source pane — its own tab strip (Installed / Library /
                   HuggingFace) replaces the Models/Downloads strip used for
                   the local + civitai sources. Mounted via OllamaModelsPanel
@@ -1096,9 +1115,8 @@ export default function Models() {
               )}
               </>
               )}
-            </main>
           </div>
-        </Card>
+        </section>
       </div>
 
       <ModelInfoModal

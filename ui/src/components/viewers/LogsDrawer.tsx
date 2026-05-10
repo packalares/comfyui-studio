@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { X, RefreshCw, Eraser } from 'lucide-react';
 import { api } from '../../services/comfyui';
 import { Switch } from '../ui/switch';
@@ -98,7 +99,11 @@ export default function LogsDrawer({ open, onClose }: Props) {
 
   if (!open) return null;
 
-  return (
+  // Portal to document.body so the drawer escapes any ancestor containing
+  // block (parents that use `transform` / `filter` / `backdrop-filter`
+  // capture `position: fixed` inside their bounds — same pitfall AppModal
+  // ran into; same one-line fix).
+  return createPortal((
     <div className="fixed inset-0 z-50">
       {/* Backdrop — matches AlertDialog's overlay style */}
       <div
@@ -189,5 +194,5 @@ export default function LogsDrawer({ open, onClose }: Props) {
         </div>
       </div>
     </div>
-  );
+  ), document.body);
 }

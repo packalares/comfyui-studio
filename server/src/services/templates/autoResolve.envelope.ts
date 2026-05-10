@@ -4,11 +4,11 @@
 // so that file stays under the 250-line per-file cap once Wave M added the
 // gated/sizeBytes/bundled-fallback branches.
 
-import * as catalog from '../catalog.js';
+import * as catalog from '../catalog/index.js';
 import { formatBytes } from '../../lib/format.js';
 import { logger } from '../../lib/logger.js';
 import { folderForLoaderClass } from '../workflow/loaderFolders.js';
-import type { ResolvedModel } from '../models/resolveHuggingface.js';
+import type { ResolvedModel } from '../models/resolvers.js';
 import type { AutoResolvedModel, AutoResolveSource } from './importStaging.js';
 
 /** Build the shared `AutoResolvedModel` envelope the UI consumes. */

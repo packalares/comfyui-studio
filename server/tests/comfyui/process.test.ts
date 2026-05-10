@@ -1,39 +1,16 @@
 // Process lifecycle: assert orchestration sequence without spawning Python.
-// We mock the spawn helper, the port probe, the kill ladder, and the reset
-// helpers, then inspect the call order.
+// We inject mock deps into ProcessService and mock the port probe via utils.js.
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-// ---- Mocks must be declared before the SUT import so vitest hoists them. ----
-const mockSpawnComfyUI = vi.fn();
-const mockResolveCliArgs = vi.fn();
-const mockBuildChildEnv = vi.fn();
+// ---- Mock port-probe so no real TCP calls are made. ----
 const mockIsRunning = vi.fn();
-const mockKillGeneric = vi.fn();
-const mockSleep = vi.fn();
 const mockRun = vi.fn();
-const mockClearCache = vi.fn();
-const mockClearRoot = vi.fn();
-const mockRunRecovery = vi.fn();
 
-vi.mock('../../src/services/comfyui/process.spawn.js', () => ({
-  spawnComfyUI: mockSpawnComfyUI,
-  resolveCliArgs: mockResolveCliArgs,
-  buildChildEnv: mockBuildChildEnv,
-}));
 vi.mock('../../src/services/comfyui/utils.js', () => ({
   isComfyUIRunning: mockIsRunning,
   getUptime: vi.fn((t: Date | null) => (t ? '1s' : '0s')),
   getGPUMode: vi.fn(() => 'exclusive'),
-}));
-vi.mock('../../src/services/comfyui/process.stop.js', () => ({
-  killComfyUIGeneric: mockKillGeneric,
-  sleep: mockSleep,
-}));
-vi.mock('../../src/services/comfyui/process.reset.js', () => ({
-  clearCacheIfPresent: mockClearCache,
-  clearComfyuiRoot: mockClearRoot,
-  runRecoveryScript: mockRunRecovery,
 }));
 vi.mock('../../src/lib/exec.js', () => ({
   run: mockRun,
@@ -41,8 +18,26 @@ vi.mock('../../src/lib/exec.js', () => ({
 }));
 
 // Import after mocks are declared.
-const { ProcessService } = await import('../../src/services/comfyui/process.service.js');
-const { LogService } = await import('../../src/services/comfyui/log.service.js');
+const { ProcessService, LogService } = await import('../../src/services/comfyui/process.js');
+
+// ---- Per-test injectable deps (replaces the 3 separate module mocks). ----
+const mockSpawnComfyUI = vi.fn();
+const mockKillGeneric = vi.fn();
+const mockSleep = vi.fn();
+const mockClearCache = vi.fn();
+const mockClearRoot = vi.fn();
+const mockRunRecovery = vi.fn();
+
+function makeDeps() {
+  return {
+    spawn: mockSpawnComfyUI,
+    kill: mockKillGeneric,
+    sleep: mockSleep,
+    clearCache: mockClearCache,
+    clearRoot: mockClearRoot,
+    recover: mockRunRecovery,
+  };
+}
 
 function makeFakeChild() {
   const listeners = new Map<string, Array<(...a: unknown[]) => void>>();
@@ -73,7 +68,7 @@ describe('ProcessService lifecycle', () => {
 
   it('startComfyUI short-circuits when already running', async () => {
     mockIsRunning.mockResolvedValue(true);
-    const svc = new ProcessService(new LogService());
+    const svc = new ProcessService(new LogService(), makeDeps());
     const r = await svc.startComfyUI();
     expect(r.success).toBe(false);
     expect(r.message.toLowerCase().includes('already running')).toBe(true);
@@ -87,7 +82,7 @@ describe('ProcessService lifecycle', () => {
     mockSpawnComfyUI.mockReturnValue({
       process: fake, argv: ['bash', '/fake.sh'], cliArgs: '--lowvram', startedAt: new Date(),
     });
-    const svc = new ProcessService(new LogService());
+    const svc = new ProcessService(new LogService(), makeDeps());
     const r = await svc.startComfyUI();
     expect(mockSpawnComfyUI).toHaveBeenCalledTimes(1);
     expect(r.success).toBe(true);
@@ -95,7 +90,7 @@ describe('ProcessService lifecycle', () => {
 
   it('stopComfyUI is a no-op when not running', async () => {
     mockIsRunning.mockResolvedValue(false);
-    const svc = new ProcessService(new LogService());
+    const svc = new ProcessService(new LogService(), makeDeps());
     const r = await svc.stopComfyUI();
     expect(r.success).toBe(true);
     expect(mockKillGeneric).not.toHaveBeenCalled();
@@ -105,7 +100,7 @@ describe('ProcessService lifecycle', () => {
     // First probe: running; after kill + sleep, probe resolves to false.
     mockIsRunning.mockResolvedValueOnce(true).mockResolvedValue(false);
     mockKillGeneric.mockResolvedValue(undefined);
-    const svc = new ProcessService(new LogService());
+    const svc = new ProcessService(new LogService(), makeDeps());
     const r = await svc.stopComfyUI();
     expect(mockKillGeneric).toHaveBeenCalledTimes(1);
     expect(r.success).toBe(true);
@@ -126,7 +121,7 @@ describe('ProcessService lifecycle', () => {
     mockSpawnComfyUI.mockReturnValue({
       process: fake, argv: ['bash', '/fake.sh'], cliArgs: '', startedAt: new Date(),
     });
-    const svc = new ProcessService(new LogService());
+    const svc = new ProcessService(new LogService(), makeDeps());
     const r = await svc.restartComfyUI();
     expect(mockKillGeneric).toHaveBeenCalled();
     expect(mockSpawnComfyUI).toHaveBeenCalled();
@@ -139,7 +134,7 @@ describe('ProcessService lifecycle', () => {
     mockClearCache.mockImplementation(async () => { order.push('cache'); });
     mockClearRoot.mockImplementation(async () => { order.push('root'); });
     mockRunRecovery.mockImplementation(async () => { order.push('recovery'); });
-    const svc = new ProcessService(new LogService());
+    const svc = new ProcessService(new LogService(), makeDeps());
     const r = await svc.resetComfyUI('hard');
     expect(r.success).toBe(true);
     expect(order).toEqual(['cache', 'root', 'recovery']);

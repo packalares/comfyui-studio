@@ -19,11 +19,8 @@
 // `Reasoning.tsx` file was deleted because the bus subscription it owned is
 // now done by `StudioTransport` -> `reasoning-delta` chunks -> useChat parts.
 
-import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, FileText, Upload, X, MessageSquare } from 'lucide-react';
-import {
-  Conversation, ConversationContent, ConversationScrollButton,
-} from '../ai-elements/conversation';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertCircle, FileText, Upload, X, MessageSquare, ChevronDown, ChevronUp } from 'lucide-react';
 import { Message, MessageContent, MessageResponse } from '../ai-elements/message';
 import {
   Tool, ToolHeader, ToolContent, ToolInput, ToolOutput,
@@ -100,6 +97,14 @@ interface Props {
   onRegenerate?: () => void;
   // Click handler for the per-message Delete action. Receives the message id.
   onDelete?: (msgId: string) => void;
+  // Cursor-pagination wiring — when there are messages older than the
+  // currently-loaded page, MessageThread renders a top sentinel that fires
+  // `onLoadOlder` once it scrolls into view (IntersectionObserver, same
+  // pattern as ConversationList just inverted). Loading state surfaces a
+  // small spinner instead of a flicker of "load more" → empty.
+  hasMoreOlder?: boolean;
+  loadingOlder?: boolean;
+  onLoadOlder?: () => void;
 }
 
 function partsToText(parts: StudioUIMessagePart[]): string {
@@ -136,9 +141,11 @@ function attachmentsOf(parts: StudioUIMessagePart[]): RenderedAttachment[] {
 export default function MessageThread({
   messages, status, streamError, hasConversation, onFilesDropped,
   webPreviews, showToolDetails, onSuggestionClick, onRegenerate, onDelete,
+  hasMoreOlder = false, loadingOlder = false, onLoadOlder,
 }: Props) {
   const [dragActive, setDragActive] = useState(false);
   const [zoomed, setZoomed] = useState<string | null>(null);
+  const topSentinelRef = useRef<HTMLDivElement | null>(null);
   // Contextual suggestion groups arrive via system context (server reads
   // them from data/chat/default_prompts.md) — pass down to each row so
   // deriveSuggestions can pick groups by reply shape.
@@ -254,9 +261,88 @@ export default function MessageThread({
     status === 'submitted'
     || (status === 'streaming' && lastIsAssistantEmpty);
 
+  // Auto-scroll the page to the bottom on new messages / streaming chunks,
+  // but only when the user is already near the bottom — never yank them
+  // away from a message they've scrolled up to read. The body is the
+  // document scroller (Layout configures it); this just nudges it.
+  // "Stick to bottom" while the assistant is streaming, driven by a
+  // ResizeObserver on document.body. The observer fires exactly when the
+  // body's height changes (i.e. when streamed tokens commit and the
+  // message thread grows), so the scroll happens in the same layout pass
+  // as the growth — no rAF guessing or one-frame gap. Less reflow churn,
+  // less flicker.
+  //
+  // The user can still escape by scrolling up: we pause auto-pin once the
+  // distance from bottom exceeds 200px, and re-arm only when they return
+  // within 50px of the bottom. We also seed an initial pin on submit so
+  // the click-to-send always lands at the bottom even if the user was
+  // partway up the previous turn.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (status !== 'streaming' && status !== 'submitted') return;
+
+    let paused = false;
+
+    // Pin 20px above the absolute body bottom. The shadcn <SidebarInset>
+    // wraps the page in `m-2 rounded-xl` — that's 8px of body-bg gap below
+    // the inset plus a 12px rounded-corner cut-out, so the bottom ~20px
+    // of the body is "not chat content". Scrolling into that zone exposes
+    // the body bg + the cut-off rounded corners, which reads as flicker on
+    // every streamed chunk. Stopping 20px short keeps the viewport bottom
+    // flush with the inset's content edge.
+    const BOTTOM_BUFFER_PX = 20;
+    const pinIfDue = () => {
+      if (paused) return;
+      const target = Math.max(
+        0,
+        document.documentElement.scrollHeight - window.innerHeight - BOTTOM_BUFFER_PX,
+      );
+      if (window.scrollY < target - 1) {
+        window.scrollTo(0, target);
+      }
+    };
+
+    const onScroll = () => {
+      const distance = document.documentElement.scrollHeight
+        - window.scrollY - window.innerHeight;
+      if (distance > 200) paused = true;
+      else if (distance < 50) paused = false;
+    };
+
+    const ro = new ResizeObserver(() => { pinIfDue(); });
+    ro.observe(document.body);
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    pinIfDue();
+
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('scroll', onScroll);
+    };
+  }, [status]);
+
+  // IntersectionObserver on the top sentinel — fires onLoadOlder when the
+  // user scrolls within `rootMargin` of the top of the message list. Only
+  // attaches while `hasMoreOlder` is true so we don't burn a callback after
+  // the oldest page has already been fetched. Loading state is gated in
+  // the parent (handleLoadOlder ignores re-entries), so the IO firing
+  // multiple times during a single load is safe.
+  useEffect(() => {
+    const node = topSentinelRef.current;
+    if (!node || !hasMoreOlder || !onLoadOlder) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) if (e.isIntersecting) onLoadOlder();
+      },
+      { rootMargin: '200px' },
+    );
+    io.observe(node);
+    return () => { io.disconnect(); };
+  }, [hasMoreOlder, onLoadOlder]);
+
   return (
     <div
-      className="relative flex-1 min-h-0 flex"
+      className="relative"
       onDragEnter={(e) => {
         if (e.dataTransfer.types.includes('Files')) {
           e.preventDefault();
@@ -277,64 +363,72 @@ export default function MessageThread({
         }
       }}
     >
-      <Conversation className="flex-1">
-        <ConversationContent className="mx-auto w-full max-w-4xl px-4 py-6">
-          {!hasConversation && status === 'ready' && (
-            <div className="empty-box flex flex-col items-center gap-1.5 py-12">
-              <MessageSquare className="h-6 w-6 text-muted-foreground" />
-              <div className="text-sm font-medium text-foreground">Start a new conversation</div>
-              <div className="text-xs text-muted-foreground">Type below or pick one from the sidebar.</div>
+      <div className="mx-auto w-full max-w-4xl px-4 py-6 space-y-4">
+        {/* Top sentinel — when scrolled into view, fires onLoadOlder so the
+            page can prepend the next slice. Mounted only when there's more
+            history beyond the current page; sits above the first message. */}
+        {hasMoreOlder && (
+          <div
+            ref={topSentinelRef}
+            className="flex items-center justify-center py-2"
+          >
+            {loadingOlder && <Spinner size="sm" className="text-muted-foreground" />}
+          </div>
+        )}
+        {!hasConversation && status === 'ready' && (
+          <div className="empty-box flex flex-col items-center gap-1.5 py-12">
+            <MessageSquare className="h-6 w-6 text-muted-foreground" />
+            <div className="text-sm font-medium text-foreground">Start a new conversation</div>
+            <div className="text-xs text-muted-foreground">Type below or pick one from the sidebar.</div>
+          </div>
+        )}
+        {hasConversation && messages.length === 0 && status === 'ready' && (
+          <div className="empty-box py-12">
+            Start a conversation by typing a message below.
+          </div>
+        )}
+        {messages.map((m, idx) => {
+          const isLastAssistant = m.role === 'assistant'
+            && idx === messages.length - 1
+            && status === 'ready';
+          return (
+            <MessageRow
+              key={m.id}
+              msg={m}
+              isStreaming={m.id === inFlightAssistantId}
+              isLastAssistant={isLastAssistant}
+              webPreviews={!!webPreviews}
+              showToolDetails={!!showToolDetails}
+              galleryByPrompt={galleryByPrompt}
+              dynamicSuggestions={suggestionsByMsg[m.id] ?? null}
+              contextualSuggestions={contextualSuggestions}
+              onZoom={setZoomed}
+              onSuggestionClick={onSuggestionClick}
+              onRegenerate={onRegenerate}
+              onDelete={onDelete}
+            />
+          );
+        })}
+        {showColdLoadHint && lastMessage?.role !== 'assistant' && (
+          <Message from="assistant">
+            <MessageContent>
+              <ColdLoadLoader msgId={inFlightAssistantId ?? undefined} />
+            </MessageContent>
+          </Message>
+        )}
+        {streamError && status === 'ready' && (
+          <div className="alert-rose text-xs">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <div>
+              <div className="font-medium">Stream failed</div>
+              <div className="text-destructive">{streamError}</div>
             </div>
-          )}
-          {hasConversation && messages.length === 0 && status === 'ready' && (
-            <div className="empty-box py-12">
-              Start a conversation by typing a message below.
-            </div>
-          )}
-          {messages.map((m, idx) => {
-            const isLastAssistant = m.role === 'assistant'
-              && idx === messages.length - 1
-              && status === 'ready';
-            return (
-              <MessageRow
-                key={m.id}
-                msg={m}
-                isStreaming={m.id === inFlightAssistantId}
-                isLastAssistant={isLastAssistant}
-                webPreviews={!!webPreviews}
-                showToolDetails={!!showToolDetails}
-                galleryByPrompt={galleryByPrompt}
-                dynamicSuggestions={suggestionsByMsg[m.id] ?? null}
-                contextualSuggestions={contextualSuggestions}
-                onZoom={setZoomed}
-                onSuggestionClick={onSuggestionClick}
-                onRegenerate={onRegenerate}
-                onDelete={onDelete}
-              />
-            );
-          })}
-          {showColdLoadHint && lastMessage?.role !== 'assistant' && (
-            <Message from="assistant">
-              <MessageContent>
-                <ColdLoadLoader msgId={inFlightAssistantId ?? undefined} />
-              </MessageContent>
-            </Message>
-          )}
-          {streamError && status === 'ready' && (
-            <div className="alert-rose text-xs">
-              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <div>
-                <div className="font-medium">Stream failed</div>
-                <div className="text-destructive">{streamError}</div>
-              </div>
-            </div>
-          )}
-        </ConversationContent>
-        <ConversationScrollButton />
-      </Conversation>
+          </div>
+        )}
+      </div>
       {dragActive && (
-        <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-brand bg-brand/10 backdrop-blur-sm">
-          <div className="flex items-center gap-2 text-sm font-medium text-brand">
+        <div className="pointer-events-none fixed inset-0 z-10 flex items-center justify-center bg-brand/5 backdrop-blur-sm">
+          <div className="flex items-center gap-2 rounded-lg border-2 border-dashed border-brand bg-brand/10 px-4 py-3 text-sm font-medium text-brand">
             <Upload className="h-4 w-4" />
             Drop file here
           </div>
@@ -418,15 +512,17 @@ function MessageRow({
     return deriveSuggestions(msg, contextualSuggestions);
   }, [isLastAssistant, isStreaming, msg, dynamicSuggestions, contextualSuggestions]);
 
-  // User-message Actions (delete only) — rendered as a sibling of the bubble
-  // so the bubble's padding isn't disturbed by an always-reserved row of
-  // hidden buttons. `Message` already adds `group` to its wrapper, so the
-  // `group-hover:flex` in Actions reveals on row-hover (anywhere on the
-  // Message, not just the icons themselves).
+  // User-message Actions (copy + delete) — rendered as a floating cluster
+  // pinned to the right edge of the bubble, vertically centered. `Message`
+  // adds `group` to its wrapper, so the `opacity-0 group-hover:opacity-100`
+  // in the floating variant reveals on row-hover. The actions live inside a
+  // `relative` wrapper around <MessageContent> below so absolute positioning
+  // anchors to the bubble's bounds.
   const userActionsBlock = !isStreaming && onDelete ? (
     <Actions
       text={text}
       onDelete={() => onDelete(msg.id)}
+      variant="floating"
     />
   ) : null;
 
@@ -451,10 +547,21 @@ function MessageRow({
         </div>
       )}
       {(showUserBubble || !isUser) && (
-      <MessageContent>
-        {isUser ? (
-          <div className="whitespace-pre-wrap text-sm">{visibleUserText}</div>
+        isUser ? (
+          // Relative wrapper so the floating Actions cluster anchors to the
+          // bubble's right edge. ml-auto + w-fit keep the wrapper hugging
+          // the bubble (which is itself right-aligned), so `right-2` lands
+          // just inside the bubble's trailing edge.
+          <div className="relative ml-auto w-fit max-w-full">
+            <MessageContent>
+              <UserBubbleText text={visibleUserText} />
+            </MessageContent>
+            {userActionsBlock}
+          </div>
         ) : (
+      <MessageContent>
+        {/* Assistant content rendered below — original branch preserved. */}
+        {(
           <>
             {/* Render every assistant part in source order so the model's
                 interleaved reasoning / tools / text show up where they
@@ -490,45 +597,46 @@ function MessageRow({
               <UrlPreviewCard key={`wp-${url}`} url={url} />
             ))}
             {!isStreaming && (
-              <>
-                <TelemetryFooter
-                  model={meta?.model ?? null}
-                  tokensPerSec={meta?.tokens_per_sec ?? null}
-                  msTotal={meta?.ms_total ?? null}
-                  msToFirstToken={meta?.ms_to_first_token ?? null}
-                  tokensIn={meta?.tokens_in ?? null}
-                  tokensOut={meta?.tokens_out ?? null}
-                  loadDurationMs={meta?.load_duration_ms ?? null}
-                />
-                {suggestions.length > 0 && onSuggestionClick && (
-                  <Suggestions className="mt-2">
-                    {suggestions.map(s => (
-                      <Suggestion
-                        key={s}
-                        suggestion={s}
-                        onClick={(picked) => onSuggestionClick(picked)}
-                      />
-                    ))}
-                  </Suggestions>
-                )}
-              </>
+              <TelemetryFooter
+                model={meta?.model ?? null}
+                tokensPerSec={meta?.tokens_per_sec ?? null}
+                msTotal={meta?.ms_total ?? null}
+                msToFirstToken={meta?.ms_to_first_token ?? null}
+                tokensIn={meta?.tokens_in ?? null}
+                tokensOut={meta?.tokens_out ?? null}
+                loadDurationMs={meta?.load_duration_ms ?? null}
+              />
             )}
           </>
         )}
       </MessageContent>
+        )
       )}
-      {/* Actions row — sibling of <MessageContent> so it doesn't reserve
-          space inside the bubble when hidden. `<Message>` adds `group` to
-          its wrapper; Actions uses `group-hover:flex` to surface only on
-          row hover. Rendered for both user (delete-only) and assistant
-          (copy + regenerate + delete). */}
-      {isUser ? userActionsBlock : (!isStreaming && (text.length > 0 || onDelete) && (
+      {/* Assistant actions row — sibling of <MessageContent>, fades in on
+          row hover. User actions live inside the bubble wrapper above as a
+          floating cluster (variant="floating"), so they aren't rendered
+          here. */}
+      {!isUser && !isStreaming && (text.length > 0 || onDelete) && (
         <Actions
           text={text}
           onRegenerate={isLastAssistant ? onRegenerate : undefined}
           onDelete={onDelete ? () => onDelete(msg.id) : undefined}
         />
-      ))}
+      )}
+      {/* Follow-up suggestions sit at the very bottom of the row — after
+          the action icons — so the forward-looking pills are the last thing
+          the reader meets, not crowded inside the bubble next to telemetry. */}
+      {!isUser && !isStreaming && suggestions.length > 0 && onSuggestionClick && (
+        <Suggestions className="mt-2">
+          {suggestions.map(s => (
+            <Suggestion
+              key={s}
+              suggestion={s}
+              onClick={(picked) => onSuggestionClick(picked)}
+            />
+          ))}
+        </Suggestions>
+      )}
     </Message>
   );
 }
@@ -848,3 +956,52 @@ function ToolAttachmentCard({ att, onZoom }: ToolAttachmentCardProps) {
     </a>
   );
 }
+
+// Long user-message text with a "Show all" / "Show less" toggle. Only the
+// toggle (+ fade gradient) renders when the rendered text actually overflows
+// the collapsed max-height — for shorter messages the helper is invisible
+// and the bubble looks identical to a plain prose div. Overflow detection
+// uses scrollHeight against the content node so it adapts to wrap width
+// rather than guessing from character count.
+const COLLAPSED_MAX_H = '15rem';
+function UserBubbleText({ text }: { text: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [overflows, setOverflows] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    setOverflows(el.scrollHeight > el.clientHeight + 4);
+  }, [text]);
+
+  return (
+    <div className="relative">
+      <div
+        ref={ref}
+        className="whitespace-pre-wrap text-sm overflow-hidden"
+        style={!expanded ? { maxHeight: COLLAPSED_MAX_H } : undefined}
+      >
+        {text}
+      </div>
+      {overflows && !expanded && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-secondary to-transparent"
+        />
+      )}
+      {overflows && (
+        <button
+          type="button"
+          onClick={() => setExpanded(e => !e)}
+          className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline cursor-pointer"
+        >
+          {expanded
+            ? <><ChevronUp className="h-3.5 w-3.5" /> Show less</>
+            : <><ChevronDown className="h-3.5 w-3.5" /> Show all</>}
+        </button>
+      )}
+    </div>
+  );
+}
+

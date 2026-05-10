@@ -5,7 +5,7 @@
 // scripts work together.
 
 import { z } from 'zod';
-import { runSkillScript } from '../../../../chat/skills/index.js';
+import { runSkillScript } from '../../../../chat/skills.js';
 
 export const description =
   'Run a declared script bundled with a skill. Only scripts listed in the '

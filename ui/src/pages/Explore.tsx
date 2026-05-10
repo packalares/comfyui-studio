@@ -11,12 +11,12 @@ import { usePaginated } from '../hooks/usePaginated';
 import Pagination from '../components/layout/Pagination';
 import TemplateCard, { CivitaiTemplateCard } from '../components/cards/TemplateCard';
 import PageSubbar from '../components/layout/PageSubbar';
+import PageAside from '../components/layout/PageAside';
 import ImportWorkflowModal from '../components/modals/ImportWorkflowModal';
 import { SelectField, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/forms/SelectField';
 import { Checkbox } from '../components/ui/checkbox';
 import { Button } from '../components/ui/button';
 import { ButtonGroup } from '../components/ui/button-group';
-import { Card } from '../components/ui/card';
 
 type ReadyFilter = 'all' | 'yes' | 'no';
 type SourceFilter = 'all' | 'open' | 'api' | 'user' | 'civitai';
@@ -365,11 +365,9 @@ export default function Explore() {
           </div>
         }
       />
-      <div className="page-container">
-        <Card>
-          <div className="flex flex-col lg:flex-row min-h-[calc(100vh-180px)]">
-            {/* ===== Left sidebar ===== */}
-            <aside className={`${filtersOpen ? 'block' : 'hidden'} lg:block w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r p-4 space-y-5 bg-card`}>
+      <div className="flex flex-col lg:flex-row gap-4 p-4">
+        {/* ===== Left aside (filters) ===== */}
+        <PageAside open={filtersOpen} className="p-4 space-y-5 overflow-y-auto">
               {/* Search + Ready-to-use moved to the main-pane toolbar below,
                   mirroring the Models page layout (search as a flex-1 input,
                   filter as a right-aligned tab strip). Keeps the sidebar
@@ -497,10 +495,12 @@ export default function Explore() {
                   Clear Filters
                 </Button>
               </div>
-            </aside>
+        </PageAside>
 
-            {/* ===== Right content ===== */}
-            <main className="flex-1 p-4 overflow-y-auto">
+        {/* ===== Right content. No outer card wrapper — template tiles
+            already render their own cards. */}
+        <section className="flex flex-1 min-w-0 flex-col">
+          <div className="flex-1">
               {/* Toolbar — search (always) + ready-to-use tab strip (local
                   sources only). Mirrors the Models page's top-bar layout:
                   flex-1 search input on the left, right-aligned tab-strip
@@ -632,9 +632,8 @@ export default function Explore() {
                   />
                 )}
               </div>
-            </main>
           </div>
-        </Card>
+        </section>
       </div>
       <ImportWorkflowModal
         open={importOpen}

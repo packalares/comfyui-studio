@@ -11,12 +11,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockedDownload = vi.fn();
-vi.mock('../../../src/services/downloadController/downloadController.service.js', () => ({
+vi.mock('../../../src/services/downloads/controller.js', () => ({
   downloadModelByName: mockedDownload,
 }));
 
 const { walkAndDownload, classifyWalkerError } =
-  await import('../../../src/services/downloadController/walker.js');
+  await import('../../../src/services/downloads/walker.js');
 
 import type { UrlSource } from '../../../src/contracts/catalog.contract.js';
 

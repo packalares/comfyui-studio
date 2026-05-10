@@ -106,7 +106,14 @@ function WipeModal({
   );
 }
 
-export default function ComfyUIActions() {
+interface Props {
+  /** Where the dropdown panel opens relative to the trigger.
+   *  'top' is for sidebar-footer placements where the trigger lives at the
+   *  bottom of the viewport — opening downward would slide the panel off-screen. */
+  placement?: 'bottom' | 'top';
+}
+
+export default function ComfyUIActions({ placement = 'bottom' }: Props = {}) {
   const { launcherStatus } = useApp();
   const [optimistic, setOptimistic] = useState<ProcessStatus | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -214,7 +221,9 @@ export default function ComfyUIActions() {
         {dropdownOpen && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />
-            <div className="absolute right-0 mt-1 w-48 bg-popover border rounded-lg shadow-lg z-50 py-1">
+            <div className={`absolute right-0 w-48 bg-popover border rounded-lg shadow-lg z-50 py-1 ${
+              placement === 'top' ? 'bottom-full mb-1' : 'mt-1'
+            }`}>
               <button
                 onClick={handleStop}
                 disabled={actionLoading !== null}

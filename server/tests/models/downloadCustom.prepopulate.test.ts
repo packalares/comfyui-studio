@@ -43,7 +43,7 @@ const downloadCustomSpy = vi.hoisted(() => ({
   })),
 }));
 
-vi.mock('../../src/services/models/models.service.js', () => ({
+vi.mock('../../src/services/models/service.js', () => ({
   downloadCustom: downloadCustomSpy.fn,
   scanAndRefresh: async () => [],
   toWireEntry: (m: unknown) => m,
@@ -51,7 +51,7 @@ vi.mock('../../src/services/models/models.service.js', () => ({
 
 // Downloads tracker writes to an in-process Map; keep real module but no-op
 // the pieces our route handler invokes so the test stays pure.
-vi.mock('../../src/services/downloads.js', async (orig) => {
+vi.mock('../../src/services/downloads/index.js', async (orig) => {
   const actual = await orig() as Record<string, unknown>;
   return {
     ...actual,
@@ -64,9 +64,9 @@ vi.mock('../../src/services/downloads.js', async (orig) => {
 });
 
 const modelsRoutes = (await import('../../src/routes/models.routes.js')).default;
-const catalog = await import('../../src/services/catalog.js');
-const catalogStore = await import('../../src/services/catalogStore.js');
-const catalogEvents = await import('../../src/services/catalog.events.js');
+const catalog = await import('../../src/services/catalog/index.js');
+const catalogStore = await import('../../src/services/catalog/store.js');
+const catalogEvents = await import('../../src/services/catalog/index.js');
 const bus = await import('../../src/lib/events.js');
 
 function startApp(): Promise<{ url: string; close: () => Promise<void> }> {

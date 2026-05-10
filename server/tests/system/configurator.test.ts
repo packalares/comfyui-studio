@@ -10,8 +10,8 @@ import path from 'path';
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'configurator-test-'));
 process.env.DATA_DIR = tmpDir;
 
-const configurator = await import('../../src/services/systemLauncher/configurator.service.js');
-const liveSettings = await import('../../src/services/systemLauncher/liveSettings.js');
+const configurator = await import('../../src/services/settings/network.js');
+const liveSettings = configurator; // single merged module
 
 const envConfigPath = path.join(tmpDir, 'env-config.json');
 
@@ -59,7 +59,7 @@ describe('configurator setters', () => {
   afterAll(() => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ } });
 
   it('setPipSource writes to disk + updates liveSettings', () => {
-    const r = configurator.setPipSource('https://pypi.example.com/simple/');
+    const r = configurator.setPipSourceConfig('https://pypi.example.com/simple/');
     expect(r.success).toBe(true);
     expect(liveSettings.getPipSource()).toBe('https://pypi.example.com/simple/');
     expect(fs.existsSync(envConfigPath)).toBe(true);
@@ -76,7 +76,7 @@ describe('configurator setters', () => {
   });
 
   it('setGithubProxy writes to disk + updates liveSettings', () => {
-    const r = configurator.setGithubProxy('https://ghp.example.com/');
+    const r = configurator.setGithubProxyConfig('https://ghp.example.com/');
     expect(r.success).toBe(true);
     expect(liveSettings.getGithubProxy()).toBe('https://ghp.example.com/');
     const saved = JSON.parse(fs.readFileSync(envConfigPath, 'utf8'));
@@ -84,7 +84,7 @@ describe('configurator setters', () => {
   });
 
   it('rejects invalid URL without touching disk', () => {
-    const r = configurator.setPipSource('not a url');
+    const r = configurator.setPipSourceConfig('not a url');
     expect(r.success).toBe(false);
     expect(liveSettings.getPipSource()).toBe('');
     // File may or may not exist from earlier setter calls in the suite, but
@@ -108,8 +108,8 @@ describe('configurator setters', () => {
   });
 
   it('multiple setters combine in a single file', () => {
-    configurator.setPipSource('https://p.example.com/');
-    configurator.setGithubProxy('https://g.example.com/');
+    configurator.setPipSourceConfig('https://p.example.com/');
+    configurator.setGithubProxyConfig('https://g.example.com/');
     const saved = JSON.parse(fs.readFileSync(envConfigPath, 'utf8'));
     expect(saved.PIP_INDEX_URL).toBe('https://p.example.com/');
     expect(saved.GITHUB_PROXY).toBe('https://g.example.com/');

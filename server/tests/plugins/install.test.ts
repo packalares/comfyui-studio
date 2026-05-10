@@ -7,7 +7,7 @@ import path from 'path';
 import { safeResolve } from '../../src/lib/fs.js';
 import {
   applyGithubProxy, parseGithubOwnerRepo, validatePluginUrl,
-} from '../../src/services/plugins/install.urlValidation.js';
+} from '../../src/services/plugins/install.js';
 
 describe('plugins install url validation', () => {
   it('accepts https github.com', () => {

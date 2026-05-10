@@ -4,8 +4,8 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { useFreshDb } from '../../lib/db/_helpers.js';
 import * as snapshotsRepo from '../../../src/lib/db/promptSnapshots.repo.js';
-import * as sentryModule from '../../../src/services/gallery.sentry.js';
-import { getPromptMeta } from '../../../src/services/gallery.promptMeta.js';
+import * as sentryModule from '../../../src/services/gallery/sentry.js';
+import { getPromptMeta } from '../../../src/services/gallery/promptMeta.js';
 
 // ---- Mocks ----------------------------------------------------------------
 
@@ -35,7 +35,7 @@ vi.mock('../../../src/services/chat/tools/formInputsToSchema.js', () => ({
   }),
 }));
 
-vi.mock('../../../src/services/comfyui.js', () => ({
+vi.mock('../../../src/services/comfyui/api.js', () => ({
   submitPrompt: async (_prompt: unknown, _opts: unknown) => ({ prompt_id: 'pid-123' }),
   ComfyUIHttpError: class ComfyUIHttpError extends Error {},
 }));

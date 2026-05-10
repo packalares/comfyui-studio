@@ -1,7 +1,7 @@
 // Per-task progress state for plugin installs.
 
 import { describe, expect, it, beforeEach } from 'vitest';
-import * as progress from '../../src/services/plugins/progress.service.js';
+import * as progress from '../../src/services/plugins/history.js';
 
 function reset(): void {
   for (const id of Object.keys(progress.getAllTasks())) progress.removeTask(id);

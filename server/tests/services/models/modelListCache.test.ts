@@ -29,7 +29,7 @@ vi.mock('../../../src/config/paths.js', async (orig) => {
   };
 });
 
-const cache = await import('../../../src/services/models/modelListCache.js');
+const cache = await import('../../../src/services/models/info.js');
 
 function writeFile(p: string, body: unknown): void {
   fs.writeFileSync(p, JSON.stringify(body), 'utf8');

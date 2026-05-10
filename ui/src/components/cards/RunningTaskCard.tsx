@@ -1,24 +1,26 @@
-// Persistent bottom-right indicator that shows ComfyUI activity app-wide.
+// ComfyUI activity indicator that lives in the sidebar footer.
 //
-// Visible only when:
-//   - ComfyUI's queue has anything running or pending, OR
-//   - we've observed an active promptId via WS (`progress`, `executing`,
-//     `execution_start`), OR
-//   - we're still receiving `progress` messages.
-// Slides up from the bottom edge on show, slides back down on hide. The
-// DOM node stays mounted when hidden (offscreen, pointer-events off) so
-// CSS transitions can play both directions without a React unmount race.
-// Anchored at bottom-right; sonner toasts sit at top-right.
+// Two render modes (driven by the sidebar's collapsible state):
+//   - Sidebar expanded: inline card. Defaults to a slim view (header +
+//     progress bar). Click the chevron to expand to the full prompt /
+//     queued / cancel pane.
+//   - Sidebar icon-only: a single pulsing dot button. Click opens a
+//     <Popover> with the same card body — the icon strip is too narrow
+//     for an inline card.
+//
+// Mounted only when ComfyUI's queue has anything running/pending or we
+// are receiving progress events; idle returns null (no DOM, no popover).
 
 import { useEffect, useMemo, useState } from 'react';
-import { X, Clock, Minimize2, Maximize2 } from 'lucide-react';
+import { X, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import {
-  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
-} from '../ui/tooltip';
+import { useSidebar } from '../ui/sidebar';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Button } from '../ui/button';
-import { Card, CardFooter, CardHeader } from '../ui/card';
 import { Spinner } from '../ui/spinner';
+
+const COLLAPSED_KEY = 'runningTaskCard.collapsed';
 
 function shortId(id: string | null): string {
   if (!id) return '';
@@ -33,16 +35,19 @@ function clampPct(value: number, max: number): number {
   return pct;
 }
 
-const COLLAPSED_KEY = 'runningTaskCard.collapsed';
-
 export default function RunningTaskCard() {
   const { queueStatus, progress, activePromptId, cancelRunning } = useApp();
+  const { state, isMobile } = useSidebar();
   const [cancelling, setCancelling] = useState(false);
-  // Persist the collapse preference across page loads — users who always
-  // want the slim bar shouldn't have to re-collapse every render.
+
+  // Default to the slim view — most users only want the at-a-glance
+  // progress bar; opening the full pane is opt-in. localStorage persists
+  // the choice across sessions.
   const [collapsed, setCollapsed] = useState<boolean>(() => {
-    try { return localStorage.getItem(COLLAPSED_KEY) === '1'; }
-    catch { return false; }
+    try {
+      const raw = localStorage.getItem(COLLAPSED_KEY);
+      return raw === null ? true : raw === '1';
+    } catch { return true; }
   });
   useEffect(() => {
     try { localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0'); }
@@ -59,15 +64,7 @@ export default function RunningTaskCard() {
     return false;
   }, [running, pending, activePromptId, progress]);
 
-  // Keep the DOM node mounted when hidden so the slide-out animation plays.
-  // After a short delay past the transition end we can stop rendering state-
-  // specific children (kept minimal: progress bar, prompt rows). Not strictly
-  // necessary since they're hidden offscreen, but avoids stale React work.
-  const [everShown, setEverShown] = useState(visible);
-  useEffect(() => {
-    if (visible) setEverShown(true);
-  }, [visible]);
-  if (!everShown) return null;
+  if (!visible) return null;
 
   const progressPct = progress ? clampPct(progress.value, progress.max) : null;
   const hasProgressBar = progressPct !== null;
@@ -75,60 +72,80 @@ export default function RunningTaskCard() {
   const handleCancel = async () => {
     if (cancelling) return;
     setCancelling(true);
-    try {
-      await cancelRunning();
-    } finally {
-      setCancelling(false);
-    }
+    try { await cancelRunning(); }
+    finally { setCancelling(false); }
   };
 
-  return (
-    <TooltipProvider delayDuration={300}>
-      <Card
-        role="status"
-        aria-live="polite"
-        aria-hidden={!visible}
-        className={`fixed bottom-4 right-4 z-40 shadow-lg transition-all duration-500 ease-out ${
-          collapsed ? 'w-[260px]' : 'w-[300px]'
-        } ${
-          visible
-            ? 'translate-y-0 opacity-100'
-            : 'translate-y-[calc(100%+1rem)] opacity-0 pointer-events-none'
-        }`}
-      >
-        <CardHeader className="flex items-center gap-2">
-          <span className="relative flex h-2 w-2 flex-shrink-0">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand/70 opacity-75" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-brand" />
-          </span>
-          <span className="text-sm font-semibold text-foreground flex-1 truncate">Running in ComfyUI</span>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => setCollapsed(v => !v)}
-                aria-label={collapsed ? 'Expand card' : 'Minimize card'}
-              >
-                {collapsed
-                  ? <Maximize2 className="h-3.5 w-3.5" />
-                  : <Minimize2 className="h-3.5 w-3.5" />}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              {collapsed ? 'Expand' : 'Minimize'}
-            </TooltipContent>
-          </Tooltip>
-        </CardHeader>
+  const cardBody = (
+    <div className="rounded-md border bg-card text-card-foreground shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2 border-b px-3 py-2">
+        <span className="relative flex h-2 w-2 flex-shrink-0">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand/70 opacity-75" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-brand" />
+        </span>
+        <span className="flex-1 truncate text-xs font-semibold text-foreground">
+          Running in ComfyUI
+        </span>
+        <button
+          type="button"
+          onClick={() => setCollapsed(v => !v)}
+          aria-label={collapsed ? 'Expand details' : 'Collapse details'}
+          className="inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer transition-colors"
+        >
+          {collapsed
+            ? <ChevronDown className="h-3.5 w-3.5" />
+            : <ChevronUp className="h-3.5 w-3.5" />}
+        </button>
+      </div>
 
-        {collapsed ? (
-          // Collapsed — progress bar + % only. No prompt/node rows, no
-          // footer. Cancel stays reachable via the expanded view.
-          <div className="px-3 py-2">
+      {collapsed ? (
+        <div className="px-3 py-2">
+          {hasProgressBar ? (
+            <div className="flex items-center gap-2">
+              <div className="progress-track flex-1">
+                <div
+                  className="progress-bar-fill"
+                  style={{ width: `${progressPct}%` }}
+                  aria-valuenow={progressPct ?? 0}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  role="progressbar"
+                />
+              </div>
+              <span className="w-10 text-right text-[11px] tabular-nums text-foreground">
+                {Math.round(progressPct!)}%
+              </span>
+            </div>
+          ) : (
+            <div className="progress-track">
+              <div className="progress-bar-fill w-1/3 animate-pulse" />
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="space-y-2 px-3 py-2">
+            {activePromptId && (
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                <span>Prompt</span>
+                <span className="font-mono text-foreground">{shortId(activePromptId)}</span>
+              </div>
+            )}
+            {progress?.nodeId && (
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                <span>Node</span>
+                <span
+                  className="max-w-[140px] truncate font-mono text-foreground"
+                  title={progress.nodeId}
+                >
+                  {progress.nodeId}
+                </span>
+              </div>
+            )}
+
             {hasProgressBar ? (
-              <div className="flex items-center gap-2">
-                <div className="progress-track flex-1">
+              <div className="space-y-1">
+                <div className="progress-track">
                   <div
                     className="progress-bar-fill"
                     style={{ width: `${progressPct}%` }}
@@ -138,92 +155,84 @@ export default function RunningTaskCard() {
                     role="progressbar"
                   />
                 </div>
-                <span className="text-[11px] tabular-nums text-foreground w-10 text-right">
-                  {Math.round(progressPct!)}%
-                </span>
+                <div className="flex justify-between text-[10px] tabular-nums text-muted-foreground">
+                  <span>{progress!.value}/{progress!.max}</span>
+                  <span>{Math.round(progressPct!)}%</span>
+                </div>
               </div>
             ) : (
               <div className="progress-track">
                 <div className="progress-bar-fill w-1/3 animate-pulse" />
               </div>
             )}
+
+            {pending > 0 && (
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <Clock className="h-3 w-3" />
+                <span>{pending} queued behind this</span>
+              </div>
+            )}
           </div>
-        ) : (
-          <>
-            <div className="px-4 py-3 space-y-2">
-              {activePromptId && (
-                <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                  <span>Prompt</span>
-                  <span className="font-mono text-foreground">{shortId(activePromptId)}</span>
-                </div>
-              )}
-              {progress?.nodeId && (
-                <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                  <span>Node</span>
-                  <span className="font-mono text-foreground truncate max-w-[140px]" title={progress.nodeId}>
-                    {progress.nodeId}
-                  </span>
-                </div>
-              )}
 
-              {hasProgressBar ? (
-                <div className="space-y-1">
-                  <div className="progress-track">
-                    <div
-                      className="progress-bar-fill"
-                      style={{ width: `${progressPct}%` }}
-                      aria-valuenow={progressPct ?? 0}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      role="progressbar"
-                    />
-                  </div>
-                  <div className="flex justify-between text-[10px] text-muted-foreground tabular-nums">
-                    <span>{progress!.value}/{progress!.max}</span>
-                    <span>{Math.round(progressPct!)}%</span>
-                  </div>
-                </div>
-              ) : (
-                // Indeterminate — subtle shimmer while we wait for the first
-                // progress message (or when ComfyUI isn't emitting progress
-                // for this workflow at all).
-                <div className="progress-track">
-                  <div className="progress-bar-fill w-1/3 animate-pulse" />
-                </div>
-              )}
+          <div className="flex justify-end border-t px-3 py-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleCancel}
+                  disabled={cancelling}
+                  className="!border-destructive/30 !text-destructive hover:!bg-destructive/10"
+                >
+                  {cancelling
+                    ? <Spinner size="sm" />
+                    : <X className="h-3.5 w-3.5" />}
+                  <span>Cancel</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Stop the current prompt</TooltipContent>
+            </Tooltip>
+          </div>
+        </>
+      )}
+    </div>
+  );
 
-              {pending > 0 && (
-                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                  <Clock className="h-3 w-3" />
-                  <span>
-                    {pending} queued behind this
-                  </span>
-                </div>
-              )}
-            </div>
+  // On desktop, when the sidebar is icon-only, render a pulsing dot button
+  // that opens the full card in a Popover. Mobile sidebars are sheet-style
+  // and always have full width when open, so we treat them as expanded.
+  const showAsIcon = !isMobile && state === 'collapsed';
 
-            <CardFooter className="justify-end">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={handleCancel}
-                    disabled={cancelling}
-                    className="!border-destructive/30 !text-destructive hover:!bg-destructive/10"
-                  >
-                    {cancelling
-                      ? <Spinner size="sm" />
-                      : <X className="h-3.5 w-3.5" />}
-                    <span>Cancel</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top">Stop the current prompt</TooltipContent>
-              </Tooltip>
-            </CardFooter>
-          </>
-        )}
-      </Card>
+  if (showAsIcon) {
+    return (
+      <TooltipProvider delayDuration={300}>
+        <div className="flex justify-center px-1 py-1">
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label="ComfyUI is running — click for details"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted cursor-pointer transition-colors"
+              >
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand/70 opacity-75" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-brand" />
+                </span>
+              </button>
+            </PopoverTrigger>
+            <PopoverContent side="right" align="end" className="w-[280px] p-0">
+              {cardBody}
+            </PopoverContent>
+          </Popover>
+        </div>
+      </TooltipProvider>
+    );
+  }
+
+  return (
+    <TooltipProvider delayDuration={300}>
+      {cardBody}
     </TooltipProvider>
   );
 }

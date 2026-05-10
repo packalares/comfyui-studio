@@ -48,9 +48,10 @@ interface TransportOptions {
   enabledToolsRef: { current: string[] | null };
   /** Mutable ref to the active soul name. `null` means "use server default". */
   soulNameRef: { current: string | null };
-  /** Mutable ref to ContextMeter pre-chat drafts. Read on each `/chat/start`
-   *  call so the latest user choices are forwarded to the server, which only
-   *  honors them when minting a new conversation. */
+  /** Mutable ref to pre-chat draft overrides (strategy / temperature / format /
+   *  thinking / numCtx). Read on each `/chat/start` call so the latest user
+   *  choices are forwarded to the server, which only honors them when minting
+   *  a new conversation. */
   draftOverridesRef: { current: DraftOverrides };
   /** Called whenever `/chat/start` returns a fresh `conversationId` so the
    *  page can update its state + sidebar. The server may either echo the

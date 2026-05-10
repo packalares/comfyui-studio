@@ -16,7 +16,7 @@ import {
   schedulePromptWatch,
   hydrateFromQueue,
   _cancelAllWatchesForTests,
-} from '../../src/services/gallery.sentry.js';
+} from '../../src/services/gallery/sentry.js';
 import * as repo from '../../src/lib/db/gallery.repo.js';
 import { useFreshDb } from '../lib/db/_helpers.js';
 

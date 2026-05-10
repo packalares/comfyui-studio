@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 process.env.NODENAME = 'test-node';
 
-const system = await import('../../src/services/systemLauncher/system.service.js');
+const system = await import('../../src/services/settings/network.js');
 
 describe('system.getNetworkConfig', () => {
   it('reports defaults when last-status is null', () => {

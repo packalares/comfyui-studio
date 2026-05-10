@@ -2,8 +2,8 @@
 // priority order (hf > mirror > cdn) by inspecting the in-memory catalog.
 
 import { describe, expect, it, beforeEach } from 'vitest';
-import * as tracker from '../../src/services/downloadController/progressTracker.js';
-import { buildDownloadUrl } from '../../src/services/models/download.service.js';
+import * as tracker from '../../src/services/downloads/controller.js';
+import { buildDownloadUrl } from '../../src/services/models/downloadUrl.js';
 
 describe('install URL selection order', () => {
   beforeEach(() => tracker.__resetForTests());

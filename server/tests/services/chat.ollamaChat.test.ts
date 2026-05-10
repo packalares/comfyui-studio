@@ -5,7 +5,7 @@ import {
   extractBase64FromDataUrl,
   iterateNdjson,
   summarizeFinalFrame,
-} from '../../src/services/chat/ollamaChat.js';
+} from '../../src/services/chat/ollama.js';
 
 function uiMsg(role: 'user' | 'assistant' | 'system', parts: unknown[]): UIMessage {
   return { id: 'm', role, parts: parts as never } as UIMessage;

@@ -3,10 +3,10 @@
 // that Wave F's WS `execution_complete` handler now runs.
 
 import { describe, expect, it } from 'vitest';
-import { buildRowsFromHistory } from '../../src/services/gallery.rowBuilder.js';
+import { buildRowsFromHistory } from '../../src/services/gallery/index.js';
 import * as repo from '../../src/lib/db/gallery.repo.js';
 import { useFreshDb } from '../lib/db/_helpers.js';
-import type { ApiPrompt } from '../../src/services/gallery.extract.js';
+import type { ApiPrompt } from '../../src/services/gallery/extract.js';
 
 function fullPrompt(): ApiPrompt {
   return {

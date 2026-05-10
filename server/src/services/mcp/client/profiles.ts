@@ -10,7 +10,7 @@ import {
   slugifyServerName,
   DEFAULT_PROFILE_NAME,
   type Profile,
-} from '../../settings.mcp.js';
+} from '../../settings/mcp.js';
 
 export { DEFAULT_PROFILE_NAME };
 

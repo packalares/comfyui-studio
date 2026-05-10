@@ -15,10 +15,10 @@
 // route maps to 400 (UNSUPPORTED_HOST) / 422 (RESOLVER_FAILED). No bare
 // strings, no "500 internal error" surprises.
 
-import * as catalog from '../catalog.js';
+import * as catalog from '../catalog/index.js';
 import { formatBytes } from '../../lib/format.js';
-import { resolveHuggingfaceUrl, type ResolvedModel } from '../models/resolveHuggingface.js';
-import { resolveCivitaiUrl } from '../models/resolveCivitai.js';
+import { resolveHuggingfaceUrl, type ResolvedModel } from '../models/resolvers.js';
+import { resolveCivitaiUrl } from '../models/resolvers.js';
 import { folderForLoaderClass } from '../workflow/loaderFolders.js';
 import { getStaging } from './importStaging.js';
 

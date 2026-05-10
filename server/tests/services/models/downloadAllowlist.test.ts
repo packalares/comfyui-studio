@@ -7,10 +7,10 @@
 //   - Private/loopback hosts are rejected even when on the allow-list.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import * as liveSettings from '../../../src/services/systemLauncher/liveSettings.js';
+import * as liveSettings from '../../../src/services/settings/network.js';
 import {
   isAllowedDownloadHost, validateAllowedUrl, urlEncodesFilename,
-} from '../../../src/services/models/downloadAllowlist.js';
+} from '../../../src/services/models/downloadUrl.js';
 
 describe('isAllowedDownloadHost', () => {
   beforeEach(() => { liveSettings.setModelTrustedHosts([]); });

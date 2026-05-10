@@ -23,10 +23,10 @@
 import { extractDeps, folderFromObjectInfoTooltip } from './depExtract.js';
 import { extractNodeTypes } from './depExtract.js';
 import { getObjectInfo } from '../workflow/objectInfo.js';
-import { resolveNodeTypes, type PluginResolution } from '../plugins/nodeMap.service.js';
-import { canonicalize, dedupKey } from '../plugins/canonicalId.js';
+import { resolveNodeTypes, type PluginResolution } from '../plugins/nodes.js';
+import { canonicalize, dedupKey } from '../plugins/nodes.js';
 
-export type { PluginResolution } from '../plugins/nodeMap.service.js';
+export type { PluginResolution } from '../plugins/nodes.js';
 
 export interface ExtractedDepsAsync {
   models: string[];

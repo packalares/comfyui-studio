@@ -370,6 +370,81 @@ export function listMessages(
   return rows.map(rowToMessage);
 }
 
+export interface ListMessagesPageOpts {
+  /** Maximum number of messages to return. Clamped to [1, 200]. Default 50. */
+  limit: number;
+  /** When set, return only messages with (created_at, id) strictly before the
+   *  message identified by this id. Acts as the scroll-back cursor. The cursor
+   *  message itself must belong to the same conversation — validated by the
+   *  caller (route layer). */
+  before?: string;
+}
+
+export interface ListMessagesPageResult {
+  items: ChatMessageRow[];
+  /** True when there are older messages beyond this page. */
+  hasMore: boolean;
+  /** The id of the oldest item in this page, to pass as `before=` on the next
+   *  request. Null when the page is empty. */
+  oldestId: string | null;
+}
+
+/**
+ * Cursor-based page of messages, newest-anchored and returned ASC.
+ *
+ * Sort key is (created_at, id) — matching the full-load `listMessages` order —
+ * because message ids are not guaranteed to be insertion-monotonic (they are
+ * random base-36 strings). We therefore cannot paginate by id alone.
+ *
+ * Strategy: fetch DESC with an optional (created_at, id) upper-bound derived
+ * from the `before` cursor message, request limit+1 rows to detect hasMore
+ * cheaply, drop the extra, then reverse to ASC for the caller.
+ */
+export function listMessagesPage(
+  conversationId: string,
+  opts: ListMessagesPageOpts,
+  db: Database.Database = getDb(),
+): ListMessagesPageResult {
+  const limit = Math.max(1, Math.min(200, opts.limit));
+
+  let rows: Record<string, unknown>[];
+  if (opts.before) {
+    // Resolve the cursor message to extract its (created_at, id) position.
+    const cursor = db.prepare(
+      'SELECT created_at, id FROM chat_messages WHERE id = ? AND conversation_id = ?',
+    ).get(opts.before, conversationId) as { created_at: number; id: string } | undefined;
+    if (!cursor) {
+      // Cursor not found in this conversation — return empty page rather than
+      // silently falling back to full load, which would confuse the client.
+      return { items: [], hasMore: false, oldestId: null };
+    }
+    rows = db.prepare(
+      `SELECT * FROM chat_messages
+       WHERE conversation_id = ?
+         AND (created_at < ? OR (created_at = ? AND id < ?))
+       ORDER BY created_at DESC, id DESC
+       LIMIT ?`,
+    ).all(conversationId, cursor.created_at, cursor.created_at, cursor.id, limit + 1) as Record<string, unknown>[];
+  } else {
+    rows = db.prepare(
+      `SELECT * FROM chat_messages
+       WHERE conversation_id = ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT ?`,
+    ).all(conversationId, limit + 1) as Record<string, unknown>[];
+  }
+
+  const hasMore = rows.length > limit;
+  if (hasMore) rows.pop(); // drop the sentinel row used to detect hasMore
+  rows.reverse(); // DESC → ASC so oldest message is first in the page
+  const items = rows.map(rowToMessage);
+  return {
+    items,
+    hasMore,
+    oldestId: items.length > 0 ? items[0].id : null,
+  };
+}
+
 export function updateMessageTelemetry(
   id: string, telemetry: ChatTelemetry, db: Database.Database = getDb(),
 ): boolean {

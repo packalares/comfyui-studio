@@ -5,8 +5,6 @@ import {
   Video,
   Music,
   Layers,
-  HardDrive,
-  Cpu,
   Cog,
   WifiOff,
   Settings,
@@ -24,13 +22,8 @@ import { Spinner } from '../components/ui/spinner';
 
 type ComfyUIProcessStatus = 'running' | 'stopped' | 'starting' | 'unknown';
 
-function formatBytes(bytes: number): string {
-  const gb = bytes / (1024 * 1024 * 1024);
-  return `${gb.toFixed(1)} GB`;
-}
-
 export default function Dashboard() {
-  const { systemStats, monitorStats, queueStatus, galleryTotal, connected, loading, launcherStatus } = useApp();
+  const { systemStats, queueStatus, galleryTotal, connected, loading, launcherStatus } = useApp();
   const navigate = useNavigate();
 
   const processStatus = useMemo<ComfyUIProcessStatus>(() => {
@@ -46,13 +39,6 @@ export default function Dashboard() {
       </div>
     );
   }
-
-  const gpu = systemStats && systemStats.devices.length > 0 ? systemStats.devices[0] : null;
-  // Only trust VRAM sampling after the first crystools.monitor WS tick.
-  // The initial /system GET can return vram_used==vram_total as a placeholder
-  // and would otherwise paint the bar 100% full until WS overwrites it.
-  const vramReady = !!gpu && gpu.vram_total > 0 && monitorStats != null;
-  const vramPct = vramReady ? (gpu!.vram_used / gpu!.vram_total) * 100 : 0;
 
   const hasInfoStrip = !!(launcherStatus && (
     launcherStatus.versions?.comfyui ||
@@ -117,44 +103,9 @@ export default function Dashboard() {
           </Card>
         )}
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-          {/* GPU */}
-          <Card className="p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="p-1.5 rounded-md bg-muted">
-                <Cpu className="w-3.5 h-3.5 text-muted-foreground" />
-              </div>
-              <h3 className="stat-label">GPU</h3>
-            </div>
-            {gpu ? (
-              <div>
-                <p className="text-sm font-medium text-foreground truncate" title={gpu.name}>{gpu.name}</p>
-                {vramReady && (
-                  <div className="mt-2">
-                    <div className="flex justify-between text-[11px] text-muted-foreground mb-1">
-                      <span>VRAM</span>
-                      <span>{formatBytes(gpu.vram_used)} / {formatBytes(gpu.vram_total)}</span>
-                    </div>
-                    <div className="progress-track">
-                      <div
-                        className={`h-full rounded-full transition-all ${
-                          vramPct > 90 ? 'bg-red-500' : vramPct > 70 ? 'bg-warning' : 'bg-brand'
-                        }`}
-                        style={{ width: `${vramPct}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <HardDrive className="w-3.5 h-3.5" />
-                <span>{connected ? 'No GPU detected' : 'Not connected'}</span>
-              </div>
-            )}
-          </Card>
-
+        {/* Stats Grid — GPU card moved to the sidebar footer (visible on
+            every page). The grid auto-reflows to 3 cards on lg. */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {/* Queue + Gallery combined */}
           <Card className="p-4">
             <div className="flex items-center gap-2 mb-3">

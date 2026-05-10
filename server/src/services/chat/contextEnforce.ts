@@ -21,9 +21,9 @@ import {
   applySlidingWindow, compactConversation,
 } from './contextCompact.js';
 import { emitChatEvent } from './broadcaster.js';
-import type { OllamaChatMessage } from './ollamaChat.js';
+import type { OllamaChatMessage } from './ollama.js';
 import * as repo from '../../lib/db/chat.repo.js';
-import * as settings from '../settings.js';
+import * as settings from '../settings/index.js';
 
 export interface EnforceContextArgs {
   conversationId: string;

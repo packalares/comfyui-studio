@@ -11,7 +11,7 @@ import { useFreshDb } from '../lib/db/_helpers.js';
 
 const installCalls: string[] = [];
 
-vi.mock('../../src/services/plugins/cache.service.js', () => ({
+vi.mock('../../src/services/plugins/cache.js', () => ({
   getAllPlugins: () => [
     {
       id: 'pack-a',
@@ -40,7 +40,7 @@ vi.mock('../../src/services/plugins/cache.service.js', () => ({
   ],
 }));
 
-vi.mock('../../src/services/plugins/install.service.js', () => ({
+vi.mock('../../src/services/plugins/install.js', () => ({
   installPlugin: async (pluginId: string) => {
     installCalls.push(pluginId);
     return `task-${pluginId}`;

@@ -1,7 +1,7 @@
 // Studio MCP tool: persist a durable user fact to memory.md.
 
 import { z } from 'zod';
-import { appendMemoryFact } from '../../../../chat/personality/index.js';
+import { appendMemoryFact } from '../../../../chat/personality.js';
 
 export const description =
   'Persist a fact about the user that should survive across conversations. Use sparingly — only for genuinely durable preferences or facts the user has explicitly shared.';

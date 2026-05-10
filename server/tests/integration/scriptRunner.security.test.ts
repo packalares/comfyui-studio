@@ -63,10 +63,10 @@ describe('runSkillScript — security policy', () => {
         'sneaky.sh': '#!/bin/bash\necho sneaky',  // present on disk but NOT in allowlist
       },
     );
-    const settingsMod = await import('../../src/services/settings.js');
+    const settingsMod = await import('../../src/services/settings/index.js');
     settingsMod.setChatEnableUserSkillScripts(true);
 
-    const { runSkillScript } = await import('../../src/services/chat/skills/scriptRunner.js');
+    const { runSkillScript } = await import('../../src/services/chat/skills.js');
     await expect(runSkillScript({ skillName: 'demo', scriptName: 'sneaky.sh' }))
       .rejects.toThrow(/not declared/);
   });
@@ -78,10 +78,10 @@ describe('runSkillScript — security policy', () => {
       '---\nname: demo\ndescription: Demo\nscripts:\n  - hi.sh\n---\n',
       { 'hi.sh': '#!/bin/bash\necho hello\necho err >&2\nexit 0\n' },
     );
-    const settingsMod = await import('../../src/services/settings.js');
+    const settingsMod = await import('../../src/services/settings/index.js');
     settingsMod.setChatEnableUserSkillScripts(true);
 
-    const { runSkillScript } = await import('../../src/services/chat/skills/scriptRunner.js');
+    const { runSkillScript } = await import('../../src/services/chat/skills.js');
     const r = await runSkillScript({ skillName: 'demo', scriptName: 'hi.sh' });
     expect(r.stdout.trim()).toBe('hello');
     expect(r.stderr.trim()).toBe('err');
@@ -99,7 +99,7 @@ describe('runSkillScript — security policy', () => {
       { 'hi.sh': '#!/bin/bash\necho hi\n' },
     );
     // Default — flag not set → blocked.
-    const { runSkillScript } = await import('../../src/services/chat/skills/scriptRunner.js');
+    const { runSkillScript } = await import('../../src/services/chat/skills.js');
     await expect(runSkillScript({ skillName: 'demo', scriptName: 'hi.sh' }))
       .rejects.toThrow(/User-dir skill scripts are disabled/);
   });
@@ -111,10 +111,10 @@ describe('runSkillScript — security policy', () => {
       '---\nname: demo\ndescription: Demo\nscripts:\n  - hi.sh\n---\n',
       { 'hi.sh': '#!/bin/bash\necho ok\n' },
     );
-    const settingsMod = await import('../../src/services/settings.js');
+    const settingsMod = await import('../../src/services/settings/index.js');
     settingsMod.setChatEnableUserSkillScripts(true);
 
-    const { runSkillScript } = await import('../../src/services/chat/skills/scriptRunner.js');
+    const { runSkillScript } = await import('../../src/services/chat/skills.js');
     const r = await runSkillScript({ skillName: 'demo', scriptName: 'hi.sh' });
     expect(r.stdout.trim()).toBe('ok');
   });
@@ -131,10 +131,10 @@ describe('runSkillScript — security policy', () => {
       '---\nname: demo\ndescription: Demo\nscripts:\n  - dump.sh\n---\n',
       { 'dump.sh': '#!/bin/bash\necho "secret=${STUDIO_FAKE_SECRET:-EMPTY}"\necho "configroot=${STUDIO_CONFIG_ROOT:-EMPTY}"\n' },
     );
-    const settingsMod = await import('../../src/services/settings.js');
+    const settingsMod = await import('../../src/services/settings/index.js');
     settingsMod.setChatEnableUserSkillScripts(true);
 
-    const { runSkillScript } = await import('../../src/services/chat/skills/scriptRunner.js');
+    const { runSkillScript } = await import('../../src/services/chat/skills.js');
     const r = await runSkillScript({ skillName: 'demo', scriptName: 'dump.sh' });
     delete process.env.STUDIO_FAKE_SECRET;
     expect(r.stdout).toContain('secret=EMPTY');
@@ -148,10 +148,10 @@ describe('runSkillScript — security policy', () => {
       '---\nname: demo\ndescription: Demo\nscripts:\n  - env.sh\n---\n',
       { 'env.sh': '#!/bin/bash\nenv | sort\n' },
     );
-    const settingsMod = await import('../../src/services/settings.js');
+    const settingsMod = await import('../../src/services/settings/index.js');
     settingsMod.setChatEnableUserSkillScripts(true);
 
-    const { runSkillScript } = await import('../../src/services/chat/skills/scriptRunner.js');
+    const { runSkillScript } = await import('../../src/services/chat/skills.js');
     const r = await runSkillScript({ skillName: 'demo', scriptName: 'env.sh' });
     const keys = r.stdout.split('\n').map(l => l.split('=')[0]).filter(Boolean);
     // Only the keys we explicitly seed should be present (plus shell's own
@@ -175,10 +175,10 @@ describe('runSkillScript — security policy', () => {
       '---\nname: demo\ndescription: Demo\nscripts:\n  - hi.sh\n---\n',
       { 'hi.sh': '#!/bin/bash\necho hi\n' },
     );
-    const settingsMod = await import('../../src/services/settings.js');
+    const settingsMod = await import('../../src/services/settings/index.js');
     settingsMod.setChatEnableUserSkillScripts(true);
 
-    const { runSkillScript } = await import('../../src/services/chat/skills/scriptRunner.js');
+    const { runSkillScript } = await import('../../src/services/chat/skills.js');
     // ../../etc/passwd, even URL-encoded variants, must be rejected by the
     // filename regex before any FS operation runs.
     await expect(runSkillScript({ skillName: 'demo', scriptName: '../../etc/passwd' }))
@@ -194,10 +194,10 @@ describe('runSkillScript — security policy', () => {
       '---\nname: demo\ndescription: Demo\nscripts:\n  - bad.exe\n---\n',
       { 'bad.exe': 'totally not bash' },
     );
-    const settingsMod = await import('../../src/services/settings.js');
+    const settingsMod = await import('../../src/services/settings/index.js');
     settingsMod.setChatEnableUserSkillScripts(true);
 
-    const { runSkillScript } = await import('../../src/services/chat/skills/scriptRunner.js');
+    const { runSkillScript } = await import('../../src/services/chat/skills.js');
     await expect(runSkillScript({ skillName: 'demo', scriptName: 'bad.exe' }))
       .rejects.toThrow(/Invalid script name/);
   });
@@ -215,10 +215,10 @@ describe('runSkillScript — security policy', () => {
       '---\nname: demo\ndescription: Demo\nscripts:\n  - quick.sh\n---\n',
       { 'quick.sh': '#!/bin/bash\nsleep 0.05; echo done\n' },
     );
-    const settingsMod = await import('../../src/services/settings.js');
+    const settingsMod = await import('../../src/services/settings/index.js');
     settingsMod.setChatEnableUserSkillScripts(true);
 
-    const { runSkillScript } = await import('../../src/services/chat/skills/scriptRunner.js');
+    const { runSkillScript } = await import('../../src/services/chat/skills.js');
     const r = await runSkillScript({ skillName: 'demo', scriptName: 'quick.sh' });
     expect(r.stdout.trim()).toBe('done');
   });
@@ -230,10 +230,10 @@ describe('runSkillScript — security policy', () => {
       '---\nname: demo\ndescription: Demo\nscripts:\n  - echo.sh\n---\n',
       { 'echo.sh': '#!/bin/bash\nread -r line\necho "got=$line"\n' },
     );
-    const settingsMod = await import('../../src/services/settings.js');
+    const settingsMod = await import('../../src/services/settings/index.js');
     settingsMod.setChatEnableUserSkillScripts(true);
 
-    const { runSkillScript } = await import('../../src/services/chat/skills/scriptRunner.js');
+    const { runSkillScript } = await import('../../src/services/chat/skills.js');
     const r = await runSkillScript({
       skillName: 'demo',
       scriptName: 'echo.sh',
@@ -245,10 +245,10 @@ describe('runSkillScript — security policy', () => {
   // ---------- skill not found ----------
 
   it('rejects when the skill itself does not exist', async () => {
-    const settingsMod = await import('../../src/services/settings.js');
+    const settingsMod = await import('../../src/services/settings/index.js');
     settingsMod.setChatEnableUserSkillScripts(true);
 
-    const { runSkillScript } = await import('../../src/services/chat/skills/scriptRunner.js');
+    const { runSkillScript } = await import('../../src/services/chat/skills.js');
     await expect(runSkillScript({ skillName: 'nonexistent', scriptName: 'x.sh' }))
       .rejects.toThrow(/Skill not found/);
   });

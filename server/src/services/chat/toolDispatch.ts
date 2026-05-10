@@ -8,8 +8,7 @@
 //   - we hit `maxSteps` (safety cap against runaway loops)
 //   - any unrecoverable error bubbles from `runStep`
 
-import type { OllamaChatMessage, OllamaFinalFrame } from './ollamaChat.js';
-import type { OllamaToolCall, OllamaToolDef } from './ollamaTools.js';
+import type { OllamaChatMessage, OllamaFinalFrame, OllamaToolCall, OllamaToolDef } from './ollama.js';
 import { template as renderPrompt } from './promptsLoader.js';
 
 /**

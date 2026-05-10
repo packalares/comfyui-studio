@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 import {
   Download, Trash2,
   Image as ImageIcon, Music, Sparkles,
-  AlertCircle,
+  AlertCircle, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import type { GalleryItem } from '../../types';
 import { api } from '../../services/comfyui';
@@ -33,10 +33,16 @@ interface Props {
   onDelete: () => void;
   /** Fired after a successful regenerate. The promptId is the fresh prompt. */
   onRegenerated?: (newPromptId: string) => void;
+  /** Lightbox navigation — when provided, renders chevron buttons over the
+   *  media viewer and binds Arrow Left / Right. The parent decides what
+   *  "previous" and "next" mean (typically: previous/next id in the
+   *  currently-filtered gallery list). */
+  onPrev?: () => void;
+  onNext?: () => void;
 }
 
 export default function GalleryDetailModal({
-  item, onClose, onDelete, onRegenerated,
+  item, onClose, onDelete, onRegenerated, onPrev, onNext,
 }: Props): JSX.Element {
   const { connected } = useApp();
   const [randomizeSeed, setRandomizeSeed] = useState<boolean>(false);
@@ -77,6 +83,23 @@ export default function GalleryDetailModal({
     : !connected
       ? 'ComfyUI is not connected'
       : '';
+
+  // Arrow-key navigation between gallery items. Skipped while
+  // regenerating so a stray keypress can't yank the user off the row mid
+  // operation. Bound on window so the keys still fire if focus is on the
+  // metadata text rather than a focusable button.
+  useEffect(() => {
+    if (regenerating) return;
+    if (!onPrev && !onNext) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement) return;
+      if (e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === 'ArrowLeft' && onPrev) { e.preventDefault(); onPrev(); }
+      else if (e.key === 'ArrowRight' && onNext) { e.preventDefault(); onNext(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('keydown', onKey); };
+  }, [onPrev, onNext, regenerating]);
 
   const handleRegenerate = useCallback(async () => {
     if (!canRegenerate || regenerating) return;
@@ -153,8 +176,33 @@ export default function GalleryDetailModal({
       }
     >
       <div className="space-y-4">
-        {/* Media viewer */}
-        <MediaViewer item={detail} />
+        {/* Media viewer with optional prev/next overlay buttons. Buttons
+            are absolute-positioned over the viewer's left/right edges and
+            rendered only when the parent supplied a handler — so at the
+            ends of the gallery the corresponding side hides automatically. */}
+        <div className="relative">
+          <MediaViewer item={detail} />
+          {onPrev && (
+            <button
+              type="button"
+              onClick={onPrev}
+              aria-label="Previous item"
+              className="absolute left-2 top-1/2 -translate-y-1/2 inline-flex h-9 w-9 items-center justify-center rounded-full border bg-card/80 backdrop-blur-sm text-foreground shadow-sm hover:bg-card cursor-pointer transition-colors"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+          )}
+          {onNext && (
+            <button
+              type="button"
+              onClick={onNext}
+              aria-label="Next item"
+              className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-9 w-9 items-center justify-center rounded-full border bg-card/80 backdrop-blur-sm text-foreground shadow-sm hover:bg-card cursor-pointer transition-colors"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          )}
+        </div>
 
         {/* Metadata grid */}
         <MetadataSection item={detail} />
@@ -295,28 +343,63 @@ function MetadataSection({ item }: { item: GalleryItem }): JSX.Element | null {
     );
   }
 
+  // Two layout buckets:
+  //  - Wide rows (Prompt, Negative prompt, multi-Models) render first as
+  //    title-less text blocks — the section header above already gives
+  //    them context, and prompt text is the main read so a label column
+  //    just steals visual weight.
+  //  - Compact rows (seed, sampler, steps, etc.) render in a 2-column
+  //    grid with label-above-value cells so short numeric fields don't
+  //    waste a full row each.
+  const wideRows = rows.filter((r) => r.multiline);
+  const compactRows = rows.filter((r) => !r.multiline);
+
   return (
     <div className="rounded-lg border bg-card">
       <div className="border-b px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         Generation details
       </div>
-      <dl className="divide-y divide-border">
-        {rows.map((r) => (
-          <div key={r.label} className="grid grid-cols-[140px_1fr] gap-2 px-3 py-2 text-xs">
-            <dt className="text-muted-foreground">{r.label}</dt>
-            <dd
+      {wideRows.length > 0 && (
+        <div className="divide-y divide-border">
+          {wideRows.map((r) => (
+            <div
+              key={r.label}
               className={
-                (r.mono ? 'font-mono ' : '') +
-                (r.multiline ? 'whitespace-pre-wrap break-words ' : 'truncate ') +
-                'text-foreground'
+                'px-3 py-2 text-xs text-foreground whitespace-pre-wrap break-words '
+                + (r.mono ? 'font-mono ' : '')
               }
               title={r.value ?? ''}
             >
               {r.value}
-            </dd>
-          </div>
-        ))}
-      </dl>
+            </div>
+          ))}
+        </div>
+      )}
+      {compactRows.length > 0 && (
+        <dl
+          className={
+            'grid grid-cols-2 gap-x-3 gap-y-2 px-3 py-2 text-xs '
+            + (wideRows.length > 0 ? 'border-t' : '')
+          }
+        >
+          {compactRows.map((r) => (
+            <div key={r.label} className="min-w-0">
+              <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                {r.label}
+              </dt>
+              <dd
+                className={
+                  'mt-0.5 truncate text-foreground '
+                  + (r.mono ? 'font-mono ' : '')
+                }
+                title={r.value ?? ''}
+              >
+                {r.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </div>
   );
 }

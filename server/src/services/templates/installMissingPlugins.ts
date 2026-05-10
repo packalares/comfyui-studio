@@ -14,15 +14,15 @@
 
 import { logger } from '../../lib/logger.js';
 import * as templateRepo from '../../lib/db/templates.repo.js';
-import * as pluginCache from '../plugins/cache.service.js';
-import * as pluginInstall from '../plugins/install.service.js';
-import type { CatalogPlugin } from '../plugins/cache.service.js';
+import * as pluginCache from '../plugins/cache.js';
+import * as pluginInstall from '../plugins/install.js';
+import type { CatalogPlugin } from '../plugins/cache.js';
 import type { TemplateRow } from '../../lib/db/templates.repo.js';
 import { getTemplate } from './templates.service.js';
 import { extractDeps } from './depExtract.js';
 import { extractDepsWithPluginResolution, resolutionsToRepoKeys } from './extractDepsAsync.js';
-import { isPluginInstalled, getInstalledPluginKeys } from '../plugins/installedKeys.js';
-import { canonicalize, dedupKey } from '../plugins/canonicalId.js';
+import { isPluginInstalled, getInstalledPluginKeys } from '../plugins/cache.js';
+import { canonicalize, dedupKey } from '../plugins/nodes.js';
 
 export interface InstallMissingResult {
   queued: Array<{ pluginId: string; taskId: string }>;

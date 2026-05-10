@@ -11,7 +11,7 @@ import {
   resolveNodeTypes,
   invalidate,
   _seedForTests,
-} from '../../../src/services/plugins/nodeMap.service.js';
+} from '../../../src/services/plugins/nodes.js';
 
 describe('nodeMap.service', () => {
   beforeEach(() => {

@@ -16,7 +16,7 @@ import { paths } from '../../config/paths.js';
 import { safeResolve } from '../fs.js';
 import { SCHEMA_SQL, SCHEMA_VERSION } from './schema.js';
 import { workflowHash } from '../workflowHash.js';
-import { extractMetadata, type ApiPrompt } from '../../services/gallery.extract.js';
+import { extractMetadata, type ApiPrompt } from '../../services/gallery/extract.js';
 
 type DB = Database.Database;
 

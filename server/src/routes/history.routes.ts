@@ -15,10 +15,10 @@
 // and surface a clear error instead of hanging at "Generating…".
 
 import { Router, type Request, type Response } from 'express';
-import * as comfyui from '../services/comfyui.js';
+import * as comfyui from '../services/comfyui/api.js';
 import { workflowHash, isFullCacheHit } from '../lib/workflowHash.js';
 import { findByWorkflowHash } from '../lib/db/gallery.repo.js';
-import { normalisePromptField } from '../services/gallery.rowBuilder.js';
+import { normalisePromptField } from '../services/gallery/index.js';
 
 const router = Router();
 

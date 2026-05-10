@@ -2,7 +2,7 @@
 //
 // Two visual variants:
 //   'pill'    — used in the Composer footer, matches the model-picker button style.
-//   'compact' — used in the ContextMeter popover next to other tweakables.
+//   'compact' — used inside <ContextSettings> next to the other tweakables.
 //
 // Reads souls + default-soul name from the shared system context (already
 // hydrated from /api/system at app boot); no per-instance fetching.

@@ -17,9 +17,9 @@
 // still runs and the worst-case is the original OOM, which is what we
 // already had before this orchestrator existed.
 
-import { isModelLoaded } from './ollamaPs.js';
-import { getOllamaUrl } from '../settings.js';
-import { getComfyUIUrl } from '../comfyui.js';
+import { isModelLoaded } from './ollama.js';
+import { getOllamaUrl } from '../settings/index.js';
+import { getComfyUIUrl } from '../comfyui/api.js';
 import { logger } from '../../lib/logger.js';
 import type { StudioTool } from './tools/defineTool.js';
 

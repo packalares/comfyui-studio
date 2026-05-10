@@ -11,7 +11,7 @@ import { commitStaging } from '../../../src/services/templates/importCommit.js';
 import {
   listUserWorkflows,
 } from '../../../src/services/templates/userTemplates.js';
-import * as catalog from '../../../src/services/catalog.js';
+import * as catalog from '../../../src/services/catalog/index.js';
 import { seedObjectInfoCache } from '../../../src/services/workflow/objectInfo.js';
 import { paths } from '../../../src/config/paths.js';
 

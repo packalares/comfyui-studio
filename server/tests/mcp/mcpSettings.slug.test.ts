@@ -33,19 +33,19 @@ afterEach(() => {
 
 describe('slugifyServerName', () => {
   it('lowercases and dashes non-alphanumerics', async () => {
-    const { slugifyServerName } = await import('../../src/services/settings.mcp.js');
+    const { slugifyServerName } = await import('../../src/services/settings/mcp.js');
     expect(slugifyServerName('Context 7')).toBe('context-7');
     expect(slugifyServerName('My Crawler!')).toBe('my-crawler');
     expect(slugifyServerName('   spaced   out   ')).toBe('spaced-out');
   });
 
   it('collapses runs of separators', async () => {
-    const { slugifyServerName } = await import('../../src/services/settings.mcp.js');
+    const { slugifyServerName } = await import('../../src/services/settings/mcp.js');
     expect(slugifyServerName('a---b___c')).toBe('a-b-c');
   });
 
   it('falls back to a UUID-derived stub for empty/non-alnum names', async () => {
-    const { slugifyServerName } = await import('../../src/services/settings.mcp.js');
+    const { slugifyServerName } = await import('../../src/services/settings/mcp.js');
     expect(slugifyServerName('!!!', 'abcd1234-ef56')).toBe('srv-abcd1234');
     expect(slugifyServerName('')).toBe('srv');
   });
@@ -55,7 +55,7 @@ describe('slugifyServerName', () => {
 
 describe('addMcpServer / updateMcpServer collision rejection', () => {
   it('rejects a second server whose name slugs identically', async () => {
-    const mod = await import('../../src/services/settings.mcp.js');
+    const mod = await import('../../src/services/settings/mcp.js');
     mod.addMcpServer({ name: 'Context 7', transport: 'http', url: 'http://x', enabled: true });
     expect(() =>
       mod.addMcpServer({ name: 'context-7', transport: 'http', url: 'http://y', enabled: true }),
@@ -63,7 +63,7 @@ describe('addMcpServer / updateMcpServer collision rejection', () => {
   });
 
   it('allows updating a server to a name that slugs to the same slug as before', async () => {
-    const mod = await import('../../src/services/settings.mcp.js');
+    const mod = await import('../../src/services/settings/mcp.js');
     const first = mod.addMcpServer({ name: 'Context 7', transport: 'http', url: 'http://x', enabled: true });
     // Renaming the SAME server with another name that slugs to 'context-7' is fine —
     // the only collision check filters out the server's own row.
@@ -71,7 +71,7 @@ describe('addMcpServer / updateMcpServer collision rejection', () => {
   });
 
   it('rejects rename that collides with another server', async () => {
-    const mod = await import('../../src/services/settings.mcp.js');
+    const mod = await import('../../src/services/settings/mcp.js');
     mod.addMcpServer({ name: 'Context 7', transport: 'http', url: 'http://x', enabled: true });
     const second = mod.addMcpServer({ name: 'Crawler', transport: 'http', url: 'http://y', enabled: true });
     expect(() => mod.updateMcpServer(second.id, { name: 'Context 7' })).toThrow(mod.McpSlugCollisionError);
@@ -82,11 +82,11 @@ describe('addMcpServer / updateMcpServer collision rejection', () => {
 
 describe('migrateEnabledMcpToolKeys', () => {
   it('rewrites mcp__<UUID>__<tool> to mcp__<slug>__<tool> when UUID matches a server', async () => {
-    const mod = await import('../../src/services/settings.mcp.js');
+    const mod = await import('../../src/services/settings/mcp.js');
     const server = mod.addMcpServer({ name: 'Context 7', transport: 'http', url: 'http://x', enabled: true });
 
     // Seed an old-shape entry directly in settings via the public toggle API.
-    const toolsMod = await import('../../src/services/settings.tools.js');
+    const toolsMod = await import('../../src/services/settings/tools.js');
     toolsMod.setEnabledMcpTools({
       [`mcp__${server.id}__resolve-library-id`]: true,
       [`mcp__${server.id}__get-library-docs`]: true,
@@ -104,10 +104,10 @@ describe('migrateEnabledMcpToolKeys', () => {
   });
 
   it('is idempotent — second run is a no-op', async () => {
-    const mod = await import('../../src/services/settings.mcp.js');
+    const mod = await import('../../src/services/settings/mcp.js');
     const server = mod.addMcpServer({ name: 'Context 7', transport: 'http', url: 'http://x', enabled: true });
 
-    const toolsMod = await import('../../src/services/settings.tools.js');
+    const toolsMod = await import('../../src/services/settings/tools.js');
     toolsMod.setEnabledMcpTools({ [`mcp__${server.id}__foo`]: true });
 
     expect(mod.migrateEnabledMcpToolKeys()).toBe(1);
@@ -115,8 +115,8 @@ describe('migrateEnabledMcpToolKeys', () => {
   });
 
   it('leaves orphaned UUID keys (no matching server) untouched', async () => {
-    const mod = await import('../../src/services/settings.mcp.js');
-    const toolsMod = await import('../../src/services/settings.tools.js');
+    const mod = await import('../../src/services/settings/mcp.js');
+    const toolsMod = await import('../../src/services/settings/tools.js');
     toolsMod.setEnabledMcpTools({
       'mcp__deadbeef-1234-5678-90ab-cdef00000000__some-tool': true,
     });
@@ -129,21 +129,21 @@ describe('migrateEnabledMcpToolKeys', () => {
 
 describe('addMcpServer / updateMcpServer mirror to default profile', () => {
   it('addMcpServer({ enabled: true }) grants `*` in the default profile', async () => {
-    const mod = await import('../../src/services/settings.mcp.js');
+    const mod = await import('../../src/services/settings/mcp.js');
     const s = mod.addMcpServer({ name: 'Context 7', transport: 'http', url: 'http://x', enabled: true });
     const profiles = mod.getMcpProfiles();
     expect(profiles['studio-chat-default']?.[s.id]).toBe('*');
   });
 
   it('addMcpServer({ enabled: false }) leaves the profile untouched', async () => {
-    const mod = await import('../../src/services/settings.mcp.js');
+    const mod = await import('../../src/services/settings/mcp.js');
     const s = mod.addMcpServer({ name: 'Crawl', transport: 'http', url: 'http://x', enabled: false });
     const profiles = mod.getMcpProfiles();
     expect(profiles['studio-chat-default']?.[s.id]).toBeUndefined();
   });
 
   it('toggling enabled false→true via updateMcpServer adds the profile entry', async () => {
-    const mod = await import('../../src/services/settings.mcp.js');
+    const mod = await import('../../src/services/settings/mcp.js');
     const s = mod.addMcpServer({ name: 'Tool', transport: 'http', url: 'http://x', enabled: false });
     expect(mod.getMcpProfiles()['studio-chat-default']?.[s.id]).toBeUndefined();
     mod.updateMcpServer(s.id, { enabled: true });
@@ -151,7 +151,7 @@ describe('addMcpServer / updateMcpServer mirror to default profile', () => {
   });
 
   it('toggling enabled true→false via updateMcpServer removes the profile entry', async () => {
-    const mod = await import('../../src/services/settings.mcp.js');
+    const mod = await import('../../src/services/settings/mcp.js');
     const s = mod.addMcpServer({ name: 'Tool', transport: 'http', url: 'http://x', enabled: true });
     expect(mod.getMcpProfiles()['studio-chat-default']?.[s.id]).toBe('*');
     mod.updateMcpServer(s.id, { enabled: false });
@@ -159,7 +159,7 @@ describe('addMcpServer / updateMcpServer mirror to default profile', () => {
   });
 
   it('removeMcpServer scrubs the deleted server from every named profile', async () => {
-    const mod = await import('../../src/services/settings.mcp.js');
+    const mod = await import('../../src/services/settings/mcp.js');
     const a = mod.addMcpServer({ name: 'A', transport: 'http', url: 'http://x', enabled: true });
     const b = mod.addMcpServer({ name: 'B', transport: 'http', url: 'http://y', enabled: true });
     // Curate a second profile that references both servers.
@@ -177,7 +177,7 @@ describe('addMcpServer / updateMcpServer mirror to default profile', () => {
 
 describe('migrateMcpProfilesFromEnabled', () => {
   it('grants `*` to every enabled server with no existing profile entry', async () => {
-    const mod = await import('../../src/services/settings.mcp.js');
+    const mod = await import('../../src/services/settings/mcp.js');
     // Seed servers WITHOUT going through addMcpServer, to simulate a pre-fix
     // settings file where no profile entries exist.
     mod.setMcpServers([
@@ -194,7 +194,7 @@ describe('migrateMcpProfilesFromEnabled', () => {
   });
 
   it('leaves hand-curated profile entries untouched', async () => {
-    const mod = await import('../../src/services/settings.mcp.js');
+    const mod = await import('../../src/services/settings/mcp.js');
     mod.setMcpServers([
       { id: 'srv-x', name: 'x', transport: 'http', url: 'http://x', enabled: true },
     ]);
@@ -204,7 +204,7 @@ describe('migrateMcpProfilesFromEnabled', () => {
   });
 
   it('is idempotent — second run is a no-op', async () => {
-    const mod = await import('../../src/services/settings.mcp.js');
+    const mod = await import('../../src/services/settings/mcp.js');
     mod.setMcpServers([
       { id: 'srv-y', name: 'y', transport: 'http', url: 'http://y', enabled: true },
     ]);

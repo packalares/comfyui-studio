@@ -1,29 +1,66 @@
-// Unified thumbnail dispatcher. Three entry points — URL mode, gallery DB
-// mode, and template-asset mode — all converge on a pipeline chosen by
-// file extension (URL/gallery) or fixed (template). Missing-source errors
-// are caught here and translated into a `transient` placeholder result so
-// the route layer can serve `Cache-Control: no-store` instead of 4xx.
+// Unified thumbnail dispatcher: extension mapping + entry points.
+// Three modes — URL, gallery DB, template — dispatch into a pipeline chosen
+// by file extension (URL/gallery) or fixed (template).
+// Types live in types.ts (leaf) to avoid a cycle back from the pipelines.
 
 import * as galleryRepo from '../../lib/db/gallery.repo.js';
 import { resolveViewPath } from '../../lib/viewPath.js';
 import { thumbnailForLocalImage, thumbnailForRemoteImage } from './pipelines/image.js';
 import { thumbnailForLocalVideo } from './pipelines/video.js';
-import { thumbnailForLocalAudio, thumbnailForRemoteAudio } from './pipelines/audio.js';
+import { thumbnailForLocalAudio, thumbnailForRemoteAudio, queryFromPrompt } from './pipelines/audio.js';
 import { inlineBoxSvg, thumbnailPlaceholder } from './pipelines/static.js';
-import { queryFromPrompt } from './pexels.js';
 import {
-  filenameFromUrl, filenameStem, pipelineForFilename,
-} from './extension.js';
-import { isThumbError, validateWidth } from './types.js';
-import type { ThumbError, ThumbResult } from './types.js';
+  isThumbError, validateWidth,
+} from './types.js';
+import type { ThumbResult, ThumbError, ThumbPipeline } from './types.js';
 
 export { thumbnailForTemplateAsset } from './pipelines/template.js';
+export * from './types.js';
 
-// Error codes that mean "we couldn't find or fetch the source bytes" — the
-// caller's upstream is missing or unreadable, but the request itself was
-// well-formed. These map to the placeholder fallback. Validation errors
-// (INVALID_WIDTH, INVALID_URL, HOST_NOT_ALLOWED, INVALID_PATH) and
-// pipeline errors (FFMPEG_FAILED) keep their existing 4xx/5xx behaviour.
+// ── Extension → pipeline mapping ─────────────────────────────────────────────
+
+const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif']);
+const VIDEO_EXTS = new Set(['mp4', 'webm', 'mov', 'mkv', 'avi', 'm4v']);
+const AUDIO_EXTS = new Set(['mp3', 'wav', 'flac', 'ogg', 'm4a', 'opus', 'aac']);
+const THREE_D_EXTS = new Set(['glb', 'gltf', 'usdz', 'obj']);
+
+export function extensionOf(filename: string): string {
+  const lastDot = filename.lastIndexOf('.');
+  if (lastDot < 0) return '';
+  return filename.slice(lastDot + 1).toLowerCase().split('?')[0].split('#')[0];
+}
+
+export function pipelineForFilename(filename: string): ThumbPipeline {
+  const ext = extensionOf(filename);
+  if (IMAGE_EXTS.has(ext)) return 'image';
+  if (VIDEO_EXTS.has(ext)) return 'video';
+  if (AUDIO_EXTS.has(ext)) return 'audio';
+  if (THREE_D_EXTS.has(ext)) return 'static3d';
+  return 'unknown';
+}
+
+/** Pull the last URL path segment (pre-query) for extension sniffing. */
+export function filenameFromUrl(rawUrl: string): string {
+  try {
+    const u = new URL(rawUrl);
+    const segs = u.pathname.split('/');
+    return segs[segs.length - 1] || '';
+  } catch {
+    return rawUrl.split('?')[0].split('#')[0].split('/').pop() ?? '';
+  }
+}
+
+/** `foo.mp3` -> `foo`. Used as the Pexels fallback query when no prompt text. */
+export function filenameStem(filename: string): string {
+  const lastDot = filename.lastIndexOf('.');
+  if (lastDot <= 0) return filename;
+  return filename.slice(0, lastDot);
+}
+
+// ── Dispatcher ───────────────────────────────────────────────────────────────
+
+// Error codes that mean "source is missing/unreadable" — map to placeholder.
+// Validation errors (INVALID_*) and pipeline-runtime errors keep 4xx/5xx.
 const PLACEHOLDER_CODES: ReadonlySet<string> = new Set([
   'NOT_FOUND',
   'DB_LOOKUP_FAILED',
@@ -46,9 +83,7 @@ export interface UrlModeArgs {
   width: number;
 }
 
-async function dispatchGalleryItem(
-  args: GalleryModeArgs,
-): Promise<ThumbResult> {
+async function dispatchGalleryItem(args: GalleryModeArgs): Promise<ThumbResult> {
   const width = validateWidth(args.width);
   let row;
   try { row = galleryRepo.getByIdFull(args.galleryId); }
@@ -76,9 +111,8 @@ async function dispatchGalleryItem(
 
 /**
  * Gallery-id mode. Loads the row, reconstructs the absolute path, dispatches.
- * Missing-source errors (deleted row, on-disk file gone, unsupported
- * extension, ffmpeg missing) collapse to the placeholder result so tile
- * grids degrade gracefully. Validation + pipeline-runtime errors propagate.
+ * Missing-source errors collapse to the placeholder. Validation + pipeline
+ * errors propagate.
  */
 export async function thumbnailForGalleryItem(
   args: GalleryModeArgs,
@@ -100,18 +134,13 @@ async function dispatchUrl(args: UrlModeArgs): Promise<ThumbResult> {
     return thumbnailForRemoteAudio(args.url, width, queryFromPrompt(filenameStem(filename)));
   }
   if (pipeline === 'static3d') return inlineBoxSvg();
-  if (pipeline === 'video') {
-    // Remote-video thumbnailing would require streaming the file to a tmp
-    // path + running ffmpeg on it; no caller needs that today.
-    throw { code: 'UNSUPPORTED_EXTENSION' } satisfies ThumbError;
-  }
+  // Remote-video and unknown extensions are unsupported in URL mode.
   throw { code: 'UNSUPPORTED_EXTENSION' } satisfies ThumbError;
 }
 
 /**
  * URL mode. No DB context — extension drives the pipeline. A 404 (or any
- * other UPSTREAM_FAILED) collapses to the placeholder. Validation errors
- * (HOST_NOT_ALLOWED, INVALID_WIDTH, INVALID_URL) keep their 400 status.
+ * UPSTREAM_FAILED) collapses to the placeholder. Validation errors keep 400.
  */
 export async function thumbnailForUrl(args: UrlModeArgs): Promise<ThumbResult> {
   try {

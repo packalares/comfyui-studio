@@ -1,7 +1,7 @@
 // Profile filtering correctness tests for snapshot().
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import type { Profile } from '../../src/services/settings.mcp.js';
+import type { Profile } from '../../src/services/settings/mcp.js';
 import type { StudioTool } from '../../src/services/chat/tools/defineTool.js';
 
 // ---- Minimal StudioTool stub -----------------------------------------------
@@ -37,7 +37,7 @@ const mockServers = [
   { id: 'server-b', name: 'server-b', transport: 'http' as const, url: 'y', enabled: true },
 ];
 
-vi.mock('../../src/services/settings.mcp.js', () => ({
+vi.mock('../../src/services/settings/mcp.js', () => ({
   getMcpProfiles: () => mockProfiles,
   // Server name == id in this fixture so slug(name) === id (the profile keys
   // and the tool-key slug share the same literal). Real installs use a UUID

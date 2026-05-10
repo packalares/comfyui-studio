@@ -1,7 +1,7 @@
 // Coverage for the lightweight TOML reader used by plugin metadata extraction.
 
 import { describe, expect, it } from 'vitest';
-import { parseMinimalToml } from '../../src/services/plugins/toml.minimal.js';
+import { parseMinimalToml } from '../../src/services/plugins/info.js';
 
 describe('parseMinimalToml', () => {
   it('parses pyproject-style project metadata', () => {

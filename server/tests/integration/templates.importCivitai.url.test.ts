@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import express from 'express';
 import type { AddressInfo } from 'net';
-import templatesImportCivitai from '../../src/routes/templates.importCivitai.js';
+import templatesImportCivitai from '../../src/routes/templates.import.js';
 
 function workflow(): Record<string, unknown> {
   return {

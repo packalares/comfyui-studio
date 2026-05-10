@@ -9,7 +9,7 @@
 // caller permanently skips retrying within this staging op.
 
 import { env } from '../../config/env.js';
-import { resolveHuggingfaceUrl, type ResolvedModel } from '../models/resolveHuggingface.js';
+import { resolveHuggingfaceUrl, type ResolvedModel } from '../models/resolvers.js';
 
 const MAX_REPOS_PER_SEARCH = 3;
 const SEARCH_LIMIT = 10;

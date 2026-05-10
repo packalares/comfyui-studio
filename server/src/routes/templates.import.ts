@@ -1,8 +1,15 @@
-// Import routes (Phase 1 MVP):
-//   POST   /templates/import/upload           (multipart .json | .zip)
-//   POST   /templates/import/staging/:id/commit
-//   POST   /templates/import/staging/:id/resolve-model
+// Template import routes — all import sources in one file:
+//   POST /templates/import/upload            (multipart .json | .zip)
+//   POST /templates/import/staging/:id/commit
+//   POST /templates/import/staging/:id/resolve-model
 //   DELETE /templates/import/staging/:id
+//   POST /templates/import/civitai           (URL-based)
+//   POST /templates/import/github
+//   POST /templates/import/paste
+//
+// Legacy versionId-based handler `handleImportCivitai` and `handleDeleteTemplate`
+// are exported for `templates.routes.ts` (POST /templates/import-civitai,
+// DELETE /templates/:name).
 
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import multer from 'multer';
@@ -10,10 +17,18 @@ import * as templates from '../services/templates/index.js';
 import { resolveModelForStaging, ResolverError } from '../services/templates/commitOverrides.js';
 import { CommitBlockedError } from '../services/templates/importCommit.js';
 import { WorkflowNameCollisionError } from '../services/templates/errors.js';
+import { ImportCivitaiError } from '../services/templates/importCivitaiTemplate.js';
+import * as settings from '../services/settings/index.js';
+import * as civitai from '../services/civitai/civitai.service.js';
+import { fetchWithRetry, getCivitaiAuthHeaders } from '../lib/http.js';
+import { hostIsPrivate } from '../lib/security.js';
 import { sendError } from '../middleware/errors.js';
+import { rateLimit } from '../middleware/rateLimit.js';
 import { logger } from '../lib/logger.js';
+import { env } from '../config/env.js';
 
 const UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
+const ZIP_MAX_BYTES = 20 * 1024 * 1024;
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -21,6 +36,8 @@ const upload = multer({
 });
 
 const router = Router();
+
+// ---- Upload (multipart .json | .zip) ----
 
 function looksLikeZipMime(mime: string, name: string): boolean {
   if (!mime && !name) return false;
@@ -35,8 +52,7 @@ function looksLikeJsonMime(mime: string, name: string): boolean {
   return false;
 }
 
-// Wire shape: `{ "0": "title" }`. Parse keys back to ints, drop non-string
-// values so a malformed body can't smuggle junk into the slug helper.
+// Wire shape: `{ "0": "title" }`. Parse keys back to ints, drop non-string values.
 function parseTitleOverrides(raw: unknown): Record<number, string> {
   const out: Record<number, string> = {};
   if (!raw || typeof raw !== 'object') return out;
@@ -86,9 +102,7 @@ const handleUpload: RequestHandler = async (req, res) => {
         res.status(400).json({ error: 'JSON is not a LiteGraph workflow or TemplateData wrapper.' });
         return;
       }
-      // Wrapper defaults spread last so explicit author metadata wins over
-      // the filename-derived fallback. Route opts still own source /
-      // entryName since the wrapper never produces those keys.
+      // Wrapper defaults spread last so explicit author metadata wins.
       const staged = await templates.stageFromJson(extracted.workflow, {
         source: 'upload', entryName: name,
         defaultTitle: name.replace(/\.json$/i, ''),
@@ -133,7 +147,7 @@ const handleCommit: RequestHandler = async (req, res) => {
       workflowIndices: indices, imagesCopy, titleOverrides,
     });
     try { await templates.refreshTemplates(); }
-    catch { /* best effort; the UI will still show the new rows after the next GET */ }
+    catch { /* best effort; UI will show new rows after next GET */ }
     res.json(result);
   } catch (err) {
     if (err instanceof CommitBlockedError) {
@@ -207,9 +221,324 @@ const handleAbort: RequestHandler = (req, res) => {
   res.json({ aborted: true, id });
 };
 
+// ---- CivitAI URL-based import ----
+
+// 10 req/min — matches GitHub endpoint pattern.
+const civitaiImportLimiter = rateLimit({ windowMs: 60_000, max: 10 });
+
+function mapImportCivitaiError(err: unknown): { status: number; body: { error: string; code?: string } } {
+  if (err instanceof ImportCivitaiError) {
+    switch (err.code) {
+      case 'UNSUPPORTED_URL':
+        return { status: 400, body: { error: err.message, code: err.code } };
+      case 'NO_WORKFLOW_FOUND':
+        return { status: 422, body: { error: err.message, code: err.code } };
+      case 'UPSTREAM_NOT_FOUND':
+        return { status: 404, body: { error: err.message, code: err.code } };
+      case 'PAYLOAD_TOO_LARGE':
+        return { status: 413, body: { error: err.message, code: err.code } };
+      case 'UPSTREAM_FAILURE':
+      default:
+        return { status: 502, body: { error: err.message, code: err.code } };
+    }
+  }
+  const msg = err instanceof Error ? err.message : String(err);
+  return { status: 500, body: { error: msg } };
+}
+
+const handleImportCivitaiByUrl: RequestHandler = async (req, res) => {
+  try {
+    const body = (req.body || {}) as { url?: unknown };
+    const url = typeof body.url === 'string' ? body.url.trim() : '';
+    if (!url) {
+      res.status(400).json({ error: 'url is required' });
+      return;
+    }
+    const staged = await templates.stageFromCivitaiUrl(url);
+    res.json(templates.toManifest(staged));
+  } catch (err) {
+    logger.warn('templates.import.civitai failed', { error: String(err) });
+    const mapped = mapImportCivitaiError(err);
+    if (mapped.status >= 500) {
+      sendError(res, err, mapped.status, 'Import from CivitAI failed');
+      return;
+    }
+    res.status(mapped.status).json(mapped.body);
+  }
+};
+
+// ---- CivitAI legacy (versionId-based) ----
+// Called by CivitaiTemplateCard via POST /templates/import-civitai.
+
+async function fetchRemoteBytes(
+  url: string,
+  maxBytes: number,
+  extraHeaders: Record<string, string>,
+): Promise<ArrayBuffer> {
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), 30_000);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal, headers: extraHeaders });
+    if (!res.ok) throw new Error(`upstream ${res.status} ${res.statusText}`);
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength > maxBytes) {
+      throw new Error(`payload too large: ${buf.byteLength} > ${maxBytes}`);
+    }
+    return buf;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** Pull thumbnail, tags, and description from /models/:id. Silent on failure. */
+async function fetchModelExtras(
+  modelId: number | null,
+  versionId: string,
+): Promise<{ thumbnail?: string; tags: string[]; description?: string }> {
+  if (!modelId) return { tags: [] };
+  try {
+    const raw = (await civitai.getModelDetails(String(modelId))) as {
+      description?: string | null;
+      tags?: unknown;
+      modelVersions?: Array<{ id?: number; images?: Array<{ url?: string; type?: string }> }>;
+    };
+    const versions = Array.isArray(raw.modelVersions) ? raw.modelVersions : [];
+    const match = versions.find((v) => String(v.id) === versionId) ?? versions[0];
+    const images = Array.isArray(match?.images) ? match.images : [];
+    const firstImage = images.find((i) => i && (i.type === 'image' || !i.type) && typeof i.url === 'string');
+    const rawTags = Array.isArray(raw.tags) ? raw.tags : [];
+    const tags: string[] = [];
+    for (const t of rawTags) {
+      if (typeof t === 'string' && t.trim()) tags.push(t.trim());
+      else if (t && typeof t === 'object') {
+        const n = (t as { name?: unknown }).name;
+        if (typeof n === 'string' && n.trim()) tags.push(n.trim());
+      }
+    }
+    const desc = typeof raw.description === 'string' ? raw.description.trim() : '';
+    return {
+      thumbnail: firstImage?.url,
+      tags,
+      description: desc.length > 0 ? (desc.length > 2000 ? `${desc.slice(0, 2000)}…` : desc) : undefined,
+    };
+  } catch {
+    return { tags: [] };
+  }
+}
+
+/**
+ * Legacy versionId-based import. Resolves version → fetches primary file →
+ * stages (JSON single-workflow via stageFromJson, ZIP multi via stageFromZip).
+ * Always returns a staged manifest so the Explore card opens the review modal.
+ */
+export async function handleImportCivitai(req: Request, res: Response): Promise<void> {
+  try {
+    const b = (req.body || {}) as { workflowVersionId?: string | number };
+    const versionId = b.workflowVersionId != null ? String(b.workflowVersionId) : '';
+    if (!versionId) {
+      res.status(400).json({ error: 'workflowVersionId is required' });
+      return;
+    }
+
+    const meta = await civitai.getWorkflowVersionFile(versionId);
+    const civitaiToken = settings.getCivitaiToken();
+    const authHeaders = getCivitaiAuthHeaders(meta.downloadUrl, civitaiToken);
+    const extras = await fetchModelExtras(meta.modelId, versionId);
+    const sourceUrl = `https://civitai.com/models/${meta.modelId ?? ''}?modelVersionId=${versionId}`;
+    const defaultTitle = meta.modelName || `CivitAI Workflow ${versionId}`;
+    const defaultDescription = extras.description
+      ?? `Imported from civitai.com (model version ${versionId}).`;
+    const civitaiMeta = meta.modelId != null
+      ? {
+        modelId: meta.modelId,
+        tags: extras.tags.length > 0 ? extras.tags : undefined,
+        description: extras.description,
+        originalUrl: sourceUrl,
+      }
+      : undefined;
+
+    let staged;
+    if (meta.isJsonFile) {
+      const fetched = await fetchWithRetry(meta.downloadUrl, {
+        attempts: 3,
+        baseDelayMs: 500,
+        timeoutMs: 30_000,
+        maxBytes: env.CIVITAI_MAX_RESPONSE_BYTES,
+        headers: { Accept: 'application/json', ...authHeaders },
+      });
+      let parsed: unknown;
+      try { parsed = JSON.parse(fetched.text); }
+      catch (err) {
+        res.status(400).json({
+          error: `Workflow file was not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+        });
+        return;
+      }
+      const extracted = templates.extractLitegraph(parsed);
+      if (!extracted) {
+        res.status(400).json({
+          error: 'Workflow JSON is not a LiteGraph workflow or TemplateData wrapper.',
+        });
+        return;
+      }
+      // civitai's API metadata is more authoritative than anything in the JSON wrapper.
+      staged = await templates.stageFromJson(extracted.workflow, {
+        ...extracted.defaults,
+        source: 'civitai',
+        sourceUrl,
+        entryName: meta.fileName,
+        defaultTitle,
+        defaultDescription,
+        defaultTags: extras.tags.length > 0 ? extras.tags : undefined,
+        defaultThumbnail: extras.thumbnail,
+      });
+    } else {
+      const isZip = meta.type === 'Archive' || /\.zip$/i.test(meta.fileName ?? '');
+      if (!isZip) {
+        res.status(415).json({
+          error: 'Unsupported workflow file type.',
+          fileName: meta.fileName,
+          type: meta.type,
+        });
+        return;
+      }
+      let zipBytes: ArrayBuffer;
+      try {
+        zipBytes = await fetchRemoteBytes(meta.downloadUrl, ZIP_MAX_BYTES, {
+          Accept: 'application/octet-stream',
+          ...authHeaders,
+        });
+      } catch (err) {
+        res.status(502).json({
+          error: `Failed to download zip: ${err instanceof Error ? err.message : String(err)}`,
+          fileName: meta.fileName,
+        });
+        return;
+      }
+      try {
+        staged = await templates.stageFromZip(zipBytes, {
+          source: 'civitai',
+          sourceUrl,
+          defaultTitle,
+          defaultDescription,
+          defaultTags: extras.tags.length > 0 ? extras.tags : undefined,
+          defaultThumbnail: extras.thumbnail,
+        });
+      } catch (err) {
+        res.status(400).json({
+          error: `Zip archive could not be opened: ${err instanceof Error ? err.message : String(err)}`,
+          fileName: meta.fileName,
+        });
+        return;
+      }
+      if (staged.workflows.length === 0) {
+        res.status(415).json({
+          error: 'No LiteGraph workflow JSON found inside the zip.',
+          fileName: meta.fileName,
+        });
+        return;
+      }
+    }
+
+    if (civitaiMeta) staged.civitaiMeta = civitaiMeta;
+    res.json({ staged: true, manifest: templates.toManifest(staged) });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/Missing workflow version ID|not valid JSON|no top-level|nodes array|TemplateData wrapper/.test(msg)) {
+      res.status(400).json({ error: msg });
+      return;
+    }
+    sendError(res, err, 502, 'Workflow import failed');
+  }
+}
+
+/** DELETE /templates/:name — removes a user-imported workflow. */
+export function handleDeleteTemplate(req: Request, res: Response): void {
+  const name = req.params.name as string;
+  if (!templates.isUserWorkflow(name)) {
+    res.status(403).json({ error: 'Only user-imported templates can be deleted' });
+    return;
+  }
+  const removed = templates.deleteUserWorkflow(name);
+  if (!removed) {
+    res.status(404).json({ error: `Template not found: ${name}` });
+    return;
+  }
+  templates.loadTemplatesFromComfyUI(env.COMFYUI_URL).catch(() => { /* best effort */ });
+  res.json({ deleted: true, name });
+}
+
+// ---- GitHub + paste-JSON ----
+
+// 10 req/min — GitHub touches upstream.
+const githubImportLimiter = rateLimit({ windowMs: 60_000, max: 10 });
+// Paste is CPU-only locally; looser budget.
+const pasteImportLimiter = rateLimit({ windowMs: 60_000, max: 30 });
+
+function classifyStagingError(err: unknown): { status: number; error: string } {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/Invalid URL|Host not allowed|Unsupported scheme|private\/loopback|Unrecognised GitHub URL/.test(msg)) {
+    return { status: 400, error: msg };
+  }
+  if (/payload too large|not valid JSON|no top-level|LiteGraph|too many entries|zip exceeds|Unsupported content-type|must be a string|No workflow JSON files|All repository candidate files/.test(msg)) {
+    return { status: 400, error: msg };
+  }
+  if (/upstream \d{3}|github listing \d{3}|failed/i.test(msg)) {
+    return { status: 502, error: msg };
+  }
+  return { status: 500, error: msg };
+}
+
+const handleGithub: RequestHandler = async (req, res) => {
+  try {
+    const body = (req.body || {}) as { url?: unknown };
+    const url = typeof body.url === 'string' ? body.url.trim() : '';
+    if (!url) { res.status(400).json({ error: 'url is required' }); return; }
+    // Fast 400 before the service URL parser.
+    if (hostIsPrivate(url)) {
+      res.status(400).json({ error: 'Host resolves to a private/loopback range' });
+      return;
+    }
+    const staged = await templates.stageFromRemoteUrl(url);
+    res.json(templates.toManifest(staged));
+  } catch (err) {
+    logger.warn('templates.import.github failed', { error: String(err) });
+    const mapped = classifyStagingError(err);
+    if (mapped.status >= 500) {
+      sendError(res, err, mapped.status, 'Import from GitHub failed');
+      return;
+    }
+    res.status(mapped.status).json({ error: mapped.error });
+  }
+};
+
+const handlePaste: RequestHandler = async (req, res) => {
+  try {
+    const body = (req.body || {}) as { json?: unknown; title?: unknown };
+    const json = typeof body.json === 'string' ? body.json : '';
+    if (!json) { res.status(400).json({ error: 'json is required' }); return; }
+    const title = typeof body.title === 'string' ? body.title : undefined;
+    const staged = await templates.stageFromPastedJson(json, { title });
+    res.json(templates.toManifest(staged));
+  } catch (err) {
+    logger.warn('templates.import.paste failed', { error: String(err) });
+    const mapped = classifyStagingError(err);
+    if (mapped.status >= 500) {
+      sendError(res, err, mapped.status, 'Import from paste failed');
+      return;
+    }
+    res.status(mapped.status).json({ error: mapped.error });
+  }
+};
+
+// ---- Routes ----
+
 router.post('/templates/import/upload', upload.single('file'), handleUpload);
 router.post('/templates/import/staging/:id/commit', handleCommit);
 router.post('/templates/import/staging/:id/resolve-model', handleResolveModel);
 router.delete('/templates/import/staging/:id', handleAbort);
+router.post('/templates/import/civitai', civitaiImportLimiter, handleImportCivitaiByUrl);
+router.post('/templates/import/github', githubImportLimiter, handleGithub);
+router.post('/templates/import/paste', pasteImportLimiter, handlePaste);
 
 export default router;

@@ -140,14 +140,14 @@ describe('expandCommand', () => {
   afterEach(() => { fixture.cleanup(); });
 
   it('substitutes $ARGUMENTS with provided args', async () => {
-    const { expandCommand } = await import('../../src/services/chat/commands/registry.js');
+    const { expandCommand } = await import('../../src/services/chat/commands.js');
     const result = expandCommand('improve-prompt', 'cyberpunk girl');
     expect(result).toContain('cyberpunk girl');
     expect(result).not.toContain('$ARGUMENTS');
   });
 
   it('substitutes $ARGUMENTS with empty string when no args', async () => {
-    const { expandCommand } = await import('../../src/services/chat/commands/registry.js');
+    const { expandCommand } = await import('../../src/services/chat/commands.js');
     const result = expandCommand('improve-prompt', '');
     expect(result).not.toContain('$ARGUMENTS');
     // The placeholder becomes empty; the body before/after it remains.
@@ -155,7 +155,7 @@ describe('expandCommand', () => {
   });
 
   it('throws for unknown command', async () => {
-    const { expandCommand } = await import('../../src/services/chat/commands/registry.js');
+    const { expandCommand } = await import('../../src/services/chat/commands.js');
     expect(() => expandCommand('nonexistent', 'foo')).toThrow('Unknown command');
   });
 });
@@ -164,7 +164,7 @@ describe('expandCommand', () => {
 
 describe('detectSlashCommand', () => {
   it('detects /foo', async () => {
-    const { detectSlashCommand } = await import('../../src/services/chat/commands/parser.js');
+    const { detectSlashCommand } = await import('../../src/services/chat/commands.js');
     const r = detectSlashCommand('/foo');
     expect(r).not.toBeNull();
     expect(r!.name).toBe('foo');
@@ -172,7 +172,7 @@ describe('detectSlashCommand', () => {
   });
 
   it('detects /foo bar baz', async () => {
-    const { detectSlashCommand } = await import('../../src/services/chat/commands/parser.js');
+    const { detectSlashCommand } = await import('../../src/services/chat/commands.js');
     const r = detectSlashCommand('/foo bar baz');
     expect(r).not.toBeNull();
     expect(r!.name).toBe('foo');
@@ -180,7 +180,7 @@ describe('detectSlashCommand', () => {
   });
 
   it('detects /foo  multiple   spaces — args trimmed left, not compressed', async () => {
-    const { detectSlashCommand } = await import('../../src/services/chat/commands/parser.js');
+    const { detectSlashCommand } = await import('../../src/services/chat/commands.js');
     const r = detectSlashCommand('/foo  multiple   spaces');
     expect(r).not.toBeNull();
     expect(r!.name).toBe('foo');
@@ -189,18 +189,18 @@ describe('detectSlashCommand', () => {
   });
 
   it('rejects " /not-leading" (leading whitespace)', async () => {
-    const { detectSlashCommand } = await import('../../src/services/chat/commands/parser.js');
+    const { detectSlashCommand } = await import('../../src/services/chat/commands.js');
     const r = detectSlashCommand(' /not-leading');
     expect(r).toBeNull();
   });
 
   it('rejects "not slash"', async () => {
-    const { detectSlashCommand } = await import('../../src/services/chat/commands/parser.js');
+    const { detectSlashCommand } = await import('../../src/services/chat/commands.js');
     expect(detectSlashCommand('not slash')).toBeNull();
   });
 
   it('detects /command-with-hyphens', async () => {
-    const { detectSlashCommand } = await import('../../src/services/chat/commands/parser.js');
+    const { detectSlashCommand } = await import('../../src/services/chat/commands.js');
     const r = detectSlashCommand('/improve-prompt a nice scene');
     expect(r).not.toBeNull();
     expect(r!.name).toBe('improve-prompt');
@@ -221,7 +221,7 @@ describe('streamChat expandLatestSlashCommand integration', () => {
     // Since expandLatestSlashCommand is not exported, we verify the behaviour
     // through the getSkillBody / expandCommand route: the bundled improve-prompt
     // seed exists and expandCommand substitutes correctly.
-    const { expandCommand } = await import('../../src/services/chat/commands/registry.js');
+    const { expandCommand } = await import('../../src/services/chat/commands.js');
     const expanded = expandCommand('improve-prompt', 'a red barn at sunset');
     // Must contain the substituted args.
     expect(expanded).toContain('a red barn at sunset');
@@ -232,12 +232,12 @@ describe('streamChat expandLatestSlashCommand integration', () => {
   });
 
   it('unknown command: throws with "Unknown command" message', async () => {
-    const { expandCommand } = await import('../../src/services/chat/commands/registry.js');
+    const { expandCommand } = await import('../../src/services/chat/commands.js');
     expect(() => expandCommand('does-not-exist', 'some args')).toThrow('Unknown command');
   });
 
   it('detectSlashCommand rejects messages that are not slash commands', async () => {
-    const { detectSlashCommand } = await import('../../src/services/chat/commands/parser.js');
+    const { detectSlashCommand } = await import('../../src/services/chat/commands.js');
     expect(detectSlashCommand('hello world')).toBeNull();
     expect(detectSlashCommand('')).toBeNull();
     expect(detectSlashCommand('/ not-valid')).toBeNull();

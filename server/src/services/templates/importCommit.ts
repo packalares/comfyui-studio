@@ -10,7 +10,7 @@ import { safeResolve } from '../../lib/fs.js';
 import { logger } from '../../lib/logger.js';
 import { extractDeps } from './depExtract.js';
 import { resolutionsToRepoKeys } from './extractDepsAsync.js';
-import { canonicalize, dedupKey } from '../plugins/canonicalId.js';
+import { canonicalize, dedupKey } from '../plugins/nodes.js';
 import { extractWorkflowIo, deriveMediaType, mediaTypeToStudioCategory } from './metadata.js';
 import fsPath from 'path';
 import { paths } from '../../config/paths.js';

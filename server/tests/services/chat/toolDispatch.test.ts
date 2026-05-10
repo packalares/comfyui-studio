@@ -7,8 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { runToolDispatch } from '../../../src/services/chat/toolDispatch.js';
-import type { OllamaToolCall, OllamaToolDef } from '../../../src/services/chat/ollamaTools.js';
-import type { OllamaChatMessage } from '../../../src/services/chat/ollamaChat.js';
+import type { OllamaToolCall, OllamaToolDef, OllamaChatMessage } from '../../../src/services/chat/ollama.js';
 
 describe('runToolDispatch', () => {
   it('awaits onBeforeTool before executeToolCall on each tool dispatch', async () => {

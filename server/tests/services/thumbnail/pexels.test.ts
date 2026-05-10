@@ -36,14 +36,14 @@ describe('thumbnail pexels helper', () => {
   });
 
   it('queryFromPrompt trims + caps at 50 chars', async () => {
-    const { queryFromPrompt } = await import('../../../src/services/thumbnail/pexels.js');
+    const { queryFromPrompt } = await import('../../../src/services/thumbnail/pipelines/audio.js');
     expect(queryFromPrompt('')).toBe('');
     expect(queryFromPrompt('  hello   world  ')).toBe('hello world');
     expect(queryFromPrompt('x'.repeat(100)).length).toBe(50);
   });
 
   it('returns null when no Pexels API key is configured', async () => {
-    const { findPexelsImageUrl } = await import('../../../src/services/thumbnail/pexels.js');
+    const { findPexelsImageUrl } = await import('../../../src/services/thumbnail/pipelines/audio.js');
     expect(await findPexelsImageUrl('cats')).toBeNull();
   });
 
@@ -56,11 +56,11 @@ describe('thumbnail pexels helper', () => {
       }), { status: 200 });
     }) as typeof fetch;
 
-    const settings = await import('../../../src/services/settings.js');
+    const settings = await import('../../../src/services/settings/index.js');
     settings.setPexelsApiKey('test-key');
 
     const { findPexelsImageUrl, __resetPexelsCacheForTests } =
-      await import('../../../src/services/thumbnail/pexels.js');
+      await import('../../../src/services/thumbnail/pipelines/audio.js');
     __resetPexelsCacheForTests();
 
     const first = await findPexelsImageUrl('cats');
@@ -74,11 +74,11 @@ describe('thumbnail pexels helper', () => {
       new Response(JSON.stringify({ photos: [] }), { status: 200 })
     ) as typeof fetch;
 
-    const settings = await import('../../../src/services/settings.js');
+    const settings = await import('../../../src/services/settings/index.js');
     settings.setPexelsApiKey('test-key');
 
     const { findPexelsImageUrl, __resetPexelsCacheForTests } =
-      await import('../../../src/services/thumbnail/pexels.js');
+      await import('../../../src/services/thumbnail/pipelines/audio.js');
     __resetPexelsCacheForTests();
 
     expect(await findPexelsImageUrl('no-hits-query')).toBeNull();

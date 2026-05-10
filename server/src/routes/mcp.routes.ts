@@ -13,7 +13,7 @@ import type { Request, Response } from 'express';
 import { timingSafeEqual } from 'crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createStudioMcpServer } from '../services/mcp/server/index.js';
-import { getStudioMcpToken } from '../services/settings.mcp.js';
+import { getStudioMcpToken } from '../services/settings/mcp.js';
 import { logger } from '../lib/logger.js';
 
 const router = Router();

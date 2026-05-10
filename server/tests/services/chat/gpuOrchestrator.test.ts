@@ -4,8 +4,8 @@
 //
 // Mocks in this file:
 //   - `services/settings.js` → `getOllamaUrl()` returns a per-test value.
-//   - `services/comfyui.js` → `getComfyUIUrl()` returns a per-test value.
-//   - `services/chat/ollamaPs.js` → `isModelLoaded()` returns a per-test value.
+//   - `services/comfyui/api.js` → `getComfyUIUrl()` returns a per-test value.
+//   - `services/chat/ollama.js` → `isModelLoaded()` returns a per-test value.
 //   - global `fetch` for the unload POST.
 
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
@@ -14,13 +14,13 @@ let ollamaUrl = 'http://localhost:11434';
 let comfyUrl = 'http://localhost:8188';
 let modelLoadedReturn: boolean | null = true;
 
-vi.mock('../../../src/services/settings.js', () => ({
+vi.mock('../../../src/services/settings/index.js', () => ({
   getOllamaUrl: () => ollamaUrl,
 }));
-vi.mock('../../../src/services/comfyui.js', () => ({
+vi.mock('../../../src/services/comfyui/api.js', () => ({
   getComfyUIUrl: () => comfyUrl,
 }));
-vi.mock('../../../src/services/chat/ollamaPs.js', () => ({
+vi.mock('../../../src/services/chat/ollama.js', () => ({
   isModelLoaded: vi.fn(async () => modelLoadedReturn),
 }));
 

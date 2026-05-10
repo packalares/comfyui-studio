@@ -1,7 +1,7 @@
 // Studio MCP tool: poll status of a submitted generation job.
 
 import { z } from 'zod';
-import { getQueuePromptIds, getHistoryForPrompt } from '../../../../comfyui.js';
+import { getQueuePromptIds, getHistoryForPrompt } from '../../../../comfyui/api.js';
 import * as galleryRepo from '../../../../../lib/db/gallery.repo.js';
 
 export const description =

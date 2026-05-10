@@ -1,14 +1,11 @@
-// Composer redesigned to match ChatGPT-style polish: a single rounded card
-// with the textarea on top, and a footer that runs across the bottom with
-// `+` attach + Tools popover + Web-preview toggle on the LEFT and the model
-// picker pill + round Send arrow on the RIGHT. The ai-elements <PromptInput>
-// gives the rounded surface + has-disabled cascade; we keep ownership of the
-// `attachments` array (drag-drop on the thread shares this list) and feed it
-// into the standard ai-elements layout primitives only for visual polish.
+// Composer footer: model picker pill on the LEFT next to icon-only tool
+// toggles (image / web / preview / tool-details) and the attach button.
+// Send stays on the right. Soul lives in <ContextSettings>; tools and model
+// each have their own popover (<ChatModelPopover>) — no separate dialog.
 
 import { useEffect, useRef, useState, useCallback, type MutableRefObject } from 'react';
 import {
-  ArrowUp, StopCircle, Paperclip, X, FileText, Image as ImageIcon, Globe, Code2,
+  ArrowUp, StopCircle, Paperclip, X, FileText, Image as ImageIcon, Globe, Code2, Eye,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -19,23 +16,26 @@ import {
   PromptInputTools,
   type PromptInputMessage,
 } from '../ai-elements/prompt-input';
-import type { OllamaInstalledModel } from '../../services/comfyui';
+import type {
+  OllamaInstalledModel, ChatUsageState,
+} from '../../services/comfyui';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { Button } from '../ui/button';
+import { cn } from '../../lib/utils';
 import {
   ALLOWED_ACCEPT, MAX_ATTACHMENTS, formatBytes, modelIsVisionCapable,
   listVisionCapableBaseNames,
   processFile, type PendingAttachment,
 } from './attachments';
-import ChatModelPickerModal from './ChatModelPickerModal';
-import ChatToolsPopover from './ChatToolsPopover';
-import SoulPicker from './SoulPicker';
+import ChatModelPopover from './ChatModelPopover';
 import SlashMenu from './SlashMenu';
+import type { DraftOverrides } from '../../pages/Chat';
+
+const TOOL_IMAGE = 'generate_image';
+const TOOL_WEB = 'web_search';
 
 interface Props {
   installed: OllamaInstalledModel[];
-  /** True while the first installed-models fetch is in flight; the model
-   *  picker pill renders a skeleton during this window. */
   installedLoading?: boolean;
   model: string;
   onModelChange: (model: string) => void;
@@ -46,20 +46,21 @@ interface Props {
   libraryCapabilities?: Record<string, string[]>;
   attachments: PendingAttachment[];
   onAttachmentsChange: (next: PendingAttachment[]) => void;
-  webPreviews: boolean;
-  onWebPreviewsChange: (next: boolean) => void;
   showToolDetails: boolean;
   onShowToolDetailsChange: (next: boolean) => void;
-  /** null = use every configured tool. string[] = explicit allow-list. */
+  /** Inline iframe previews of plain URLs in assistant replies. */
+  webPreviews: boolean;
+  onWebPreviewsChange: (next: boolean) => void;
+  /** null = no filter (every configured tool). string[] = explicit allow-list. */
   enabledTools: string[] | null;
   onEnabledToolsChange: (next: string[] | null) => void;
-  /** When true the composer renders without docked-bottom chrome (border-t /
-   *  white bg). Used by the centered empty-state hero in `Chat.tsx` so the
-   *  composer floats inside its own column instead of pinning the page. */
   centered?: boolean;
-  /** Active soul (personality) for new conversations. null = server default. */
-  soulName: string | null;
-  onSoulNameChange: (next: string | null) => void;
+  /** Forwarded to ChatModelPopover. */
+  conversationId: string | null;
+  initialUsage: ChatUsageState | null;
+  usageVersion: number;
+  draftOverrides: DraftOverrides;
+  onDraftOverrideChange: (patch: DraftOverrides) => void;
 }
 
 export default function Composer({
@@ -68,29 +69,15 @@ export default function Composer({
   webPreviews, onWebPreviewsChange,
   showToolDetails, onShowToolDetailsChange,
   enabledTools, onEnabledToolsChange,
-  soulName, onSoulNameChange,
   centered = false,
+  conversationId, initialUsage, usageVersion,
+  draftOverrides, onDraftOverrideChange,
 }: Props) {
-  // The ref attached to <PromptInputTextarea> won't actually land on the
-  // underlying <textarea> because the ai-elements wrapper is a plain
-  // function component (not React.forwardRef) and we're on React 18 where
-  // refs on function components are silently dropped. Instead we hold a
-  // ref on the surrounding container and locate the textarea by DOM query
-  // when we need to focus it. The `name="message"` attribute is set by
-  // ai-elements' `<InputGroupTextarea>` and is stable.
   const wrapRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Tracks active drag-over state for the composer's own drop zone. Independent
-  // of the message-thread overlay; both surfaces accept files and feed them to
-  // the same `addFiles()` path. Counter (not boolean) so child elements firing
-  // their own dragenter/leave don't toggle the overlay off mid-drag.
   const [dragDepth, setDragDepth] = useState(0);
   const isDragging = dragDepth > 0;
 
-  // Slash-menu state. The menu opens when the textarea value matches
-  // /^\/(\w*)$/ — a slash at the very start with nothing else (or word chars).
-  // We track the raw textarea value to derive open/query reactively so we
-  // never have to intercept keystrokes.
   const [textareaValue, setTextareaValue] = useState('');
   const slashMatch = /^\/(\w*)$/.exec(textareaValue.trimStart());
   const slashMenuOpen = !busy && slashMatch !== null;
@@ -99,10 +86,7 @@ export default function Composer({
   const handleSlashSelect = useCallback((name: string) => {
     const ta = wrapRef.current?.querySelector<HTMLTextAreaElement>('textarea[name="message"]');
     if (!ta) return;
-    // Replace the textarea value with /<name> followed by a space so the
-    // user can immediately type arguments.
     const next = `/${name} `;
-    // Trigger a native input event so PromptInput's internal state updates.
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(ta, next);
     ta.dispatchEvent(new Event('input', { bubbles: true }));
     setTextareaValue(next);
@@ -110,7 +94,6 @@ export default function Composer({
   }, []);
 
   const handleSlashClose = useCallback(() => {
-    // Close without inserting; focus returns to the textarea naturally.
     const ta = wrapRef.current?.querySelector<HTMLTextAreaElement>('textarea[name="message"]');
     ta?.focus();
   }, []);
@@ -125,14 +108,6 @@ export default function Composer({
     return () => { if (focusRef) focusRef.current = () => {}; };
   }, [focusRef]);
 
-  // Re-focus the textarea when the assistant finishes streaming so the user
-  // can keep typing without clicking back into the input. We only fire on
-  // the busy:true→false transition (`prevBusy` ref) — focusing on every
-  // render or on mount would steal focus from any other element the user
-  // legitimately clicked while the response was still streaming.
-  // `requestAnimationFrame` waits one paint so the `disabled` prop has
-  // settled to `false` on the DOM node before we call focus() — focusing
-  // a still-disabled <textarea> is a no-op in every browser.
   const prevBusyRef = useRef(busy);
   useEffect(() => {
     if (prevBusyRef.current && !busy) {
@@ -195,42 +170,40 @@ export default function Composer({
     fileInputRef.current?.click();
   };
 
-  // While the first installed-models fetch is in flight, render a skeleton
-  // in place of the entire composer so the user doesn't see "Pick a model" /
-  // disabled chrome flicker before Ollama responds. The silhouette mirrors
-  // the real composer (textarea block on top, footer row of chips beneath)
-  // so the layout doesn't jump on swap. `animate-shimmer` keyframe ships
-  // globally in `index.css`.
+  // Tool toggles operate on the enabledTools allow-list. `null` legacy means
+  // "all tools enabled" — treat as both Image+Web on for the toggle UI; the
+  // first toggle action materializes an explicit array.
+  const isToolOn = (name: string): boolean =>
+    enabledTools === null || enabledTools.includes(name);
+  const toggleTool = (name: string) => {
+    const current = enabledTools === null
+      ? [TOOL_IMAGE, TOOL_WEB]
+      : [...enabledTools];
+    const next = current.includes(name)
+      ? current.filter(n => n !== name)
+      : [...current, name];
+    onEnabledToolsChange(next);
+  };
+
   if (installedLoading) {
     return (
-      <div className={centered ? '' : 'border-t bg-card'}>
-        <div className="mx-auto max-w-4xl px-4 py-3">
-          <div
-            role="status"
-            aria-label="Loading chat composer"
-            className="relative overflow-hidden rounded-lg border bg-muted"
-          >
-            {/* Diagonal shine band — same effect we use on the generated-
-                image placeholder. Sits behind the silhouette blocks. */}
+      <div className={centered ? '' : ' bg-card'}>
+        <div className="mx-auto max-w-4xl px-2 pb-3">
+          <div role="status" aria-label="Loading chat composer"
+               className="relative overflow-hidden rounded-lg border bg-muted">
             <div className="skeleton-shimmer" />
-            {/* Textarea silhouette */}
             <div className="relative space-y-2 px-4 pt-4">
               <div className="h-3 w-2/3 rounded bg-secondary" />
               <div className="h-3 w-1/2 rounded bg-secondary" />
               <div className="h-3 w-2/5 rounded bg-secondary" />
             </div>
-            {/* Footer silhouette — left chips + right (model + send) */}
             <div className="relative mt-6 flex items-center justify-between px-3 py-2">
               <div className="flex items-center gap-2">
-                <div className="h-8 w-8 rounded-md bg-secondary" />
-                <div className="h-8 w-20 rounded-md bg-secondary" />
-                <div className="h-8 w-24 rounded-md bg-secondary" />
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="h-8 w-24 rounded-md bg-secondary" />
                 <div className="h-8 w-32 rounded-md bg-secondary" />
-                <div className="h-8 w-8 rounded-full bg-secondary" />
+                <div className="h-8 w-8 rounded-md bg-secondary" />
+                <div className="h-8 w-8 rounded-md bg-secondary" />
               </div>
+              <div className="h-8 w-8 rounded-full bg-secondary" />
             </div>
           </div>
         </div>
@@ -239,10 +212,10 @@ export default function Composer({
   }
 
   return (
-    <div className={centered ? '' : 'border-t bg-card'}>
+    <div className={centered ? '' : 'bg-card'}>
       <div
         ref={wrapRef}
-        className="relative mx-auto max-w-4xl px-4 py-3"
+        className="relative mx-auto max-w-4xl px-2 pb-5"
         onDragEnter={(e) => {
           if (busy || noModel) return;
           if (!Array.from(e.dataTransfer.types).includes('Files')) return;
@@ -270,10 +243,8 @@ export default function Composer({
         }}
       >
         {isDragging && (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-3 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-brand bg-brand/10 text-sm font-medium text-brand"
-          >
+          <div aria-hidden
+               className="pointer-events-none absolute inset-3 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-brand bg-brand/10 text-sm font-medium text-brand">
             Drop files to attach
           </div>
         )}
@@ -291,19 +262,12 @@ export default function Composer({
           }}
         />
 
-        {/* PromptInputBody (display:contents) is intentionally NOT used —
-            it puts a wrapper between InputGroup and its children, breaking
-            the `:has(> textarea)` selector that expands the group from h-8
-            to h-auto/flex-col. Children must be direct DOM kids of the
-            InputGroup for the layout to lift to two-row mode. */}
         <SlashMenu
           open={slashMenuOpen}
           query={slashQuery}
           onSelect={handleSlashSelect}
           onClose={handleSlashClose}
         >
-          {/* SlashMenu wraps the entire PromptInput as its popover trigger
-              anchor so the popover appears above the composer surface. */}
           <div className="w-full">
         <PromptInput onSubmit={submit}>
             {attachments.length > 0 && (
@@ -314,7 +278,7 @@ export default function Composer({
               </PromptInputHeader>
             )}
             <PromptInputTextarea
-              className="min-h-14 max-h-48"
+              className={centered ? 'min-h-40 max-h-72' : 'min-h-14 max-h-48'}
               placeholder={
                 busy ? 'Generating... (Esc to stop)'
                   : noModel ? 'Pick a model below to start chatting'
@@ -323,7 +287,6 @@ export default function Composer({
               disabled={busy}
               onChange={(e) => setTextareaValue(e.target.value)}
               onKeyDown={(e) => {
-                // Suppress submit while the slash menu is open so Enter selects.
                 if (slashMenuOpen && e.key === 'Enter') {
                   e.preventDefault();
                   return;
@@ -340,6 +303,19 @@ export default function Composer({
             />
             <PromptInputFooter>
               <PromptInputTools>
+                <ChatModelPopover
+                  installed={installed}
+                  loading={!!installedLoading}
+                  model={model}
+                  disabled={busy}
+                  libraryCapabilities={libraryCapabilities}
+                  onChange={onModelChange}
+                  conversationId={conversationId}
+                  initialUsage={initialUsage}
+                  usageVersion={usageVersion}
+                  draftOverrides={draftOverrides}
+                  onDraftOverrideChange={onDraftOverrideChange}
+                />
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -349,39 +325,43 @@ export default function Composer({
                       variant="ghost"
                       size="icon"
                       aria-label="Attach files"
-                      // Persistent slate-50 surface so the attach affordance
-                      // reads as a tappable chip even at rest, not a ghost
-                      // icon that only appears on hover. Slightly darker on
-                      // hover keeps the standard "press" feedback.
-                      className="!h-8 !w-8 !rounded-md !bg-muted !text-foreground hover:!bg-secondary hover:!text-foreground"
+                      className="!h-8 !w-8 !rounded-md !bg-muted !text-foreground hover:!bg-secondary !cursor-pointer"
                     >
                       <Paperclip className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>Attach files</TooltipContent>
                 </Tooltip>
-                <ChatToolsPopover
-                  enabled={enabledTools}
-                  onChange={onEnabledToolsChange}
+                <ToolToggle
+                  Icon={ImageIcon}
+                  label="Image"
+                  active={isToolOn(TOOL_IMAGE)}
+                  onClick={() => toggleTool(TOOL_IMAGE)}
+                  hint="Allow the model to generate images"
                 />
-                <WebPreviewToggle enabled={webPreviews} onToggle={onWebPreviewsChange} />
-                <ToolDetailsToggle enabled={showToolDetails} onToggle={onShowToolDetailsChange} />
+                <ToolToggle
+                  Icon={Globe}
+                  label="Web"
+                  active={isToolOn(TOOL_WEB)}
+                  onClick={() => toggleTool(TOOL_WEB)}
+                  hint="Allow the model to search the web"
+                />
+                <ToolToggle
+                  Icon={Eye}
+                  label="Preview"
+                  active={webPreviews}
+                  onClick={() => onWebPreviewsChange(!webPreviews)}
+                  hint="Render iframe previews for URLs in assistant replies"
+                />
+                <ToolToggle
+                  Icon={Code2}
+                  label="Tool"
+                  active={showToolDetails}
+                  onClick={() => onShowToolDetailsChange(!showToolDetails)}
+                  hint="Show tool call parameters and raw JSON output inline"
+                />
               </PromptInputTools>
               <PromptInputTools>
-                <SoulPicker
-                  value={soulName}
-                  onChange={onSoulNameChange}
-                  variant="pill"
-                  disabled={busy}
-                />
-                <ChatModelPickerModal
-                  installed={installed}
-                  loading={!!installedLoading}
-                  model={model}
-                  disabled={busy}
-                  libraryCapabilities={libraryCapabilities}
-                  onChange={onModelChange}
-                />
                 {busy ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -390,7 +370,7 @@ export default function Composer({
                         onClick={onStop}
                         variant="secondary"
                         size="icon"
-                        className="!h-8 !w-8 !rounded-full !p-0 !text-destructive hover:!bg-destructive/10"
+                        className="!h-8 !w-8 !rounded-full !p-0 !text-destructive hover:!bg-destructive/10 !cursor-pointer"
                         aria-label="Stop"
                       >
                         <StopCircle className="h-3.5 w-3.5" />
@@ -406,7 +386,7 @@ export default function Composer({
                         size="icon"
                         aria-disabled={noModel}
                         aria-label="Send"
-                        className="!h-8 !w-8 !rounded-full !p-0 !bg-brand hover:!bg-brand/90 !text-brand-foreground"
+                        className="!h-8 !w-8 !rounded-full !p-0 !bg-brand hover:!bg-brand/90 !text-brand-foreground !cursor-pointer"
                         onClick={(e) => {
                           if (noModel) {
                             e.preventDefault();
@@ -461,51 +441,37 @@ function AttachmentChip({ att, onRemove }: ChipProps) {
   );
 }
 
-interface ToggleProps { enabled: boolean; onToggle: (next: boolean) => void }
-function WebPreviewToggle({ enabled, onToggle }: ToggleProps) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          aria-pressed={enabled}
-          aria-label="Inline URL previews"
-          onClick={() => onToggle(!enabled)}
-          className={enabled ? 'text-brand bg-brand/10 hover:bg-brand/20' : ''}
-        >
-          <Globe className="h-3.5 w-3.5" />
-          <span>Previews</span>
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>
-        Render iframe previews for URLs in assistant replies. Off by default — enable when you want to see the linked page directly under the message.
-      </TooltipContent>
-    </Tooltip>
-  );
+interface ToolToggleProps {
+  Icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  hint: string;
 }
-
-function ToolDetailsToggle({ enabled, onToggle }: ToggleProps) {
+/** Icon-only by default with the same gray bg as the paperclip; when `active`,
+ *  the label appears next to the icon and the bg flips to brand-tinted.
+ *  Tooltip always shows the longer description on hover. */
+function ToolToggle({ Icon, label, active, onClick, hint }: ToolToggleProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button
+        <button
           type="button"
-          variant="ghost"
-          size="sm"
-          aria-pressed={enabled}
-          aria-label="Show tool call details"
-          onClick={() => onToggle(!enabled)}
-          className={enabled ? 'text-brand bg-brand/10 hover:bg-brand/20' : ''}
+          onClick={onClick}
+          aria-pressed={active}
+          aria-label={label}
+          className={cn(
+            'inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium cursor-pointer transition-colors',
+            active
+              ? 'bg-brand/10 text-brand hover:bg-brand/20'
+              : 'bg-muted text-foreground hover:bg-secondary',
+          )}
         >
-          <Code2 className="h-3.5 w-3.5" />
-          <span>Tool details</span>
-        </Button>
+          <Icon className="h-3.5 w-3.5" />
+          {active && <span className="hidden sm:inline">{label}</span>}
+        </button>
       </TooltipTrigger>
-      <TooltipContent>
-        Show the parameters and raw JSON result for each tool call inline. Off by default — for image generation you already see the rendered image, so the JSON is mostly useful for debugging.
-      </TooltipContent>
+      <TooltipContent>{hint}</TooltipContent>
     </Tooltip>
   );
 }

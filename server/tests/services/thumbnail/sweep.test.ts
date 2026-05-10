@@ -40,8 +40,7 @@ describe('thumbnail cache sweep', () => {
     process.env.THUMB_CACHE_MAX_AGE_DAYS = '1';
     process.env.THUMB_CACHE_MAX_BYTES = String(10 * 1024 * 1024);
     vi.resetModules();
-    const { runSweep } = await import('../../../src/services/thumbnail/sweep.js');
-    const { cacheRoot } = await import('../../../src/services/thumbnail/cache.js');
+    const { runSweep, cacheRoot } = await import('../../../src/services/thumbnail/cache.js');
     const root = cacheRoot();
 
     const now = Date.now();
@@ -61,8 +60,7 @@ describe('thumbnail cache sweep', () => {
     process.env.THUMB_CACHE_MAX_AGE_DAYS = '365';
     process.env.THUMB_CACHE_MAX_BYTES = '250';
     vi.resetModules();
-    const { runSweep } = await import('../../../src/services/thumbnail/sweep.js');
-    const { cacheRoot } = await import('../../../src/services/thumbnail/cache.js');
+    const { runSweep, cacheRoot } = await import('../../../src/services/thumbnail/cache.js');
     const root = cacheRoot();
 
     const now = Date.now();
@@ -78,8 +76,7 @@ describe('thumbnail cache sweep', () => {
   });
 
   it('collectStats reports bucketCount, totalBytes, oldestMtimeMs', async () => {
-    const { collectStats } = await import('../../../src/services/thumbnail/sweep.js');
-    const { cacheRoot } = await import('../../../src/services/thumbnail/cache.js');
+    const { collectStats, cacheRoot } = await import('../../../src/services/thumbnail/cache.js');
     const root = cacheRoot();
 
     const now = Date.now();

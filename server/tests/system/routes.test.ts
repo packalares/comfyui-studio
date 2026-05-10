@@ -8,7 +8,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const LAUNCHER_FILE = path.resolve(HERE, '..', '..', 'src', 'routes', 'systemLauncher.routes.ts');
+const LAUNCHER_FILE = path.resolve(HERE, '..', '..', 'src', 'routes', 'network.routes.ts');
 const SYSTEM_FILE = path.resolve(HERE, '..', '..', 'src', 'routes', 'system.routes.ts');
 
 describe('systemLauncher route file', () => {

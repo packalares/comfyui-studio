@@ -5,8 +5,8 @@ import { createHash } from 'crypto';
 import * as templates from './index.js';
 import { generateFormInputs } from './templates.formInputs.js';
 import { fetchTemplateWorkflow } from './dependencyCheck.js';
-import { schedulePromptWatch } from '../gallery.sentry.js';
-import { type PromptMeta } from '../gallery.promptMeta.js';
+import { schedulePromptWatch } from '../gallery/sentry.js';
+import { type PromptMeta } from '../gallery/promptMeta.js';
 import { insertSnapshot } from '../../lib/db/promptSnapshots.repo.js';
 import { env } from '../../config/env.js';
 import type { RawTemplate } from './types.js';
@@ -17,7 +17,7 @@ import {
 } from '../workflow/index.js';
 import type { EnumeratedWidget } from '../../contracts/workflow.contract.js';
 import { applyNodeOverrides, applyProxyOverrides, splitAdvancedSettings } from './advancedSettings.js';
-import * as comfyui from '../comfyui.js';
+import * as comfyui from '../comfyui/api.js';
 import { formInputsToSchema } from '../chat/tools/formInputsToSchema.js';
 import { getDb } from '../../lib/db/connection.js';
 

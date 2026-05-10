@@ -7,7 +7,7 @@
 // settings change takes effect on the next user turn without restarting the
 // server.
 
-import * as toolsSettings from '../../settings.tools.js';
+import * as toolsSettings from '../../settings/tools.js';
 import { checkTemplateDependencies } from '../../templates/dependencyCheck.js';
 import { webSearchTool } from './webSearch.js';
 import { generateImageTool } from './generateImage.js';

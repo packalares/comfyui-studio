@@ -10,8 +10,8 @@
 import { McpConnection, type ConnectionState } from './connection.js';
 import { wrapServerTools, type McpToolExecutor } from './wrap.js';
 import type { StudioTool } from '../../chat/tools/defineTool.js';
-import { getMcpServers, slugifyServerName } from '../../settings.mcp.js';
-import type { McpServerConfig } from '../../settings.mcp.js';
+import { getMcpServers, slugifyServerName } from '../../settings/mcp.js';
+import type { McpServerConfig } from '../../settings/mcp.js';
 import { logger } from '../../../lib/logger.js';
 
 export class McpClientRegistry {
@@ -26,7 +26,7 @@ export class McpClientRegistry {
     // who connected an MCP server before this change start seeing its
     // tools in chat without re-toggling. Idempotent.
     try {
-      const { migrateMcpProfilesFromEnabled } = await import('../../settings.mcp.js');
+      const { migrateMcpProfilesFromEnabled } = await import('../../settings/mcp.js');
       const added = migrateMcpProfilesFromEnabled();
       if (added > 0) {
         logger.info(`mcp: granted '*' default-profile access to ${added} already-enabled server(s)`);

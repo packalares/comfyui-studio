@@ -10,18 +10,16 @@ import {
   loadSoul, writeSoul, deleteSoul,
   isBundledOnly as isSoulBundledOnly, isValidSoulName,
   loadMemoryBody, writeMemoryBody,
-} from '../services/chat/personality/index.js';
+  getPendingEdit, deletePendingEdit, applyPendingEdit,
+  getPersonalitySummary,
+} from '../services/chat/personality.js';
 import {
   getSkill, putSkill, deleteSkill, isSkillBundledOnly,
-} from '../services/chat/skills/index.js';
+} from '../services/chat/skills.js';
 import {
   getCommand, putCommand, deleteCommand, isCommandBundledOnly,
-} from '../services/chat/commands/index.js';
+} from '../services/chat/commands.js';
 import { isValidLibraryName } from '../services/chat/markdownLibrary/index.js';
-import {
-  getPendingEdit, deletePendingEdit, applyPendingEdit,
-} from '../services/chat/personality/pendingEdits.js';
-import { getPersonalitySummary } from '../services/chat/personality/summary.js';
 
 const router = Router();
 

@@ -20,7 +20,7 @@
 import { Router, type Request, type Response } from 'express';
 import fs from 'fs';
 import path from 'path';
-import * as comfyui from '../services/comfyui.js';
+import * as comfyui from '../services/comfyui/api.js';
 import { logger } from '../lib/logger.js';
 import { sanitizeSegment, resolveViewPath } from '../lib/viewPath.js';
 

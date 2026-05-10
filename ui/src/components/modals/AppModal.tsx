@@ -8,6 +8,7 @@
 // the `header` slot; AppModal still owns the Esc/backdrop behaviour.
 
 import { useEffect, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from '../ui/card';
@@ -170,7 +171,12 @@ export default function AppModal(props: AppModalProps): JSX.Element | null {
   const backdropOpacity = isExiting ? 'opacity-0' : 'opacity-100';
   const cardOpacity = isExiting ? 'opacity-0 scale-95' : 'opacity-100 scale-100';
 
-  return (
+  // Portal to document.body so the modal escapes any ancestor containing
+  // block (e.g. parents that use `transform` / `filter` / `backdrop-filter`
+  // — all of which trap fixed-positioned descendants per CSS spec). Without
+  // this, mounting the modal inside a sticky/blurred sidebar squishes it to
+  // the ancestor's box instead of covering the viewport.
+  const node = (
     <div
       role="dialog"
       aria-modal="true"
@@ -219,4 +225,5 @@ export default function AppModal(props: AppModalProps): JSX.Element | null {
       </Card>
     </div>
   );
+  return createPortal(node, document.body);
 }

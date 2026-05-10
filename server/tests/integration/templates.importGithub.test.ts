@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import express from 'express';
 import type { AddressInfo } from 'net';
-import templatesImportRemote from '../../src/routes/templates.importRemote.js';
+import templatesImportRemote from '../../src/routes/templates.import.js';
 
 function tinyWorkflow(): Record<string, unknown> {
   return {

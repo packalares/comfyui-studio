@@ -10,8 +10,8 @@ interface PageSubbarProps {
 
 export default function PageSubbar({ title, description, right }: PageSubbarProps) {
   return (
-    <div className="sticky top-14 z-40 border-b bg-muted/90 backdrop-blur">
-      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-2.5 flex items-center justify-between gap-3">
+    <div className="sticky top-12 z-40 border-b bg-muted/80 backdrop-blur">
+      <div className="px-4 sm:px-6 py-2.5 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
           <Link to="/" className="text-muted-foreground hover:text-foreground transition-colors" aria-label="Home">
             <Home className="w-3.5 h-3.5" />

@@ -4,8 +4,7 @@
 // edits; nothing is applied until the user accepts via the API.
 
 import { z } from 'zod';
-import { createPendingEdit } from '../../../../chat/personality/pendingEdits.js';
-import { loadSoul, isValidSoulName } from '../../../../chat/personality/loader.js';
+import { createPendingEdit, loadSoul, isValidSoulName } from '../../../../chat/personality.js';
 
 export const description =
   'Propose a change to your current soul (identity/instructions). The user reviews and accepts/rejects. Use sparingly — only when you have meaningful evidence the soul should evolve based on user corrections.';

@@ -9,8 +9,8 @@ import type { AddressInfo } from 'net';
 
 // ---- Mock settings.mcp ----------------------------------------------------
 
-let serverStore: import('../../src/services/settings.mcp.js').McpServerConfig[] = [];
-let profileStore: Record<string, import('../../src/services/settings.mcp.js').Profile> = {
+let serverStore: import('../../src/services/settings/mcp.js').McpServerConfig[] = [];
+let profileStore: Record<string, import('../../src/services/settings/mcp.js').Profile> = {
   'studio-chat-default': {},
 };
 
@@ -21,12 +21,12 @@ class MockMcpSlugCollisionError extends Error {
   }
 }
 
-vi.mock('../../src/services/settings.mcp.js', async () => {
+vi.mock('../../src/services/settings/mcp.js', async () => {
   const { randomUUID } = await import('crypto');
   return {
     getMcpServers: () => serverStore,
     addMcpServer: (partial: Record<string, unknown>) => {
-      const s = { ...partial, id: randomUUID() } as import('../../src/services/settings.mcp.js').McpServerConfig;
+      const s = { ...partial, id: randomUUID() } as import('../../src/services/settings/mcp.js').McpServerConfig;
       serverStore.push(s);
       return s;
     },
@@ -43,7 +43,7 @@ vi.mock('../../src/services/settings.mcp.js', async () => {
     },
     getMcpProfiles: () => profileStore,
     upsertMcpProfile: (name: string, profile: unknown) => {
-      profileStore[name] = profile as import('../../src/services/settings.mcp.js').Profile;
+      profileStore[name] = profile as import('../../src/services/settings/mcp.js').Profile;
     },
     slugifyServerName: (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
     McpSlugCollisionError: MockMcpSlugCollisionError,

@@ -16,7 +16,7 @@ import {
   extractMetadata,
   randomizeSeeds,
   type ApiPrompt,
-} from '../../src/services/gallery.extract.js';
+} from '../../src/services/gallery/extract.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_DIR = resolve(HERE, '..', 'fixtures', 'workflows');

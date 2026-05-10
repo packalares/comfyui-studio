@@ -9,12 +9,12 @@
 
 import { createHash } from 'crypto';
 import { Router, type Request, type Response } from 'express';
-import * as comfyui from '../services/comfyui.js';
+import * as comfyui from '../services/comfyui/api.js';
 import * as templates from '../services/templates/index.js';
 import { generateFormInputs } from '../services/templates/templates.formInputs.js';
 import type { RawTemplate } from '../services/templates/types.js';
 import { getObjectInfo, workflowToApiPrompt } from '../services/workflow/index.js';
-import { schedulePromptWatch } from '../services/gallery.sentry.js';
+import { schedulePromptWatch } from '../services/gallery/sentry.js';
 import { insertSnapshot } from '../lib/db/promptSnapshots.repo.js';
 import { computeModelFingerprint } from '../services/templates/submitTemplate.js';
 import {

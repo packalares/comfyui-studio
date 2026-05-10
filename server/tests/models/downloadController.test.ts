@@ -1,8 +1,8 @@
 // Public-API smoke for the download controller orchestrator.
 
 import { describe, expect, it, beforeEach } from 'vitest';
-import * as ctrl from '../../src/services/downloadController/downloadController.service.js';
-import * as tracker from '../../src/services/downloadController/progressTracker.js';
+import * as ctrl from '../../src/services/downloads/controller.js';
+import * as tracker from '../../src/services/downloads/controller.js';
 
 describe('downloadController.service', () => {
   beforeEach(() => tracker.__resetForTests());

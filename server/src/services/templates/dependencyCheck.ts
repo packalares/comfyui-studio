@@ -11,7 +11,7 @@
 // is no HTTP self-call. The cached `templates.installed` column is also
 // populated from the same function (see `templates/refresh.ts` etc.).
 
-import * as catalog from '../catalog.js';
+import * as catalog from '../catalog/index.js';
 import { isUserWorkflow, getUserWorkflowJson } from './userTemplates.js';
 import * as templateRepo from '../../lib/db/templates.repo.js';
 import { collectAllWorkflowNodes } from '../workflow/collect.js';

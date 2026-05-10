@@ -12,7 +12,8 @@
 
 import { logger } from '../../lib/logger.js';
 import * as repo from '../../lib/db/chat.repo.js';
-import type { OllamaChatMessage } from './ollamaChat.js';
+import type { OllamaChatMessage } from './ollama.js';
+import { stripTrailingSlash } from '../../lib/url.js';
 
 const SUGGESTION_TIMEOUT_MS = 8000;
 const SYSTEM_PROMPT = [
@@ -96,7 +97,7 @@ export async function generateSuggestions(
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), SUGGESTION_TIMEOUT_MS);
   try {
-    const res = await fetch(`${input.baseUrl.replace(/\/+$/, '')}/api/chat`, {
+    const res = await fetch(`${stripTrailingSlash(input.baseUrl)}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

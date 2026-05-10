@@ -9,8 +9,8 @@
 // ambiguous is left unresolved.
 
 import { env } from '../../config/env.js';
-import { resolveCivitaiUrl } from '../models/resolveCivitai.js';
-import type { ResolvedModel } from '../models/resolveHuggingface.js';
+import { resolveCivitaiUrl } from '../models/resolvers.js';
+import type { ResolvedModel } from '../models/resolvers.js';
 
 const SEARCH_LIMIT = 10;
 const REQUEST_TIMEOUT_MS = 4000;

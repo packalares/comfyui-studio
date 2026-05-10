@@ -1,16 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Boxes, MessageSquare } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useChat } from '@ai-sdk/react';
 import PageSubbar from '../components/layout/PageSubbar';
 import ConversationList from '../components/chat/ConversationList';
 import MessageThread from '../components/chat/MessageThread';
 import Composer from '../components/chat/Composer';
-import ContextMeter from '../components/chat/ContextMeter';
-import ChatSearch from '../components/chat/ChatSearch';
+import ContextMeterSummary from '../components/chat/ContextMeterSummary';
+import ContextSettings from '../components/chat/ContextSettings';
+import ScrollToBottomFab from '../components/chat/ScrollToBottomFab';
+import PageAside from '../components/layout/PageAside';
 import { Suggestion } from '../components/ai-elements/suggestion';
-import { Card } from '../components/ui/card';
 import {
   api, ApiError, type OllamaInstalledModel,
   type ChatContextStrategy, type ChatUsageState,
@@ -29,9 +29,9 @@ import {
 } from '../components/chat/studioMessages';
 import { useSystem } from '../context/AppContext';
 
-// Pre-chat overrides — collected by the ContextMeter popover before any
-// conversation exists. Folded into `api.chat.start` on the first send
-// (server applies them to the freshly-created conversation row), then
+// Pre-chat overrides — collected by the model + context-settings popovers
+// before any conversation exists. Folded into `api.chat.start` on the first
+// send (server applies them to the freshly-created conversation row), then
 // cleared so subsequent sends use server-side state.
 export interface DraftOverrides {
   contextStrategy?: ChatContextStrategy;
@@ -111,10 +111,10 @@ export default function Chat() {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem('chat:showToolDetails', showToolDetails ? '1' : '0');
   }, [showToolDetails]);
-  // Tools allow-list owned by the composer's <ChatToolsPopover>. `null` means
-  // "no filter — every server-configured tool is available", which matches
-  // legacy behavior. Persisted in localStorage so the user's selection sticks
-  // across reloads (string[] → JSON, null → key absent).
+  // Tools allow-list driven by the composer's per-tool icon toggles. `null`
+  // means "no filter — every server-configured tool is available", which
+  // matches legacy behavior. Persisted in localStorage so the user's
+  // selection sticks across reloads (string[] → JSON, null → key absent).
   const [enabledTools, setEnabledTools] = useState<string[] | null>(() => {
     if (typeof window === 'undefined') return null;
     const raw = window.localStorage.getItem('chat:enabledTools');
@@ -146,10 +146,10 @@ export default function Chat() {
   useEffect(() => { soulNameRef.current = soulName; }, [soulName]);
   const composerFocusRef = useRef<() => void>(() => {});
 
-  // Pre-chat overrides — written by the ContextMeter popover when no
-  // conversation exists yet, then folded into `api.chat.start` on the first
-  // send so the new conversation row inherits them. Cleared after the conv
-  // is minted (the user's choices now live on the server-side row).
+  // Pre-chat overrides — written by <ChatModelPopover> and <ContextSettings>
+  // when no conversation exists yet, then folded into `api.chat.start` on the
+  // first send so the new conversation row inherits them. Cleared after the
+  // conv is minted (the user's choices now live on the server-side row).
   const [draftOverrides, setDraftOverrides] = useState<DraftOverrides>({});
   const draftOverridesRef = useRef<DraftOverrides>({});
   useEffect(() => { draftOverridesRef.current = draftOverrides; }, [draftOverrides]);
@@ -302,10 +302,21 @@ export default function Chat() {
   // the active `model` state so the model-snap effect below can re-run when
   // `installed` arrives without re-triggering the load.
   const [loadedConvModel, setLoadedConvModel] = useState<string | null>(null);
-  // Initial ContextMeter state, embedded in the conv hydrate response so the
-  // meter can render without its own /usage round-trip. ContextMeter resets
-  // its internal state to this on conv-switch.
+  // Initial usage state, embedded in the conv hydrate response so the meter
+  // UI can render without its own /usage round-trip. The summary + settings
+  // components reset their internal state to this on conv-switch.
   const [initialUsage, setInitialUsage] = useState<ChatUsageState | null>(null);
+  // Cursor pagination — initial hydrate fetches the latest 25 messages.
+  // `oldestLoadedId` is the cursor for the next /messages?before=… call;
+  // `hasMoreOlder` toggles the top scroll-up sentinel in MessageThread.
+  const [oldestLoadedId, setOldestLoadedId] = useState<string | null>(null);
+  const [hasMoreOlder, setHasMoreOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  // Snapshot taken right before a prepend so a useLayoutEffect can re-anchor
+  // the scroll position (oldScrollY + heightDelta) once React commits the
+  // new oldest messages. Without this, the user would be visually yanked
+  // upward as taller content lands above their viewport.
+  const prependAnchorRef = useRef<{ height: number; scrollY: number } | null>(null);
   // Increments to signal the meter to refetch /usage. Bumped only by explicit
   // user actions (model picker change). Conv-switch + post-turn use other
   // paths (initialUsage seed, chat:done WS payload) and do NOT fire HTTP.
@@ -320,18 +331,28 @@ export default function Chat() {
       setMessages([]);
       setLoadedConvModel(null);
       setInitialUsage(null);
+      setOldestLoadedId(null);
+      setHasMoreOlder(false);
       return;
     }
     let cancelled = false;
     Promise.all([
       api.chat.getConversation(conversationId),
-      api.chat.getMessages(conversationId),
+      api.chat.getMessages(conversationId, { limit: 25 }),
     ])
-      .then(([conv, { items }]) => {
+      .then(([conv, { items, hasMore, oldestId }]) => {
         if (cancelled) return;
         setMessages(items.map(chatMessageToUIMessage));
         setLoadedConvModel(conv.model ?? null);
         setInitialUsage(conv.usage ?? null);
+        setOldestLoadedId(oldestId);
+        setHasMoreOlder(hasMore);
+        // Snap to the latest message after the page commits — without
+        // this the body opens at scrollY=0 (top of conversation) which
+        // is never what a user wants when reopening a chat.
+        requestAnimationFrame(() => {
+          window.scrollTo(0, document.documentElement.scrollHeight);
+        });
       })
       .catch((err) => {
         if (cancelled) return;
@@ -341,6 +362,8 @@ export default function Chat() {
         setMessages([]);
         setLoadedConvModel(null);
         setInitialUsage(null);
+        setOldestLoadedId(null);
+        setHasMoreOlder(false);
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes('404') || msg.toLowerCase().includes('not found')) {
           try { window.localStorage.removeItem(LAST_CHAT_KEY); } catch { /* ignore */ }
@@ -391,8 +414,12 @@ export default function Chat() {
   useEffect(() => {
     return chatEvents.onCompacted((p) => {
       if (p.conversationId !== conversationId) return;
-      api.chat.getMessages(conversationId)
-        .then(({ items }) => setMessages(items.map(chatMessageToUIMessage)))
+      api.chat.getMessages(conversationId, { limit: 25 })
+        .then(({ items, hasMore, oldestId }) => {
+          setMessages(items.map(chatMessageToUIMessage));
+          setOldestLoadedId(oldestId);
+          setHasMoreOlder(hasMore);
+        })
         .catch(() => { /* ignore — next conv-switch will rehydrate */ });
       setListKey(k => k + 1);
     });
@@ -469,6 +496,55 @@ export default function Chat() {
     }
   }, [conversationId, setMessages]);
 
+  // Fetch the next-older slice and prepend it to the message list. The
+  // scroll-anchor snapshot is captured here (synchronously, before the
+  // network round-trip changes anything) so the useLayoutEffect below
+  // can re-anchor scrollY once React commits the new oldest messages.
+  const handleLoadOlder = useCallback(async () => {
+    if (!conversationId || !hasMoreOlder || loadingOlder || !oldestLoadedId) {
+      return;
+    }
+    setLoadingOlder(true);
+    prependAnchorRef.current = {
+      height: document.documentElement.scrollHeight,
+      scrollY: window.scrollY,
+    };
+    try {
+      const { items, hasMore, oldestId } = await api.chat.getMessages(
+        conversationId,
+        { limit: 25, before: oldestLoadedId },
+      );
+      setMessages(prev => [
+        ...items.map(chatMessageToUIMessage),
+        ...prev,
+      ]);
+      setHasMoreOlder(hasMore);
+      setOldestLoadedId(oldestId);
+    } catch (err) {
+      // Drop the anchor — no commit happened, no re-anchor needed.
+      prependAnchorRef.current = null;
+      const text = err instanceof Error ? err.message : String(err);
+      toast.error('Could not load older messages', { description: text });
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [conversationId, hasMoreOlder, loadingOlder, oldestLoadedId, setMessages]);
+
+  // Re-anchor the scroll position after a prepend so the user's view stays
+  // locked on the same message. Runs after every messages.length change but
+  // only acts when prependAnchorRef has a snapshot — i.e. specifically the
+  // commit that lands the new oldest messages.
+  useLayoutEffect(() => {
+    const anchor = prependAnchorRef.current;
+    if (!anchor) return;
+    prependAnchorRef.current = null;
+    const newHeight = document.documentElement.scrollHeight;
+    const delta = newHeight - anchor.height;
+    if (delta > 0) {
+      window.scrollTo(0, anchor.scrollY + delta);
+    }
+  }, [messages.length]);
+
   // Cmd/Ctrl+K = focus composer (works from anywhere on the page); Esc =
   // stop streaming. Composer-local Enter / Shift+Enter handling stays where
   // it lives so the textarea can handle multi-line.
@@ -496,64 +572,70 @@ export default function Chat() {
         title="Chat"
         description="Talk to a local LLM via Ollama"
       />
-      <div className="page-container">
-        {/* Single panel with an internal flex split — same idiom as Studio
-            (left aside + right main share one rounded surface, instead of
-            two side-by-side panels). */}
-        <Card>
-          <div className="flex flex-col md:flex-row h-[calc(100vh-9rem)] min-h-0">
-            <aside className="w-full md:w-[280px] shrink-0 border-b md:border-b-0 md:border-r flex flex-col min-h-0">
-              <ConversationList
-                activeId={conversationId}
-                refreshKey={listKey}
-                onSelect={(id) => navigate(`/chat/c/${id}`)}
-                onNew={handleNew}
+      {/* Two-column layout flows with body scroll. Aside is sticky to the
+          viewport (top under TopBar+PageSubbar, height = remaining viewport)
+          so the conversation list, search, and meter stay pinned while the
+          right column's messages scroll the document. The wrapper's `p-4 gap-4`
+          detaches the aside from the inset edges and the main column, giving
+          it the floating-panel look of the Explore page filters. */}
+      <div className="flex gap-4 p-4">
+        <PageAside>
+          <ConversationList
+            activeId={conversationId}
+            refreshKey={listKey}
+            onSelect={(id) => navigate(id ? `/chat/c/${id}` : '/chat')}
+            onNew={handleNew}
+            settingsContent={
+              <ContextSettings
+                conversationId={conversationId}
+                model={model}
+                initialUsage={initialUsage}
+                usageVersion={usageVersion}
+                draftOverrides={draftOverrides}
+                onDraftOverrideChange={(patch) => setDraftOverrides(prev => ({ ...prev, ...patch }))}
+                soulName={soulName}
+                onSoulNameChange={setSoulName}
               />
-            </aside>
-            <section className="flex flex-1 min-h-0 flex-col">
-              {/* Top bar — global chat search + page tabs + context meter. Renders
-                  unconditionally so the layout doesn't shift when the user
-                  picks a conversation; the meter shows 0% as a placeholder
-                  when there's no usage data yet. */}
-              <div className="chat-topbar">
-                <ChatSearch onSelect={(id) => navigate(`/chat/c/${id}`)} />
-                <div role="tablist" aria-label="Chat section" className="tab-strip">
-                  <button role="tab" aria-selected="true" className="tab-strip-item is-active">
-                    <MessageSquare className="w-3 h-3" />
-                    Chat
-                  </button>
-                  <Link to="/models?source=ollama" role="tab" aria-selected="false" className="tab-strip-item">
-                    <Boxes className="w-3 h-3" />
-                    Models
-                  </Link>
-                </div>
-                <div className="ml-auto">
-                  <ContextMeter
-                    conversationId={conversationId}
-                    model={model}
-                    initialUsage={initialUsage}
-                    usageVersion={usageVersion}
-                    draftOverrides={draftOverrides}
-                    onDraftOverrideChange={(patch) => setDraftOverrides(prev => ({ ...prev, ...patch }))}
-                    soulName={soulName}
-                    onSoulNameChange={setSoulName}
-                  />
-                </div>
+            }
+            footerSlot={
+              <ContextMeterSummary
+                conversationId={conversationId}
+                model={model}
+                initialUsage={initialUsage}
+                usageVersion={usageVersion}
+                draftOverrides={draftOverrides}
+              />
+            }
+          />
+        </PageAside>
+        <section className="flex flex-1 min-w-0 flex-col">
+          {hasConversation ? (
+            <>
+              <div className="flex-1 pb-16">
+                <MessageThread
+                  messages={messages}
+                  status={status}
+                  streamError={streamError}
+                  hasConversation={hasConversation}
+                  onFilesDropped={handleFilesDropped}
+                  webPreviews={webPreviews}
+                  showToolDetails={showToolDetails}
+                  onSuggestionClick={handleSuggestion}
+                  onRegenerate={() => { void regenerate(); }}
+                  onDelete={handleDelete}
+                  hasMoreOlder={hasMoreOlder}
+                  loadingOlder={loadingOlder}
+                  onLoadOlder={handleLoadOlder}
+                />
               </div>
-              {hasConversation ? (
-                <>
-                  <MessageThread
-                    messages={messages}
-                    status={status}
-                    streamError={streamError}
-                    hasConversation={hasConversation}
-                    onFilesDropped={handleFilesDropped}
-                    webPreviews={webPreviews}
-                    showToolDetails={showToolDetails}
-                    onSuggestionClick={handleSuggestion}
-                    onRegenerate={() => { void regenerate(); }}
-                    onDelete={handleDelete}
-                  />
+              {/* Sticky composer: translucent bg + backdrop-blur so messages
+                  scroll *behind* it. Sticks to viewport bottom while body
+                  scrolls. The inner wrapper is `relative` so the
+                  scroll-to-bottom FAB anchors above the composer (centred on
+                  the chat column, not the whole viewport). */}
+              <div className="sticky bottom-0 z-30  bg-background/85 backdrop-blur rounded-br-xl">
+                <div className="relative mx-auto w-full max-w-4xl">
+                  <ScrollToBottomFab />
                   <Composer
                     installed={installed}
                     installedLoading={installedLoading || ollamaUnreachable}
@@ -572,56 +654,61 @@ export default function Chat() {
                     onShowToolDetailsChange={setShowToolDetails}
                     enabledTools={enabledTools}
                     onEnabledToolsChange={setEnabledTools}
-                    soulName={soulName}
-                    onSoulNameChange={setSoulName}
+                    conversationId={conversationId}
+                    initialUsage={initialUsage}
+                    usageVersion={usageVersion}
+                    draftOverrides={draftOverrides}
+                    onDraftOverrideChange={(patch) => setDraftOverrides(prev => ({ ...prev, ...patch }))}
                   />
-                </>
-              ) : (
-                /* Empty-state hero: centered headline + composer + suggestion
-                   pills. Mirrors ChatGPT's first-run UX. Once the user sends
-                   their first message we drop into the standard thread layout
-                   above. */
-                <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-8 overflow-y-auto">
-                  <h1 className="text-2xl font-medium text-foreground">What can I help with?</h1>
-                  <div className="w-full max-w-4xl">
-                    <Composer
-                      centered
-                      installed={installed}
-                      installedLoading={installedLoading || ollamaUnreachable}
-                      model={model}
-                      onModelChange={handleModelChange}
-                      busy={busy}
-                      onSend={handleSend}
-                      onStop={handleStop}
-                      focusRef={composerFocusRef}
-                      libraryCapabilities={libraryCaps}
-                      attachments={attachments}
-                      onAttachmentsChange={setAttachments}
-                      webPreviews={webPreviews}
-                      onWebPreviewsChange={setWebPreviews}
-                      showToolDetails={showToolDetails}
-                      onShowToolDetailsChange={setShowToolDetails}
-                      enabledTools={enabledTools}
-                      onEnabledToolsChange={setEnabledTools}
-                      soulName={soulName}
-                      onSoulNameChange={setSoulName}
-                    />
-                  </div>
-                  <div className="flex max-w-4xl flex-wrap justify-center gap-2">
-                    {emptyStatePrompts.map(p => (
-                      <Suggestion
-                        key={p}
-                        suggestion={p}
-                        onClick={handleSuggestion}
-                        disabled={busy || !model}
-                      />
-                    ))}
-                  </div>
                 </div>
-              )}
-            </section>
-          </div>
-        </Card>
+              </div>
+            </>
+          ) : (
+            /* Empty-state hero: centered headline + composer + suggestion
+               pills. min-h fills the viewport below the page chrome so the
+               hero stays vertically centered without an internal scroll. */
+            <div className="flex flex-col items-center justify-center gap-6 px-4 py-8 min-h-[calc(100vh-128px)]">
+              <h1 className="text-2xl font-medium text-foreground">What can I help with?</h1>
+              <div className="w-full max-w-4xl">
+                <Composer
+                  centered
+                  installed={installed}
+                  installedLoading={installedLoading || ollamaUnreachable}
+                  model={model}
+                  onModelChange={handleModelChange}
+                  busy={busy}
+                  onSend={handleSend}
+                  onStop={handleStop}
+                  focusRef={composerFocusRef}
+                  libraryCapabilities={libraryCaps}
+                  attachments={attachments}
+                  onAttachmentsChange={setAttachments}
+                  webPreviews={webPreviews}
+                  onWebPreviewsChange={setWebPreviews}
+                  showToolDetails={showToolDetails}
+                  onShowToolDetailsChange={setShowToolDetails}
+                  enabledTools={enabledTools}
+                  onEnabledToolsChange={setEnabledTools}
+                  conversationId={conversationId}
+                  initialUsage={initialUsage}
+                  usageVersion={usageVersion}
+                  draftOverrides={draftOverrides}
+                  onDraftOverrideChange={(patch) => setDraftOverrides(prev => ({ ...prev, ...patch }))}
+                />
+              </div>
+              <div className="flex max-w-4xl flex-wrap justify-center gap-2">
+                {emptyStatePrompts.map(p => (
+                  <Suggestion
+                    key={p}
+                    suggestion={p}
+                    onClick={handleSuggestion}
+                    disabled={busy || !model}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
       </div>
     </>
   );

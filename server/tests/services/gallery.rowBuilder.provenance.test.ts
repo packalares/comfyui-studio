@@ -1,8 +1,8 @@
 // Tests that provenance + fingerprint fields thread through buildRowsFromHistory.
 
 import { describe, expect, it } from 'vitest';
-import { buildRowsFromHistory } from '../../src/services/gallery.rowBuilder.js';
-import type { ApiPrompt } from '../../src/services/gallery.extract.js';
+import { buildRowsFromHistory } from '../../src/services/gallery/index.js';
+import type { ApiPrompt } from '../../src/services/gallery/extract.js';
 
 const OUTPUTS = {
   '7': { images: [{ filename: 'out.png', subfolder: '', type: 'output' }] },

@@ -1,7 +1,7 @@
 // Log service: accumulation, clearing, tail by KB.
 
 import { describe, expect, it, beforeEach } from 'vitest';
-import { LogService } from '../../src/services/comfyui/log.service.js';
+import { LogService } from '../../src/services/comfyui/process.js';
 
 describe('LogService', () => {
   let log: LogService;

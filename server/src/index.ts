@@ -3,22 +3,22 @@ import cors from 'cors';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import apiRouter from './routes/index.js';
-import { getComfyUIUrl, getQueue, getQueuePromptIds } from './services/comfyui.js';
-import * as galleryService from './services/gallery.service.js';
-import { hydrateFromQueue, onQueueStatus } from './services/gallery.sentry.js';
+import { getComfyUIUrl, getQueue, getQueuePromptIds } from './services/comfyui/api.js';
+import * as galleryService from './services/gallery/index.js';
+import { hydrateFromQueue, onQueueStatus } from './services/gallery/sentry.js';
 import { loadTemplatesFromComfyUI } from './services/templates/index.js';
 import { wireTemplateEventHandlers } from './services/templates/eventSubscribers.js';
-import { wireCatalogEventHandlers } from './services/catalog.events.js';
+import { wireCatalogEventHandlers } from './services/catalog/index.js';
 import {
   ensureFresh as ensureModelIndexFresh,
   wireModelIndexEventHandlers,
 } from './services/models/modelIndex.js';
-import { setDownloadBroadcaster, getAllDownloads } from './services/downloads.js';
+import { setDownloadBroadcaster, getAllDownloads } from './services/downloads/index.js';
 import { setChatBroadcaster } from './services/chat/broadcaster.js';
 import { sweepStaleUploads } from './routes/upload.routes.js';
 import * as promptSnapshotsRepo from './lib/db/promptSnapshots.repo.js';
-import { getStatus as getLocalComfyUIStatus } from './services/comfyui/status.service.js';
-import { startComfyUIProxy } from './services/comfyui/proxy.service.js';
+import { getStatus as getLocalComfyUIStatus } from './services/comfyui/status.js';
+import { startComfyUIProxy } from './services/comfyui/proxy.js';
 import { env } from './config/env.js';
 import { migrateLegacyPaths } from './config/migrateLegacyPaths.js';
 import { requestLogger } from './middleware/logging.js';
@@ -290,7 +290,7 @@ async function start() {
     // One-shot rewrite of legacy `mcp__<UUID>__<tool>` keys in
     // enabledMcpTools to the new slug-based `mcp__<slug>__<tool>` form.
     // Idempotent: only writes when at least one key changes.
-    const { migrateEnabledMcpToolKeys } = await import('./services/settings.mcp.js');
+    const { migrateEnabledMcpToolKeys } = await import('./services/settings/mcp.js');
     const rewrites = migrateEnabledMcpToolKeys();
     if (rewrites > 0) {
       logger.info(`migrated ${rewrites} enabledMcpTools keys from server UUID to slug form`);

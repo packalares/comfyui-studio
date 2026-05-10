@@ -2,7 +2,7 @@
 // The model calls this when the user's request matches a skill description.
 
 import { z } from 'zod';
-import { getSkillBody } from '../../../../chat/skills/index.js';
+import { getSkillBody } from '../../../../chat/skills.js';
 
 export const description =
   'Load the full body of a named skill. Call this when the user asks for help with something a skill description matches. Returns the markdown body so you can follow its instructions for the rest of the conversation.';

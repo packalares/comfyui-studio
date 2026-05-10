@@ -6,9 +6,10 @@
 import type { UIMessage } from 'ai';
 import { logger } from '../../lib/logger.js';
 import * as repo from '../../lib/db/chat.repo.js';
-import * as settings from '../settings.js';
+import * as settings from '../settings/index.js';
 import { emitChatEvent } from './broadcaster.js';
 import { template as renderPrompt } from './promptsLoader.js';
+import { stripTrailingSlash } from '../../lib/url.js';
 
 export interface AutoTitleArgs {
   conversationId: string;
@@ -60,7 +61,7 @@ async function callOllamaOneShot(baseUrl: string, model: string, prompt: string)
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), settings.getChatTitleTimeoutMs());
   try {
-    const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/api/chat`, {
+    const res = await fetch(`${stripTrailingSlash(baseUrl)}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

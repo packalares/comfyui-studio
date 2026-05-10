@@ -1,9 +1,6 @@
-// Unified thumbnail service: shared types + error codes.
-//
-// Both URL shapes (`:galleryId` DB mode and `?url=` remote mode) dispatch
-// into a pipeline (image / video / audio / static) that produces a webp
-// under `<cacheRoot>/thumbs/<aa>/<md5>.webp`. 3D + audio-fallback bypass
-// the on-disk cache since they emit deterministic inline SVG bytes.
+// Shared types + validation helpers for the thumbnail service.
+// Kept as a separate leaf so pipelines can import without cycling back
+// through service.ts (which imports the pipelines).
 
 export type ThumbPipeline = 'image' | 'video' | 'audio' | 'static3d' | 'unknown';
 
@@ -21,9 +18,8 @@ export interface ThumbInlineResult {
   /**
    * When true, the route layer must serve `Cache-Control: no-store` so a
    * future fetch sees the real upstream once it appears. Set on placeholder
-   * responses produced when a real source is missing (404, deleted DB row,
-   * absent on-disk file). Permanent inline results (3D Box / audio Music
-   * SVGs) leave this unset and use the standard short cache.
+   * responses produced when a real source is missing. Permanent inline results
+   * (3D Box / audio Music SVGs) leave this unset.
    */
   transient?: boolean;
 }

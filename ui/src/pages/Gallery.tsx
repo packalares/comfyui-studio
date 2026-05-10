@@ -14,6 +14,7 @@ import { usePersistedState } from '../hooks/usePersistedState';
 import { usePaginated } from '../hooks/usePaginated';
 import Pagination from '../components/layout/Pagination';
 import PageSubbar from '../components/layout/PageSubbar';
+import PageAside from '../components/layout/PageAside';
 import GalleryTile from '../components/cards/GalleryTile';
 import GalleryDetailModal from '../components/modals/GalleryDetailModal';
 import ConfirmDialog from '../components/modals/ConfirmDialog';
@@ -21,7 +22,6 @@ import { SelectField, SelectContent, SelectItem, SelectTrigger, SelectValue } fr
 import { Checkbox } from '../components/ui/checkbox';
 import { Button } from '../components/ui/button';
 import { ButtonGroup } from '../components/ui/button-group';
-import { Card } from '../components/ui/card';
 
 type FilterType = 'all' | 'image' | 'video' | 'audio';
 type SortBy = 'newest' | 'oldest';
@@ -246,11 +246,9 @@ export default function Gallery() {
           )
         }
       />
-      <div className="page-container">
-        <Card>
-          <div className="flex flex-col lg:flex-row min-h-[calc(100vh-180px)]">
-            {/* ===== Left sidebar ===== */}
-            <aside className={`${filtersOpen ? 'block' : 'hidden'} lg:block w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r p-4 space-y-5 bg-card`}>
+      <div className="flex flex-col lg:flex-row gap-4 p-4">
+        {/* ===== Left aside (filters) ===== */}
+        <PageAside open={filtersOpen} className="p-4 space-y-5 overflow-y-auto">
               {/* Media Type filter */}
               <div>
                 <label className="field-label mb-1.5 block">Media Type</label>
@@ -326,10 +324,12 @@ export default function Gallery() {
                   </div>
                 </div>
               </div>
-            </aside>
+        </PageAside>
 
-            {/* ===== Right content ===== */}
-            <main className="flex-1 p-4 overflow-y-auto">
+        {/* ===== Right content. No outer card wrapper — gallery rows are
+            their own cards/tiles. */}
+        <section className="flex flex-1 min-w-0 flex-col">
+          <div className="flex-1">
               {deleteError && (
                 <div className="mb-3 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                   <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -417,24 +417,31 @@ export default function Gallery() {
                   className="rounded-lg border bg-muted"
                 />
               </div>
-            </main>
           </div>
-        </Card>
+        </section>
       </div>
 
       {/* Full-size viewer modal — Wave F redesign with metadata + regenerate. */}
       {viewItem && (() => {
-        const found = filteredGallery.find(i => i.id === viewItem);
+        const idx = filteredGallery.findIndex(i => i.id === viewItem);
+        const found = idx >= 0 ? filteredGallery[idx] : null;
         if (!found) {
           // The row disappeared under us (e.g. deleted in another tab). Bail.
           setViewItem(null);
           return null;
         }
+        // Lightbox-style prev/next traversal over the currently-filtered
+        // list. We hide the corresponding handler at the ends so the
+        // modal doesn't render a button that would do nothing.
+        const prev = idx > 0 ? filteredGallery[idx - 1] : null;
+        const next = idx < filteredGallery.length - 1 ? filteredGallery[idx + 1] : null;
         return (
           <GalleryDetailModal
             item={found}
             onClose={() => setViewItem(null)}
             onDelete={() => openDeleteForItem(found.id)}
+            onPrev={prev ? () => setViewItem(prev.id) : undefined}
+            onNext={next ? () => setViewItem(next.id) : undefined}
             onRegenerated={() => {
               // Close the modal; the fresh prompt's outputs will stream in
               // via the normal WS gallery broadcast path and the refetch below.

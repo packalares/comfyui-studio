@@ -6,7 +6,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import * as catalog from '../catalog.js';
+import * as catalog from '../catalog/index.js';
 import { extractDepsWithPluginResolution } from './extractDepsAsync.js';
 import { extractDeps } from './depExtract.js';
 import * as modelFiles from '../../lib/db/modelFiles.repo.js';
@@ -90,7 +90,7 @@ export async function collectModelFolders(
 
 export async function fetchInstalledModels(): Promise<LauncherModelEntry[]> {
   try {
-    const models = await import('../models/models.service.js');
+    const models = await import('../models/service.js');
     const list = await models.scanAndRefresh();
     const out: LauncherModelEntry[] = [];
     for (const m of list) {

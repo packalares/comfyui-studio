@@ -21,11 +21,11 @@ vi.mock('../../../../src/services/templates/dependencyCheck.js', () => ({
   checkTemplateDependencies: vi.fn(),
 }));
 
-vi.mock('../../../../src/services/comfyui.js', () => ({
+vi.mock('../../../../src/services/comfyui/api.js', () => ({
   submitPrompt: vi.fn(),
 }));
 
-vi.mock('../../../../src/services/gallery.sentry.js', () => ({
+vi.mock('../../../../src/services/gallery/sentry.js', () => ({
   schedulePromptWatch: vi.fn(),
 }));
 
@@ -37,7 +37,7 @@ vi.mock('../../../../src/services/workflow/index.js', () => ({
 import { generateImageTool } from '../../../../src/services/chat/tools/generateImage.js';
 import * as templates from '../../../../src/services/templates/index.js';
 import * as depCheck from '../../../../src/services/templates/dependencyCheck.js';
-import * as comfyui from '../../../../src/services/comfyui.js';
+import * as comfyui from '../../../../src/services/comfyui/api.js';
 import { get as getPrompt } from '../../../../src/services/chat/promptsLoader.js';
 
 type ExecuteFn = (input: { prompt: string }, opts: unknown) => Promise<unknown>;

@@ -15,11 +15,11 @@
 // `setGalleryBroadcaster` in `services/gallery.service.ts`.
 
 import { Router, type Request, type Response } from 'express';
-import * as gallery from '../services/gallery.service.js';
-import { submitPrompt } from '../services/comfyui.js';
-import { schedulePromptWatch } from '../services/gallery.sentry.js';
+import * as gallery from '../services/gallery/index.js';
+import { submitPrompt } from '../services/comfyui/api.js';
+import { schedulePromptWatch } from '../services/gallery/sentry.js';
 import { parsePageQuery } from '../lib/pagination.js';
-import { randomizeStoredSeeds, type ApiPrompt } from '../services/gallery.extract.js';
+import { randomizeStoredSeeds, type ApiPrompt } from '../services/gallery/extract.js';
 import { logger } from '../lib/logger.js';
 
 const router = Router();

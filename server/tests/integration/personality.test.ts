@@ -254,7 +254,7 @@ describe('POST /api/chat/start with soulName', () => {
     // Import the real modules so DB writes happen with the real schema.
     router.post('/chat/start-test', async (req, res) => {
       const { createConversation, getConversation } = await import('../../src/lib/db/chat.repo.js');
-      const { resolveSystemPrompt } = await import('../../src/services/chat/personality/index.js');
+      const { resolveSystemPrompt } = await import('../../src/services/chat/personality.js');
       const body = req.body as { soulName?: string | null };
       const soulName = typeof body.soulName === 'string' && body.soulName.length > 0
         ? body.soulName
@@ -336,7 +336,7 @@ describe('studio_remember MCP tool', () => {
     expect(result.ok).toBe(true);
     expect(result.persisted).toBe('Laurs prefers Qwen 14B');
 
-    const { loadMemoryBody } = await import('../../src/services/chat/personality/index.js');
+    const { loadMemoryBody } = await import('../../src/services/chat/personality.js');
     const body = loadMemoryBody();
     expect(body).toContain('Laurs prefers Qwen 14B');
     // Date prefix format YYYY-MM-DD.
@@ -348,7 +348,7 @@ describe('studio_remember MCP tool', () => {
     await run({ fact: 'fact one' });
     await run({ fact: 'fact two' });
 
-    const { loadMemoryBody } = await import('../../src/services/chat/personality/index.js');
+    const { loadMemoryBody } = await import('../../src/services/chat/personality.js');
     const body = loadMemoryBody();
     expect(body).toContain('fact one');
     expect(body).toContain('fact two');
@@ -359,7 +359,7 @@ describe('studio_remember MCP tool', () => {
     await run({ fact: 'Assistant name is Mariola' });
     await run({ fact: 'Assistant name is Mariola' });
 
-    const { loadMemoryBody } = await import('../../src/services/chat/personality/index.js');
+    const { loadMemoryBody } = await import('../../src/services/chat/personality.js');
     const body = loadMemoryBody();
     const matches = body.match(/Assistant name is Mariola/g) ?? [];
     expect(matches.length).toBe(1);
@@ -371,7 +371,7 @@ describe('studio_remember MCP tool', () => {
     await run({ fact: '  prefers concise answers  ' });
     await run({ fact: 'PREFERS CONCISE ANSWERS' });
 
-    const { loadMemoryBody } = await import('../../src/services/chat/personality/index.js');
+    const { loadMemoryBody } = await import('../../src/services/chat/personality.js');
     const body = loadMemoryBody();
     const matches = body.match(/[Pp][Rr][Ee][Ff][Ee][Rr][Ss] [Cc][Oo][Nn][Cc][Ii][Ss][Ee] [Aa][Nn][Ss][Ww][Ee][Rr][Ss]/g) ?? [];
     expect(matches.length).toBe(1);
@@ -416,7 +416,7 @@ describe('PATCH /chat/conversations/:id soul_name', () => {
 
     router.patch('/chat/conversations/:id', async (req, res) => {
       const { renameConversation, getConversation } = await import('../../src/lib/db/chat.repo.js');
-      const { resolveSystemPrompt } = await import('../../src/services/chat/personality/index.js');
+      const { resolveSystemPrompt } = await import('../../src/services/chat/personality.js');
       const id = String(req.params.id ?? '');
       const body = req.body as { soul_name?: unknown };
       const patch: { soul_name?: string | null } = {};
@@ -655,7 +655,7 @@ describe('studio_propose_soul_edit + pending-edits API', () => {
       expect(result.ok).toBe(true);
 
       // Soul body now contains the appended text.
-      const { loadSoul } = await import('../../src/services/chat/personality/index.js');
+      const { loadSoul } = await import('../../src/services/chat/personality.js');
       const soul = loadSoul('test-soul');
       expect(soul?.body).toContain('Always cite sources when making factual claims.');
 
@@ -685,7 +685,7 @@ describe('studio_propose_soul_edit + pending-edits API', () => {
       const result = await accept.json() as { ok: boolean };
       expect(result.ok).toBe(true);
 
-      const { loadSoul } = await import('../../src/services/chat/personality/index.js');
+      const { loadSoul } = await import('../../src/services/chat/personality.js');
       const soul = loadSoul('test-soul');
       expect(soul?.body).toContain('Provide thorough explanations.');
       expect(soul?.body).not.toContain('Keep answers short.');

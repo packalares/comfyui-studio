@@ -32,9 +32,9 @@ export interface ChatDonePayload {
   msgId: string;
   stats: ChatDoneStats;
   /** Server-recomputed context-window usage at the moment the turn finished.
-   *  Lets the ContextMeter refresh without a separate /usage HTTP round-trip.
-   *  Null when the upstream /api/show call failed; meter falls back to its
-   *  own fetch in that case. */
+   *  Lets the context-meter UI refresh without a separate /usage HTTP round-
+   *  trip. Null when the upstream /api/show call failed; meter falls back to
+   *  its own fetch in that case. */
   usage?: ChatUsageState | null;
 }
 export interface ChatErrorPayload { msgId: string; error: string }

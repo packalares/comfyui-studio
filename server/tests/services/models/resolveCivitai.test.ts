@@ -10,7 +10,7 @@
 //   - Model type -> suggestedFolder mapping matches the contract.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { resolveCivitaiUrl } from '../../../src/services/models/resolveCivitai.js';
+import { resolveCivitaiUrl } from '../../../src/services/models/resolvers.js';
 
 function makeVersion(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {

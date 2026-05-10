@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   validateCivitaiUrl, detectDownloadHost,
-} from '../../src/services/models/download.service.js';
+} from '../../src/services/models/downloadUrl.js';
 import {
   getHfAuthHeaders, getCivitaiAuthHeaders, getHostAuthHeaders,
 } from '../../src/lib/http.js';

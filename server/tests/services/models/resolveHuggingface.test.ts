@@ -10,7 +10,7 @@
 //   - Folder guess uses path segment + extension heuristic.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { resolveHuggingfaceUrl } from '../../../src/services/models/resolveHuggingface.js';
+import { resolveHuggingfaceUrl } from '../../../src/services/models/resolvers.js';
 
 function mockHead(sizeBytes: number | null): void {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {

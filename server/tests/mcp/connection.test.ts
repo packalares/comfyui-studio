@@ -3,7 +3,7 @@
 // We mock the MCP SDK transport classes so no subprocess or HTTP is involved.
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import type { McpServerConfig } from '../../src/services/settings.mcp.js';
+import type { McpServerConfig } from '../../src/services/settings/mcp.js';
 
 // ---- Transport mock factory -----------------------------------------------
 

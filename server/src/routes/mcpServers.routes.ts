@@ -18,7 +18,7 @@ import {
   upsertMcpProfile,
   McpSlugCollisionError,
   type McpServerConfig,
-} from '../services/settings.mcp.js';
+} from '../services/settings/mcp.js';
 import { getRegistry } from '../services/mcp/client/index.js';
 import { McpConnection } from '../services/mcp/client/connection.js';
 

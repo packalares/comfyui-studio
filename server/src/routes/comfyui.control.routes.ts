@@ -10,7 +10,7 @@
 // valid, ComfyUI misbehaved" from a client-side 4xx.
 
 import { Router, type Request, type Response, type RequestHandler } from 'express';
-import { getComfyUIUrl } from '../services/comfyui.js';
+import { getComfyUIUrl } from '../services/comfyui/api.js';
 import { logger } from '../lib/logger.js';
 
 const router = Router();

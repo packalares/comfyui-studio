@@ -3,17 +3,17 @@
 // outage still returns whatever is available.
 
 import { Router, type Request, type Response } from 'express';
-import * as comfyui from '../services/comfyui.js';
-import * as gallery from '../services/gallery.service.js';
-import * as settings from '../services/settings.js';
-import * as toolsSettings from '../services/settings.tools.js';
-import { getStudioMcpStatus } from '../services/settings.mcp.js';
+import * as comfyui from '../services/comfyui/api.js';
+import * as gallery from '../services/gallery/index.js';
+import * as settings from '../services/settings/index.js';
+import * as toolsSettings from '../services/settings/tools.js';
+import { getStudioMcpStatus } from '../services/settings/mcp.js';
 import { getMcpToolListings } from '../services/mcp/server/toolRegistry.js';
 import { listAvailableTools } from '../services/chat/tools/index.js';
 import { getSuggestions as getChatSuggestions } from '../services/chat/promptsLoader.js';
-import * as systemFacade from '../services/systemLauncher/system.service.js';
-import * as networkChecker from '../services/systemLauncher/networkChecker/service.js';
-import { getPersonalitySummary } from '../services/chat/personality/summary.js';
+import { getNetworkConfig } from '../services/settings/network.js';
+import * as networkChecker from '../services/networkChecker.js';
+import { getPersonalitySummary } from '../services/chat/personality.js';
 import { env } from '../config/env.js';
 
 const router = Router();
@@ -45,7 +45,7 @@ router.get('/system', async (_req: Request, res: Response) => {
   // checker has never run, so subsequent calls surface real reachability.
   const lastReach = networkChecker.getLastResult();
   if (!lastReach) networkChecker.triggerCheck();
-  const network = systemFacade.getNetworkConfig(
+  const network = getNetworkConfig(
     lastReach
       ? Object.fromEntries(
           Object.entries(lastReach).map(([k, v]) => [k, { accessible: v.accessible, latencyMs: v.latencyMs }]),

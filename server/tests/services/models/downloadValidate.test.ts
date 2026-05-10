@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   validateGithubUrl, validateGenericUrl, detectDownloadHost,
-} from '../../../src/services/models/download.service.js';
+} from '../../../src/services/models/downloadUrl.js';
 
 describe('validateGithubUrl', () => {
   it('accepts a canonical release-asset URL and parses the filename', () => {
