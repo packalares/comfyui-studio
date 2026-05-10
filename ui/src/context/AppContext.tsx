@@ -106,6 +106,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setQueueStatus,
     _setDownloads,
     _setProgress,
+    _setNodeStates,
     _setActivePromptId,
     _activePromptIdRef,
     _fetchOutputFromHistory,
@@ -237,35 +238,57 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
             if (typeof pid === 'string' && pid.length > 0) {
               _setActivePromptId(pid);
             }
+            // Reset per-node state map for the new prompt.
+            _setNodeStates({});
           } else if (msg.type === 'executing' && msg.data?.node === null) {
             // node === null signals "all nodes for this prompt are done".
             _setProgress(null);
             _setActivePromptId(null);
+            _setNodeStates(null);
             if (promptId) {
               scheduleTimer(() => _fetchOutputFromHistory(promptId), 500);
             }
           } else if (msg.type === 'executing' && typeof msg.data?.prompt_id === 'string') {
             _setActivePromptId(msg.data.prompt_id);
+            // Incremental "now running": loaders / encoders / decoders /
+            // save nodes finish too fast to emit `progress`, so this is
+            // often the only signal they ever ran. Mark them running here;
+            // the matching `executed` event flips them to finished.
+            const startedNode = msg.data?.node;
+            if (typeof startedNode === 'string' && startedNode.length > 0) {
+              _setNodeStates(prev => ({ ...(prev ?? {}), [startedNode]: 'running' }));
+            }
           } else if (msg.type === 'executed' && msg.data?.prompt_id === promptId) {
+            const finishedNode = msg.data?.node;
+            if (typeof finishedNode === 'string' && finishedNode.length > 0) {
+              _setNodeStates(prev => ({ ...(prev ?? {}), [finishedNode]: 'finished' }));
+            }
             if (promptId) {
               scheduleTimer(() => _fetchOutputFromHistory(promptId), 500);
             }
           } else if (msg.type === 'progress_state') {
-            // Use the prompt_id carried by the message first — by the time
-            // the final `progress_state` arrives, another branch may have
-            // already cleared `_activePromptIdRef` (execution_success
-            // handler does this unconditionally). For workflows where
-            // `progress_state` is the ONLY terminal event (IndexTTS2 and
-            // other non-sampler custom nodes that don't emit the legacy
-            // events), missing this fallback leaves the card stuck with
-            // no output fetch ever firing.
+            // Authoritative per-node state map — covers nodes that finished
+            // too fast for `executing`/`executed` to round-trip cleanly.
+            // Also doubles as the terminal-completion fallback for workflows
+            // (IndexTTS2 etc.) where `progress_state` is the ONLY terminal
+            // signal — no legacy `execution_success` fires.
             const nodes = msg.data?.nodes;
             const pid = (typeof msg.data?.prompt_id === 'string' ? msg.data.prompt_id : null)
               ?? promptId;
-            if (nodes && pid) {
-              const allFinished = Object.values(nodes).every((n: unknown) => (n as Record<string, string>).state === 'finished');
-              if (allFinished) {
-                scheduleTimer(() => _fetchOutputFromHistory(pid), 500);
+            if (nodes && typeof nodes === 'object') {
+              const states: Record<string, 'pending' | 'running' | 'finished'> = {};
+              for (const [id, raw] of Object.entries(nodes as Record<string, unknown>)) {
+                const st = (raw as Record<string, unknown>).state;
+                if (st === 'pending' || st === 'running' || st === 'finished') {
+                  states[id] = st;
+                }
+              }
+              if (Object.keys(states).length > 0) _setNodeStates(states);
+              if (pid) {
+                const allFinished = Object.values(nodes).every((n: unknown) => (n as Record<string, string>).state === 'finished');
+                if (allFinished) {
+                  scheduleTimer(() => _fetchOutputFromHistory(pid), 500);
+                }
               }
             }
           } else if (msg.type === 'execution_success' || msg.type === 'execution_complete') {
@@ -277,6 +300,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
             // and let the next `executing`/`progress` burst re-hydrate.
             _setProgress(null);
             _setActivePromptId(null);
+            _setNodeStates(null);
             const donePid =
               typeof msg.data?.prompt_id === 'string' ? msg.data.prompt_id : promptId;
             if (donePid) {

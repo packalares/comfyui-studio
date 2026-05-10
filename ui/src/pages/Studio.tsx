@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Image as ImageIcon, Film, Music, Box, Wrench,
@@ -25,6 +25,8 @@ import { isThreeDFilename } from '../lib/media';
 import { toast } from 'sonner';
 import type { StudioCategory, TemplateSummary, DependencyCheck, AdvancedSetting, FormInput } from '../types';
 import { Settings2 } from 'lucide-react';
+
+const WorkflowGraph = lazy(() => import('../components/studio/WorkflowGraph'));
 
 const categories: { id: StudioCategory; label: string; icon: React.ElementType }[] = [
   { id: 'image', label: 'IMAGE', icon: ImageIcon },
@@ -838,10 +840,20 @@ export default function Studio() {
                   <p className="text-sm font-medium text-destructive">Generation failed</p>
                   <p className="text-xs text-muted-foreground mt-1">Check the console for details</p>
                 </div>
-              ) : isRunning ? (
-                <div className="text-center">
-                  <Spinner size="2xl" className="text-brand mx-auto mb-3" />
-                  <p className="text-sm text-muted-foreground">Generating…</p>
+              ) : selectedTemplate ? (
+                /* Template selected: show workflow graph (static when idle, animated when running) */
+                <div className="absolute inset-0">
+                  <Suspense fallback={
+                    <div className="flex h-full items-center justify-center text-xs text-muted-foreground gap-2">
+                      <span className="w-4 h-4 rounded-full border-2 border-brand border-t-transparent animate-spin" />
+                      Loading graph…
+                    </div>
+                  }>
+                    <WorkflowGraph
+                      templateName={selectedTemplate}
+                      isRunning={isRunning}
+                    />
+                  </Suspense>
                 </div>
               ) : (
                 <div className="text-center max-w-sm">

@@ -15,11 +15,20 @@ export interface LiveProgress {
   promptId: string | null;
 }
 
+/** Per-node ComfyUI execution state (sourced from `progress_state` WS event,
+ *  plus incremental updates from `executing` / `executed`). Lets the Studio
+ *  workflow graph mark every node as it transitions — not just the slow
+ *  ones that emit sub-step `progress` events. Bounded to the current prompt;
+ *  reset on `execution_start` and `execution_success`. */
+export type ComfyNodeRunState = 'pending' | 'running' | 'finished';
+
 export interface JobsContextType {
   currentJob: GenerationJob | null;
   queueStatus: QueueStatus;
   downloads: Record<string, DownloadState>;
   progress: LiveProgress | null;
+  /** Per-node state map for the active prompt, or null when no prompt running. */
+  nodeStates: Record<string, ComfyNodeRunState> | null;
   activePromptId: string | null;
   submitGeneration: (
     templateName: string,
@@ -33,6 +42,7 @@ export interface JobsContextType {
   _setQueueStatus: React.Dispatch<React.SetStateAction<QueueStatus>>;
   _setDownloads: React.Dispatch<React.SetStateAction<Record<string, DownloadState>>>;
   _setProgress: React.Dispatch<React.SetStateAction<LiveProgress | null>>;
+  _setNodeStates: React.Dispatch<React.SetStateAction<Record<string, ComfyNodeRunState> | null>>;
   _setActivePromptId: React.Dispatch<React.SetStateAction<string | null>>;
   _activePromptIdRef: React.MutableRefObject<string | null>;
   _outputFetchedRef: React.MutableRefObject<boolean>;
@@ -47,6 +57,7 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
   const [queueStatus, setQueueStatus] = useState<QueueStatus>({ queue_running: 0, queue_pending: 0 });
   const [downloads, setDownloads] = useState<Record<string, DownloadState>>({});
   const [progress, setProgress] = useState<LiveProgress | null>(null);
+  const [nodeStates, setNodeStates] = useState<Record<string, ComfyNodeRunState> | null>(null);
   const [activePromptId, setActivePromptId] = useState<string | null>(null);
 
   const activePromptIdRef = useRef<string | null>(null);
@@ -204,6 +215,7 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
         queueStatus,
         downloads,
         progress,
+        nodeStates,
         activePromptId,
         submitGeneration,
         cancelRunning,
@@ -212,6 +224,7 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
         _setQueueStatus: setQueueStatus,
         _setDownloads: setDownloads,
         _setProgress: setProgress,
+        _setNodeStates: setNodeStates,
         _setActivePromptId: setActivePromptId,
         _activePromptIdRef: activePromptIdRef,
         _outputFetchedRef: outputFetchedRef,
