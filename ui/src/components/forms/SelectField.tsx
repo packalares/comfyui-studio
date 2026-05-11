@@ -7,14 +7,20 @@ const SelectField = SelectPrimitive.Root;
 const SelectGroup = SelectPrimitive.Group;
 const SelectValue = SelectPrimitive.Value;
 
+interface SelectTriggerProps extends React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger> {
+  /** When true, renders the trigger with a destructive-red border to indicate an error. */
+  invalid?: boolean;
+}
+
 const SelectTrigger = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Trigger>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>
->(({ className, children, ...props }, ref) => (
+  SelectTriggerProps
+>(({ className, children, invalid, ...props }, ref) => (
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
       'flex h-9 w-full items-center justify-between rounded-md border border-input bg-card px-2.5 py-1.5 text-[12px] text-foreground transition-colors hover:bg-muted focus:outline-none focus:border-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1 [&>span]:text-left data-[placeholder]:text-muted-foreground',
+      invalid && 'border-destructive',
       className
     )}
     {...props}

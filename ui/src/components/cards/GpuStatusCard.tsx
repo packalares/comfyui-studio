@@ -64,6 +64,11 @@ export default function GpuStatusCard() {
   // before sampling has run. Without this the bar shows 100 % on boot.
   const vramReady = !!gpu && gpu.vram_total > 0 && monitorStats != null;
   const vramPct = vramReady ? clampPct((gpu!.vram_used / gpu!.vram_total) * 100) : 0;
+  const ramTotal = monitorStats?.ram_total ?? 0;
+  const ramReady = monitorStats != null && ramTotal > 0;
+  const ramPct = ramReady
+    ? clampPct(monitorStats!.ram_used_percent ?? ((monitorStats!.ram_used ?? 0) / ramTotal) * 100)
+    : 0;
 
   if (!gpu) return null;
 
@@ -93,14 +98,19 @@ export default function GpuStatusCard() {
         {vramReady ? (
           <>
             {!collapsed && (
-              <div className="mb-1 flex justify-between text-[11px] text-muted-foreground">
-                <span>VRAM</span>
+              <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  VRAM
+                  <span className="inline-flex items-center justify-center rounded-full bg-brand/20 px-1.5 py-px text-[10px] font-semibold leading-none text-brand tabular-nums">
+                    {Math.round(vramPct)}%
+                  </span>
+                </span>
                 <span>
                   {formatBytes(gpu.vram_used)} / {formatBytes(gpu.vram_total)}
                 </span>
               </div>
             )}
-            <div className="progress-track">
+            <div className="progress-track h-1">
               <div
                 className={`h-full rounded-full transition-all ${vramTone(vramPct)}`}
                 style={{ width: `${vramPct}%` }}
@@ -108,17 +118,43 @@ export default function GpuStatusCard() {
                 aria-valuemin={0}
                 aria-valuemax={100}
                 role="progressbar"
+                aria-label="VRAM"
               />
             </div>
-            {!collapsed && (
-              <div className="mt-1 text-right text-[10px] tabular-nums text-muted-foreground">
-                {Math.round(vramPct)}%
-              </div>
+
+            {ramReady && (
+              <>
+                <div className="my-4 border-t border-border/70" />
+                {!collapsed && (
+                  <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                    <span className="flex items-center gap-1.5">
+                      RAM
+                      <span className="inline-flex items-center justify-center rounded-full bg-brand/20 px-1.5 py-px text-[10px] font-semibold leading-none text-brand tabular-nums">
+                        {Math.round(ramPct)}%
+                      </span>
+                    </span>
+                    <span>
+                      {formatBytes(monitorStats!.ram_used ?? 0)} / {formatBytes(ramTotal)}
+                    </span>
+                  </div>
+                )}
+                <div className="progress-track h-1 mt-1.5">
+                  <div
+                    className={`h-full rounded-full transition-all ${vramTone(ramPct)}`}
+                    style={{ width: `${ramPct}%` }}
+                    aria-valuenow={Math.round(ramPct)}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    role="progressbar"
+                    aria-label="RAM"
+                  />
+                </div>
+              </>
             )}
           </>
         ) : (
           <div className="text-[11px] text-muted-foreground">
-            Sampling VRAM…
+            Sampling…
           </div>
         )}
       </div>

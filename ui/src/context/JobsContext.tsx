@@ -30,6 +30,12 @@ export interface JobsContextType {
   /** Per-node state map for the active prompt, or null when no prompt running. */
   nodeStates: Record<string, ComfyNodeRunState> | null;
   activePromptId: string | null;
+  /** ComfyUI node ids that caused the last failure (validation or runtime). */
+  errorNodeIds: string[];
+  /** Per-node "required input is missing" details from the last validation
+   *  failure — lets the UI trace the missing input back to its upstream
+   *  (form-bound) provider node, e.g. a LoadImage feeding a resize node. */
+  errorEdges: Array<{ nodeId: string; missingInput: string }>;
   submitGeneration: (
     templateName: string,
     inputs: Record<string, unknown>,
@@ -44,6 +50,7 @@ export interface JobsContextType {
   _setProgress: React.Dispatch<React.SetStateAction<LiveProgress | null>>;
   _setNodeStates: React.Dispatch<React.SetStateAction<Record<string, ComfyNodeRunState> | null>>;
   _setActivePromptId: React.Dispatch<React.SetStateAction<string | null>>;
+  _setErrorNodeIds: React.Dispatch<React.SetStateAction<string[]>>;
   _activePromptIdRef: React.MutableRefObject<string | null>;
   _outputFetchedRef: React.MutableRefObject<boolean>;
   _outputFetchInFlightRef: React.MutableRefObject<boolean>;
@@ -59,6 +66,8 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
   const [progress, setProgress] = useState<LiveProgress | null>(null);
   const [nodeStates, setNodeStates] = useState<Record<string, ComfyNodeRunState> | null>(null);
   const [activePromptId, setActivePromptId] = useState<string | null>(null);
+  const [errorNodeIds, setErrorNodeIds] = useState<string[]>([]);
+  const [errorEdges, setErrorEdges] = useState<Array<{ nodeId: string; missingInput: string }>>([]);
 
   const activePromptIdRef = useRef<string | null>(null);
   const outputFetchedRef = useRef(false);
@@ -102,9 +111,21 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
             return { ...p, status: 'completed', progress: 100, outputUrl: url, outputMediaType: out.mediaType, completedAt: new Date().toISOString() };
           });
           // Gallery & queue updates arrive via the backend's WS broadcasts; no REST refresh needed.
+        } else {
+          // The prompt is done (a terminal WS signal triggered this fetch) but
+          // produced no recognized output — or history just hasn't been written
+          // yet. Terminate the job anyway so the UI (Generate button, graph,
+          // queue label) doesn't hang on 'running'. Deliberately NOT setting
+          // `outputFetchedRef`: a later trigger may still find an output, and
+          // the branch above re-applies the URL on top of the completed status.
+          setCurrentJob(p => (p && p.status === 'running' ? { ...p, status: 'completed', progress: 100, completedAt: new Date().toISOString() } : p));
         }
       })
-      .catch(() => {})
+      .catch(() => {
+        // Couldn't read history, but the prompt finished — terminate the job
+        // (without an output URL) rather than leave it stuck on 'running'.
+        setCurrentJob(p => (p && p.status === 'running' ? { ...p, status: 'completed', completedAt: new Date().toISOString() } : p));
+      })
       .finally(() => { outputFetchInFlightRef.current = false; });
   }, []);
 
@@ -115,6 +136,8 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
       advancedSettings?: Record<string, { proxyIndex: number; value: unknown }>,
     ) => {
       outputFetchedRef.current = false;
+      setErrorNodeIds([]);
+      setErrorEdges([]);
       const job: GenerationJob = {
         id: crypto.randomUUID(),
         templateName,
@@ -141,10 +164,19 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
         if (err instanceof ApiError) {
           title = err.message || title;
           const data = err.data as {
-            nodeErrors?: Array<{ nodeId: string; classType?: string; message: string }>;
+            nodeErrors?: Array<{ nodeId: string; classType?: string; message: string; details?: string }>;
             detail?: string;
           } | null;
           if (data?.nodeErrors && data.nodeErrors.length > 0) {
+            // Surface failing node ids so the graph and form fields can highlight them.
+            setErrorNodeIds(data.nodeErrors.map(n => n.nodeId));
+            // `details` on a "required input is missing" error is the missing
+            // input's name — keep it so the UI can trace it to the provider.
+            setErrorEdges(
+              data.nodeErrors
+                .filter(n => typeof n.details === 'string' && n.details.length > 0 && /required input is missing/i.test(n.message))
+                .map(n => ({ nodeId: n.nodeId, missingInput: n.details as string })),
+            );
             const groups = new Map<string, { classType?: string; message: string; nodeIds: string[] }>();
             for (const n of data.nodeErrors) {
               const key = `${n.classType ?? ''}|${n.message}`;
@@ -217,6 +249,8 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
         progress,
         nodeStates,
         activePromptId,
+        errorNodeIds,
+        errorEdges,
         submitGeneration,
         cancelRunning,
         cancelPending,
@@ -226,6 +260,7 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
         _setProgress: setProgress,
         _setNodeStates: setNodeStates,
         _setActivePromptId: setActivePromptId,
+        _setErrorNodeIds: setErrorNodeIds,
         _activePromptIdRef: activePromptIdRef,
         _outputFetchedRef: outputFetchedRef,
         _outputFetchInFlightRef: outputFetchInFlightRef,

@@ -212,12 +212,12 @@ export default function DependencyModal({
       title="Missing dependencies"
       subtitle={
         isAnyActive
-          ? 'Downloading required models…'
+          ? 'Downloading required dependencies…'
           : missingPlugins.length > 0 && missingModels.length > 0
             ? 'Workflow needs custom-node plugins AND model files before it can run.'
             : missingPlugins.length > 0
               ? 'Workflow uses nodes from custom-node plugins that aren’t installed.'
-              : 'These models are referenced by the workflow but not installed.'
+              : 'These dependencies are required by the workflow but not installed.'
       }
       icon={
         <div className="rounded-md bg-warning/10 p-1.5 ring-1 ring-inset ring-warning/30">
@@ -395,7 +395,7 @@ export default function DependencyModal({
           {missingPlugins.length > 0 && (
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-foreground flex items-center gap-1.5">
               <HardDrive className="w-3.5 h-3.5 text-brand" />
-              Missing models
+              Missing dependencies
               <span className="text-[10px] font-normal text-muted-foreground">
                 ({missingModels.length})
               </span>

@@ -11,6 +11,7 @@
 //     upstream node owns the user-facing surface).
 
 import type { FlatNode } from '../../workflow/flatten/index.js';
+import { TEXT_PLUMBING_CLASS_TYPES } from '../../workflow/constants.js';
 import {
   filteredWidgetValues, widgetNamesFor,
 } from '../../workflow/rawWidgets/shapes.js';
@@ -74,6 +75,9 @@ export function collectWidgetWalkCandidates(
     if (!node.type) continue;
     if (/negative/i.test(node.title || '')) continue;
     if (negativeNodeIds.has(compoundId)) continue;
+    // Text-utility plumbing nodes carry multiline STRING widgets that are
+    // template variables / substitution strings, not user-authored content.
+    if (TEXT_PLUMBING_CLASS_TYPES.has(node.type)) continue;
     const schema = objectInfo[node.type] as {
       input?: {
         required?: Record<string, unknown>;

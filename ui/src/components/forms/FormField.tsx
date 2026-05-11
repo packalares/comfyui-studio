@@ -7,14 +7,18 @@ import { Slider } from '../ui/slider';
 import { Switch } from '../ui/switch';
 import { SelectField, SelectContent, SelectItem, SelectTrigger, SelectValue } from './SelectField';
 import { Combobox, COMBOBOX_SEARCH_THRESHOLD } from '../ui/combobox';
+import { AudioPlayer } from '../ui/audio-player';
+import { VideoPlayer } from '../ui/video-player';
 
 interface Props {
   input: FormInput;
   value: unknown;
   onChange: (value: unknown) => void;
+  /** When true, marks the field's primary input aria-invalid so the field-wrap turns red. */
+  invalid?: boolean;
 }
 
-export default function FormField({ input, value, onChange }: Props) {
+export default function FormField({ input, value, onChange, invalid }: Props) {
   // Toggle fields render inline: label on the left, switch on the right, no body control below.
   if (input.type === 'toggle') {
     return (
@@ -32,7 +36,7 @@ export default function FormField({ input, value, onChange }: Props) {
   return (
     <div>
       <FieldLabel input={input} right={labelRight} />
-      <FieldControl input={input} value={value} onChange={onChange} />
+      <FieldControl input={input} value={value} onChange={onChange} invalid={invalid} />
     </div>
   );
 }
@@ -46,28 +50,27 @@ function formatSliderValue(input: FormInput, value: unknown): string {
 
 function FieldLabel({ input, right, inline }: { input: FormInput; right?: React.ReactNode; inline?: boolean }) {
   return (
-    <div className={`flex items-center gap-1.5 ${inline ? '' : 'mb-1.5'}`}>
-      <label className="text-sm font-medium text-foreground">{input.label}</label>
-      {input.description && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
-          </TooltipTrigger>
-          <TooltipContent>{input.description}</TooltipContent>
-        </Tooltip>
-      )}
-      {input.required && (
-        <span className="text-[10px] font-medium text-destructive">* required</span>
-      )}
+    <div className={`flex items-center gap-1 ${inline ? '' : 'mb-1'}`}>
+      <span className="inline-flex items-center gap-1">
+        <label className="text-[11px] font-medium text-foreground">{input.label}</label>
+        {input.description && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Info className="w-3 h-3 text-muted-foreground cursor-help" />
+            </TooltipTrigger>
+            <TooltipContent>{input.description}</TooltipContent>
+          </Tooltip>
+        )}
+      </span>
       {right && <span className="ml-auto">{right}</span>}
     </div>
   );
 }
 
-function FieldControl({ input, value, onChange }: Props) {
+function FieldControl({ input, value, onChange, invalid }: Props) {
   switch (input.type) {
     case 'textarea':
-      return <TextareaField input={input} value={value} onChange={onChange} />;
+      return <TextareaField input={input} value={value} onChange={onChange} invalid={invalid} />;
 
     case 'text':
       return (
@@ -77,13 +80,14 @@ function FieldControl({ input, value, onChange }: Props) {
             value={(value as string) || ''}
             onChange={e => onChange(e.target.value)}
             placeholder={input.placeholder}
+            aria-invalid={invalid || undefined}
             className="field-input"
           />
         </div>
       );
 
     case 'number':
-      return <NumberField input={input} value={value} onChange={onChange} />;
+      return <NumberField input={input} value={value} onChange={onChange} invalid={invalid} />;
 
     case 'slider':
       return <SliderField input={input} value={value} onChange={onChange} />;
@@ -100,6 +104,7 @@ function FieldControl({ input, value, onChange }: Props) {
             placeholder={input.placeholder || 'Select an option'}
             searchPlaceholder={`Search ${input.label.toLowerCase()}…`}
             emptyMessage="No matching option"
+            invalid={invalid}
           />
         );
       }
@@ -108,7 +113,7 @@ function FieldControl({ input, value, onChange }: Props) {
           value={current}
           onValueChange={onChange}
         >
-          <SelectTrigger>
+          <SelectTrigger invalid={invalid}>
             <SelectValue placeholder="Select…" />
           </SelectTrigger>
           <SelectContent>
@@ -121,13 +126,13 @@ function FieldControl({ input, value, onChange }: Props) {
     }
 
     case 'image':
-      return <ImageField input={input} value={value} onChange={onChange} />;
+      return <ImageField input={input} value={value} onChange={onChange} invalid={invalid} />;
 
     case 'audio':
-      return <FileUploadField input={input} value={value} onChange={onChange} accept="audio/*" label="MP3, WAV, FLAC" />;
+      return <AudioUploadField input={input} value={value} onChange={onChange} invalid={invalid} />;
 
     case 'video':
-      return <FileUploadField input={input} value={value} onChange={onChange} accept="video/*" label="MP4, WebM, MOV" />;
+      return <VideoUploadField input={input} value={value} onChange={onChange} invalid={invalid} />;
 
     default:
       return (
@@ -137,6 +142,7 @@ function FieldControl({ input, value, onChange }: Props) {
             value={(value as string) || ''}
             onChange={e => onChange(e.target.value)}
             placeholder={input.placeholder}
+            aria-invalid={invalid || undefined}
             className="field-input"
           />
         </div>
@@ -144,7 +150,7 @@ function FieldControl({ input, value, onChange }: Props) {
   }
 }
 
-function TextareaField({ input, value, onChange }: Props) {
+function TextareaField({ input, value, onChange, invalid }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const text = (value as string) || '';
 
@@ -163,12 +169,13 @@ function TextareaField({ input, value, onChange }: Props) {
       onChange={e => onChange(e.target.value)}
       placeholder={input.placeholder}
       rows={2}
+      aria-invalid={invalid || undefined}
       className="field-textarea"
     />
   );
 }
 
-function NumberField({ input, value, onChange }: Props) {
+function NumberField({ input, value, onChange, invalid }: Props) {
   const step = input.step ?? 1;
   const raw = (value as number | undefined) ?? (input.default as number | undefined) ?? input.min ?? 0;
   const num = typeof raw === 'number' ? raw : Number(raw) || 0;
@@ -201,6 +208,7 @@ function NumberField({ input, value, onChange }: Props) {
         min={input.min}
         max={input.max}
         step={step}
+        aria-invalid={invalid || undefined}
         className="field-input text-center tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
       />
       <button type="button" onClick={() => adjust(step)} disabled={atMax} className="field-stepper" aria-label="Increase">
@@ -268,7 +276,7 @@ async function convertHeicToJpeg(file: File): Promise<File | null> {
   }
 }
 
-function ImageField({ input, value, onChange }: Props) {
+function ImageField({ input, value, onChange, invalid }: Props) {
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageValue = value as { file?: File; preview?: string; url?: string } | null;
@@ -345,7 +353,9 @@ function ImageField({ input, value, onChange }: Props) {
         className={`flex flex-col items-center justify-center h-32 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
           dragOver
             ? 'border-brand bg-brand/10'
-            : 'border-input bg-muted hover:border-input hover:bg-secondary'
+            : invalid
+              ? 'border-destructive bg-destructive/5 hover:bg-destructive/10'
+              : 'border-input bg-muted hover:border-input hover:bg-secondary'
         }`}
       >
         <Upload className="w-6 h-6 text-muted-foreground mb-1.5" />
@@ -366,7 +376,102 @@ function ImageField({ input, value, onChange }: Props) {
   );
 }
 
-function FileUploadField({ input, value, onChange, accept, label }: Props & { accept: string; label: string }) {
+// Build a /api/view URL from a server-side uploaded filename — same scheme ImageField uses.
+function serverViewUrl(filename: string): string {
+  return `/api/view?filename=${encodeURIComponent(filename)}&subfolder=&type=input`;
+}
+
+function AudioUploadField({ input, value, onChange, invalid }: Props) {
+  const fileValue = value as { file?: File; name?: string } | null;
+  // Derive a playable src: blob URL for a fresh File, server URL for an already-uploaded name.
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const prevBlobRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (fileValue?.file) {
+      const url = URL.createObjectURL(fileValue.file);
+      if (prevBlobRef.current) URL.revokeObjectURL(prevBlobRef.current);
+      prevBlobRef.current = url;
+      setBlobUrl(url);
+    } else {
+      if (prevBlobRef.current) {
+        URL.revokeObjectURL(prevBlobRef.current);
+        prevBlobRef.current = null;
+      }
+      setBlobUrl(null);
+    }
+    return () => {
+      // Intentionally not revoking on unmount — same reason as ImageField.
+    };
+  }, [fileValue?.file]);
+
+  const previewSrc = blobUrl ?? (fileValue?.name && !fileValue.file ? serverViewUrl(fileValue.name) : null);
+
+  if (fileValue?.name) {
+    return previewSrc ? (
+      <AudioPlayer
+        src={previewSrc}
+        fileName={fileValue.name}
+        onRemove={() => onChange(null)}
+      />
+    ) : (
+      <div className="flex items-center gap-2 px-3 py-2 border rounded-lg bg-muted">
+        <span className="text-xs text-foreground truncate flex-1">{fileValue.name}</span>
+        <button onClick={() => onChange(null)} className="p-0.5 text-muted-foreground hover:text-foreground">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    );
+  }
+  return <FileUploadField input={input} value={value} onChange={onChange} accept="audio/*" label="MP3, WAV, FLAC" invalid={invalid} />;
+}
+
+function VideoUploadField({ input, value, onChange, invalid }: Props) {
+  const fileValue = value as { file?: File; name?: string } | null;
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const prevBlobRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (fileValue?.file) {
+      const url = URL.createObjectURL(fileValue.file);
+      if (prevBlobRef.current) URL.revokeObjectURL(prevBlobRef.current);
+      prevBlobRef.current = url;
+      setBlobUrl(url);
+    } else {
+      if (prevBlobRef.current) {
+        URL.revokeObjectURL(prevBlobRef.current);
+        prevBlobRef.current = null;
+      }
+      setBlobUrl(null);
+    }
+    return () => {
+      // Intentionally not revoking on unmount — same reason as ImageField.
+    };
+  }, [fileValue?.file]);
+
+  const previewSrc = blobUrl ?? (fileValue?.name && !fileValue.file ? serverViewUrl(fileValue.name) : null);
+
+  if (fileValue?.name) {
+    return previewSrc ? (
+      <VideoPlayer
+        src={previewSrc}
+        fileName={fileValue.name}
+        onRemove={() => onChange(null)}
+        className="w-full"
+      />
+    ) : (
+      <div className="flex items-center gap-2 px-3 py-2 border rounded-lg bg-muted">
+        <span className="text-xs text-foreground truncate flex-1">{fileValue.name}</span>
+        <button onClick={() => onChange(null)} className="p-0.5 text-muted-foreground hover:text-foreground">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    );
+  }
+  return <FileUploadField input={input} value={value} onChange={onChange} accept="video/*" label="MP4, WebM, MOV" invalid={invalid} />;
+}
+
+function FileUploadField({ input, value, onChange, accept, label, invalid }: Props & { accept: string; label: string }) {
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileValue = value as { file?: File; name?: string } | null;
@@ -405,7 +510,9 @@ function FileUploadField({ input, value, onChange, accept, label }: Props & { ac
       className={`flex flex-col items-center justify-center h-24 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
         dragOver
           ? 'border-brand bg-brand/10'
-          : 'border-input bg-muted hover:border-input hover:bg-secondary'
+          : invalid
+            ? 'border-destructive bg-destructive/5 hover:bg-destructive/10'
+            : 'border-input bg-muted hover:border-input hover:bg-secondary'
       }`}
     >
       <Upload className="w-5 h-5 text-muted-foreground mb-1" />

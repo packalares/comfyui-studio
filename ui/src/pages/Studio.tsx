@@ -4,8 +4,9 @@ import {
   Image as ImageIcon, Film, Music, Box, Wrench,
   Download, AlertTriangle, CheckCircle2,
   SlidersHorizontal, Braces, Wand2, Sparkles, RotateCcw,
+  Settings2, Workflow, X as XIcon,
 } from 'lucide-react';
-import { useApp } from '../context/AppContext';
+import { useApp, useJobs } from '../context/AppContext';
 import { Spinner } from '../components/ui/spinner';
 import CompareSlider from '../components/viewers/CompareSlider';
 import ThreeDViewer from '../components/viewers/ThreeDViewer';
@@ -20,11 +21,12 @@ import PageAside from '../components/layout/PageAside';
 import { Tooltip, TooltipTrigger, TooltipContent } from '../components/ui/tooltip';
 import { Switch } from '../components/ui/switch';
 import { Button } from '../components/ui/button';
+import { SelectField, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/forms/SelectField';
 import { api, ApiError } from '../services/comfyui';
 import { isThreeDFilename } from '../lib/media';
 import { toast } from 'sonner';
+import { AudioPlayer } from '../components/ui/audio-player';
 import type { StudioCategory, TemplateSummary, DependencyCheck, AdvancedSetting, FormInput, WorkflowGroup } from '../types';
-import { Settings2 } from 'lucide-react';
 
 const WorkflowGraph = lazy(() => import('../components/studio/WorkflowGraph'));
 
@@ -64,7 +66,8 @@ export default function Studio() {
   const { templateName } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { templates, currentJob, submitGeneration, connected, refreshTemplates, uploadMaxBytes } = useApp();
+  const { templates, currentJob, submitGeneration, connected, refreshTemplates, uploadMaxBytes, queueStatus } = useApp();
+  const { errorNodeIds, errorEdges } = useJobs();
 
   useEffect(() => {
     refreshTemplates();
@@ -106,6 +109,9 @@ export default function Studio() {
   // the gate (input image + output + completed) is satisfied. Users can flip
   // it off to see just the output.
   const [showCompare, setShowCompare] = useState(true);
+  // When a result is showing, the user can dismiss it back to the graph via
+  // the workflow-view button. A new outputUrl resets this to true automatically.
+  const [showResult, setShowResult] = useState(true);
 
   // Dependency check state
   const [depCheck, setDepCheck] = useState<DependencyCheck | null>(null);
@@ -129,6 +135,21 @@ export default function Studio() {
   const [bundleApiPrompt, setBundleApiPrompt] = useState<Record<string, unknown> | null>(null);
   const [bundleMainNodeIds, setBundleMainNodeIds] = useState<Set<string> | null>(null);
   const [bundleGroups, setBundleGroups] = useState<WorkflowGroup[]>([]);
+
+  // Error highlight set: the directly-failing nodes plus, for each
+  // "required input is missing" error, the upstream node that should have
+  // fed that input (resolved via the bundle's api-prompt) — so e.g. a
+  // resize node missing its image traces back to the LoadImage that's
+  // wired to a form field, and that field/node gets the red treatment.
+  const expandedErrorNodeIds = useMemo(() => {
+    const set = new Set(errorNodeIds);
+    const ap = bundleApiPrompt as Record<string, { inputs?: Record<string, unknown> }> | null;
+    for (const e of errorEdges) {
+      const link = ap?.[e.nodeId]?.inputs?.[e.missingInput];
+      if (Array.isArray(link) && typeof link[0] === 'string') set.add(link[0]);
+    }
+    return Array.from(set);
+  }, [errorNodeIds, errorEdges, bundleApiPrompt]);
 
   // Auto-open the expose modal once, when a ?expose=1 URL param lands — used
   // by the "Import as template" flow to drop the user straight into widget
@@ -479,13 +500,22 @@ export default function Studio() {
 
   const isRunning = currentJob?.status === 'running' || currentJob?.status === 'pending';
   const hasMissingDeps = depCheck !== null && !depCheck.ready;
-  const generateDisabled = !selectedTemplate || isRunning || !connected || hasMissingDeps;
+  // isRunning is intentionally excluded from the disable condition: clicking while a job
+  // runs queues the new prompt behind it (ComfyUI supports a queue). The button label
+  // flips to "Add to queue" when the ComfyUI queue is non-empty.
+  const generateDisabled = !selectedTemplate || !connected || hasMissingDeps;
+  const showAddToQueue = isRunning
+    || (queueStatus.queue_running ?? 0) > 0
+    || (queueStatus.queue_pending ?? 0) > 0;
 
   useEffect(() => {
     if (currentJob?.status === 'completed' && currentJob.outputUrl) {
       setOutputImage(currentJob.outputUrl);
+      // New result arrived — show it automatically even if the user had
+      // previously dismissed to the graph view.
+      setShowResult(true);
     }
-  }, [currentJob?.status, currentJob?.outputUrl]);
+  }, [currentJob?.outputUrl]);
 
   const inputImagePreview = useMemo(() => {
     for (const fi of mergedFormInputs) {
@@ -555,26 +585,6 @@ export default function Studio() {
       <PageSubbar
         title="Studio"
         description={template?.title}
-        right={
-          <div role="tablist" aria-label="Category" className="tab-strip">
-            {categories.map(cat => {
-              const Icon = cat.icon;
-              const isActive = activeCategory === cat.id;
-              return (
-                <button
-                  key={cat.id}
-                  role="tab"
-                  aria-selected={isActive}
-                  onClick={() => handleCategoryChange(cat.id)}
-                  className={`tab-strip-item ${isActive ? 'is-active' : ''}`}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  {cat.label}
-                </button>
-              );
-            })}
-          </div>
-        }
       />
 
       <div className="flex flex-col lg:flex-row gap-4 p-4">
@@ -628,10 +638,38 @@ export default function Studio() {
                 </div>
               )}
 
-              {/* MODEL section */}
+              {/* CATEGORY section */}
+              <div>
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Category</p>
+                <SelectField
+                  value={activeCategory}
+                  onValueChange={(v) => handleCategoryChange(v as StudioCategory)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map(cat => {
+                      const Icon = cat.icon;
+                      return (
+                        <SelectItem key={cat.id} value={cat.id}>
+                          <span className="inline-flex items-center gap-1.5">
+                            <Icon className="w-3.5 h-3.5 shrink-0" />
+                            {cat.label}
+                          </span>
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </SelectField>
+              </div>
+
+              {/* MODEL / DEPENDENCIES section — the eyebrow reads "Dependencies"
+                  because the status icon next to it covers model files AND custom-node
+                  plugins, not just models. */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Model</p>
+                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Dependencies</p>
                   {depLoading && (
                     <Spinner size="xs" className="text-muted-foreground" />
                   )}
@@ -644,7 +682,7 @@ export default function Studio() {
                       className="flex items-center gap-1 text-[10px] text-warning hover:text-warning/80"
                     >
                       <AlertTriangle className="w-3.5 h-3.5" />
-                      {depCheck?.missing.length} missing
+                      {depCheck?.missing.length} missing {depCheck?.missing.length === 1 ? 'dependency' : 'dependencies'}
                     </button>
                   )}
                   {hasEditableWidgets && (
@@ -676,6 +714,7 @@ export default function Studio() {
                         inputs={mergedFormInputs}
                         values={formValues}
                         onChange={setFormValues}
+                        errorNodeIds={expandedErrorNodeIds}
                       />
                       {advancedSettingsDefs.length > 0 && (
                         <div className="mt-4">
@@ -683,6 +722,7 @@ export default function Studio() {
                             settings={advancedSettingsDefs}
                             values={advancedValues}
                             onChange={setAdvancedValues}
+                            errorNodeIds={expandedErrorNodeIds}
                           />
                         </div>
                       )}
@@ -699,22 +739,8 @@ export default function Studio() {
               </div>
             </div>
 
-            {/* Footer: progress + Reset/Generate */}
+            {/* Footer: Reset/Generate */}
             <div className="border-t bg-muted px-4 py-3 flex flex-col items-stretch gap-3">
-              {isRunning && currentJob && (
-                <div>
-                  <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                    <span>{currentJob.status === 'pending' ? 'Queued…' : 'Generating…'}</span>
-                    <span>{Math.round(currentJob.progress)}%</span>
-                  </div>
-                  <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
-                    <div
-                      className="progress-bar-fill"
-                      style={{ width: `${Math.min(100, Math.max(0, currentJob.progress))}%` }}
-                    />
-                  </div>
-                </div>
-              )}
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleReset}
@@ -729,18 +755,18 @@ export default function Studio() {
                     disabled={generateDisabled}
                     className="relative w-full overflow-hidden inline-flex items-center justify-center gap-2 rounded-md bg-gradient-to-r from-teal-500 to-success text-brand-foreground py-2 text-sm font-semibold shadow-sm hover:shadow-md hover:from-teal-600 hover:to-success/90 focus:outline-none focus:ring-2 focus:ring-brand/40 focus:ring-offset-1 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:from-muted-foreground disabled:to-muted-foreground disabled:shadow-none"
                   >
-                    {/* Shimmer sweep. Disabled when running or unusable so
-                        the button doesn't flash during actual generation. */}
-                    {!isRunning && !generateDisabled && (
+                    {/* Shimmer sweep. Hidden when the queue is busy — avoids
+                        the button flashing during active generation. */}
+                    {!showAddToQueue && !generateDisabled && (
                       <span
                         aria-hidden="true"
                         className="pointer-events-none absolute inset-y-0 left-0 w-1/2 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer"
                       />
                     )}
-                    {isRunning ? (
+                    {showAddToQueue ? (
                       <>
-                        <Spinner size="md" className="relative" />
-                        <span className="relative">Generating…</span>
+                        <Wand2 className="w-4 h-4 relative" />
+                        <span className="relative">Add to queue</span>
                       </>
                     ) : (
                       <>
@@ -750,9 +776,9 @@ export default function Studio() {
                       </>
                     )}
                   </button>
-                  {hasMissingDeps && !isRunning && (
+                  {hasMissingDeps && (
                     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-popover text-popover-foreground border text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
-                      Missing required models
+                      Missing dependencies
                     </div>
                   )}
                 </div>
@@ -766,7 +792,7 @@ export default function Studio() {
             <div className="border-b bg-card px-4 py-3 flex items-center justify-between gap-3">
               <h3 className="text-sm font-semibold text-foreground">Result</h3>
               <div className="flex items-center gap-3">
-                {canCompare && (
+                {canCompare && showResult && (
                   <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Compare
                     <Switch
@@ -775,6 +801,23 @@ export default function Studio() {
                       aria-label="Toggle before/after comparison"
                     />
                   </label>
+                )}
+                {outputImage && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setShowResult(r => !r)}
+                        aria-label={showResult ? 'View workflow' : 'View result'}
+                      >
+                        {showResult ? <Workflow className="w-4 h-4" /> : <XIcon className="w-4 h-4" />}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {showResult ? 'View workflow' : 'View result'}
+                    </TooltipContent>
+                  </Tooltip>
                 )}
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -803,7 +846,7 @@ export default function Studio() {
             </div>
 
             <div className="flex-1 p-6 flex items-center justify-center relative overflow-hidden bg-muted">
-              {currentJob?.status === 'completed' && outputImage ? (
+              {currentJob?.status === 'completed' && outputImage && showResult ? (
                 <div className="relative w-full h-full max-w-3xl max-h-[calc(100vh-14rem)] flex items-center justify-center">
                   {isOutput3D ? (
                     <div className="w-full h-full min-h-[400px] rounded-lg overflow-hidden">
@@ -823,15 +866,8 @@ export default function Studio() {
                       className="max-w-full max-h-full rounded-lg"
                     />
                   ) : outputMediaType === 'audio' ? (
-                    <div className="w-full max-w-md">
-                      <div className="bg-card rounded-xl p-6 shadow-sm border">
-                        <div className="flex items-center justify-center mb-4">
-                          <div className="w-16 h-16 rounded-full bg-success/10 flex items-center justify-center">
-                            <Music className="w-8 h-8 text-success" />
-                          </div>
-                        </div>
-                        <audio src={outputImage} controls className="w-full" />
-                      </div>
+                    <div className="w-full max-w-lg">
+                      <AudioPlayer src={outputImage} />
                     </div>
                   ) : (
                     <img
@@ -847,16 +883,9 @@ export default function Studio() {
                     </p>
                   )}
                 </div>
-              ) : currentJob?.status === 'failed' ? (
-                <div className="text-center">
-                  <div className="w-14 h-14 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-3">
-                    <AlertTriangle className="w-7 h-7 text-destructive" />
-                  </div>
-                  <p className="text-sm font-medium text-destructive">Generation failed</p>
-                  <p className="text-xs text-muted-foreground mt-1">Check the console for details</p>
-                </div>
               ) : selectedTemplate ? (
-                /* Template selected: show workflow graph (static when idle, animated when running) */
+                /* Template selected: workflow graph. A failed job keeps the graph
+                   visible and just marks the failing node red (no error panel). */
                 <div className="absolute inset-0">
                   <Suspense fallback={
                     <div className="flex h-full items-center justify-center text-xs text-muted-foreground gap-2">
@@ -870,6 +899,7 @@ export default function Studio() {
                       apiPrompt={bundleApiPrompt}
                       mainNodeIds={bundleMainNodeIds}
                       groups={bundleGroups}
+                      errorNodeIds={expandedErrorNodeIds}
                     />
                   </Suspense>
                 </div>

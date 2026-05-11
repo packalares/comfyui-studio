@@ -16,7 +16,7 @@ import {
 } from '../services/workflow/index.js';
 import { buildStableApiPrompt } from '../services/workflow/stableApiPrompt.js';
 import { computeWorkflowGroups } from '../services/workflow/workflowGroups.js';
-import { buildFormFieldPlan } from '../services/templates/formFieldPlan/index.js';
+import { buildFormFieldPlan, disambiguateFieldLabels } from '../services/templates/formFieldPlan/index.js';
 import { filterProxySettingsByBoundKeys } from '../services/workflow/filterFormBoundProxies.js';
 import type { RawTemplate } from '../services/templates/types.js';
 import { env } from '../config/env.js';
@@ -120,7 +120,8 @@ async function buildTemplateBundle(templateName: string) {
   const widgets = await enumerateTemplateWidgets(workflow, templateName);
   const apiPrompt = await buildStableApiPrompt(workflow);
   const groups = computeWorkflowGroups(workflow, apiPrompt);
-  return { settings, widgets, primitiveFormFields: plan.fields, apiPrompt, groups };
+  const primitiveFormFields = disambiguateFieldLabels(plan.fields, groups);
+  return { settings, widgets, primitiveFormFields, apiPrompt, groups };
 }
 
 router.get('/workflow-settings/:templateName', async (req: Request, res: Response) => {

@@ -245,9 +245,10 @@ interface WorkflowGraphProps {
   apiPrompt: Record<string, unknown> | null;
   mainNodeIds: Set<string> | null;
   groups: WorkflowGroup[];
+  errorNodeIds?: string[];
 }
 
-export default function WorkflowGraph({ templateName, isRunning, apiPrompt, mainNodeIds, groups }: WorkflowGraphProps) {
+export default function WorkflowGraph({ templateName, isRunning, apiPrompt, mainNodeIds, groups, errorNodeIds = [] }: WorkflowGraphProps) {
   const { progress } = useJobs();
   const statusMap = useNodeStatusMap(templateName);
   const [viewMode, setViewMode] = useState<ViewMode>('simple');
@@ -273,12 +274,33 @@ export default function WorkflowGraph({ templateName, isRunning, apiPrompt, main
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
-  // Re-seed + re-fit when the built graph changes (template or view-mode swap).
+  // Re-seed when the built graph changes (template or view-mode swap), then
+  // open at 100% zoom with the start of the flow near the TOP of the viewport
+  // (horizontally centred on the topmost row) so it reads top→down.
   useEffect(() => {
     setNodes(initialNodes);
     setEdges(initialEdges);
     lastCenteredRef.current = null;
-    const t = setTimeout(() => instanceRef.current?.fitView(FIT_OPTS), 60);
+    const t = setTimeout(() => {
+      const inst = instanceRef.current;
+      if (!inst || initialNodes.length === 0) return;
+      let topY = Infinity;
+      for (const n of initialNodes) if (n.position.y < topY) topY = n.position.y;
+      const topRow = initialNodes.filter((n) => n.position.y === topY);
+      let minX = Infinity;
+      let maxX = -Infinity;
+      for (const n of topRow) {
+        const w = inst.getNode(n.id)?.width ?? NODE_WIDTH;
+        if (n.position.x < minX) minX = n.position.x;
+        if (n.position.x + w > maxX) maxX = n.position.x + w;
+      }
+      const centerX = (minX + maxX) / 2;
+      const el = document.querySelector<HTMLElement>('.react-flow');
+      const cw = el?.clientWidth ?? 800;
+      const ch = el?.clientHeight ?? 600;
+      const topMargin = Math.min(Math.max(ch * 0.1, 32), 80);
+      inst.setViewport({ x: cw / 2 - centerX, y: topMargin - topY, zoom: 1 }, { duration: 0 });
+    }, 60);
     return () => clearTimeout(t);
   }, [initialNodes, initialEdges, setNodes, setEdges]);
 
@@ -315,6 +337,10 @@ export default function WorkflowGraph({ templateName, isRunning, apiPrompt, main
   }, [isGroupView, initialNodes, statusMap]);
 
   // Push status / progress into the rendered nodes.
+  // After computing the normal running/done/pending status, override to 'error'
+  // when the node (or any group member) is in errorNodeIds.
+  const errorNodeSet = useMemo(() => new Set(errorNodeIds), [errorNodeIds]);
+
   useEffect(() => {
     if (!workflowJson) return;
     const subNodeId = progress?.nodeId;
@@ -344,6 +370,11 @@ export default function WorkflowGraph({ templateName, isRunning, apiPrompt, main
               status = 'pending';
             }
           }
+          // Override to error when any group member is a failing node.
+          if (errorNodeSet.size > 0 && ids.some(id => errorNodeSet.has(id))) {
+            status = 'error';
+            fraction = undefined;
+          }
           return { ...node, data: { ...node.data, status, progressFraction: fraction } };
         }),
       );
@@ -353,12 +384,16 @@ export default function WorkflowGraph({ templateName, isRunning, apiPrompt, main
     setNodes((nds: Node[]) =>
       nds.map((node: Node) => {
         const eff = effStatusOf(node.id);
-        const status: WfCardStatus = anyActivity ? eff : 'neutral';
+        let status: WfCardStatus = anyActivity ? eff : 'neutral';
         const fraction = status === 'running' && subNodeId === node.id ? subFrac : undefined;
+        // Override to error when this node is a failing node.
+        if (errorNodeSet.size > 0 && errorNodeSet.has(node.id)) {
+          status = 'error';
+        }
         return { ...node, data: { ...node.data, status, progressFraction: fraction } };
       }),
     );
-  }, [workflowJson, isGroupView, anyActivity, effStatusOf, progress, setNodes]);
+  }, [workflowJson, isGroupView, anyActivity, effStatusOf, progress, errorNodeSet, setNodes]);
 
   // Edge highlight: light up edges feeding a currently-running node/group.
   useEffect(() => {
@@ -375,28 +410,36 @@ export default function WorkflowGraph({ templateName, isRunning, apiPrompt, main
     );
   }, [isRunning, runningIds, setEdges]);
 
-  // Gently pan the running node/group into view when it changes.
+  // Gently pan to the node that needs attention: a failing node takes
+  // priority (the run is over, point at the problem); otherwise follow the
+  // running node/group as it advances.
   useEffect(() => {
-    if (!isRunning) {
-      lastCenteredRef.current = null;
-      return;
-    }
     const inst = instanceRef.current;
     if (!inst) return;
     let targetId: string | null = null;
-    for (const id of runningIds) { targetId = id; break; }
-    if (!targetId || targetId === lastCenteredRef.current) return;
+    if (errorNodeSet.size > 0) {
+      for (const n of initialNodes) {
+        if (errorNodeSet.has(n.id)) { targetId = n.id; break; }
+        const ids = (n.data as GroupNodeData).memberIds;
+        if (Array.isArray(ids) && ids.some((id) => errorNodeSet.has(id))) { targetId = n.id; break; }
+      }
+    } else if (isRunning) {
+      for (const id of runningIds) { targetId = id; break; }
+    }
+    if (!targetId) { lastCenteredRef.current = null; return; }
+    if (targetId === lastCenteredRef.current) return;
     const n = inst.getNode(targetId);
     if (!n) return;
     lastCenteredRef.current = targetId;
     const w = n.width ?? NODE_WIDTH;
     const h = n.height ?? NODE_HEIGHT;
     inst.setCenter(n.position.x + w / 2, n.position.y + h / 2, { zoom: inst.getZoom(), duration: 500 });
-  }, [isRunning, runningIds]);
+  }, [isRunning, runningIds, errorNodeSet, initialNodes]);
 
   const onInit = useCallback((instance: ReactFlowInstance) => {
     instanceRef.current = instance;
-    setTimeout(() => instance.fitView(FIT_OPTS), 0);
+    // Initial center-on-start is handled by the initialNodes effect above.
+    // onInit fires before that effect's setTimeout, so nothing extra needed here.
   }, []);
 
   if (apiPrompt == null) {
@@ -424,8 +467,6 @@ export default function WorkflowGraph({ templateName, isRunning, apiPrompt, main
       onEdgesChange={onEdgesChange}
       nodeTypes={nodeTypes}
       onInit={onInit}
-      fitView
-      fitViewOptions={FIT_OPTS}
       minZoom={0.2}
       maxZoom={2}
       nodesDraggable={false}

@@ -7,6 +7,7 @@
 // `generateFormInputs` and `computeFormClaimedWidgets`.
 
 import { flattenWorkflow, type FlatLink, type FlatNode } from '../../workflow/flatten/index.js';
+import type { WorkflowGroup } from '../../workflow/workflowGroups.js';
 import { collectMediaFields } from './mediaFields.js';
 import { collectNegativeOriginNodeIds } from './negativeEncoders.js';
 import { collectPrimitiveCandidates } from './primitiveCandidates.js';
@@ -61,7 +62,7 @@ export function buildFormFieldPlan(
   const candidates: FormFieldCandidate[] = [];
 
   if (workflow) {
-    candidates.push(...collectPrimitiveCandidates(flatNodes));
+    candidates.push(...collectPrimitiveCandidates(flatNodes, flat.links));
     if (objectInfo) {
       candidates.push(...collectWidgetWalkCandidates(flatNodes, objectInfo, negativeIds));
       candidates.push(...collectProxyPromoteCandidates(workflow, flatNodes, objectInfo, negativeIds));
@@ -102,6 +103,40 @@ function stripSource(c: FormFieldCandidate): FormInputData {
   const { source: _source, ...rest } = c;
   void _source;
   return rest as FormInputData;
+}
+
+/**
+ * Post-merge pass: when two or more fields share the same label, append a
+ * group-title disambiguator to each colliding field's label so the user can
+ * tell them apart. Format: `"<label> · <group title>"`. Falls back to
+ * `"<label> · <bindNodeId>"` when the node isn't in any group.
+ *
+ * Only touches fields that actually collide — unambiguous fields are left as-is.
+ */
+export function disambiguateFieldLabels(
+  fields: FormInputData[],
+  groups: WorkflowGroup[],
+): FormInputData[] {
+  // Build nodeId -> group title lookup.
+  const nodeToGroup = new Map<string, string>();
+  for (const g of groups) {
+    for (const n of g.nodes) {
+      if (!nodeToGroup.has(n.id)) nodeToGroup.set(n.id, g.title);
+    }
+  }
+
+  // Find labels that appear more than once.
+  const labelCounts = new Map<string, number>();
+  for (const f of fields) {
+    labelCounts.set(f.label, (labelCounts.get(f.label) ?? 0) + 1);
+  }
+
+  return fields.map(f => {
+    if ((labelCounts.get(f.label) ?? 0) <= 1) return f;
+    const groupTitle = f.bindNodeId ? (nodeToGroup.get(f.bindNodeId) ?? f.bindNodeId) : '';
+    const disambig = groupTitle ? ` · ${groupTitle}` : '';
+    return { ...f, label: `${f.label}${disambig}` };
+  });
 }
 
 /** Verify the published list is internally consistent. Cheap; runs every

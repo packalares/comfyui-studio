@@ -1,11 +1,11 @@
 import { memo } from 'react';
 import { Handle, Position } from 'reactflow';
-import { CheckCircle2, MoreHorizontal } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, MoreHorizontal } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { getNodeIcon, type NodeCategory } from './nodeIcon';
 import ProgressRing from './ProgressRing';
 
-export type WfCardStatus = 'neutral' | 'pending' | 'running' | 'done';
+export type WfCardStatus = 'neutral' | 'pending' | 'running' | 'done' | 'error';
 
 // One card shape for both the simple (group) view and the advanced (node)
 // view — they only differ in what `label` / `iconClassType` / `category` get
@@ -26,6 +26,7 @@ function WorkflowCard({ data }: { data: WfCardData }) {
   const Icon = getNodeIcon(iconClassType);
   const isRunning = status === 'running';
   const isDone = status === 'done';
+  const isError = status === 'error';
 
   return (
     <div
@@ -34,12 +35,17 @@ function WorkflowCard({ data }: { data: WfCardData }) {
         isRunning && 'wf-card--running',
         isDone && 'wf-card--done',
         status === 'pending' && 'wf-card--pending',
+        isError && 'wf-card--error',
       )}
     >
       <Handle type="target" position={Position.Top} className="wf-handle" />
 
       {isRunning ? (
         <ProgressRing value={progressFraction} />
+      ) : isError ? (
+        <span className="wf-chip wf-chip--error">
+          <AlertTriangle className="h-3.5 w-3.5" />
+        </span>
       ) : (
         <span className={cn('wf-chip', isDone ? 'wf-chip--done' : `wf-chip--${category}`)}>
           <Icon className="h-3.5 w-3.5" />
@@ -52,7 +58,7 @@ function WorkflowCard({ data }: { data: WfCardData }) {
 
       {isDone ? (
         <CheckCircle2 className="h-4 w-4 shrink-0 text-[var(--color-success,#22c55e)]" />
-      ) : isRunning ? null : (
+      ) : isRunning || isError ? null : (
         <MoreHorizontal className="h-4 w-4 shrink-0 text-muted-foreground opacity-40" />
       )}
 

@@ -6,6 +6,7 @@
 // origin was the wrapper itself.
 
 import { normalizeLinks, resolveOrigin } from './links.js';
+import { fillUnboundSlotLiterals } from './unboundSlots.js';
 import type {
   FlattenState,
   InputSubs,
@@ -204,6 +205,11 @@ export function expandWrapper(
   const innerInputSubs = buildInnerInputSubs(
     state, wrapper, sg, outerToGlobal, outerNodes, outerLinks, outerInputSubs,
   );
+  // Promoted-but-unbound subgraph inputs have no outer link, so
+  // buildInnerInputSubs leaves their slots empty. Fill each such slot with
+  // a synthetic literal node so every inner link from origin_id=-10 resolves
+  // to the known default value instead of being silently dropped.
+  fillUnboundSlotLiterals(state, wrapper, sg, innerPrefix, innerInputSubs);
   const innerOutputSubs = buildInnerOutputSubs(wrapper, outerLinks, outerOutputSubs, outerToGlobal);
   const overrides = buildProxyOverrides(wrapper, sg, innerToGlobal);
 

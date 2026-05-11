@@ -588,6 +588,11 @@
   }
   .field-wrap {
     @apply flex items-center gap-2 rounded-md border border-input bg-card px-2.5 py-1.5 focus-within:border-ring transition-colors;
+    /* Lift aria-invalid from an inner input up to the wrapper border (the
+       border lives on .field-wrap, not the input itself). */
+    &:has(input[aria-invalid=true]) {
+      border-color: var(--destructive);
+    }
   }
   .field-input {
     @apply w-full bg-transparent text-[12px] text-foreground outline-none placeholder:text-muted-foreground;
@@ -605,6 +610,9 @@
     scrollbar-color: transparent transparent;
     transition-property: scrollbar-color, color, background-color, border-color, text-decoration-color, fill, stroke;
     transition-duration: 0.2s;
+  }
+  .field-textarea[aria-invalid=true] {
+    border-color: var(--destructive);
   }
   .field-textarea:hover {
     scrollbar-color: var(--border) transparent;
@@ -640,6 +648,27 @@
     @apply rounded-lg border border-dashed bg-muted px-4 py-5 text-center text-sm font-medium text-muted-foreground;
   }
 
+  /* ===== Audio player ===== */
+  .audio-player {
+    @apply flex items-center gap-2 rounded-xl border bg-card px-3 py-2.5 shadow-sm;
+  }
+  /* Play/pause and mute icons. */
+  .audio-player-btn {
+    @apply shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground;
+  }
+  /* Skip ±10s buttons have an icon + a tiny "10" label stacked. */
+  .audio-player-btn--skip {
+    @apply relative flex flex-col items-center justify-center gap-0 p-1;
+  }
+  /* Current-time / duration readout. */
+  .audio-player-time {
+    @apply shrink-0 tabular-nums text-[11px] text-muted-foreground;
+  }
+  /* Truncated filename label between skip buttons and scrubber. */
+  .audio-player-filename {
+    @apply shrink min-w-0 truncate text-[10px] text-muted-foreground max-w-[6rem];
+  }
+
   /* ===== Toggle ===== */
   /* `.toggle` family removed — Settings.tsx now uses shadcn `<Switch>` like
      the rest of the app. Two switch implementations were unnecessary. */
@@ -661,6 +690,10 @@
   }
   .wf-card--done    { border-color: color-mix(in srgb, var(--success) 35%, var(--border)); }
   .wf-card--pending { @apply opacity-45; }
+  .wf-card--error {
+    border-color: var(--destructive);
+    background-color: color-mix(in srgb, var(--destructive) 4%, var(--card));
+  }
 
   /* Icon chip — colored by node category. Pair `wf-chip` with `wf-chip--<cat>`. */
   .wf-chip          { @apply flex h-7 w-7 shrink-0 items-center justify-center rounded-lg; }
@@ -671,6 +704,7 @@
   .wf-chip--output   { @apply bg-muted text-foreground; }
   .wf-chip--misc     { @apply bg-muted text-muted-foreground; }
   .wf-chip--done     { @apply bg-success/10; color: var(--success); }
+  .wf-chip--error    { @apply bg-destructive/10 text-destructive; }
 
   .wf-title       { @apply min-w-0 flex-1 truncate text-[12px] font-medium leading-tight text-foreground; }
   .wf-title--done { @apply text-muted-foreground; }

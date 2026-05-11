@@ -11,9 +11,10 @@ interface Props {
   settings: AdvancedSetting[];
   values: Record<string, { proxyIndex: number; value: unknown }>;
   onChange: (values: Record<string, { proxyIndex: number; value: unknown }>) => void;
+  errorNodeIds?: string[];
 }
 
-export default function AdvancedSettings({ settings, values, onChange }: Props) {
+export default function AdvancedSettings({ settings, values, onChange, errorNodeIds }: Props) {
   const [open, setOpen] = useState(false);
 
   if (settings.length === 0) return null;
@@ -56,6 +57,7 @@ export default function AdvancedSettings({ settings, values, onChange }: Props) 
           settings={settings}
           getValue={getValue}
           handleChange={handleChange}
+          errorNodeIds={errorNodeIds}
         />
       )}
     </div>
@@ -69,11 +71,12 @@ export default function AdvancedSettings({ settings, values, onChange }: Props) 
 // Settings without a `nodeId` (legacy persisted entries) collect under an
 // untitled "Other" section at the bottom.
 function NodeGroupedSettings({
-  settings, getValue, handleChange,
+  settings, getValue, handleChange, errorNodeIds,
 }: {
   settings: AdvancedSetting[];
   getValue: (s: AdvancedSetting) => unknown;
   handleChange: (s: AdvancedSetting, v: unknown) => void;
+  errorNodeIds?: string[];
 }) {
   const groups: Array<{ key: string; title: string | null; items: AdvancedSetting[] }> = [];
   const byKey = new Map<string, AdvancedSetting[]>();
@@ -101,6 +104,7 @@ function NodeGroupedSettings({
         settings={settings}
         getValue={getValue}
         handleChange={handleChange}
+        errorNodeIds={errorNodeIds}
       />
     );
   }
@@ -118,6 +122,7 @@ function NodeGroupedSettings({
             settings={g.items}
             getValue={getValue}
             handleChange={handleChange}
+            errorNodeIds={errorNodeIds}
           />
         </div>
       ))}
@@ -139,12 +144,14 @@ function NodeGroupedSettings({
  * number stepper.
  */
 function GroupedSettings({
-  settings, getValue, handleChange,
+  settings, getValue, handleChange, errorNodeIds,
 }: {
   settings: AdvancedSetting[];
   getValue: (s: AdvancedSetting) => unknown;
   handleChange: (s: AdvancedSetting, v: unknown) => void;
+  errorNodeIds?: string[];
 }) {
+  const errorNodeSet = errorNodeIds && errorNodeIds.length > 0 ? new Set(errorNodeIds) : null;
   const buckets = {
     textarea: [] as AdvancedSetting[],
     input: [] as AdvancedSetting[], // number | slider | seed | select | text
@@ -166,6 +173,7 @@ function GroupedSettings({
               setting={s}
               value={getValue(s)}
               onChange={(v) => handleChange(s, v)}
+              invalid={errorNodeSet !== null && s.nodeId !== undefined && errorNodeSet.has(s.nodeId)}
             />
           ))}
         </div>
@@ -178,6 +186,7 @@ function GroupedSettings({
               setting={s}
               value={getValue(s)}
               onChange={(v) => handleChange(s, v)}
+              invalid={errorNodeSet !== null && s.nodeId !== undefined && errorNodeSet.has(s.nodeId)}
             />
           ))}
         </div>
@@ -190,6 +199,7 @@ function GroupedSettings({
               setting={s}
               value={getValue(s)}
               onChange={(v) => handleChange(s, v)}
+              invalid={errorNodeSet !== null && s.nodeId !== undefined && errorNodeSet.has(s.nodeId)}
             />
           ))}
         </div>
@@ -202,10 +212,12 @@ function SettingField({
   setting,
   value,
   onChange,
+  invalid,
 }: {
   setting: AdvancedSetting;
   value: unknown;
   onChange: (value: unknown) => void;
+  invalid?: boolean;
 }) {
   // Toggle renders inline: label left, switch right, no control row below.
   if (setting.type === 'toggle') {
@@ -233,7 +245,7 @@ function SettingField({
         <SettingLabel setting={setting} />
         {labelRight && <span className="ml-auto">{labelRight}</span>}
       </div>
-      <SettingControl setting={setting} value={value} onChange={onChange} />
+      <SettingControl setting={setting} value={value} onChange={onChange} invalid={invalid} />
     </div>
   );
 }
@@ -264,10 +276,12 @@ function SettingControl({
   setting,
   value,
   onChange,
+  invalid,
 }: {
   setting: AdvancedSetting;
   value: unknown;
   onChange: (value: unknown) => void;
+  invalid?: boolean;
 }) {
   switch (setting.type) {
     case 'number': {
@@ -301,6 +315,7 @@ function SettingControl({
             min={setting.min}
             max={setting.max}
             step={step}
+            aria-invalid={invalid || undefined}
             className="field-input text-center tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
           />
           <button type="button" onClick={() => onChange(clamp(num + step))} disabled={atMax} className="field-stepper" aria-label="Increase">
@@ -363,12 +378,13 @@ function SettingControl({
             options={options}
             searchPlaceholder={`Search ${setting.label.toLowerCase()}…`}
             emptyMessage="No matching option"
+            invalid={invalid}
           />
         );
       }
       return (
         <SelectField value={current} onValueChange={v => onChange(v)}>
-          <SelectTrigger>
+          <SelectTrigger invalid={invalid}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -389,6 +405,7 @@ function SettingControl({
             type="text"
             value={(value as string) ?? ''}
             onChange={e => onChange(e.target.value)}
+            aria-invalid={invalid || undefined}
             className="field-input"
           />
         </div>

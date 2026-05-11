@@ -110,6 +110,33 @@ export const UI_ONLY_TYPES = new Set<string>([
   'easy setNode',
 ]);
 
+// Text-utility node types that exist as plumbing (string manipulation,
+// template substitution, formatting) and must never surface as form fields.
+// These nodes are internal wiring between model loaders and text encoders;
+// exposing their widgets would let users corrupt the template's logic strings.
+// Mirrors the UI's isPlumbing() idea but scoped to text-manipulation nodes
+// that carry multiline STRING widgets (which would otherwise pass the widget
+// walk's multiline filter).
+// Math expression nodes (ComfyMathExpression / MathExpression / MathExpr) are
+// dimension-derivation plumbing — they compute width/height/frame-count from
+// user inputs and must not surface as editable form fields.
+export const TEXT_PLUMBING_CLASS_TYPES = new Set<string>([
+  'StringReplace',
+  'String Find/Replace',
+  'StringConcat',
+  'StringConcatenate',
+  'TextConcatenate',
+  'TextReplace',
+  'TextFormat',
+  'TextTemplate',
+  'StringFormat',
+  'JoinStrings',
+  'ConcatStrings',
+  'ComfyMathExpression',
+  'MathExpression',
+  'MathExpr',
+]);
+
 // Frontend-only widget values that appear in widgets_values but not in the
 // API schema. Must be stripped before index-aligning with widgetNamesFor().
 export const FRONTEND_ONLY_VALUES = new Set<string>([

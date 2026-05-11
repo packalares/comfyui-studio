@@ -108,6 +108,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setProgress,
     _setNodeStates,
     _setActivePromptId,
+    _setErrorNodeIds,
     _activePromptIdRef,
     _fetchOutputFromHistory,
     setCurrentJob,
@@ -318,6 +319,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
               message?: string;
               exception_type?: string;
               node_type?: string;
+              node_id?: string;
             } | undefined;
             // Ignore delayed errors that belong to a prompt the user has
             // already moved past (fast-resubmit after a failure). Without
@@ -339,6 +341,12 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
             const description = data?.node_type
               ? `${data.node_type}: ${errMsg}`
               : errMsg;
+            // Capture the failing node id from execution_error so the graph and
+            // form fields can highlight it. node_id is present on ComfyUI's
+            // execution_error payload; other error types don't carry it.
+            if (typeof data?.node_id === 'string' && data.node_id.length > 0) {
+              _setErrorNodeIds([data.node_id]);
+            }
             _setProgress(null);
             _setActivePromptId(null);
             setCurrentJob(prev => prev ? { ...prev, status: 'failed', error: errMsg } : null);
@@ -527,6 +535,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setDownloads,
     _setProgress,
     _setActivePromptId,
+    _setErrorNodeIds,
     _setMonitorStats,
     _setSystemStats,
     _systemStatsRef,

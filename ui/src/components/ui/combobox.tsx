@@ -29,6 +29,8 @@ export interface ComboboxProps {
   emptyMessage?: string;
   disabled?: boolean;
   className?: string;
+  /** When true, renders the trigger with a destructive-red border to indicate an error. */
+  invalid?: boolean;
 }
 
 export function Combobox({
@@ -40,6 +42,7 @@ export function Combobox({
   emptyMessage = 'No results found.',
   disabled,
   className,
+  invalid,
 }: ComboboxProps): JSX.Element {
   const [open, setOpen] = React.useState(false);
   const selected = options.find(o => o.value === value);
@@ -54,6 +57,7 @@ export function Combobox({
           disabled={disabled}
           className={cn(
             'flex h-9 w-full items-center justify-between rounded-md border border-input bg-card px-2.5 py-1.5 text-[12px] text-foreground transition-colors hover:bg-muted focus:outline-none focus:border-brand disabled:cursor-not-allowed disabled:opacity-50',
+            invalid && 'border-destructive',
             className,
           )}
         >

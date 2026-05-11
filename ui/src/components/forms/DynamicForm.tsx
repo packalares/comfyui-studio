@@ -5,6 +5,7 @@ interface Props {
   inputs: FormInput[];
   values: Record<string, unknown>;
   onChange: (values: Record<string, unknown>) => void;
+  errorNodeIds?: string[];
 }
 
 /**
@@ -32,7 +33,7 @@ const BUCKET_BY_TYPE: Record<FormInput['type'], Bucket> = {
   toggle: 'toggle',
 };
 
-export default function DynamicForm({ inputs, values, onChange }: Props) {
+export default function DynamicForm({ inputs, values, onChange, errorNodeIds }: Props) {
   const handleFieldChange = (id: string, value: unknown) => {
     onChange({ ...values, [id]: value });
   };
@@ -43,6 +44,8 @@ export default function DynamicForm({ inputs, values, onChange }: Props) {
     );
   }
 
+  const errorNodeSet = errorNodeIds && errorNodeIds.length > 0 ? new Set(errorNodeIds) : null;
+
   const buckets: Record<Bucket, FormInput[]> = { full: [], grid: [], toggle: [] };
   for (const i of inputs) buckets[BUCKET_BY_TYPE[i.type] ?? 'grid'].push(i);
 
@@ -52,6 +55,11 @@ export default function DynamicForm({ inputs, values, onChange }: Props) {
       input={input}
       value={values[input.id] ?? input.default ?? (input.type === 'toggle' ? false : undefined)}
       onChange={(val) => handleFieldChange(input.id, val)}
+      invalid={
+        errorNodeSet !== null &&
+        ((input.bindNodeId !== undefined && errorNodeSet.has(input.bindNodeId)) ||
+          (input.nodeId !== undefined && errorNodeSet.has(String(input.nodeId))))
+      }
     />
   );
 
