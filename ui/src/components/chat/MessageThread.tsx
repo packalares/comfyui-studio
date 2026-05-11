@@ -24,6 +24,7 @@ import { AlertCircle, FileText, Upload, X, MessageSquare, ChevronDown, ChevronUp
 import { Message, MessageContent, MessageResponse } from '../ai-elements/message';
 import {
   Tool, ToolHeader, ToolContent, ToolInput, ToolOutput,
+  getCollapsedSummary, splitToolName,
 } from '../ai-elements/tool';
 import {
   Reasoning, ReasoningContent, ReasoningTrigger,
@@ -828,12 +829,19 @@ function renderAssistantPart(part: StudioUIMessagePart, key: number, isStreaming
 // (Studio's bus is terminal — no streaming-args / running state today).
 type DynamicToolPart = Extract<StudioUIMessagePart, { type: 'dynamic-tool' }>;
 function ToolBlockCard({ part }: { part: DynamicToolPart }) {
+  const split = splitToolName(part.toolName);
+  const humanLabel = split.server
+    ? `${split.server} · ${split.label}`
+    : split.label;
+  const summary = getCollapsedSummary(part.input);
+  const title = summary ? `${humanLabel} · "${summary}"` : undefined;
   return (
     <Tool>
       <ToolHeader
         type="dynamic-tool"
         toolName={part.toolName}
         state={part.state}
+        title={title}
       />
       <ToolContent>
         <ToolInput input={part.input} />

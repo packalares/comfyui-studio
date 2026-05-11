@@ -1,21 +1,24 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useCallback, useRef, useState } from 'react';
 import ReactFlow, {
   Background,
-  Controls,
+  Panel,
   useNodesState,
   useEdgesState,
   MarkerType,
   type Node,
   type Edge,
+  type ReactFlowInstance,
 } from 'reactflow';
 import dagre from '@dagrejs/dagre';
 import 'reactflow/dist/style.css';
 
-import WorkflowNodeComponent from './WorkflowNode';
-import { humanizeClassType, nodeCategory } from './nodeIcon';
-import { useNodeStatusMap } from './useNodeStatusMap';
+import WorkflowCard, { type WfCardStatus, type WfCardData } from './WorkflowCard';
+import GraphControls from './GraphControls';
+import { humanizeClassType, nodeCategory, type NodeCategory } from './nodeIcon';
+import { useNodeStatusMap, type NodeStatus } from './useNodeStatusMap';
 import { useJobs } from '../../context/JobsContext';
-import { api } from '../../services/comfyui';
+import { cn } from '../../lib/utils';
+import type { WorkflowGroup } from '../../types';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -29,7 +32,6 @@ type WorkflowJson = Record<string, ComfyNode>;
 
 // Auxiliary / plumbing class_types that exist for wiring or labeling and
 // don't represent a meaningful step the user cares about during generation.
-// Filtered out from the graph so only "main" nodes show.
 function isPlumbing(classType: string): boolean {
   const lc = classType.toLowerCase();
   if (lc === 'reroute' || lc === 'note' || lc === 'bookmark') return true;
@@ -42,41 +44,65 @@ function isPlumbing(classType: string): boolean {
   return false;
 }
 
-// ─── Node sizes for dagre layout ─────────────────────────────────────────────
+// ─── Layout sizing ───────────────────────────────────────────────────────────
 
 const NODE_WIDTH = 220;
 const NODE_HEIGHT = 60;
 
-// ─── Custom node types map (stable reference, defined outside component) ─────
+const nodeTypes = { workflowNode: WorkflowCard, workflowGroup: WorkflowCard };
 
-const nodeTypes = { workflowNode: WorkflowNodeComponent };
+const FIT_OPTS = { padding: 0.15, maxZoom: 1.1, duration: 300 };
 
-// ─── Parse workflow JSON into RF nodes + edges ────────────────────────────────
+const baseEdgeStyle = () => ({ stroke: 'var(--color-border, #e2e8f0)', strokeWidth: 1.5 });
+const baseMarker = () => ({ type: MarkerType.ArrowClosed, width: 10, height: 10, color: 'var(--color-border, #e2e8f0)' });
+const activeMarker = () => ({ type: MarkerType.ArrowClosed, width: 10, height: 10, color: 'var(--color-success, #22c55e)' });
 
-// Pre-built input map for transitive ancestor walks.
+// ─── Dependency graph helpers ────────────────────────────────────────────────
+
 function getInputSourceIds(workflow: WorkflowJson, nodeId: string): string[] {
   const node = workflow[nodeId];
   if (!node?.inputs) return [];
   const out: string[] = [];
   for (const val of Object.values(node.inputs)) {
-    if (Array.isArray(val) && val.length === 2 && typeof val[0] === 'string') {
-      out.push(val[0]);
+    if (Array.isArray(val) && val.length === 2 && typeof val[0] === 'string') out.push(val[0]);
+  }
+  return out;
+}
+
+// nodeId -> direct upstream node ids (raw, includes plumbing).
+function buildDepParents(workflow: WorkflowJson): Map<string, string[]> {
+  const m = new Map<string, string[]>();
+  for (const id of Object.keys(workflow)) m.set(id, getInputSourceIds(workflow, id));
+  return m;
+}
+
+// ComfyUI executes in topological order: if any node is running or done, every
+// node upstream of it MUST have already run — even if we never saw its WS
+// `executed` event. Return all such implied-done ids (raw ids, plumbing too).
+function closeImpliedDone(statusMap: Map<string, NodeStatus>, depParents: Map<string, string[]>): Set<string> {
+  const out = new Set<string>();
+  const stack: string[] = [];
+  for (const [id, st] of statusMap) if (st === 'running' || st === 'done') stack.push(id);
+  while (stack.length) {
+    const id = stack.pop()!;
+    for (const p of depParents.get(id) ?? []) {
+      if (!out.has(p)) {
+        out.add(p);
+        stack.push(p);
+      }
     }
   }
   return out;
 }
 
+// ─── Node-level parse ────────────────────────────────────────────────────────
+
 function parseWorkflow(workflowJson: WorkflowJson, mainNodeIds: Set<string> | null) {
   const rfNodes: Node[] = [];
   const rfEdges: Edge[] = [];
 
-  // Determine which nodes to render. When `mainNodeIds` is provided (from
-  // the template's widget enumeration — same data Studio uses to populate
-  // "advanced fields"), show only those + terminal outputs (Save / Preview).
-  // Falls back to "filter plumbing only" when bundle fetch failed.
   const usingMainFilter = mainNodeIds !== null && mainNodeIds.size > 0;
-  const isTerminal = (ct: string) =>
-    /^(SaveImage|SaveVideo|SaveAnimated|Preview)/i.test(ct);
+  const isTerminal = (ct: string) => /^(SaveImage|SaveVideo|SaveAnimated|Preview)/i.test(ct);
 
   const keptIds = new Set<string>();
   for (const [id, node] of Object.entries(workflowJson)) {
@@ -88,9 +114,6 @@ function parseWorkflow(workflowJson: WorkflowJson, mainNodeIds: Set<string> | nu
     }
   }
 
-  // For each kept node, walk upstream through filtered intermediates to find
-  // the nearest kept ancestor(s). Lets us draw a direct edge A→B even when
-  // a chain of plumbing nodes sits between A and B in the raw workflow.
   function nearestKeptAncestors(nodeId: string, visited: Set<string>): string[] {
     if (visited.has(nodeId)) return [];
     visited.add(nodeId);
@@ -105,215 +128,278 @@ function parseWorkflow(workflowJson: WorkflowJson, mainNodeIds: Set<string> | nu
   const seenEdges = new Set<string>();
   for (const [id, node] of Object.entries(workflowJson)) {
     if (!keptIds.has(id)) continue;
-
     const label = node._meta?.title || humanizeClassType(node.class_type);
     rfNodes.push({
       id,
       type: 'workflowNode',
-      position: { x: 0, y: 0 }, // dagre will set real positions
-      data: {
-        label,
-        classType: node.class_type,
-        category: nodeCategory(node.class_type),
-        status: 'pending',
-      },
+      position: { x: 0, y: 0 },
+      data: { label, category: nodeCategory(node.class_type), iconClassType: node.class_type, status: 'neutral' } satisfies WfCardData,
     });
-
-    // Collapse the input fan-in through filtered intermediates into direct
-    // ancestor→this edges. Dedup by source-target pair to avoid parallel
-    // duplicates when multiple inputs route to the same upstream node.
     for (const srcId of nearestKeptAncestors(id, new Set())) {
       const key = `${srcId}-${id}`;
       if (seenEdges.has(key)) continue;
       seenEdges.add(key);
-      rfEdges.push({
-        id: key,
-        source: srcId,
-        target: id,
-        style: { stroke: 'var(--color-border, #e2e8f0)', strokeWidth: 1.5 },
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          width: 10,
-          height: 10,
-          color: 'var(--color-border, #e2e8f0)',
-        },
-      });
+      rfEdges.push({ id: key, source: srcId, target: id, style: baseEdgeStyle(), markerEnd: baseMarker() });
     }
   }
-
   return { rfNodes, rfEdges };
 }
 
-// ─── Auto-layout with dagre ───────────────────────────────────────────────────
+// ─── Group-level parse ───────────────────────────────────────────────────────
 
-function layoutGraph(nodes: Node[], edges: Edge[]): Node[] {
+type GroupNodeData = WfCardData & { memberIds: string[] };
+
+// Collapse the full (plumbing-filtered) node graph down to one card per group.
+// Nodes that aren't inside any group become singleton cards so the chain stays
+// connected. Edges between two different groups become group→group edges.
+function buildGroupGraph(workflowJson: WorkflowJson, groups: WorkflowGroup[]) {
+  const { rfNodes, rfEdges } = parseWorkflow(workflowJson, null);
+  const renderedIds = new Set(rfNodes.map((n) => n.id));
+  const labelOf = new Map<string, string>();
+  const classOf = new Map<string, string>();
+  for (const n of rfNodes) {
+    const d = n.data as WfCardData;
+    labelOf.set(n.id, d.label);
+    classOf.set(n.id, d.iconClassType);
+  }
+
+  const groupNodeIdOf = new Map<string, string>();
+  const gNodes: Node[] = [];
+  const makeGroupNode = (id: string, data: GroupNodeData): Node => ({ id, type: 'workflowGroup', position: { x: 0, y: 0 }, data });
+
+  for (const g of groups) {
+    const members = g.nodes.map((n) => n.id).filter((id) => renderedIds.has(id));
+    if (members.length === 0) continue;
+    const gnId = `g:${g.id}`;
+    for (const id of members) groupNodeIdOf.set(id, gnId);
+
+    const catCount = new Map<NodeCategory, number>();
+    for (const id of members) {
+      const c = nodeCategory(classOf.get(id) ?? '');
+      catCount.set(c, (catCount.get(c) ?? 0) + 1);
+    }
+    let dominant: NodeCategory = 'misc';
+    let best = -1;
+    for (const [c, n] of catCount) if (n > best) { best = n; dominant = c; }
+    const iconMember = members.find((id) => nodeCategory(classOf.get(id) ?? '') === dominant) ?? members[0];
+
+    gNodes.push(makeGroupNode(gnId, {
+      label: g.title || 'Group',
+      category: dominant,
+      iconClassType: classOf.get(iconMember) ?? '',
+      status: 'neutral',
+      memberIds: members,
+    }));
+  }
+
+  for (const id of renderedIds) {
+    if (groupNodeIdOf.has(id)) continue;
+    const gnId = `g:s:${id}`;
+    groupNodeIdOf.set(id, gnId);
+    const ct = classOf.get(id) ?? '';
+    gNodes.push(makeGroupNode(gnId, {
+      label: labelOf.get(id) ?? humanizeClassType(ct),
+      category: nodeCategory(ct),
+      iconClassType: ct,
+      status: 'neutral',
+      memberIds: [id],
+    }));
+  }
+
+  const seen = new Set<string>();
+  const gEdges: Edge[] = [];
+  for (const e of rfEdges) {
+    const a = groupNodeIdOf.get(e.source);
+    const b = groupNodeIdOf.get(e.target);
+    if (!a || !b || a === b) continue;
+    const key = `${a}->${b}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    gEdges.push({ id: key, source: a, target: b, style: baseEdgeStyle(), markerEnd: baseMarker() });
+  }
+  return { gNodes, gEdges };
+}
+
+// ─── dagre layout ────────────────────────────────────────────────────────────
+
+function layoutGraph(nodes: Node[], edges: Edge[], w: number, h: number): Node[] {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: 'TB', ranksep: 40, nodesep: 20 });
-
-  for (const node of nodes) {
-    g.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
-  }
-  for (const edge of edges) {
-    // Only add edge if both source and target nodes exist
-    if (g.hasNode(edge.source) && g.hasNode(edge.target)) {
-      g.setEdge(edge.source, edge.target);
-    }
-  }
-
+  g.setGraph({ rankdir: 'TB', ranksep: 48, nodesep: 28 });
+  for (const node of nodes) g.setNode(node.id, { width: w, height: h });
+  for (const edge of edges) if (g.hasNode(edge.source) && g.hasNode(edge.target)) g.setEdge(edge.source, edge.target);
   dagre.layout(g);
-
-  return nodes.map(node => {
+  return nodes.map((node) => {
     const pos = g.node(node.id);
-    return {
-      ...node,
-      position: {
-        x: pos.x - NODE_WIDTH / 2,
-        y: pos.y - NODE_HEIGHT / 2,
-      },
-    };
+    return { ...node, position: { x: pos.x - w / 2, y: pos.y - h / 2 } };
   });
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
+// ─── Component ───────────────────────────────────────────────────────────────
+
+type ViewMode = 'simple' | 'advanced';
 
 interface WorkflowGraphProps {
   templateName: string;
   isRunning: boolean;
+  apiPrompt: Record<string, unknown> | null;
+  mainNodeIds: Set<string> | null;
+  groups: WorkflowGroup[];
 }
 
-export default function WorkflowGraph({ templateName, isRunning }: WorkflowGraphProps) {
+export default function WorkflowGraph({ templateName, isRunning, apiPrompt, mainNodeIds, groups }: WorkflowGraphProps) {
   const { progress } = useJobs();
   const statusMap = useNodeStatusMap(templateName);
+  const [viewMode, setViewMode] = useState<ViewMode>('simple');
+  const instanceRef = useRef<ReactFlowInstance | null>(null);
+  const lastCenteredRef = useRef<string | null>(null);
 
-  const [workflowJson, setWorkflowJson] = useState<WorkflowJson | null>(null);
-  const [mainNodeIds, setMainNodeIds] = useState<Set<string> | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const workflowJson = apiPrompt as WorkflowJson | null;
 
-  // Fetch workflow JSON + template bundle (widgets list) in parallel. The
-  // widgets list gives us the exact set of "main" nodes Studio considers
-  // user-facing (same data populating "advanced fields"). Filter graph to
-  // these + terminal outputs so we don't render every plumbing intermediate.
-  useEffect(() => {
-    if (!templateName) return;
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setWorkflowJson(null);
-    setMainNodeIds(null);
+  const depParents = useMemo(() => (workflowJson ? buildDepParents(workflowJson) : new Map<string, string[]>()), [workflowJson]);
 
-    Promise.all([
-      api.getTemplateApiPrompt(templateName),
-      api.getTemplateBundle(templateName).catch(() => null),
-    ])
-      .then(([promptRes, bundleRes]) => {
-        if (cancelled) return;
-        setWorkflowJson(promptRes.apiPrompt as WorkflowJson);
-        if (bundleRes) {
-          const ids = new Set<string>();
-          for (const w of bundleRes.widgets) {
-            if (w.nodeId) ids.add(w.nodeId);
-          }
-          setMainNodeIds(ids);
-        } else {
-          setMainNodeIds(new Set());
-        }
-      })
-      .catch(err => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load workflow');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+  const isGroupView = viewMode === 'simple' && groups.length > 0;
 
-    return () => { cancelled = true; };
-  }, [templateName]);
-
-  // Parse and layout — nodes themselves carry their category for tinting.
   const { initialNodes, initialEdges } = useMemo(() => {
     if (!workflowJson) return { initialNodes: [], initialEdges: [] };
+    if (isGroupView) {
+      const { gNodes, gEdges } = buildGroupGraph(workflowJson, groups);
+      return { initialNodes: layoutGraph(gNodes, gEdges, NODE_WIDTH, NODE_HEIGHT), initialEdges: gEdges };
+    }
     const { rfNodes, rfEdges } = parseWorkflow(workflowJson, mainNodeIds);
-    const laid = layoutGraph(rfNodes, rfEdges);
-    return { initialNodes: laid, initialEdges: rfEdges };
-  }, [workflowJson, mainNodeIds]);
+    return { initialNodes: layoutGraph(rfNodes, rfEdges, NODE_WIDTH, NODE_HEIGHT), initialEdges: rfEdges };
+  }, [workflowJson, mainNodeIds, groups, isGroupView]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
-  // Re-initialise graph when workflow changes
+  // Re-seed + re-fit when the built graph changes (template or view-mode swap).
   useEffect(() => {
     setNodes(initialNodes);
     setEdges(initialEdges);
+    lastCenteredRef.current = null;
+    const t = setTimeout(() => instanceRef.current?.fitView(FIT_OPTS), 60);
+    return () => clearTimeout(t);
   }, [initialNodes, initialEdges, setNodes, setEdges]);
 
-  // Update node statuses from statusMap + progress.
+  // Implied-done closure + per-id effective status (running > done > pending).
+  const effStatusOf = useMemo(() => {
+    const implied = closeImpliedDone(statusMap, depParents);
+    return (id: string): NodeStatus => {
+      const raw = statusMap.get(id);
+      if (raw === 'running') return 'running';
+      if (raw === 'done' || implied.has(id)) return 'done';
+      return 'pending';
+    };
+  }, [statusMap, depParents]);
+
+  const anyActivity = useMemo(
+    () => statusMap.size > 0 && Array.from(statusMap.values()).some((s) => s !== 'pending'),
+    [statusMap],
+  );
+
+  // RF node ids that should pull a "running" highlight (their incoming edges
+  // light up, and we pan to them). In group view: groups holding a running
+  // member. In node view: the running nodes themselves.
+  const runningIds = useMemo(() => {
+    const s = new Set<string>();
+    if (isGroupView) {
+      for (const n of initialNodes) {
+        const ids = (n.data as GroupNodeData).memberIds ?? [];
+        if (ids.some((id) => statusMap.get(id) === 'running')) s.add(n.id);
+      }
+    } else {
+      for (const [id, st] of statusMap) if (st === 'running') s.add(id);
+    }
+    return s;
+  }, [isGroupView, initialNodes, statusMap]);
+
+  // Push status / progress into the rendered nodes.
   useEffect(() => {
     if (!workflowJson) return;
-    setNodes(nds =>
-      nds.map(node => {
-        const st = statusMap.get(node.id) ?? 'pending';
-        const isNodeRunning = st === 'running';
-        return {
-          ...node,
-          data: {
-            ...node.data,
-            status: st,
-            progressValue: isNodeRunning ? (progress?.value ?? 0) : undefined,
-            progressMax: isNodeRunning ? (progress?.max ?? 0) : undefined,
-          },
-        };
-      })
-    );
-  }, [statusMap, progress, workflowJson, setNodes]);
+    const subNodeId = progress?.nodeId;
+    const subFrac = progress && progress.max > 0 ? Math.max(0, Math.min(1, progress.value / progress.max)) : undefined;
 
-  // Update edge colors when a node is running (highlight incoming edges)
-  useEffect(() => {
-    if (!isRunning) {
-      setEdges(eds =>
-        eds.map(e => ({
-          ...e,
-          style: { stroke: 'var(--color-border, #e2e8f0)', strokeWidth: 1.5 },
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            width: 10,
-            height: 10,
-            color: 'var(--color-border, #e2e8f0)',
-          },
-        }))
+    if (isGroupView) {
+      setNodes((nds: Node[]) =>
+        nds.map((node: Node) => {
+          const ids = (node.data as GroupNodeData).memberIds ?? [];
+          let running = 0;
+          let done = 0;
+          for (const id of ids) {
+            const s = effStatusOf(id);
+            if (s === 'running') running++;
+            else if (s === 'done') done++;
+          }
+          let status: WfCardStatus = 'neutral';
+          let fraction: number | undefined;
+          if (anyActivity) {
+            if (running > 0) {
+              status = 'running';
+              const memberSub = subNodeId && ids.includes(subNodeId) ? (subFrac ?? 0) : 0;
+              fraction = ids.length > 0 ? Math.max(0, Math.min(1, (done + memberSub) / ids.length)) : 0;
+            } else if (ids.length > 0 && done === ids.length) {
+              status = 'done';
+            } else {
+              status = 'pending';
+            }
+          }
+          return { ...node, data: { ...node.data, status, progressFraction: fraction } };
+        }),
       );
       return;
     }
 
-    const runningNodeId = progress?.nodeId;
-    setEdges(eds =>
-      eds.map(e => {
-        const isActive = runningNodeId && e.target === runningNodeId;
-        const strokeColor = isActive
-          ? 'var(--color-success, #22c55e)'
-          : 'var(--color-border, #e2e8f0)';
+    setNodes((nds: Node[]) =>
+      nds.map((node: Node) => {
+        const eff = effStatusOf(node.id);
+        const status: WfCardStatus = anyActivity ? eff : 'neutral';
+        const fraction = status === 'running' && subNodeId === node.id ? subFrac : undefined;
+        return { ...node, data: { ...node.data, status, progressFraction: fraction } };
+      }),
+    );
+  }, [workflowJson, isGroupView, anyActivity, effStatusOf, progress, setNodes]);
+
+  // Edge highlight: light up edges feeding a currently-running node/group.
+  useEffect(() => {
+    setEdges((eds: Edge[]) =>
+      eds.map((e: Edge) => {
+        const on = isRunning && runningIds.has(e.target);
         return {
           ...e,
-          style: { stroke: strokeColor, strokeWidth: isActive ? 2 : 1.5 },
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            width: 10,
-            height: 10,
-            color: strokeColor,
-          },
-          animated: isActive,
+          style: on ? { stroke: 'var(--color-success, #22c55e)', strokeWidth: 2 } : baseEdgeStyle(),
+          markerEnd: on ? activeMarker() : baseMarker(),
+          animated: on,
         };
-      })
+      }),
     );
-  }, [progress?.nodeId, isRunning, setEdges]);
+  }, [isRunning, runningIds, setEdges]);
 
-  const onInit = useCallback((instance: { fitView: () => void }) => {
-    setTimeout(() => instance.fitView(), 0);
+  // Gently pan the running node/group into view when it changes.
+  useEffect(() => {
+    if (!isRunning) {
+      lastCenteredRef.current = null;
+      return;
+    }
+    const inst = instanceRef.current;
+    if (!inst) return;
+    let targetId: string | null = null;
+    for (const id of runningIds) { targetId = id; break; }
+    if (!targetId || targetId === lastCenteredRef.current) return;
+    const n = inst.getNode(targetId);
+    if (!n) return;
+    lastCenteredRef.current = targetId;
+    const w = n.width ?? NODE_WIDTH;
+    const h = n.height ?? NODE_HEIGHT;
+    inst.setCenter(n.position.x + w / 2, n.position.y + h / 2, { zoom: inst.getZoom(), duration: 500 });
+  }, [isRunning, runningIds]);
+
+  const onInit = useCallback((instance: ReactFlowInstance) => {
+    instanceRef.current = instance;
+    setTimeout(() => instance.fitView(FIT_OPTS), 0);
   }, []);
 
-  if (loading) {
+  if (apiPrompt == null) {
     return (
       <div className="flex h-full items-center justify-center text-xs text-muted-foreground gap-2">
         <span className="w-4 h-4 rounded-full border-2 border-brand border-t-transparent animate-spin" />
@@ -322,44 +408,43 @@ export default function WorkflowGraph({ templateName, isRunning }: WorkflowGraph
     );
   }
 
-  if (error) {
-    return (
-      <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-        Could not load workflow graph
-      </div>
-    );
-  }
+  if (nodes.length === 0) return null;
 
-  if (nodes.length === 0) {
-    return null;
-  }
+  const toggleBtn = (mode: ViewMode, label: string) => (
+    <button type="button" onClick={() => setViewMode(mode)} className={cn('wf-viewtoggle-btn', viewMode === mode && 'is-active')}>
+      {label}
+    </button>
+  );
 
   return (
-    <>
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        nodeTypes={nodeTypes}
-        onInit={onInit}
-        fitView
-        fitViewOptions={{ padding: 0.1, maxZoom: 1.1 }}
-        minZoom={0.2}
-        maxZoom={2}
-        nodesDraggable={false}
-        nodesConnectable={false}
-        elementsSelectable={false}
-        zoomOnScroll
-        panOnDrag
-        proOptions={{ hideAttribution: true }}
-      >
-        <Background gap={16} size={1} color="var(--color-border, #e2e8f0)" />
-        <Controls
-          showInteractive={false}
-          className="!bg-card !border !border-border !shadow-sm"
-        />
-      </ReactFlow>
-    </>
+    <ReactFlow
+      nodes={nodes}
+      edges={edges}
+      onNodesChange={onNodesChange}
+      onEdgesChange={onEdgesChange}
+      nodeTypes={nodeTypes}
+      onInit={onInit}
+      fitView
+      fitViewOptions={FIT_OPTS}
+      minZoom={0.2}
+      maxZoom={2}
+      nodesDraggable={false}
+      nodesConnectable={false}
+      elementsSelectable={false}
+      zoomOnScroll
+      panOnDrag
+      proOptions={{ hideAttribution: true }}
+    >
+      <Background gap={22} size={1.6} color="var(--wf-grid-dot, #d0d0d4)" />
+      {groups.length > 0 && (
+        <Panel position="top-right">
+          <div className="wf-viewtoggle">
+            {toggleBtn('simple', 'Simple')}
+            {toggleBtn('advanced', 'Advanced')}
+          </div>
+        </Panel>
+      )}
+      <GraphControls />
+    </ReactFlow>
   );
 }

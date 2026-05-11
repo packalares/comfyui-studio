@@ -281,6 +281,21 @@ export function findDownloadForModel(
   return undefined;
 }
 
+/** One node entry inside a workflow group (from the template bundle). */
+export interface WorkflowGroupNode {
+  id: string;
+  classType: string;
+  title: string;
+}
+
+/** A litegraph group with its member nodes (positional assignment, server-computed). */
+export interface WorkflowGroup {
+  id: number;
+  title: string;
+  color?: string;
+  nodes: WorkflowGroupNode[];
+}
+
 /** Host family for a catalog URL source. Mirrors the server contract. */
 export type UrlHost = 'hf' | 'civitai' | 'github' | 'generic';
 

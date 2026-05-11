@@ -9,6 +9,7 @@ import type {
   AdvancedSetting,
   EnumeratedWidget,
   FormInput,
+  WorkflowGroup,
   Plugin,
   PluginTaskProgress,
   PluginHistoryEntry,
@@ -375,13 +376,15 @@ export const api = {
     ),
 
   /** Single-trip equivalent of `getWorkflowSettings` + `getTemplateWidgets`.
-   *  Backend computes the workflow plan once and returns all three payloads
-   *  together. */
+   *  Backend computes the workflow plan once and returns all payloads together,
+   *  including the stable api-prompt and group assignments. */
   getTemplateBundle: (templateName: string) =>
     fetchJson<{
       settings: AdvancedSetting[];
       widgets: EnumeratedWidget[];
       primitiveFormFields?: FormInput[];
+      apiPrompt: Record<string, unknown>;
+      groups: WorkflowGroup[];
     }>(`/template-bundle/${encodeURIComponent(templateName)}`),
 
   /** Debug/compare: return the /api/prompt payload our converter would produce. */

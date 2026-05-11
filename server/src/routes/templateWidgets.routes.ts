@@ -13,8 +13,9 @@ import {
   getObjectInfo,
   resolveProxyLabelParts,
   resolveProxyBoundKeys,
-  workflowToApiPrompt,
 } from '../services/workflow/index.js';
+import { buildStableApiPrompt } from '../services/workflow/stableApiPrompt.js';
+import { computeWorkflowGroups } from '../services/workflow/workflowGroups.js';
 import { buildFormFieldPlan } from '../services/templates/formFieldPlan/index.js';
 import { filterProxySettingsByBoundKeys } from '../services/workflow/filterFormBoundProxies.js';
 import type { RawTemplate } from '../services/templates/types.js';
@@ -117,7 +118,9 @@ async function buildTemplateBundle(templateName: string) {
   }
 
   const widgets = await enumerateTemplateWidgets(workflow, templateName);
-  return { settings, widgets, primitiveFormFields: plan.fields };
+  const apiPrompt = await buildStableApiPrompt(workflow);
+  const groups = computeWorkflowGroups(workflow, apiPrompt);
+  return { settings, widgets, primitiveFormFields: plan.fields, apiPrompt, groups };
 }
 
 router.get('/workflow-settings/:templateName', async (req: Request, res: Response) => {
@@ -178,11 +181,7 @@ router.get('/template-api-prompt/:templateName', async (req: Request, res: Respo
       res.status(404).json({ error: 'Workflow not found' });
       return;
     }
-    const apiPrompt = await workflowToApiPrompt(workflow, {}, []);
-    for (const entry of Object.values(apiPrompt)) {
-      if (entry.class_type === 'KSampler' && 'seed' in entry.inputs) entry.inputs.seed = 0;
-      if (entry.class_type === 'RandomNoise' && 'noise_seed' in entry.inputs) entry.inputs.noise_seed = 0;
-    }
+    const apiPrompt = await buildStableApiPrompt(workflow);
     res.json({ templateName, apiPrompt });
   } catch (err) {
     sendError(res, err, 500, 'Failed to build API prompt');

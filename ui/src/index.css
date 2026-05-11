@@ -643,6 +643,56 @@
   /* ===== Toggle ===== */
   /* `.toggle` family removed — Settings.tsx now uses shadcn `<Switch>` like
      the rest of the app. Two switch implementations were unnecessary. */
+
+  /* ===== Studio workflow-graph cards =====
+     Shared shell for the Studio output-panel graph: the simple (group) view
+     and the advanced (node) view both render `<WorkflowCard>`. JSX emits
+     `wf-card` plus an optional `wf-card--<state>` modifier (declared after the
+     base so the cascade overrides border/bg correctly). */
+  .wf-card {
+    @apply relative flex items-center gap-2.5 rounded-xl border border-border bg-card
+           px-3 py-2.5 shadow-sm select-none transition-all duration-300
+           min-w-[180px] max-w-[240px];
+  }
+  .wf-card--running {
+    border-width: 1.5px;
+    border-color: var(--success);
+    background-color: color-mix(in srgb, var(--success) 4%, var(--card));
+  }
+  .wf-card--done    { border-color: color-mix(in srgb, var(--success) 35%, var(--border)); }
+  .wf-card--pending { @apply opacity-45; }
+
+  /* Icon chip — colored by node category. Pair `wf-chip` with `wf-chip--<cat>`. */
+  .wf-chip          { @apply flex h-7 w-7 shrink-0 items-center justify-center rounded-lg; }
+  .wf-chip--models   { @apply bg-brand/10 text-brand; }
+  .wf-chip--inputs   { @apply bg-success/10 text-success; }
+  .wf-chip--prompts  { @apply bg-warning/15 text-warning; }
+  .wf-chip--sampling { @apply bg-destructive/10 text-destructive; }
+  .wf-chip--output   { @apply bg-muted text-foreground; }
+  .wf-chip--misc     { @apply bg-muted text-muted-foreground; }
+  .wf-chip--done     { @apply bg-success/10; color: var(--success); }
+
+  .wf-title       { @apply min-w-0 flex-1 truncate text-[12px] font-medium leading-tight text-foreground; }
+  .wf-title--done { @apply text-muted-foreground; }
+
+  /* React Flow connection handles — tiny, borderless, border-colored dots. */
+  .wf-handle { @apply !h-1.5 !w-1.5 !min-w-0 !min-h-0 !border-0; background-color: var(--border) !important; }
+
+  /* Circular progress indicator shown in the chip slot of a running card. */
+  .wf-ring     { @apply relative flex h-7 w-7 shrink-0 items-center justify-center; }
+  .wf-ring-num { @apply text-[8px] font-semibold tabular-nums leading-none; color: var(--success); }
+
+  /* Bottom-center floating toolbar (GraphControls). */
+  .wf-toolbar         { @apply mb-2 flex items-center gap-0.5 rounded-full border border-border bg-card/95 px-1.5 py-1 shadow-lg backdrop-blur; }
+  .wf-toolbar-btn     { @apply flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground; }
+  .wf-toolbar-divider { @apply mx-1 h-4 w-px bg-border; }
+  .wf-toolbar-zoom    { @apply min-w-[2.75rem] select-none text-center text-[11px] font-medium tabular-nums text-muted-foreground; }
+  .wf-toolbar-pan     { @apply flex h-7 w-7 items-center justify-center rounded-full bg-muted text-foreground; }
+
+  /* Top-right Simple/Advanced view toggle. Active item: add `is-active`. */
+  .wf-viewtoggle              { @apply flex items-center gap-0.5 rounded-full border border-border bg-card/95 p-0.5 text-[11px] shadow-sm backdrop-blur; }
+  .wf-viewtoggle-btn          { @apply rounded-full px-2.5 py-1 text-muted-foreground transition-colors hover:text-foreground; }
+  .wf-viewtoggle-btn.is-active { @apply bg-muted font-medium text-foreground; }
 }
 
 /* Custom scrollbar */
@@ -774,6 +824,7 @@
   --input: oklch(0.92 0 0);
   --ring: oklch(0.70 0 0);
   --radius: 0.625rem;
+  --wf-grid-dot: oklch(0.85 0 0);                /* React Flow dot-grid — darker than --border so it actually reads */
   --sidebar: oklch(0.97 0 0);                   /* light gray frame — slightly off-white */
   --sidebar-foreground: oklch(0.20 0 0);        /* dark text on light sidebar */
   --sidebar-primary: oklch(0.20 0 0);
@@ -822,6 +873,7 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 14%);
   --ring: oklch(0.62 0 0);
+  --wf-grid-dot: oklch(1 0 0 / 16%);
   --sidebar: oklch(0.23 0 0);                   /* outer frame — darker than bg */
   --sidebar-foreground: oklch(0.95 0 0);
   --sidebar-primary: oklch(0.62 0 0);

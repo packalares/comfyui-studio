@@ -23,7 +23,7 @@ import { Button } from '../components/ui/button';
 import { api, ApiError } from '../services/comfyui';
 import { isThreeDFilename } from '../lib/media';
 import { toast } from 'sonner';
-import type { StudioCategory, TemplateSummary, DependencyCheck, AdvancedSetting, FormInput } from '../types';
+import type { StudioCategory, TemplateSummary, DependencyCheck, AdvancedSetting, FormInput, WorkflowGroup } from '../types';
 import { Settings2 } from 'lucide-react';
 
 const WorkflowGraph = lazy(() => import('../components/studio/WorkflowGraph'));
@@ -126,6 +126,9 @@ export default function Studio() {
   // form isn't blank during the round-trip.
   const [primitiveFormFields, setPrimitiveFormFields] = useState<FormInput[]>([]);
   const [formFieldsLoaded, setFormFieldsLoaded] = useState(false);
+  const [bundleApiPrompt, setBundleApiPrompt] = useState<Record<string, unknown> | null>(null);
+  const [bundleMainNodeIds, setBundleMainNodeIds] = useState<Set<string> | null>(null);
+  const [bundleGroups, setBundleGroups] = useState<WorkflowGroup[]>([]);
 
   // Auto-open the expose modal once, when a ?expose=1 URL param lands — used
   // by the "Import as template" flow to drop the user straight into widget
@@ -188,6 +191,9 @@ export default function Studio() {
       setHasEditableWidgets(false);
       setPrimitiveFormFields([]);
       setFormFieldsLoaded(false);
+      setBundleApiPrompt(null);
+      setBundleMainNodeIds(null);
+      setBundleGroups([]);
       return;
     }
     let cancelled = false;
@@ -213,6 +219,12 @@ export default function Studio() {
         const primitiveFields = result.primitiveFormFields ?? [];
         setPrimitiveFormFields(primitiveFields);
         setFormFieldsLoaded(true);
+
+        // Derive mainNodeIds from the widgets list for WorkflowGraph.
+        const mainIds = new Set(result.widgets.map(w => w.nodeId).filter((x): x is string => !!x));
+        setBundleApiPrompt(result.apiPrompt);
+        setBundleMainNodeIds(mainIds);
+        setBundleGroups(result.groups);
 
         // Prompt pre-fill — iterate every bound canonical field and seed
         // `formValues[id]` from the matching widget's default when the user
@@ -269,6 +281,9 @@ export default function Studio() {
           setHasEditableWidgets(false);
           setPrimitiveFormFields([]);
           setFormFieldsLoaded(false);
+          setBundleApiPrompt(null);
+          setBundleMainNodeIds(null);
+          setBundleGroups([]);
         }
       });
     return () => { cancelled = true; };
@@ -852,6 +867,9 @@ export default function Studio() {
                     <WorkflowGraph
                       templateName={selectedTemplate}
                       isRunning={isRunning}
+                      apiPrompt={bundleApiPrompt}
+                      mainNodeIds={bundleMainNodeIds}
+                      groups={bundleGroups}
                     />
                   </Suspense>
                 </div>
