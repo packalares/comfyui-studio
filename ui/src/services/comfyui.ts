@@ -13,6 +13,7 @@ import type {
   Plugin,
   PluginTaskProgress,
   PluginHistoryEntry,
+  DashboardSummary,
   PythonPackage,
   PluginDependencyReport,
   CivitaiModelSummary,
@@ -308,6 +309,7 @@ export const api = {
     chat?: ChatSettingsView;
     personality?: PersonalitySummary;
     gallery?: { total: number; recent: GalleryItem[] };
+    summary?: DashboardSummary;
     apiKeyConfigured?: boolean;
     hfTokenConfigured?: boolean;
     civitaiTokenConfigured?: boolean;

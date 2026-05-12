@@ -143,7 +143,7 @@ export function buildUserUIMessageParts(
   prompt: string,
   attachments: ReadonlyArray<{
     id: string;
-    kind: 'image' | 'text' | 'pdf' | 'unsupported';
+    kind: 'image' | 'video' | 'audio' | 'text' | 'pdf' | 'unsupported';
     filename: string;
     size: number;
     mimeType: string;
@@ -165,7 +165,9 @@ export function buildUserUIMessageParts(
   const combined = textBlocks.join('\n\n');
   if (combined.length > 0) parts.push({ type: 'text', text: combined });
   for (const a of attachments) {
-    if (a.kind === 'image' && a.dataUrl) {
+    // image / video / audio all carry a data URL and are persisted as `file`
+    // parts — the server's extractAndPersistAttachments handles all three.
+    if ((a.kind === 'image' || a.kind === 'video' || a.kind === 'audio') && a.dataUrl) {
       parts.push({
         type: 'file',
         mediaType: a.mimeType,

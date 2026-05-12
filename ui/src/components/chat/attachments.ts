@@ -41,12 +41,15 @@ export function listVisionCapableBaseNames(
 
 export const MAX_ATTACHMENTS = 5;
 export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+// Separate cap for video/audio: base64 expansion means a 32 MB raw file
+// becomes ~43 MB in the POST body, which stays under the 50 MB express limit.
+export const MAX_MEDIA_ATTACHMENT_BYTES = 32 * 1024 * 1024;
 // 50 KB cap on inlined text content so a careless 5 MB log paste doesn't blow
 // the prompt context.
 export const MAX_TEXT_INLINE_BYTES = 50 * 1024;
 
 export const ALLOWED_ACCEPT =
-  'image/png,image/jpeg,image/webp,image/gif,.pdf,.txt,.md,.json,.py,.js,.ts,.tsx,.jsx,.html,.css,.csv,.yaml,.yml,.toml,.xml,.log';
+  'image/png,image/jpeg,image/webp,image/gif,.pdf,.txt,.md,.json,.py,.js,.ts,.tsx,.jsx,.html,.css,.csv,.yaml,.yml,.toml,.xml,.log,video/mp4,video/webm,audio/mpeg,audio/wav,audio/ogg,.mp4,.webm,.mp3,.wav,.ogg';
 
 const TEXT_EXTENSIONS = new Set([
   'txt', 'md', 'markdown', 'json', 'py', 'js', 'jsx', 'ts', 'tsx', 'html',
@@ -55,7 +58,7 @@ const TEXT_EXTENSIONS = new Set([
   'ini', 'conf',
 ]);
 
-export type AttachmentKind = 'image' | 'text' | 'pdf' | 'unsupported';
+export type AttachmentKind = 'image' | 'video' | 'audio' | 'text' | 'pdf' | 'unsupported';
 
 export interface PendingAttachment {
   id: string;
@@ -71,10 +74,18 @@ export interface PendingAttachment {
   textContent?: string;
 }
 
+const VIDEO_EXTENSIONS = new Set(['mp4', 'webm']);
+const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'ogg']);
+
 export function classifyFile(file: File): AttachmentKind {
   if (file.type.startsWith('image/')) return 'image';
+  if (file.type.startsWith('video/')) return 'video';
+  if (file.type.startsWith('audio/')) return 'audio';
   if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) return 'pdf';
   const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  // Extension fallbacks for browsers that don't populate file.type reliably.
+  if (VIDEO_EXTENSIONS.has(ext)) return 'video';
+  if (AUDIO_EXTENSIONS.has(ext)) return 'audio';
   if (file.type.startsWith('text/') || TEXT_EXTENSIONS.has(ext)) return 'text';
   return 'unsupported';
 }
@@ -121,10 +132,15 @@ export interface RejectedFile {
 export type ProcessResult = ProcessedFile | RejectedFile;
 
 export async function processFile(file: File): Promise<ProcessResult> {
-  if (file.size > MAX_ATTACHMENT_BYTES) {
-    return { ok: false, filename: file.name, reason: 'File is larger than 20 MB' };
-  }
   const kind = classifyFile(file);
+  const isMedia = kind === 'video' || kind === 'audio';
+  const sizeLimit = isMedia ? MAX_MEDIA_ATTACHMENT_BYTES : MAX_ATTACHMENT_BYTES;
+  if (file.size > sizeLimit) {
+    const reason = isMedia
+      ? 'Video/audio files are larger than 32 MB — for bigger files, set up the workflow in the Studio UI'
+      : 'File is larger than 20 MB';
+    return { ok: false, filename: file.name, reason };
+  }
   if (kind === 'pdf') {
     // PDF support intentionally deferred — pdfjs-dist would add ~1 MB to the
     // bundle and require a worker setup. Surface a clear rejection so the
@@ -134,17 +150,24 @@ export async function processFile(file: File): Promise<ProcessResult> {
   if (kind === 'unsupported') {
     return { ok: false, filename: file.name, reason: 'Unsupported file type' };
   }
-  if (kind === 'image') {
+  if (kind === 'image' || kind === 'video' || kind === 'audio') {
+    // Determine a sensible MIME fallback when the browser doesn't populate file.type.
+    const mimeMap: Record<string, string> = {
+      mp4: 'video/mp4', webm: 'video/webm',
+      mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg',
+    };
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+    const fallbackMime = kind === 'image' ? 'image/png' : (mimeMap[ext] ?? (kind === 'video' ? 'video/mp4' : 'audio/mpeg'));
     try {
       const dataUrl = await readAsDataUrl(file);
       return {
         ok: true,
         attachment: {
           id: makeId(),
-          kind: 'image',
+          kind,
           filename: file.name,
           size: file.size,
-          mimeType: file.type || 'image/png',
+          mimeType: file.type || fallbackMime,
           dataUrl,
         },
       };

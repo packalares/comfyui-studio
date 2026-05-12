@@ -9,6 +9,7 @@ import type {
   LauncherStatus,
   MonitorStats,
   DownloadState,
+  DashboardSummary,
 } from '../types';
 import { toast } from 'sonner';
 import { api } from '../services/comfyui';
@@ -51,6 +52,7 @@ interface AppContextType {
   uploadMaxBytes: number;
   network: NetworkConfigView | null;
   chat: ChatSettingsView | null;
+  dashboardSummary: DashboardSummary | null;
   downloads: Record<string, DownloadState>;
   progress: LiveProgress | null;
   activePromptId: string | null;
@@ -99,6 +101,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setNetwork,
     _setChat,
     _setPersonality,
+    _setDashboardSummary,
     _systemStatsRef,
   } = system;
   const { _setGalleryTotal, _setRecentGallery } = catalog;
@@ -124,6 +127,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
         network,
         chat,
         personality,
+        summary,
         apiKeyConfigured, hfTokenConfigured, civitaiTokenConfigured,
         githubTokenConfigured,
         pexelsApiKeyConfigured,
@@ -155,6 +159,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       if (network) _setNetwork(network);
       if (chat) _setChat(chat);
       if (personality) _setPersonality(personality);
+      if (summary) _setDashboardSummary(summary);
       // Older servers omit `comfyuiConnected`; default to true for back-compat.
       _setConnected(comfyuiConnected ?? true);
     } catch (err) {
@@ -175,6 +180,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setNetwork,
     _setChat,
     _setPersonality,
+    _setDashboardSummary,
     _setConnected,
   ]);
 
@@ -564,6 +570,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       uploadMaxBytes: system.uploadMaxBytes,
       network: system.network,
       chat: system.chat,
+      dashboardSummary: system.dashboardSummary,
       downloads: jobs.downloads,
       progress: jobs.progress,
       activePromptId: jobs.activePromptId,
@@ -596,6 +603,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       system.uploadMaxBytes,
       system.network,
       system.chat,
+      system.dashboardSummary,
       jobs.queueStatus,
       jobs.currentJob,
       jobs.downloads,

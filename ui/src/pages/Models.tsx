@@ -816,32 +816,28 @@ export default function Models() {
                 </>
               )}
 
-              {/* Storage Summary — local catalog stats. Hidden for Ollama,
-                  whose installed/disk-usage numbers come from `ollama list`
-                  and would conflict with the local catalog totals shown
-                  here. */}
-              {source !== 'ollama' && (
-                <div className="pt-4 border-t">
-                  <label className="field-label mb-2 block">Storage</label>
-                  <div className="divide-y rounded-lg ring-1 ring-inset ring-border/60 overflow-hidden bg-card">
-                    <div className="flex items-center gap-2 px-3 py-2">
-                      <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
-                      <span className="text-xs text-muted-foreground flex-1">Installed</span>
-                      <span className="font-mono text-sm font-semibold text-foreground">{installedCount}</span>
-                    </div>
-                    <div className="flex items-center gap-2 px-3 py-2">
-                      <Package className="w-4 h-4 text-muted-foreground shrink-0" />
-                      <span className="text-xs text-muted-foreground flex-1">Available</span>
-                      <span className="font-mono text-sm font-semibold text-foreground">{stats?.available ?? 0}</span>
-                    </div>
-                    <div className="flex items-center gap-2 px-3 py-2">
-                      <HardDrive className="w-4 h-4 text-brand shrink-0" />
-                      <span className="text-xs text-muted-foreground flex-1">Disk usage</span>
-                      <span className="font-mono text-sm font-semibold text-foreground">{formatBytes(totalDiskSize)}</span>
-                    </div>
+              {/* Storage Summary — local catalog stats (this aside is already
+                  skipped for Ollama, whose numbers come from `ollama list`). */}
+              <div className="pt-4 border-t">
+                <label className="field-label mb-2 block">Storage</label>
+                <div className="divide-y rounded-lg ring-1 ring-inset ring-border/60 overflow-hidden bg-card">
+                  <div className="flex items-center gap-2 px-3 py-2">
+                    <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
+                    <span className="text-xs text-muted-foreground flex-1">Installed</span>
+                    <span className="font-mono text-sm font-semibold text-foreground">{installedCount}</span>
+                  </div>
+                  <div className="flex items-center gap-2 px-3 py-2">
+                    <Package className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <span className="text-xs text-muted-foreground flex-1">Available</span>
+                    <span className="font-mono text-sm font-semibold text-foreground">{stats?.available ?? 0}</span>
+                  </div>
+                  <div className="flex items-center gap-2 px-3 py-2">
+                    <HardDrive className="w-4 h-4 text-brand shrink-0" />
+                    <span className="text-xs text-muted-foreground flex-1">Disk usage</span>
+                    <span className="font-mono text-sm font-semibold text-foreground">{formatBytes(totalDiskSize)}</span>
                   </div>
                 </div>
-              )}
+              </div>
           </PageAside>
         )}
 

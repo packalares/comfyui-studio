@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import {
-  History,
   RefreshCw,
   Trash2,
-  X,
   CheckCircle2,
   XCircle,
   AlertTriangle,
@@ -14,10 +13,14 @@ import { usePaginated } from '../../hooks/usePaginated';
 import Pagination from '../layout/Pagination';
 import { formatRelativeTime } from '../../lib/utils';
 import type { PluginHistoryEntry } from '../../types';
+import type { PluginsOutletContext } from '../../pages/Plugins';
 import ConfirmDialog from '../modals/ConfirmDialog';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { Card, CardContent, CardHeader } from '../ui/card';
+import { Card } from '../ui/card';
+import { Skeleton } from '../ui/skeleton';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 
 function StatusBadge({ status }: { status: PluginHistoryEntry['status'] }) {
   if (status === 'success') {
@@ -97,120 +100,163 @@ export default function PluginHistoryPanel() {
     }
   }, [refetch]);
 
-  return (
-    <Card>
-      <CardHeader className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-2">
-          <History className="w-3.5 h-3.5 text-muted-foreground mt-0.5" />
-          <div>
-            <h2 className="text-sm font-semibold text-foreground leading-tight">Plugin operations history</h2>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
-              {loading ? 'Loading…' : total === 0 ? 'No operations yet.' : `${total} ${total === 1 ? 'entry' : 'entries'}`}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {total > 0 && (
-            <Button
-              onClick={() => setClearOpen(true)}
-              variant="secondary"
-              className="!text-destructive hover:!bg-destructive/10"
-              disabled={busy}
-              title="Clear all entries"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              Clear All
-            </Button>
-          )}
+  // This page's actions live in the shared Plugins subbar (Clear All +
+  // Refresh). Re-runs as count / busy / loading change so the buttons'
+  // visibility and disabled state stay current; cleared on route change.
+  const { setSubbarRight } = useOutletContext<PluginsOutletContext>();
+  useEffect(() => {
+    setSubbarRight(
+      <>
+        {total > 0 && (
           <Button
-            onClick={() => refetch()}
-            variant="ghost"
-            size="icon"
-            title="Refresh"
-            aria-label="Refresh"
-            disabled={loading}
+            onClick={() => setClearOpen(true)}
+            variant="secondary"
+            className="!text-destructive hover:!bg-destructive/10"
+            disabled={busy}
+            title="Clear all entries"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <Trash2 className="w-3.5 h-3.5" />
+            Clear All
           </Button>
+        )}
+        <Button
+          onClick={() => refetch()}
+          variant="ghost"
+          size="icon"
+          title="Refresh"
+          aria-label="Refresh"
+          disabled={loading}
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+        </Button>
+      </>,
+    );
+    return () => setSubbarRight(null);
+  }, [setSubbarRight, refetch, total, busy, loading]);
+
+  return (
+    <>
+      {error && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 flex items-center gap-2 text-xs text-destructive">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          {error}
         </div>
-      </CardHeader>
+      )}
 
-      <CardContent className="space-y-3">
-        {error && (
-          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2">
-            <p className="text-xs text-destructive flex items-center gap-1.5">
-              <AlertTriangle className="h-3 w-3" />
-              {error}
-            </p>
-          </div>
-        )}
-
-        {loading && entries.length === 0 ? (
-          <div className="space-y-2">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-10 rounded-lg bg-muted animate-pulse" />
-            ))}
-          </div>
-        ) : total === 0 ? (
-          <div className="empty-box">Plugin install / uninstall history will appear here.</div>
-        ) : (
-          <ul className="divide-y">
-            {entries.map((entry) => {
-              const when = entry.endTime ?? entry.startTime;
-              return (
-                <li
-                  key={entry.id}
-                  className="flex items-center gap-3 px-1 py-2 hover:bg-muted transition-colors"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-medium text-foreground truncate">
-                        {entry.pluginName || entry.pluginId}
-                      </p>
-                      <span className="text-[11px] text-muted-foreground uppercase tracking-wide">
-                        {entry.type}
-                      </span>
-                      <StatusBadge status={entry.status} />
+      <Card>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Plugin</TableHead>
+              <TableHead>Operation</TableHead>
+              <TableHead>When</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">
+                <span className="sr-only">Actions</span>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading && entries.length === 0 ? (
+              Array.from({ length: 6 }).map((_, i) => (
+                <TableRow key={i}>
+                  <TableCell>
+                    <div className="space-y-1.5">
+                      <Skeleton className="h-3 w-40" />
+                      <Skeleton className="h-2.5 w-24" />
                     </div>
-                    <p
-                      className="text-[11px] text-muted-foreground mt-0.5"
-                      title={when ? new Date(when).toLocaleString() : ''}
-                    >
-                      {when ? formatRelativeTime(when) : '—'}
-                      {entry.result && (
-                        <>
-                          {' · '}
-                          <span className="text-foreground font-mono truncate">{entry.result}</span>
-                        </>
+                  </TableCell>
+                  <TableCell><Skeleton className="h-3 w-16" /></TableCell>
+                  <TableCell><Skeleton className="h-3 w-20" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-16 rounded-full" /></TableCell>
+                  <TableCell><Skeleton className="h-6 w-6 ml-auto rounded" /></TableCell>
+                </TableRow>
+              ))
+            ) : total === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5}>
+                  <div className="empty-box">Plugin install / uninstall history will appear here.</div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              entries.map((entry) => {
+                const when = entry.endTime ?? entry.startTime;
+                return (
+                  <TableRow key={entry.id}>
+                    <TableCell>
+                      <div className="min-w-0">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="text-sm font-medium text-foreground truncate block cursor-default">
+                              {entry.pluginName || entry.pluginId}
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent className="break-words">
+                            {entry.pluginName || entry.pluginId}
+                          </TooltipContent>
+                        </Tooltip>
+                        {entry.result && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <p className="text-[11px] text-muted-foreground font-mono line-clamp-1 cursor-default">
+                                {entry.result}
+                              </p>
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs break-words">
+                              {entry.result}
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                      {entry.type}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                      {when ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-default">{formatRelativeTime(when)}</span>
+                          </TooltipTrigger>
+                          <TooltipContent>{new Date(when).toLocaleString()}</TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        '—'
                       )}
-                    </p>
-                  </div>
-                  <Button
-                    onClick={() => setDeleteTarget(entry)}
-                    variant="ghost"
-                    size="icon"
-                    className="hover:!text-destructive"
-                    title="Remove from history"
-                    aria-label="Remove from history"
-                    disabled={busy}
-                  >
-                    <X className="w-4 h-4" />
-                  </Button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </CardContent>
-
-      <Pagination
-        page={paged.page}
-        pageSize={paged.pageSize}
-        total={paged.total}
-        hasMore={paged.hasMore}
-        onPageChange={paged.setPage}
-        onPageSizeChange={paged.setPageSize}
-      />
+                    </TableCell>
+                    <TableCell><StatusBadge status={entry.status} /></TableCell>
+                    <TableCell className="text-right">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            onClick={() => setDeleteTarget(entry)}
+                            variant="ghost"
+                            size="icon"
+                            className="hover:!text-destructive"
+                            aria-label="Remove from history"
+                            disabled={busy}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Remove from history</TooltipContent>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+        <Pagination
+          page={paged.page}
+          pageSize={paged.pageSize}
+          total={paged.total}
+          hasMore={paged.hasMore}
+          onPageChange={paged.setPage}
+          onPageSizeChange={paged.setPageSize}
+        />
+      </Card>
 
       <ConfirmDialog
         open={!!deleteTarget}
@@ -231,6 +277,6 @@ export default function PluginHistoryPanel() {
         confirmTone="danger"
         onConfirm={handleClearAll}
       />
-    </Card>
+    </>
   );
 }

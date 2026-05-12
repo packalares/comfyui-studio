@@ -62,7 +62,7 @@ interface ToolDef {
   description: string;
   shape: Record<string, z.ZodType>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  run: (args: any) => Promise<unknown>;
+  run: (args: any, ctx?: ChatToolWrapContext) => Promise<unknown>;
   unloadGpuOnUse?: boolean;
 }
 
@@ -257,7 +257,7 @@ export function getMcpToolsForChat(ctx: ChatToolWrapContext = {}): Record<string
       execute: async (args: unknown, opts?: { toolCallId?: string }) => {
         try {
           const finalArgs = injectAmbientContext(def.chatName, args, ctx);
-          const raw = await def.run(finalArgs);
+          const raw = await def.run(finalArgs, ctx);
           // Persist inline media only when we have full conv+msg attribution;
           // outside the chat path (e.g. external MCP entry) the ctx is empty
           // and we let the raw payload through unchanged.

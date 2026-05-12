@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import {
   Search,
   Plus,
@@ -10,10 +11,14 @@ import {
 import { api } from '../../services/comfyui';
 import { usePersistedState } from '../../hooks/usePersistedState';
 import type { PythonPackage } from '../../types';
+import type { PluginsOutletContext } from '../../pages/Plugins';
 import { Spinner } from '../ui/spinner';
 import ConfirmDialog from '../modals/ConfirmDialog';
 import { Button } from '../ui/button';
-import { Card, CardContent, CardHeader } from '../ui/card';
+import { Card, CardHeader } from '../ui/card';
+import { Skeleton } from '../ui/skeleton';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 
 interface OpState {
   busy: boolean;
@@ -103,37 +108,19 @@ export default function PackagesPanel() {
     );
   }, [packages, search]);
 
-  return (
-    <Card>
-      <CardHeader className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-2">
-          <PackageIcon className="w-3.5 h-3.5 text-muted-foreground mt-0.5" />
-          <div>
-            <h2 className="text-sm font-semibold text-foreground leading-tight">Installed packages</h2>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">{packages.length} installed via pip.</p>
-          </div>
-        </div>
-        <Button
-          onClick={load}
-          variant="ghost"
-          size="icon"
-          title="Refresh"
-          disabled={loading}
-          aria-label="Refresh package list"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-        </Button>
-      </CardHeader>
-
-      <CardContent className="space-y-3">
-        {/* Install input */}
-        <div className="flex flex-col md:flex-row gap-2">
-          <div className="flex-1 field-wrap">
+  // Refresh + "install by spec" input live in the shared Plugins subbar.
+  // Re-runs when installSpec/installOp/loading change so button state stays current.
+  const { setSubbarRight } = useOutletContext<PluginsOutletContext>();
+  useEffect(() => {
+    setSubbarRight(
+      <>
+        <div className="flex items-center gap-2">
+          <div className="field-wrap">
             <PackageIcon className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
             <input
               type="text"
-              className="field-input"
-              placeholder="Package spec, e.g. numpy==1.26.4"
+              className="field-input w-44"
+              placeholder="spec, e.g. numpy==1.26.4"
               value={installSpec}
               onChange={(e) => setInstallSpec(e.target.value)}
               onKeyDown={(e) => {
@@ -150,86 +137,141 @@ export default function PackagesPanel() {
             Install
           </Button>
         </div>
+        <Button
+          onClick={load}
+          variant="ghost"
+          size="icon"
+          aria-label="Refresh package list"
+          disabled={loading}
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+        </Button>
+      </>,
+    );
+    return () => setSubbarRight(null);
+  }, [setSubbarRight, load, loading, installSpec, installOp.busy, handleInstall]);
 
-        {installOp.error && (
-          <p className="text-[11px] text-destructive rounded-md bg-destructive/10 border border-destructive/30 px-2 py-1.5 break-all">
-            {installOp.error}
-          </p>
-        )}
-        {installOp.success && (
-          <p className="text-[11px] text-success rounded-md bg-success/10 border border-success/20 px-2 py-1.5">
-            Install succeeded.
-          </p>
-        )}
-
-        {/* Search */}
-        <div className="field-wrap">
-          <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-          <input
-            type="text"
-            className="field-input"
-            placeholder="Search installed packages…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+  return (
+    <>
+      {error && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 flex items-center gap-2 text-xs text-destructive">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          {error}
         </div>
+      )}
 
-        {error && (
-          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 flex items-center gap-2 text-xs text-destructive">
-            <AlertTriangle className="h-3.5 w-3.5" />
-            {error}
-          </div>
-        )}
+      {installOp.error && (
+        <p className="text-[11px] text-destructive rounded-md bg-destructive/10 border border-destructive/30 px-2 py-1.5 break-all">
+          {installOp.error}
+        </p>
+      )}
+      {installOp.success && (
+        <p className="text-[11px] text-success rounded-md bg-success/10 border border-success/20 px-2 py-1.5">
+          Install succeeded.
+        </p>
+      )}
 
-        {loading ? (
-          <div className="flex items-center justify-center py-6">
-            <Spinner size="lg" className="text-muted-foreground" />
+      <Card>
+        <CardHeader>
+          <div className="flex flex-row items-center gap-2">
+            <div className="flex-1 min-w-0 field-wrap">
+              <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              <input
+                type="text"
+                className="field-input"
+                placeholder="Search installed packages…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
           </div>
-        ) : filtered.length === 0 ? (
-          <div className="empty-box">
-            {packages.length === 0 ? 'No packages reported by pip.' : 'No packages match your search.'}
-          </div>
-        ) : (
-          <div className="max-h-[480px] overflow-y-auto scrollbar-subtle">
-            <ul className="divide-y">
-              {filtered.map((p) => {
+        </CardHeader>
+
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Package</TableHead>
+              <TableHead>Version</TableHead>
+              <TableHead className="text-right">
+                <span className="sr-only">Actions</span>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading && packages.length === 0 ? (
+              Array.from({ length: 8 }).map((_, i) => (
+                <TableRow key={i}>
+                  <TableCell><Skeleton className="h-3 w-40" /></TableCell>
+                  <TableCell><Skeleton className="h-3 w-20" /></TableCell>
+                  <TableCell><Skeleton className="h-6 w-6 ml-auto rounded" /></TableCell>
+                </TableRow>
+              ))
+            ) : filtered.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={3}>
+                  <div className="empty-box">
+                    {packages.length === 0
+                      ? 'No packages reported by pip.'
+                      : 'No packages match your search.'}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              filtered.map((p) => {
                 const op = uninstallOps[p.name];
                 return (
-                  <li
-                    key={p.name}
-                    className="flex items-center gap-3 px-1 py-1.5 hover:bg-muted transition-colors"
-                  >
-                    <div className="flex-1 min-w-0 flex items-center gap-3">
-                      <span className="font-mono text-sm text-foreground truncate">{p.name}</span>
-                      <span className="font-mono text-xs text-muted-foreground shrink-0">{p.version}</span>
-                    </div>
-                    {op?.error && (
-                      <span className="text-[11px] text-destructive font-mono truncate" title={op.error}>
-                        {op.error}
-                      </span>
-                    )}
-                    <Button
-                      onClick={() => setDeleteTarget(p)}
-                      disabled={op?.busy}
-                      variant="ghost"
-                      size="icon"
-                      className="hover:!text-destructive"
-                      aria-label={`Uninstall ${p.name}`}
-                      title="Uninstall"
-                    >
-                      {op?.busy ? (
-                        <Spinner size="md" />
-                      ) : (
-                        <Trash2 className="w-4 h-4" />
+                  <TableRow key={p.name}>
+                    <TableCell>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="font-mono text-sm text-foreground truncate block cursor-default">
+                            {p.name}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="break-words">{p.name}</TooltipContent>
+                      </Tooltip>
+                      {op?.error && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <p className="text-[11px] text-destructive font-mono line-clamp-1 cursor-default">
+                              {op.error}
+                            </p>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs break-words">{op.error}</TooltipContent>
+                        </Tooltip>
                       )}
-                    </Button>
-                  </li>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                      {p.version}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            onClick={() => setDeleteTarget(p)}
+                            disabled={op?.busy}
+                            variant="ghost"
+                            size="icon"
+                            className="hover:!text-destructive"
+                            aria-label={`Uninstall ${p.name}`}
+                          >
+                            {op?.busy ? (
+                              <Spinner size="md" />
+                            ) : (
+                              <Trash2 className="w-4 h-4" />
+                            )}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Uninstall</TooltipContent>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
                 );
-              })}
-            </ul>
-          </div>
-        )}
-      </CardContent>
+              })
+            )}
+          </TableBody>
+        </Table>
+      </Card>
 
       <ConfirmDialog
         open={!!deleteTarget}
@@ -240,6 +282,6 @@ export default function PackagesPanel() {
         confirmTone="danger"
         onConfirm={handleUninstall}
       />
-    </Card>
+    </>
   );
 }

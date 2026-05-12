@@ -135,7 +135,16 @@ export async function submitTemplate(
   }
   for (const field of formInputs) {
     if (promptFieldId && field.id === promptFieldId) continue;
-    const v = (parsed.data as Record<string, unknown>)[field.id];
+    // `formInputsToSchema` deliberately drops media-upload fields (image /
+    // mask / audio / video) — the LLM can't materialise a file — so they
+    // don't survive the schema parse. The chat tools fill them out-of-band
+    // (upload the user's attachment, pass the ComfyUI filename keyed by the
+    // form-field id), so fall back to the raw inputs for those. They then
+    // reach the bound LoadImage/LoadAudio/LoadVideo node via
+    // workflowToApiPrompt's form-binding path — the same way the UI's
+    // /api/generate route applies an uploaded image.
+    const v = (parsed.data as Record<string, unknown>)[field.id]
+      ?? (input.inputs as Record<string, unknown>)[field.id];
     if (v !== undefined) userInputs[field.id] = v;
   }
 

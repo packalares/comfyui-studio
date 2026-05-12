@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType } from 'react';
+import { Fragment, useEffect, useState, type ComponentType } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Compass, Wand2, Image, Box, Package, Settings,
@@ -37,68 +37,80 @@ interface NavLinkItem {
   children?: SubLink[];
 }
 
-// Three invisible sections — separated by a thin divider, no loud eyebrow
-// labels. Reads as "information architecture" without taking pixels for
-// section headers.
-const linkSections: NavLinkItem[][] = [
-  [
-    { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-    { to: '/explore', label: 'Explore', icon: Compass },
-  ],
-  [
-    { to: '/studio', label: 'Studio', icon: Wand2 },
-    { to: '/chat', label: 'Chat', icon: MessageSquare },
-    { to: '/gallery', label: 'Gallery', icon: Image },
-  ],
-  [
-    {
-      to: '/models',
-      label: 'Models',
-      icon: Box,
-      // Children link to the same /models page with a source query — the
-      // page already accepts `?source=ollama` (the legacy /chat/models
-      // redirect confirms the contract). No new routes needed.
-      children: [
-        // Comfy template is the default Models view (Local catalog +
-        // CivitAI). Active whenever we're on /models without an explicit
-        // ollama source — internal source-dropdown switching between
-        // Local and CivitAI shouldn't flip this submenu item off.
-        {
-          to: '/models',
-          label: 'Comfy',
-          isActive: (pathname, search) =>
-            pathname === '/models'
-            && new URLSearchParams(search).get('source') !== 'ollama',
-        },
-        { to: '/models?source=ollama', label: 'Ollama' },
-      ],
-    },
-    {
-      to: '/plugins',
-      label: 'Plugins',
-      icon: Package,
-      // The Plugins page used to host its own internal aside menu — those
-      // four sub-routes now live as direct sidebar children so users can
-      // jump between them from anywhere in the app, and the page itself
-      // is just the section content.
-      children: [
-        { to: '/plugins/installed', label: 'Installed' },
-        { to: '/plugins/history', label: 'History' },
-        { to: '/plugins/python/dependencies', label: 'Dependencies' },
-        { to: '/plugins/python/packages', label: 'Packages' },
-      ],
-    },
-    { to: '/settings', label: 'Settings', icon: Settings },
-  ],
+// Three groups, separated only by a dotted hairline (no eyebrow labels —
+// the divider is enough). `label` is just the React key / a name for the
+// section, never rendered.
+const linkSections: { label: string; items: NavLinkItem[] }[] = [
+  {
+    label: 'Overview',
+    items: [
+      { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+      { to: '/explore', label: 'Explore', icon: Compass },
+    ],
+  },
+  {
+    label: 'Workspace',
+    items: [
+      { to: '/studio', label: 'Studio', icon: Wand2 },
+      { to: '/chat', label: 'Chat', icon: MessageSquare },
+      { to: '/gallery', label: 'Gallery', icon: Image },
+    ],
+  },
+  {
+    label: 'Manage',
+    items: [
+      {
+        to: '/models',
+        label: 'Models',
+        icon: Box,
+        // Children link to the same /models page with a source query — the
+        // page already accepts `?source=ollama` (the legacy /chat/models
+        // redirect confirms the contract). No new routes needed.
+        children: [
+          // Comfy template is the default Models view (Local catalog +
+          // CivitAI). Active whenever we're on /models without an explicit
+          // ollama source — internal source-dropdown switching between
+          // Local and CivitAI shouldn't flip this submenu item off.
+          {
+            to: '/models',
+            label: 'Comfy',
+            isActive: (pathname, search) =>
+              pathname === '/models'
+              && new URLSearchParams(search).get('source') !== 'ollama',
+          },
+          { to: '/models?source=ollama', label: 'Ollama' },
+        ],
+      },
+      {
+        to: '/plugins',
+        label: 'Plugins',
+        icon: Package,
+        // The Plugins page used to host its own internal aside menu — those
+        // four sub-routes now live as direct sidebar children so users can
+        // jump between them from anywhere in the app, and the page itself
+        // is just the section content.
+        children: [
+          { to: '/plugins/installed', label: 'Installed' },
+          { to: '/plugins/history', label: 'History' },
+          { to: '/plugins/python/dependencies', label: 'Dependencies' },
+          { to: '/plugins/python/packages', label: 'Packages' },
+        ],
+      },
+      { to: '/settings', label: 'Settings', icon: Settings },
+    ],
+  },
 ];
 
-// Active row: brand-coloured icon + slightly heavier label + the default
-// accent background that ships with shadcn's sidebar. Inactive: smooth
-// transition into bg-muted on hover. The `[&>svg]` selector targets the
-// lucide icon child so the colour shift only hits the leading icon, not
-// the trailing chevron.
+// Inactive row: full-strength label, leading icon dimmed so it reads as
+// secondary until you're on it. Active row: a soft brand pill (tinted bg +
+// brand label + brand icon) instead of shadcn's muted accent, and a taller
+// h-9 row so the menu breathes. `[&>svg:first-child]` targets only the
+// leading lucide icon so the colour shift skips the trailing chevron.
 const ROW_POLISH =
-  'transition-colors data-[active=true]:font-medium data-[active=true]:[&>svg:first-child]:text-brand';
+  'h-9 transition-colors [&>svg:first-child]:text-sidebar-foreground/55 '
+  + 'data-[active=true]:bg-brand/10 data-[active=true]:text-brand data-[active=true]:font-medium '
+  + 'data-[active=true]:[&>svg:first-child]:text-brand '
+  + 'data-[active=true]:hover:bg-brand/15 data-[active=true]:hover:text-brand';
 
 export default function AppSidebar() {
   return (
@@ -110,22 +122,27 @@ export default function AppSidebar() {
         </NavLink>
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent className="gap-1">
         {linkSections.map((section, i) => (
-          <SidebarGroup
-            key={i}
-            // Hairline divider between sections (skip first). Stays out of
-            // the way in icon-only mode where the rows are already small.
-            className={i > 0 ? 'mt-1 border-t border-sidebar-border/60 pt-1' : ''}
-          >
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {section.map((link) => (
-                  <NavRow key={link.to} link={link} />
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+          <Fragment key={section.label}>
+            {/* Dashed, inset hairline between groups — short dashes, doesn't
+                touch the rail edges. */}
+            {i > 0 && (
+              <div
+                aria-hidden
+                className="mx-3 border-t border-dashed border-sidebar-border/70 group-data-[collapsible=icon]:mx-2"
+              />
+            )}
+            <SidebarGroup className="py-1">
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {section.items.map((link) => (
+                    <NavRow key={link.to} link={link} />
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </Fragment>
         ))}
       </SidebarContent>
 
@@ -283,32 +300,35 @@ function CollapsibleNavRow({
           </SidebarMenuButton>
         </CollapsibleTrigger>
         <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-[collapsible-up_180ms_ease-out] data-[state=open]:animate-[collapsible-down_180ms_ease-out]">
-          <SidebarMenuSub>
+          {/* border-s-0 kills SidebarMenuSub's built-in spine — we draw the
+              whole tree (spine + curved branches) with the per-item ::before
+              below, so the line never overhangs past the last child. */}
+          <SidebarMenuSub className="border-s-0">
             {link.children!.map((c) => {
               const active = childMatches(c, pathname, search);
               return (
-                <SidebarMenuSubItem key={c.to}>
+                <SidebarMenuSubItem
+                  key={c.to}
+                  // ::before is an L (left + bottom border, rounded inner
+                  // corner): its vertical part reaches up to the previous
+                  // item's centre so consecutive Ls chain into one spine, and
+                  // the rounded bottom-left curves into this row. Drawn on the
+                  // <li> (not the button, which has overflow-hidden). `first:`
+                  // caps the spine at the top so it doesn't poke into the
+                  // parent row. Brand-coloured when active.
+                  className={cn(
+                    "before:absolute before:-left-[11px] before:-top-[18px] before:bottom-1/2 before:w-[18px] before:rounded-bl-lg before:border-b before:border-l before:border-muted-foreground/40 before:content-[''] first:before:top-0",
+                    active && 'before:border-brand',
+                  )}
+                >
                   <SidebarMenuSubButton
                     asChild
                     isActive={active}
-                    // Active child gets a brand dot + heavier weight as the
-                    // affordance — drop the default accent background since
-                    // the dot already reads cleanly against the indent
-                    // guideline and the bg makes the row feel "selected"
-                    // even when nothing else is.
                     className={cn(
-                      'transition-colors data-[active=true]:bg-transparent',
-                      active && 'font-medium',
+                      'transition-colors data-[active=true]:bg-transparent data-[active=true]:hover:bg-transparent data-[active=true]:text-brand data-[active=true]:font-medium',
                     )}
                   >
                     <NavLink to={c.to}>
-                      <span
-                        aria-hidden
-                        className={cn(
-                          'h-1.5 w-1.5 rounded-full shrink-0 transition-colors',
-                          active ? 'bg-brand' : 'bg-muted-foreground/40',
-                        )}
-                      />
                       <span>{c.label}</span>
                     </NavLink>
                   </SidebarMenuSubButton>

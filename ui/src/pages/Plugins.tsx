@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import PageSubbar from '../components/layout/PageSubbar';
 
@@ -34,6 +34,10 @@ const ITEMS: NavItem[] = [
   },
 ];
 
+/** Handed to plugin sub-route pages via the router Outlet so a page (e.g.
+ *  Installed) can render its own action buttons into the shared subbar. */
+export type PluginsOutletContext = { setSubbarRight: (node: ReactNode) => void };
+
 /**
  * /plugins — page shell for the nested plugin management routes. The actual
  * content is rendered by the matched child route via `<Outlet />`. The
@@ -42,6 +46,7 @@ const ITEMS: NavItem[] = [
  */
 export default function Plugins() {
   const { pathname } = useLocation();
+  const [subbarRight, setSubbarRight] = useState<ReactNode>(null);
 
   const activeItem = useMemo(
     () =>
@@ -52,9 +57,9 @@ export default function Plugins() {
 
   return (
     <>
-      <PageSubbar title="Plugins" description={activeItem.description} />
+      <PageSubbar title="Plugins" description={activeItem.description} right={subbarRight} />
       <div className="p-4">
-        <Outlet />
+        <Outlet context={{ setSubbarRight } satisfies PluginsOutletContext} />
       </div>
     </>
   );

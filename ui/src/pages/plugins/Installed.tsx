@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import {
   RefreshCw,
   Plus,
   Search,
   AlertTriangle,
-  Package as PackageIcon,
 } from 'lucide-react';
+import type { PluginsOutletContext } from '../Plugins';
 import { api } from '../../services/comfyui';
-import { Spinner } from '../../components/ui/spinner';
 import { usePersistedState } from '../../hooks/usePersistedState';
 import { usePaginated } from '../../hooks/usePaginated';
 import Pagination from '../../components/layout/Pagination';
@@ -16,7 +16,9 @@ import PluginRow from '../../components/plugins/PluginRow';
 import InstallUrlModal from '../../components/plugins/InstallUrlModal';
 import SwitchVersionModal from '../../components/plugins/SwitchVersionModal';
 import { Button } from '../../components/ui/button';
-import { Card, CardContent, CardHeader } from '../../components/ui/card';
+import { Card, CardHeader } from '../../components/ui/card';
+import { Skeleton } from '../../components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import ConfirmDialog from '../../components/modals/ConfirmDialog';
 
 type StatusFilter = 'all' | 'installed' | 'available';
@@ -139,65 +141,33 @@ export default function Installed() {
     }
   }, [refetch]);
 
-  // `total` reflects the filtered count globally; for the "Installed · N"
-  // badge we approximate from the current page when viewing All.
-  const installedOnPage = useMemo(
-    () => plugins.filter((p) => p.installed).length,
-    [plugins],
-  );
+  // Render this page's actions into the shared Plugins subbar (Refresh +
+  // Install from URL). Re-runs when `refreshing` flips so the button's
+  // disabled/spinner state stays current; cleared on unmount / route change.
+  const { setSubbarRight } = useOutletContext<PluginsOutletContext>();
+  useEffect(() => {
+    setSubbarRight(
+      <>
+        <Button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          variant="secondary"
+          title="Pull latest plugin catalog from registry + re-scan installed"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
+        <Button onClick={() => setUrlModalOpen(true)}>
+          <Plus className="w-3.5 h-3.5" />
+          Install from URL
+        </Button>
+      </>,
+    );
+    return () => setSubbarRight(null);
+  }, [setSubbarRight, handleRefresh, refreshing]);
 
   return (
     <div className="space-y-4">
-      {/* Toolbar */}
-      <Card>
-        <div className="flex flex-col md:flex-row md:items-center gap-2 p-3">
-          <div className="flex-1 field-wrap">
-            <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-            <input
-              type="text"
-              placeholder="Search plugins by name, author, or tag…"
-              className="field-input"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-          <div role="tablist" aria-label="Plugin filter" className="tab-strip">
-            {(
-              [
-                ['all', 'All'],
-                ['installed', filter === 'installed' ? `Installed · ${total}` : 'Installed'],
-                ['available', 'Available'],
-              ] as [StatusFilter, string][]
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                role="tab"
-                aria-selected={filter === key}
-                onClick={() => setFilter(key)}
-                className={`tab-strip-item ${filter === key ? 'is-active' : ''}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              onClick={handleRefresh}
-              disabled={refreshing}
-              variant="secondary"
-              title="Pull latest plugin catalog from registry + re-scan installed"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
-            <Button onClick={() => setUrlModalOpen(true)}>
-              <Plus className="w-3.5 h-3.5" />
-              Install from URL
-            </Button>
-          </div>
-        </div>
-      </Card>
-
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 flex items-center gap-2 text-xs text-destructive">
           <AlertTriangle className="h-3.5 w-3.5" />
@@ -207,45 +177,98 @@ export default function Installed() {
 
       {/* List */}
       <Card>
-        <CardHeader className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <PackageIcon className="w-3.5 h-3.5 text-muted-foreground" />
-            <h2 className="text-sm font-semibold text-foreground">
-              Plugins ({plugins.length} of {total})
-              {filter === 'all' && installedOnPage > 0 && (
-                <span className="text-muted-foreground font-normal"> · {installedOnPage} installed on this page</span>
-              )}
-            </h2>
+        <CardHeader>
+          <div className="flex flex-row items-center gap-2">
+            <div className="flex-1 min-w-0 field-wrap">
+              <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              <input
+                type="text"
+                placeholder="Search plugins by name, author, or tag…"
+                className="field-input"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <div role="tablist" aria-label="Plugin filter" className="tab-strip shrink-0">
+              {(
+                [
+                  ['all', 'All'],
+                  ['installed', filter === 'installed' ? `Installed · ${total}` : 'Installed'],
+                  ['available', 'Available'],
+                ] as [StatusFilter, string][]
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  role="tab"
+                  aria-selected={filter === key}
+                  onClick={() => setFilter(key)}
+                  className={`tab-strip-item ${filter === key ? 'is-active' : ''}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
         </CardHeader>
-        {loading && plugins.length === 0 ? (
-          <CardContent className="flex items-center justify-center py-10">
-            <Spinner size="lg" className="text-muted-foreground" />
-          </CardContent>
-        ) : plugins.length === 0 ? (
-          <CardContent>
-            <div className="empty-box">
-              {total === 0 && !search && filter === 'all'
-                ? 'Plugin catalog is empty.'
-                : 'No plugins match your search.'}
-            </div>
-          </CardContent>
-        ) : (
-          <div className="max-h-[640px] overflow-y-auto scrollbar-subtle">
-            {plugins.map((p) => (
-              <PluginRow
-                key={p.id}
-                plugin={p}
-                activeTaskId={tasksByPlugin[p.id]}
-                onInstall={handleInstall}
-                onUninstall={setUninstallTarget}
-                onToggle={handleToggle}
-                onSwitchVersion={setSwitchTarget}
-                onTaskComplete={onTaskComplete}
-              />
-            ))}
-          </div>
-        )}
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Plugin</TableHead>
+              <TableHead>Author</TableHead>
+              <TableHead className="text-right">Stars</TableHead>
+              <TableHead>Installed</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">
+                <span className="sr-only">Actions</span>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading && plugins.length === 0 ? (
+              Array.from({ length: 7 }).map((_, i) => (
+                <TableRow key={i}>
+                  <TableCell>
+                    <div className="flex items-center gap-2.5">
+                      <Skeleton className="h-6 w-6 rounded shrink-0" />
+                      <div className="space-y-1.5 flex-1">
+                        <Skeleton className="h-3 w-32" />
+                        <Skeleton className="h-2.5 w-48" />
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell><Skeleton className="h-3 w-20" /></TableCell>
+                  <TableCell><Skeleton className="h-3 w-8 ml-auto" /></TableCell>
+                  <TableCell><Skeleton className="h-3 w-16" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-16 rounded-full" /></TableCell>
+                  <TableCell><Skeleton className="h-6 w-16 ml-auto" /></TableCell>
+                </TableRow>
+              ))
+            ) : plugins.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6}>
+                  <div className="empty-box">
+                    {total === 0 && !search && filter === 'all'
+                      ? 'Plugin catalog is empty.'
+                      : 'No plugins match your search.'}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              plugins.map((p) => (
+                <PluginRow
+                  key={p.id}
+                  plugin={p}
+                  activeTaskId={tasksByPlugin[p.id]}
+                  onInstall={handleInstall}
+                  onUninstall={setUninstallTarget}
+                  onToggle={handleToggle}
+                  onSwitchVersion={setSwitchTarget}
+                  onTaskComplete={onTaskComplete}
+                />
+              ))
+            )}
+          </TableBody>
+        </Table>
         <Pagination
           page={paged.page}
           pageSize={paged.pageSize}

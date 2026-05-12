@@ -16,6 +16,8 @@ import { cn } from '../../lib/utils';
 
 const THEMES = [
   'default',
+  // shadcn/ui canonical zinc/neutral default palette (oklch)
+  'shadcn',
   // Opus-agent round 3 — blank-slate "clean professional SaaS", no references
   'slate-cobalt', 'paper-moss', 'graphite-plum',
   // Opus-agent round 2 — clean professional, Linear/Untitled-UI/Stripe lane
@@ -29,6 +31,10 @@ const THEMES = [
   'coral', 'charcoal', 'mint', 'salmon', 'moody',
   // Earlier OKLCH-derived clustering (kept for comparison)
   'slate', 'emerald', 'terra',
+  // 2026-05 round — clean/readable: warm-neutral, cool-neutral, monochrome, blue-accent, green-accent
+  'linen', 'nordic', 'ink', 'cobalt', 'grove',
+  // 2026-05 round — refined neutral / monochrome: achromatic, shadcn-but-better set
+  'zinc', 'stone', 'pewter', 'chalk', 'cement',
 ] as const;
 type Theme = (typeof THEMES)[number];
 

@@ -5,10 +5,17 @@ export interface QueueStatus {
   queue_pending: number;
 }
 
+export interface DashboardSummary {
+  modelsInstalled: number | null;
+  pluginsInstalled: number | null;
+  pluginHistory: unknown[];
+}
+
 /** Loose shape — we forward ComfyUI's `/api/system_stats` verbatim plus our own queue+gallery. */
 export interface SystemInfo {
   queue: QueueStatus | null;
   gallery: { total: number; recent: unknown[] };
+  summary: DashboardSummary;
   [key: string]: unknown;
 }
 

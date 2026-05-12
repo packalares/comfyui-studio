@@ -78,14 +78,20 @@ export interface GenerateImageRef {
   templateName: string;
 }
 
-/** Pull out `generate_image` tool calls that emitted a `promptId`. The
- *  renderer subscribes to `gallery:added` events filtered by `promptId` to
- *  swap a placeholder for the rendered image when it lands. */
+// Tool calls that submit a Studio template and return a `promptId`. Both the
+// `generate_image` chat tool and the `studio_submit_generation` MCP tool (used
+// by workflow-focused souls to run an arbitrary template) qualify — their
+// outputs both carry `{ promptId, templateName }`.
+const GENERATION_TOOL_NAMES = new Set(['generate_image', 'studio_submit_generation']);
+
+/** Pull out generation tool calls that emitted a `promptId`. The renderer
+ *  subscribes to `gallery:added` events filtered by `promptId` to swap a
+ *  placeholder for the rendered image when it lands. */
 export function extractGenerateImageRefs(parts: StudioUIMessagePart[]): GenerateImageRef[] {
   const out: GenerateImageRef[] = [];
   for (const p of parts) {
     if (p.type !== 'dynamic-tool') continue;
-    if (p.toolName !== 'generate_image') continue;
+    if (!GENERATION_TOOL_NAMES.has(p.toolName)) continue;
     if (p.state !== 'output-available') continue;
     const output = p.output;
     if (!output || typeof output !== 'object') continue;

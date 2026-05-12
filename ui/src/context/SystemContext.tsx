@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useRef } from 'react';
-import type { SystemStats, MonitorStats, LauncherStatus } from '../types';
+import type { SystemStats, MonitorStats, LauncherStatus, DashboardSummary } from '../types';
 import type {
   NetworkConfigView,
   ChatSettingsView,
@@ -21,6 +21,7 @@ export interface SystemContextType {
   network: NetworkConfigView | null;
   chat: ChatSettingsView | null;
   personality: PersonalitySummary | null;
+  dashboardSummary: DashboardSummary | null;
   // Internal setters/refs exposed to sibling providers (Ws, façade).
   _setConnected: React.Dispatch<React.SetStateAction<boolean>>;
   _setMonitorStats: React.Dispatch<React.SetStateAction<MonitorStats | null>>;
@@ -36,6 +37,7 @@ export interface SystemContextType {
   _setNetwork: React.Dispatch<React.SetStateAction<NetworkConfigView | null>>;
   _setChat: React.Dispatch<React.SetStateAction<ChatSettingsView | null>>;
   _setPersonality: React.Dispatch<React.SetStateAction<PersonalitySummary | null>>;
+  _setDashboardSummary: React.Dispatch<React.SetStateAction<DashboardSummary | null>>;
   _systemStatsRef: React.MutableRefObject<SystemStats | null>;
 }
 
@@ -57,6 +59,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
   const [network, setNetwork] = useState<NetworkConfigView | null>(null);
   const [chat, setChat] = useState<ChatSettingsView | null>(null);
   const [personality, setPersonality] = useState<PersonalitySummary | null>(null);
+  const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
   const systemStatsRef = useRef<SystemStats | null>(null);
 
   return (
@@ -76,6 +79,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
         network,
         chat,
         personality,
+        dashboardSummary,
         _setConnected: setConnected,
         _setMonitorStats: setMonitorStats,
         _setSystemStats: setSystemStats,
@@ -90,6 +94,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
         _setNetwork: setNetwork,
         _setChat: setChat,
         _setPersonality: setPersonality,
+        _setDashboardSummary: setDashboardSummary,
         _systemStatsRef: systemStatsRef,
       }}
     >

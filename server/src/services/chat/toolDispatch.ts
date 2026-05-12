@@ -36,6 +36,16 @@ export interface ToolDispatchInput {
     finalFrame: OllamaFinalFrame | null;
     toolCalls: OllamaToolCall[];
   }>;
+  /** Optional. Run once when the `maxSteps` budget is exhausted while the
+   *  model still wanted tools — should call the LLM with tools DISABLED so
+   *  the model can only produce text. Lets the user get a coherent wrap-up
+   *  answer instead of a stub. Without it, the dispatcher just returns the
+   *  last frame (legacy behaviour; keeps stubbed test callers simple). */
+  runFinalStep?: (messages: OllamaChatMessage[]) => Promise<{
+    accumulated: string;
+    finalFrame: OllamaFinalFrame | null;
+    toolCalls: OllamaToolCall[];
+  }>;
   executeToolCall: (call: OllamaToolCall, callId: string)
     => Promise<{ ok: true; output: unknown } | { ok: false; error: string }>;
   /** GPU-orchestrator hook. Awaited BEFORE each tool dispatch so the unload
@@ -169,7 +179,22 @@ export async function runToolDispatch(input: ToolDispatchInput): Promise<ToolDis
     if (asyncDeferredHit) return { finalFrame };
   }
 
-  // Loop budget exhausted — return whatever final frame we last saw so the
-  // caller's telemetry is still meaningful.
+  // Loop budget exhausted. We only fall through to here if every step
+  // requested a tool (a step with zero tool calls returns inside the loop),
+  // so the model wasn't finished. If the caller supplied a tool-less final
+  // step, give the model one more turn to answer the user with what it has —
+  // otherwise it leaves them with a stub. The "wrap up now" nudge goes in as
+  // a user message; it's only sent to Ollama for this turn, not persisted.
+  if (input.runFinalStep) {
+    messages.push({
+      role: 'user',
+      content:
+        'You have used up the tool-call budget for this turn. Stop calling tools — '
+        + 'answer me now with what you already have: summarise your findings and give '
+        + 'your recommendation based on the tool results above.',
+    });
+    const wrap = await input.runFinalStep(messages);
+    return { finalFrame: wrap.finalFrame ?? finalFrame };
+  }
   return { finalFrame };
 }

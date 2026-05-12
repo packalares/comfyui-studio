@@ -18,6 +18,7 @@ import { fetchTemplateWorkflow } from '../../templates/dependencyCheck.js';
 import { logger } from '../../../lib/logger.js';
 import { submitTemplate } from '../../templates/submitTemplate.js';
 import { get, template as renderPrompt } from '../promptsLoader.js';
+import { resolveAttachmentTemplateInputs } from '../attachmentTemplateInputs.js';
 
 export interface GenerateImageConfig {
   /** Template name to use when the LLM omits one. Empty = no default. */
@@ -177,9 +178,22 @@ export async function generateImageTool(config: GenerateImageConfig) {
       }
       try {
         const argsRecord = (rawArgs ?? {}) as Record<string, unknown>;
+
+        // Resolve any attachment-backed upload fields before submitting.
+        const attachResult = await resolveAttachmentTemplateInputs({
+          templateName,
+          conversationId: config.conversationId,
+          messageId: config.messageId,
+        });
+        if (attachResult.unmatchedRequiredFields.length > 0) {
+          const labels = attachResult.unmatchedRequiredFields.join(', ');
+          return `This template needs you to attach: ${labels}. Please attach the file(s) and try again.`;
+        }
+        const inputs = { ...argsRecord, ...attachResult.filledInputs };
+
         const out = await submitTemplate({
           templateName,
-          inputs: argsRecord,
+          inputs,
           provenance: {
             triggeredBy: 'chat',
             conversationId: config.conversationId,

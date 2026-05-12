@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState, useCallback, type MutableRefObject } from 'react';
 import {
   ArrowUp, StopCircle, Paperclip, X, FileText, Image as ImageIcon, Globe, Code2, Eye,
+  Film, Music,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -422,6 +423,16 @@ function AttachmentChip({ att, onRemove }: ChipProps) {
         />
       ) : att.kind === 'image' ? (
         <ImageIcon className="h-4 w-4 text-muted-foreground" />
+      ) : att.kind === 'video' && att.dataUrl ? (
+        <video
+          src={att.dataUrl}
+          muted
+          className="h-9 w-9 rounded object-cover ring-1 ring-border"
+        />
+      ) : att.kind === 'video' ? (
+        <Film className="h-4 w-4 text-muted-foreground" />
+      ) : att.kind === 'audio' ? (
+        <Music className="h-4 w-4 text-muted-foreground" />
       ) : (
         <FileText className="h-4 w-4 text-muted-foreground" />
       )}

@@ -20,7 +20,7 @@
 // now done by `StudioTransport` -> `reasoning-delta` chunks -> useChat parts.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, FileText, Upload, X, MessageSquare, ChevronDown, ChevronUp } from 'lucide-react';
+import { AlertCircle, FileText, Film, Music, Upload, X, MessageSquare, ChevronDown, ChevronUp } from 'lucide-react';
 import { Message, MessageContent, MessageResponse } from '../ai-elements/message';
 import {
   Tool, ToolHeader, ToolContent, ToolInput, ToolOutput,
@@ -71,8 +71,10 @@ function stripAttachmentImageMarkdown(text: string): string {
   return text.replace(/!\[[^\]]*\]\(\/api\/chat\/attachments\/[^)]+\)/g, '');
 }
 interface ImageAttachment { kind: 'image'; url: string; name?: string; size?: number; mediaType?: string }
+interface VideoAttachment { kind: 'video'; url: string; name?: string; size?: number; mediaType?: string }
+interface AudioAttachment { kind: 'audio'; url: string; name?: string; size?: number; mediaType?: string }
 interface FileAttachment  { kind: 'file';  name: string;  size?: number; mediaType?: string }
-type RenderedAttachment = ImageAttachment | FileAttachment;
+type RenderedAttachment = ImageAttachment | VideoAttachment | AudioAttachment | FileAttachment;
 
 interface Props {
   messages: StudioUIMessage[];
@@ -129,6 +131,14 @@ function attachmentsOf(parts: StudioUIMessagePart[]): RenderedAttachment[] {
     if (p.type === 'file' && p.mediaType.startsWith('image/')) {
       out.push({
         kind: 'image', url: p.url, mediaType: p.mediaType, name: p.filename,
+      });
+    } else if (p.type === 'file' && p.mediaType.startsWith('video/')) {
+      out.push({
+        kind: 'video', url: p.url, mediaType: p.mediaType, name: p.filename,
+      });
+    } else if (p.type === 'file' && p.mediaType.startsWith('audio/')) {
+      out.push({
+        kind: 'audio', url: p.url, mediaType: p.mediaType, name: p.filename,
       });
     } else if (p.type === 'data-fileMeta') {
       out.push({
@@ -916,6 +926,46 @@ function RenderedAttachmentChip({ att, onZoom }: ChipProps) {
           )}
         </div>
       </button>
+    );
+  }
+  if (att.kind === 'video') {
+    return (
+      <div className="chat-attachment-chip flex-col gap-1 p-1.5">
+        <video
+          src={att.url}
+          controls
+          className="max-h-48 max-w-xs rounded"
+        />
+        <div className="flex items-center gap-1.5 px-0.5">
+          <Film className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <div className="flex flex-col leading-tight">
+            {att.name && <span className="font-medium text-foreground max-w-[180px] truncate">{att.name}</span>}
+            {att.size !== undefined && (
+              <span className="text-[10px] text-muted-foreground">{formatBytes(att.size)}</span>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (att.kind === 'audio') {
+    return (
+      <div className="chat-attachment-chip flex-col gap-1 p-1.5">
+        <audio
+          src={att.url}
+          controls
+          className="max-w-xs"
+        />
+        <div className="flex items-center gap-1.5 px-0.5">
+          <Music className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <div className="flex flex-col leading-tight">
+            {att.name && <span className="font-medium text-foreground max-w-[180px] truncate">{att.name}</span>}
+            {att.size !== undefined && (
+              <span className="text-[10px] text-muted-foreground">{formatBytes(att.size)}</span>
+            )}
+          </div>
+        </div>
+      </div>
     );
   }
   return (

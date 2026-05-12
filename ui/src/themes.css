@@ -1718,3 +1718,799 @@ html.dark[data-theme="graphite-plum"] {
   --brand: #b9a0d0;
   --brand-foreground: #1a1024;
 }
+
+/* --------- shadcn (shadcn/ui canonical zinc/neutral default, oklch) --------- */
+html[data-theme="shadcn"] {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.141 0.005 285.823);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.141 0.005 285.823);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.141 0.005 285.823);
+  --primary: oklch(0.21 0.006 285.885);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --muted: oklch(0.967 0.001 286.375);
+  --muted-foreground: oklch(0.552 0.016 285.938);
+  --accent: oklch(0.967 0.001 286.375);
+  --accent-foreground: oklch(0.21 0.006 285.885);
+  --destructive: oklch(0.577 0.245 27.325);
+  --success: oklch(0.627 0.194 142.5);
+  --success-foreground: oklch(0.985 0 0);
+  --warning: oklch(0.769 0.188 70.08);
+  --warning-foreground: oklch(0.21 0.05 70);
+  --border: oklch(0.92 0.004 286.32);
+  --input: oklch(0.92 0.004 286.32);
+  --ring: oklch(0.705 0.015 286.067);
+  --wf-grid-dot: oklch(0.862 0.004 286.32);
+  --sidebar: oklch(0.985 0.002 286.375);
+  --sidebar-foreground: oklch(0.141 0.005 285.823);
+  --sidebar-primary: oklch(0.21 0.006 285.885);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.94 0.003 286.32);
+  --sidebar-accent-foreground: oklch(0.141 0.005 285.823);
+  --sidebar-border: oklch(0.908 0.004 286.32);
+  --sidebar-ring: oklch(0.705 0.015 286.067);
+  --brand: oklch(0.547 0.17 252);
+  --brand-foreground: oklch(1 0 0);
+}
+html.dark[data-theme="shadcn"] {
+  --background: oklch(0.141 0.005 285.823);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.21 0.006 285.885);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.21 0.006 285.885);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.21 0.006 285.885);
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.274 0.006 286.033);
+  --muted-foreground: oklch(0.705 0.015 286.067);
+  --accent: oklch(0.274 0.006 286.033);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --success: oklch(0.72 0.17 142.5);
+  --success-foreground: oklch(0.17 0.04 142.5);
+  --warning: oklch(0.83 0.15 75);
+  --warning-foreground: oklch(0.21 0.05 70);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.552 0.016 285.938);
+  --wf-grid-dot: oklch(1 0 0 / 16%);
+  --sidebar: oklch(0.178 0.006 285.885);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.985 0 0);
+  --sidebar-primary-foreground: oklch(0.21 0.006 285.885);
+  --sidebar-accent: oklch(0.255 0.006 286.033);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.552 0.016 285.938);
+  --brand: oklch(0.65 0.15 252);
+  --brand-foreground: oklch(0.15 0.02 252);
+}
+
+/* --------- linen: warm neutral, cream background, amber brand --------- */
+html[data-theme="linen"] {
+  --background: #F7F4EF;
+  --foreground: #1E1B17;
+  --card: #FFFFFF;
+  --card-foreground: #1E1B17;
+  --popover: #FFFFFF;
+  --popover-foreground: #1E1B17;
+  --primary: #B06B24;
+  --primary-foreground: #FFFFFF;
+  --secondary: #EAE5DC;
+  --secondary-foreground: #1E1B17;
+  --muted: #EAE5DC;
+  --muted-foreground: #7A7168;
+  --accent: #EAE5DC;
+  --accent-foreground: #1E1B17;
+  --destructive: #C0392B;
+  --success: #3D7A4A;
+  --success-foreground: #FFFFFF;
+  --warning: #B06B24;
+  --warning-foreground: #FFFFFF;
+  --border: #D9D2C5;
+  --input: #D9D2C5;
+  --ring: #B8AFA2;
+  --sidebar: #EEE8DF;
+  --sidebar-foreground: #1E1B17;
+  --sidebar-primary: #B06B24;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #D9D2C5;
+  --sidebar-accent-foreground: #1E1B17;
+  --sidebar-border: #CBBFB0;
+  --sidebar-ring: #7A7168;
+  --brand: #B06B24;
+  --brand-foreground: #FFFFFF;
+}
+html.dark[data-theme="linen"] {
+  --background: #1A1714;
+  --foreground: #EDE8E1;
+  --card: #252018;
+  --card-foreground: #EDE8E1;
+  --popover: #2E2720;
+  --popover-foreground: #EDE8E1;
+  --primary: #D4894A;
+  --primary-foreground: #1A1714;
+  --secondary: #2E2720;
+  --secondary-foreground: #D9D2C5;
+  --muted: #2E2720;
+  --muted-foreground: #9E9488;
+  --accent: #2E2720;
+  --accent-foreground: #D9D2C5;
+  --destructive: #E05745;
+  --success: #52A062;
+  --success-foreground: #0E1F12;
+  --warning: #D4894A;
+  --warning-foreground: #1A1714;
+  --border: rgba(217, 210, 197, 0.14);
+  --input: rgba(217, 210, 197, 0.16);
+  --ring: #5E5750;
+  --sidebar: #121009;
+  --sidebar-foreground: #C8BFB4;
+  --sidebar-primary: #D4894A;
+  --sidebar-primary-foreground: #1A1714;
+  --sidebar-accent: #1F1C17;
+  --sidebar-accent-foreground: #C8BFB4;
+  --sidebar-border: rgba(184, 175, 162, 0.14);
+  --sidebar-ring: #5E5750;
+  --brand: #D4894A;
+  --brand-foreground: #1A1714;
+}
+
+/* --------- nordic: cool neutral, off-white background, steel-blue brand --------- */
+html[data-theme="nordic"] {
+  --background: #F4F5F7;
+  --foreground: #161A20;
+  --card: #FFFFFF;
+  --card-foreground: #161A20;
+  --popover: #FFFFFF;
+  --popover-foreground: #161A20;
+  --primary: #2C5F8A;
+  --primary-foreground: #FFFFFF;
+  --secondary: #E4E7EC;
+  --secondary-foreground: #161A20;
+  --muted: #E4E7EC;
+  --muted-foreground: #6B7280;
+  --accent: #E4E7EC;
+  --accent-foreground: #161A20;
+  --destructive: #B91C1C;
+  --success: #166534;
+  --success-foreground: #FFFFFF;
+  --warning: #92400E;
+  --warning-foreground: #FFFFFF;
+  --border: #D1D5DB;
+  --input: #D1D5DB;
+  --ring: #9CA3AF;
+  --sidebar: #E8EAF0;
+  --sidebar-foreground: #161A20;
+  --sidebar-primary: #2C5F8A;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #D1D5DB;
+  --sidebar-accent-foreground: #161A20;
+  --sidebar-border: #BFC4CC;
+  --sidebar-ring: #6B7280;
+  --brand: #2C5F8A;
+  --brand-foreground: #FFFFFF;
+}
+html.dark[data-theme="nordic"] {
+  --background: #141820;
+  --foreground: #E8ECF2;
+  --card: #1C2230;
+  --card-foreground: #E8ECF2;
+  --popover: #222A38;
+  --popover-foreground: #E8ECF2;
+  --primary: #4D8FC4;
+  --primary-foreground: #141820;
+  --secondary: #222A38;
+  --secondary-foreground: #D1D5DB;
+  --muted: #222A38;
+  --muted-foreground: #8A94A2;
+  --accent: #222A38;
+  --accent-foreground: #D1D5DB;
+  --destructive: #EF4444;
+  --success: #22C55E;
+  --success-foreground: #071A10;
+  --warning: #F59E0B;
+  --warning-foreground: #1C0F00;
+  --border: rgba(209, 213, 219, 0.12);
+  --input: rgba(209, 213, 219, 0.14);
+  --ring: #4A566A;
+  --sidebar: #0D1119;
+  --sidebar-foreground: #B0BAC8;
+  --sidebar-primary: #4D8FC4;
+  --sidebar-primary-foreground: #141820;
+  --sidebar-accent: #161D2A;
+  --sidebar-accent-foreground: #B0BAC8;
+  --sidebar-border: rgba(156, 163, 175, 0.14);
+  --sidebar-ring: #4A566A;
+  --brand: #4D8FC4;
+  --brand-foreground: #141820;
+}
+
+/* --------- ink: near-monochrome, true white background, deep ink brand --------- */
+html[data-theme="ink"] {
+  --background: #FAFAFA;
+  --foreground: #111111;
+  --card: #FFFFFF;
+  --card-foreground: #111111;
+  --popover: #FFFFFF;
+  --popover-foreground: #111111;
+  --primary: #111111;
+  --primary-foreground: #FAFAFA;
+  --secondary: #F0F0F0;
+  --secondary-foreground: #111111;
+  --muted: #F0F0F0;
+  --muted-foreground: #6B6B6B;
+  --accent: #F0F0F0;
+  --accent-foreground: #111111;
+  --destructive: #C0392B;
+  --success: #276740;
+  --success-foreground: #FFFFFF;
+  --warning: #9A5700;
+  --warning-foreground: #FFFFFF;
+  --border: #E2E2E2;
+  --input: #E2E2E2;
+  --ring: #AAAAAA;
+  --sidebar: #F4F4F4;
+  --sidebar-foreground: #111111;
+  --sidebar-primary: #111111;
+  --sidebar-primary-foreground: #F4F4F4;
+  --sidebar-accent: #E2E2E2;
+  --sidebar-accent-foreground: #111111;
+  --sidebar-border: #D4D4D4;
+  --sidebar-ring: #6B6B6B;
+  --brand: #111111;
+  --brand-foreground: #FAFAFA;
+}
+html.dark[data-theme="ink"] {
+  --background: #111111;
+  --foreground: #F0F0F0;
+  --card: #1A1A1A;
+  --card-foreground: #F0F0F0;
+  --popover: #222222;
+  --popover-foreground: #F0F0F0;
+  --primary: #F0F0F0;
+  --primary-foreground: #111111;
+  --secondary: #222222;
+  --secondary-foreground: #D4D4D4;
+  --muted: #222222;
+  --muted-foreground: #8A8A8A;
+  --accent: #222222;
+  --accent-foreground: #D4D4D4;
+  --destructive: #E05745;
+  --success: #4CAF72;
+  --success-foreground: #0A1C12;
+  --warning: #D48B45;
+  --warning-foreground: #1A0D00;
+  --border: rgba(240, 240, 240, 0.12);
+  --input: rgba(240, 240, 240, 0.14);
+  --ring: #555555;
+  --sidebar: #0A0A0A;
+  --sidebar-foreground: #C0C0C0;
+  --sidebar-primary: #E0E0E0;
+  --sidebar-primary-foreground: #111111;
+  --sidebar-accent: #181818;
+  --sidebar-accent-foreground: #C0C0C0;
+  --sidebar-border: rgba(200, 200, 200, 0.12);
+  --sidebar-ring: #555555;
+  --brand: #E0E0E0;
+  --brand-foreground: #111111;
+}
+
+/* --------- cobalt: soft blue accent on white, calm mid-blue brand --------- */
+html[data-theme="cobalt"] {
+  --background: #F8F9FC;
+  --foreground: #18202E;
+  --card: #FFFFFF;
+  --card-foreground: #18202E;
+  --popover: #FFFFFF;
+  --popover-foreground: #18202E;
+  --primary: #2155A3;
+  --primary-foreground: #FFFFFF;
+  --secondary: #E8EDF7;
+  --secondary-foreground: #18202E;
+  --muted: #E8EDF7;
+  --muted-foreground: #637289;
+  --accent: #E8EDF7;
+  --accent-foreground: #18202E;
+  --destructive: #B91C1C;
+  --success: #15643C;
+  --success-foreground: #FFFFFF;
+  --warning: #8B5B00;
+  --warning-foreground: #FFFFFF;
+  --border: #D2DAEA;
+  --input: #D2DAEA;
+  --ring: #A3B3CC;
+  --sidebar: #EEF2FA;
+  --sidebar-foreground: #18202E;
+  --sidebar-primary: #2155A3;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #D2DAEA;
+  --sidebar-accent-foreground: #18202E;
+  --sidebar-border: #BFC9DC;
+  --sidebar-ring: #637289;
+  --brand: #2155A3;
+  --brand-foreground: #FFFFFF;
+}
+html.dark[data-theme="cobalt"] {
+  --background: #0F1624;
+  --foreground: #E2E8F5;
+  --card: #172030;
+  --card-foreground: #E2E8F5;
+  --popover: #1E2A3D;
+  --popover-foreground: #E2E8F5;
+  --primary: #5B8FD9;
+  --primary-foreground: #0A1020;
+  --secondary: #1E2A3D;
+  --secondary-foreground: #C8D4E8;
+  --muted: #1E2A3D;
+  --muted-foreground: #7A8FA8;
+  --accent: #1E2A3D;
+  --accent-foreground: #C8D4E8;
+  --destructive: #EF4444;
+  --success: #22C55E;
+  --success-foreground: #071810;
+  --warning: #F59E0B;
+  --warning-foreground: #1A0E00;
+  --border: rgba(210, 218, 234, 0.12);
+  --input: rgba(210, 218, 234, 0.14);
+  --ring: #3A5480;
+  --sidebar: #091221;
+  --sidebar-foreground: #A8B8D0;
+  --sidebar-primary: #5B8FD9;
+  --sidebar-primary-foreground: #0A1020;
+  --sidebar-accent: #132038;
+  --sidebar-accent-foreground: #A8B8D0;
+  --sidebar-border: rgba(163, 179, 204, 0.14);
+  --sidebar-ring: #3A5480;
+  --brand: #5B8FD9;
+  --brand-foreground: #0A1020;
+}
+
+/* --------- grove: muted sage-green accent on warm off-white, earthy brand --------- */
+html[data-theme="grove"] {
+  --background: #F5F7F4;
+  --foreground: #1A1F19;
+  --card: #FFFFFF;
+  --card-foreground: #1A1F19;
+  --popover: #FFFFFF;
+  --popover-foreground: #1A1F19;
+  --primary: #2F6844;
+  --primary-foreground: #FFFFFF;
+  --secondary: #E3EAE0;
+  --secondary-foreground: #1A1F19;
+  --muted: #E3EAE0;
+  --muted-foreground: #657060;
+  --accent: #E3EAE0;
+  --accent-foreground: #1A1F19;
+  --destructive: #B91C1C;
+  --success: #2F6844;
+  --success-foreground: #FFFFFF;
+  --warning: #8B5B00;
+  --warning-foreground: #FFFFFF;
+  --border: #CDD7C8;
+  --input: #CDD7C8;
+  --ring: #A3B19E;
+  --sidebar: #EBF0E8;
+  --sidebar-foreground: #1A1F19;
+  --sidebar-primary: #2F6844;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #CDD7C8;
+  --sidebar-accent-foreground: #1A1F19;
+  --sidebar-border: #BAC5B4;
+  --sidebar-ring: #657060;
+  --brand: #2F6844;
+  --brand-foreground: #FFFFFF;
+}
+html.dark[data-theme="grove"] {
+  --background: #111710;
+  --foreground: #DDE8D9;
+  --card: #182018;
+  --card-foreground: #DDE8D9;
+  --popover: #1E2A1D;
+  --popover-foreground: #DDE8D9;
+  --primary: #4E9A66;
+  --primary-foreground: #091309;
+  --secondary: #1E2A1D;
+  --secondary-foreground: #C0CFC0;
+  --muted: #1E2A1D;
+  --muted-foreground: #7A9078;
+  --accent: #1E2A1D;
+  --accent-foreground: #C0CFC0;
+  --destructive: #EF4444;
+  --success: #4E9A66;
+  --success-foreground: #091309;
+  --warning: #D48B45;
+  --warning-foreground: #1A0D00;
+  --border: rgba(205, 215, 200, 0.12);
+  --input: rgba(205, 215, 200, 0.14);
+  --ring: #345E3A;
+  --sidebar: #0A1009;
+  --sidebar-foreground: #9EAF98;
+  --sidebar-primary: #4E9A66;
+  --sidebar-primary-foreground: #091309;
+  --sidebar-accent: #141E14;
+  --sidebar-accent-foreground: #9EAF98;
+  --sidebar-border: rgba(163, 177, 158, 0.14);
+  --sidebar-ring: #345E3A;
+  --brand: #4E9A66;
+  --brand-foreground: #091309;
+}
+
+/* --------- zinc: pure zinc-gray, near-shadcn but with tighter contrast steps --------- */
+/* Inspired by Tailwind Zinc scale + shadcn/ui zinc palette. True neutral with a faint
+   cool undertone. bg/card separation is minimal in light (1 step) but clear in dark. */
+html[data-theme="zinc"] {
+  --background: #FAFAFA;
+  --foreground: #18181B;
+  --card: #FFFFFF;
+  --card-foreground: #18181B;
+  --popover: #FFFFFF;
+  --popover-foreground: #18181B;
+  --primary: #18181B;
+  --primary-foreground: #FAFAFA;
+  --secondary: #F1F1F3;
+  --secondary-foreground: #18181B;
+  --muted: #F1F1F3;
+  --muted-foreground: #717179;
+  --accent: #F1F1F3;
+  --accent-foreground: #18181B;
+  --destructive: #DC2626;
+  --success: #16A34A;
+  --success-foreground: #FFFFFF;
+  --warning: #D97706;
+  --warning-foreground: #FFFFFF;
+  --border: #E4E4E7;
+  --input: #E4E4E7;
+  --ring: #A1A1AA;
+  --wf-grid-dot: #D4D4D8;
+  --sidebar: #F4F4F5;
+  --sidebar-foreground: #18181B;
+  --sidebar-primary: #18181B;
+  --sidebar-primary-foreground: #FAFAFA;
+  --sidebar-accent: #E4E4E7;
+  --sidebar-accent-foreground: #18181B;
+  --sidebar-border: #D4D4D8;
+  --sidebar-ring: #A1A1AA;
+  --brand: #18181B;
+  --brand-foreground: #FAFAFA;
+}
+html.dark[data-theme="zinc"] {
+  --background: #18181B;
+  --foreground: #FAFAFA;
+  --card: #27272A;
+  --card-foreground: #FAFAFA;
+  --popover: #27272A;
+  --popover-foreground: #FAFAFA;
+  --primary: #FAFAFA;
+  --primary-foreground: #18181B;
+  --secondary: #3F3F46;
+  --secondary-foreground: #F4F4F5;
+  --muted: #3F3F46;
+  --muted-foreground: #A1A1AA;
+  --accent: #3F3F46;
+  --accent-foreground: #F4F4F5;
+  --destructive: #EF4444;
+  --success: #22C55E;
+  --success-foreground: #052E16;
+  --warning: #F59E0B;
+  --warning-foreground: #1C0F00;
+  --border: rgba(244, 244, 245, 0.10);
+  --input: rgba(244, 244, 245, 0.14);
+  --ring: #52525B;
+  --wf-grid-dot: rgba(244, 244, 245, 0.14);
+  --sidebar: #09090B;
+  --sidebar-foreground: #F4F4F5;
+  --sidebar-primary: #F4F4F5;
+  --sidebar-primary-foreground: #18181B;
+  --sidebar-accent: #27272A;
+  --sidebar-accent-foreground: #F4F4F5;
+  --sidebar-border: rgba(228, 228, 231, 0.10);
+  --sidebar-ring: #52525B;
+  --brand: #E4E4E7;
+  --brand-foreground: #18181B;
+}
+
+/* --------- stone: warm stone/sand, Radix Sand-scale chroma, visible card lift --------- */
+/* Uses a warm (ever-so-slightly yellow-brown) tint at the gray scale level of Radix Sand
+   or Tailwind Stone. bg and card are separated by a half-step so cards feel lifted without
+   a white-box look. muted-foreground set slightly warmer and darker than shadcn default. */
+html[data-theme="stone"] {
+  --background: #F7F6F3;
+  --foreground: #1C1917;
+  --card: #FDFCF9;
+  --card-foreground: #1C1917;
+  --popover: #FDFCF9;
+  --popover-foreground: #1C1917;
+  --primary: #1C1917;
+  --primary-foreground: #F7F6F3;
+  --secondary: #EDEBE6;
+  --secondary-foreground: #1C1917;
+  --muted: #EDEBE6;
+  --muted-foreground: #736F6A;
+  --accent: #EDEBE6;
+  --accent-foreground: #1C1917;
+  --destructive: #DC2626;
+  --success: #166534;
+  --success-foreground: #FFFFFF;
+  --warning: #B45309;
+  --warning-foreground: #FFFFFF;
+  --border: #DDD9D3;
+  --input: #DDD9D3;
+  --ring: #A8A29E;
+  --wf-grid-dot: #CFCBC5;
+  --sidebar: #EFEDE9;
+  --sidebar-foreground: #1C1917;
+  --sidebar-primary: #1C1917;
+  --sidebar-primary-foreground: #F7F6F3;
+  --sidebar-accent: #DDD9D3;
+  --sidebar-accent-foreground: #1C1917;
+  --sidebar-border: #CCC8C1;
+  --sidebar-ring: #A8A29E;
+  --brand: #1C1917;
+  --brand-foreground: #F7F6F3;
+}
+html.dark[data-theme="stone"] {
+  --background: #1C1917;
+  --foreground: #F5F2EE;
+  --card: #292524;
+  --card-foreground: #F5F2EE;
+  --popover: #292524;
+  --popover-foreground: #F5F2EE;
+  --primary: #F5F2EE;
+  --primary-foreground: #1C1917;
+  --secondary: #3A3633;
+  --secondary-foreground: #E8E3DC;
+  --muted: #3A3633;
+  --muted-foreground: #A09C97;
+  --accent: #3A3633;
+  --accent-foreground: #E8E3DC;
+  --destructive: #EF4444;
+  --success: #22C55E;
+  --success-foreground: #052E16;
+  --warning: #F59E0B;
+  --warning-foreground: #1C0F00;
+  --border: rgba(237, 235, 230, 0.10);
+  --input: rgba(237, 235, 230, 0.14);
+  --ring: #57534E;
+  --wf-grid-dot: rgba(237, 235, 230, 0.14);
+  --sidebar: #0C0A09;
+  --sidebar-foreground: #E8E3DC;
+  --sidebar-primary: #E8E3DC;
+  --sidebar-primary-foreground: #1C1917;
+  --sidebar-accent: #292524;
+  --sidebar-accent-foreground: #E8E3DC;
+  --sidebar-border: rgba(221, 217, 211, 0.10);
+  --sidebar-ring: #57534E;
+  --brand: #E2DDD6;
+  --brand-foreground: #1C1917;
+}
+
+/* --------- pewter: cool slate undertone, elevated contrast, crisp editorial --------- */
+/* Sits between Radix Slate and Radix Mauve — just enough cool blue-gray cast to read
+   "slate" without touching actual blue. Higher-contrast than zinc: muted-foreground is
+   darker, borders are heavier, giving a "newspaper / design-tool" feel. */
+html[data-theme="pewter"] {
+  --background: #F8F9FA;
+  --foreground: #141519;
+  --card: #FFFFFF;
+  --card-foreground: #141519;
+  --popover: #FFFFFF;
+  --popover-foreground: #141519;
+  --primary: #141519;
+  --primary-foreground: #F8F9FA;
+  --secondary: #ECEDF0;
+  --secondary-foreground: #141519;
+  --muted: #ECEDF0;
+  --muted-foreground: #5C5F6B;
+  --accent: #ECEDF0;
+  --accent-foreground: #141519;
+  --destructive: #DC2626;
+  --success: #166534;
+  --success-foreground: #FFFFFF;
+  --warning: #B45309;
+  --warning-foreground: #FFFFFF;
+  --border: #D8DAE0;
+  --input: #D8DAE0;
+  --ring: #9DA1AD;
+  --wf-grid-dot: #C8CAD2;
+  --sidebar: #ECEDF0;
+  --sidebar-foreground: #141519;
+  --sidebar-primary: #141519;
+  --sidebar-primary-foreground: #F8F9FA;
+  --sidebar-accent: #D8DAE0;
+  --sidebar-accent-foreground: #141519;
+  --sidebar-border: #C4C7CF;
+  --sidebar-ring: #9DA1AD;
+  --brand: #141519;
+  --brand-foreground: #F8F9FA;
+}
+html.dark[data-theme="pewter"] {
+  --background: #141519;
+  --foreground: #F1F2F5;
+  --card: #1F2128;
+  --card-foreground: #F1F2F5;
+  --popover: #1F2128;
+  --popover-foreground: #F1F2F5;
+  --primary: #F1F2F5;
+  --primary-foreground: #141519;
+  --secondary: #2D303A;
+  --secondary-foreground: #E2E4EA;
+  --muted: #2D303A;
+  --muted-foreground: #9097A6;
+  --accent: #2D303A;
+  --accent-foreground: #E2E4EA;
+  --destructive: #EF4444;
+  --success: #22C55E;
+  --success-foreground: #052E16;
+  --warning: #F59E0B;
+  --warning-foreground: #1C0F00;
+  --border: rgba(232, 234, 240, 0.10);
+  --input: rgba(232, 234, 240, 0.14);
+  --ring: #454956;
+  --wf-grid-dot: rgba(232, 234, 240, 0.14);
+  --sidebar: #0B0C10;
+  --sidebar-foreground: #E2E4EA;
+  --sidebar-primary: #E2E4EA;
+  --sidebar-primary-foreground: #141519;
+  --sidebar-accent: #1F2128;
+  --sidebar-accent-foreground: #E2E4EA;
+  --sidebar-border: rgba(216, 218, 224, 0.10);
+  --sidebar-ring: #454956;
+  --brand: #DCDFE8;
+  --brand-foreground: #141519;
+}
+
+/* --------- chalk: near-white airy bg, barely-there card lift, softened contrast --------- */
+/* Very light, low-contrast light mode designed for "breathing room" — the kind of
+   open white-space aesthetic Linear and Vercel use. muted-foreground is deliberately
+   subdued. Dark mode uses a slightly softer near-black (not pure 09090B) for warmth. */
+html[data-theme="chalk"] {
+  --background: #FFFFFF;
+  --foreground: #111113;
+  --card: #FAFAFA;
+  --card-foreground: #111113;
+  --popover: #FAFAFA;
+  --popover-foreground: #111113;
+  --primary: #111113;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F5F5F6;
+  --secondary-foreground: #111113;
+  --muted: #F5F5F6;
+  --muted-foreground: #888A91;
+  --accent: #F5F5F6;
+  --accent-foreground: #111113;
+  --destructive: #DC2626;
+  --success: #166534;
+  --success-foreground: #FFFFFF;
+  --warning: #B45309;
+  --warning-foreground: #FFFFFF;
+  --border: #E8E8EA;
+  --input: #E8E8EA;
+  --ring: #ADADB2;
+  --wf-grid-dot: #DDDDE1;
+  --sidebar: #FAFAFA;
+  --sidebar-foreground: #111113;
+  --sidebar-primary: #111113;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #EBEBEC;
+  --sidebar-accent-foreground: #111113;
+  --sidebar-border: #E0E0E3;
+  --sidebar-ring: #ADADB2;
+  --brand: #111113;
+  --brand-foreground: #FFFFFF;
+}
+html.dark[data-theme="chalk"] {
+  --background: #16161A;
+  --foreground: #F5F5F6;
+  --card: #1E1E22;
+  --card-foreground: #F5F5F6;
+  --popover: #1E1E22;
+  --popover-foreground: #F5F5F6;
+  --primary: #F5F5F6;
+  --primary-foreground: #16161A;
+  --secondary: #2E2E34;
+  --secondary-foreground: #E8E8EA;
+  --muted: #2E2E34;
+  --muted-foreground: #8E8E96;
+  --accent: #2E2E34;
+  --accent-foreground: #E8E8EA;
+  --destructive: #EF4444;
+  --success: #22C55E;
+  --success-foreground: #052E16;
+  --warning: #F59E0B;
+  --warning-foreground: #1C0F00;
+  --border: rgba(245, 245, 246, 0.10);
+  --input: rgba(245, 245, 246, 0.14);
+  --ring: #48484F;
+  --wf-grid-dot: rgba(245, 245, 246, 0.14);
+  --sidebar: #101014;
+  --sidebar-foreground: #E0E0E3;
+  --sidebar-primary: #E0E0E3;
+  --sidebar-primary-foreground: #16161A;
+  --sidebar-accent: #1E1E22;
+  --sidebar-accent-foreground: #E0E0E3;
+  --sidebar-border: rgba(232, 232, 234, 0.10);
+  --sidebar-ring: #48484F;
+  --brand: #DDDDE1;
+  --brand-foreground: #16161A;
+}
+
+/* --------- cement: mid-gray bg, high surface density, industrial precision --------- */
+/* bg is a noticeable mid-gray rather than near-white — closer to GitHub's canvas-default
+   or Vercel's gray-100 in spirit. Card is white-ish on top of it, creating maximum
+   visible lift. Stronger border opacity. muted-foreground is very readable. */
+html[data-theme="cement"] {
+  --background: #EBEBEC;
+  --foreground: #111113;
+  --card: #FFFFFF;
+  --card-foreground: #111113;
+  --popover: #FFFFFF;
+  --popover-foreground: #111113;
+  --primary: #111113;
+  --primary-foreground: #EBEBEC;
+  --secondary: #DADADC;
+  --secondary-foreground: #111113;
+  --muted: #DADADC;
+  --muted-foreground: #5A5A60;
+  --accent: #DADADC;
+  --accent-foreground: #111113;
+  --destructive: #DC2626;
+  --success: #166534;
+  --success-foreground: #FFFFFF;
+  --warning: #B45309;
+  --warning-foreground: #FFFFFF;
+  --border: #C4C4C8;
+  --input: #C4C4C8;
+  --ring: #939396;
+  --wf-grid-dot: #B8B8BC;
+  --sidebar: #E0E0E2;
+  --sidebar-foreground: #111113;
+  --sidebar-primary: #111113;
+  --sidebar-primary-foreground: #EBEBEC;
+  --sidebar-accent: #C4C4C8;
+  --sidebar-accent-foreground: #111113;
+  --sidebar-border: #ADADB2;
+  --sidebar-ring: #939396;
+  --brand: #111113;
+  --brand-foreground: #EBEBEC;
+}
+html.dark[data-theme="cement"] {
+  --background: #1A1A1C;
+  --foreground: #F2F2F3;
+  --card: #252527;
+  --card-foreground: #F2F2F3;
+  --popover: #2E2E30;
+  --popover-foreground: #F2F2F3;
+  --primary: #F2F2F3;
+  --primary-foreground: #1A1A1C;
+  --secondary: #38383B;
+  --secondary-foreground: #E4E4E6;
+  --muted: #38383B;
+  --muted-foreground: #909094;
+  --accent: #38383B;
+  --accent-foreground: #E4E4E6;
+  --destructive: #EF4444;
+  --success: #22C55E;
+  --success-foreground: #052E16;
+  --warning: #F59E0B;
+  --warning-foreground: #1C0F00;
+  --border: rgba(242, 242, 243, 0.10);
+  --input: rgba(242, 242, 243, 0.14);
+  --ring: #505054;
+  --wf-grid-dot: rgba(242, 242, 243, 0.14);
+  --sidebar: #111113;
+  --sidebar-foreground: #E4E4E6;
+  --sidebar-primary: #E4E4E6;
+  --sidebar-primary-foreground: #1A1A1C;
+  --sidebar-accent: #252527;
+  --sidebar-accent-foreground: #E4E4E6;
+  --sidebar-border: rgba(196, 196, 200, 0.12);
+  --sidebar-ring: #505054;
+  --brand: #E4E4E6;
+  --brand-foreground: #1A1A1C;
+}

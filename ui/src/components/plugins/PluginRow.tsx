@@ -1,16 +1,17 @@
 import { memo, useState } from 'react';
 import {
-  ChevronDown,
-  ChevronRight,
   ExternalLink,
   Trash2,
   Download,
   MoreVertical,
   GitBranch,
+  Package,
 } from 'lucide-react';
 import { Switch } from '../ui/switch';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+import { TableRow, TableCell } from '../ui/table';
 import type { Plugin } from '../../types';
 import TaskProgress from './TaskProgress';
 
@@ -51,161 +52,177 @@ function PluginRowInner({
   onSwitchVersion,
   onTaskComplete,
 }: Props) {
-  const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   const repoUrl = plugin.repository || plugin.github || '';
 
   return (
-    <div className="border-b last:border-b-0">
-      <div
-        className="flex items-start gap-3 px-3 py-2.5 hover:bg-muted transition-colors cursor-pointer"
-        onClick={() => setExpanded((e) => !e)}
-      >
-        <button
-          className="mt-0.5 text-muted-foreground hover:text-foreground shrink-0"
-          aria-label={expanded ? 'Collapse' : 'Expand'}
-          onClick={(e) => {
-            e.stopPropagation();
-            setExpanded((x) => !x);
-          }}
-        >
-          {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-        </button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-sm font-semibold text-foreground truncate" title={plugin.name}>
-              {plugin.name || plugin.id}
-            </p>
-            <span className="text-[11px] text-muted-foreground font-mono">{plugin.version}</span>
-            {statusBadge(plugin)}
-            {plugin.github_stars ? (
-              <span className="text-[11px] text-muted-foreground">★ {plugin.github_stars}</span>
-            ) : null}
+    <>
+      <TableRow>
+        {/* Plugin name + thumbnail + description */}
+        <TableCell>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="h-6 w-6 rounded shrink-0 overflow-hidden bg-muted flex items-center justify-center">
+              {plugin.icon ? (
+                <img
+                  src={plugin.icon}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <Package className="w-3.5 h-3.5 text-muted-foreground" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span
+                  className="text-sm font-medium text-foreground truncate"
+                  title={plugin.name || plugin.id}
+                >
+                  {plugin.name || plugin.id}
+                </span>
+                {plugin.version && (
+                  <span className="text-[11px] text-muted-foreground font-mono shrink-0">
+                    {plugin.version}
+                  </span>
+                )}
+                {repoUrl && (
+                  <a
+                    href={repoUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="shrink-0"
+                  >
+                    <ExternalLink className="w-3 h-3 text-muted-foreground hover:text-brand" />
+                  </a>
+                )}
+              </div>
+              {plugin.description && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <p className="text-[11px] text-muted-foreground line-clamp-1 cursor-default">
+                      {plugin.description}
+                    </p>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    {plugin.description}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
           </div>
-          {plugin.author && (
-            <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
-              by {plugin.author}
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
-          {plugin.installed ? (
-            <>
-              <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        </TableCell>
+
+        {/* Author */}
+        <TableCell className="text-xs text-muted-foreground">
+          <span className="truncate block max-w-[160px]">
+            {plugin.author || '—'}
+          </span>
+        </TableCell>
+
+        {/* Stars */}
+        <TableCell className="text-right text-xs text-muted-foreground tabular-nums">
+          {plugin.github_stars > 0 ? `★ ${plugin.github_stars}` : '—'}
+        </TableCell>
+
+        {/* Installed date */}
+        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+          {plugin.installedOn
+            ? new Date(plugin.installedOn).toLocaleDateString()
+            : '—'}
+        </TableCell>
+
+        {/* Status badge */}
+        <TableCell>{statusBadge(plugin)}</TableCell>
+
+        {/* Actions */}
+        <TableCell className="text-right whitespace-nowrap">
+          <div
+            className="flex items-center justify-end gap-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {plugin.installed ? (
+              <>
                 <Switch
                   checked={!plugin.disabled}
                   onCheckedChange={(checked) => onToggle(plugin, checked)}
                   aria-label={plugin.disabled ? 'Enable plugin' : 'Disable plugin'}
                 />
-              </label>
-              <div className="relative">
-                <Button
-                  onClick={() => setMenuOpen((m) => !m)}
-                  variant="ghost"
-                  size="icon"
-                  aria-label="More actions"
-                  aria-haspopup="menu"
-                  aria-expanded={menuOpen}
-                >
-                  <MoreVertical className="w-4 h-4" />
-                </Button>
-                {menuOpen && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-20"
-                      onClick={() => setMenuOpen(false)}
-                      aria-hidden="true"
-                    />
-                    <div
-                      role="menu"
-                      className="absolute right-0 top-full mt-1 z-30 w-48 rounded-md border bg-popover shadow-lg py-1"
-                    >
-                      <button
-                        role="menuitem"
-                        onClick={() => {
-                          setMenuOpen(false);
-                          onSwitchVersion(plugin);
-                        }}
-                        disabled={!plugin.versions || plugin.versions.length === 0}
-                        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                <div className="relative">
+                  <Button
+                    onClick={() => setMenuOpen((m) => !m)}
+                    variant="ghost"
+                    size="icon"
+                    aria-label="More actions"
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen}
+                  >
+                    <MoreVertical className="w-4 h-4" />
+                  </Button>
+                  {menuOpen && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-20"
+                        onClick={() => setMenuOpen(false)}
+                        aria-hidden="true"
+                      />
+                      <div
+                        role="menu"
+                        className="absolute right-0 top-full mt-1 z-30 w-48 rounded-md border bg-popover shadow-lg py-1"
                       >
-                        <GitBranch className="w-3.5 h-3.5" />
-                        Switch version
-                      </button>
-                      <button
-                        role="menuitem"
-                        onClick={() => {
-                          setMenuOpen(false);
-                          onUninstall(plugin);
-                        }}
-                        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        Uninstall
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            </>
-          ) : (
-            <Button
-              onClick={() => onInstall(plugin)}
-              aria-label={`Install ${plugin.name || plugin.id}`}
-            >
-              <Download className="w-3.5 h-3.5" />
-              Install
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {expanded && (
-        <div className="px-8 pb-3 pt-0 space-y-2">
-          {plugin.description && (
-            <p className="text-[12px] text-foreground whitespace-pre-line">{plugin.description}</p>
-          )}
-          <div className="flex items-center gap-3 flex-wrap text-[11px] text-muted-foreground">
-            {repoUrl && (
-              <a
-                href={repoUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-brand hover:text-brand/90 hover:underline font-mono truncate"
+                        <button
+                          role="menuitem"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            onSwitchVersion(plugin);
+                          }}
+                          disabled={!plugin.versions || plugin.versions.length === 0}
+                          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <GitBranch className="w-3.5 h-3.5" />
+                          Switch version
+                        </button>
+                        <button
+                          role="menuitem"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            onUninstall(plugin);
+                          }}
+                          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Uninstall
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </>
+            ) : (
+              <Button
+                onClick={() => onInstall(plugin)}
+                aria-label={`Install ${plugin.name || plugin.id}`}
               >
-                <ExternalLink className="w-3 h-3" />
-                {repoUrl.replace(/^https?:\/\//, '')}
-              </a>
-            )}
-            {plugin.license && plugin.license !== '{}' && (
-              <span>License: {plugin.license}</span>
-            )}
-            {plugin.installedOn && (
-              <span>Installed: {new Date(plugin.installedOn).toLocaleDateString()}</span>
+                <Download className="w-3.5 h-3.5" />
+                Install
+              </Button>
             )}
           </div>
-          {plugin.tags && plugin.tags.length > 0 && (
-            <div className="flex items-center gap-1 flex-wrap">
-              {plugin.tags.map((t) => (
-                <Badge key={t} variant="neutral" className="!text-[10px]">
-                  {t}
-                </Badge>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+        </TableCell>
+      </TableRow>
 
       {activeTaskId && (
-        <div className="px-8 pb-3">
-          <TaskProgress
-            taskId={activeTaskId}
-            onComplete={(success) => onTaskComplete(plugin.id, success)}
-          />
-        </div>
+        <TableRow>
+          <TableCell colSpan={6} className="py-1.5">
+            <TaskProgress
+              taskId={activeTaskId}
+              onComplete={(success) => onTaskComplete(plugin.id, success)}
+            />
+          </TableCell>
+        </TableRow>
       )}
-    </div>
+    </>
   );
 }
 

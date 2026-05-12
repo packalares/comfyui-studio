@@ -5,7 +5,10 @@
 import { Router, type Request, type Response } from 'express';
 import * as comfyui from '../services/comfyui/api.js';
 import * as gallery from '../services/gallery/index.js';
+import * as catalog from '../services/catalog/index.js';
+import * as plugins from '../services/plugins/index.js';
 import * as settings from '../services/settings/index.js';
+import type { DashboardSummary } from '../contracts/system.contract.js';
 import * as toolsSettings from '../services/settings/tools.js';
 import { getStudioMcpStatus } from '../services/settings/mcp.js';
 import { getMcpToolListings } from '../services/mcp/server/toolRegistry.js';
@@ -25,11 +28,12 @@ const router = Router();
 // buffer. ComfyUI's history is volatile and session-scoped; the dashboard
 // needs the same authoritative count that the Gallery page shows.
 router.get('/system', async (_req: Request, res: Response) => {
-  const [statsResult, queueResult, galleryResult, toolsResult] = await Promise.allSettled([
+  const [statsResult, queueResult, galleryResult, toolsResult, modelsResult] = await Promise.allSettled([
     comfyui.getSystemStats(),
     comfyui.getQueue(),
     gallery.listPaginated({}, 1, 8),
     listAvailableTools(),
+    catalog.getMergedModels(),
   ]);
 
   const stats = statsResult.status === 'fulfilled' ? statsResult.value : null;
@@ -38,6 +42,18 @@ router.get('/system', async (_req: Request, res: Response) => {
     ? galleryResult.value
     : { items: [], total: 0 };
   const availableTools = toolsResult.status === 'fulfilled' ? toolsResult.value : [];
+  const mergedModels = modelsResult.status === 'fulfilled' ? modelsResult.value : null;
+
+  // Dashboard counts. The plugin reads hit in-memory caches; each is wrapped
+  // individually so a cold cache on one doesn't blank the others.
+  const modelsInstalled: number | null = mergedModels !== null
+    ? mergedModels.filter((m) => m.installed).length
+    : null;
+  let pluginsInstalled: number | null = null;
+  let pluginHistory: unknown[] = [];
+  try { pluginsInstalled = plugins.cache.getAllPlugins(false).filter((p) => p.installed).length; } catch { /* cold cache */ }
+  try { pluginHistory = plugins.history.getHistory(20); } catch { /* cold cache */ }
+  const summary: DashboardSummary = { modelsInstalled, pluginsInstalled, pluginHistory };
 
   // Network config + cached reachability snapshot — used to live behind the
   // standalone `GET /system/network-config` endpoint; folded in here so the
@@ -110,6 +126,7 @@ router.get('/system', async (_req: Request, res: Response) => {
       total: galleryPage.total,
       recent: galleryPage.items,
     },
+    summary,
     apiKeyConfigured: settings.isApiKeyConfigured(),
     hfTokenConfigured: settings.isHfTokenConfigured(),
     civitaiTokenConfigured: settings.isCivitaiTokenConfigured(),

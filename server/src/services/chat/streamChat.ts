@@ -17,6 +17,7 @@ import {
   summarizeFinalFrame,
   type OllamaChatMessage,
   type OllamaFinalFrame,
+  type OllamaToolDef,
   runOllamaStep,
   isModelLoaded,
   toOllamaTools,
@@ -252,14 +253,14 @@ async function runStream(args: RunStreamArgs): Promise<void> {
       ? await toOllamaTools(aiSdkTools)
       : [];
 
-    const dispatch = await runToolDispatch({
-      maxSteps: settings.getChatMaxToolSteps(),
-      enabledTools: aiSdkTools,
-      ollamaTools,
-      runStep: (msgs) => runOllamaStep({
+    // One Ollama turn, parameterised by which tools (if any) it may call.
+    // `runStep` gets the real tool set; `runFinalStep` (the post-budget
+    // wrap-up turn) gets `undefined` so the model can only produce text.
+    const makeStep = (tools: OllamaToolDef[] | undefined) =>
+      (msgs: OllamaChatMessage[]) => runOllamaStep({
         baseUrl, model, keepAlive, numCtx, thinkMode, temperature, format,
         messages: msgs,
-        tools: ollamaTools.length > 0 ? ollamaTools : undefined,
+        tools,
         abort,
         onChunk: (delta) => {
           if (tracker.firstTokenAt === 0) {
@@ -286,7 +287,17 @@ async function runStream(args: RunStreamArgs): Promise<void> {
           reasoning += delta;
           emitChatEvent({ type: 'chat:reasoning', data: { msgId, delta } });
         },
-      }),
+      });
+
+    const dispatch = await runToolDispatch({
+      maxSteps: settings.getChatMaxToolSteps(),
+      enabledTools: aiSdkTools,
+      ollamaTools,
+      runStep: makeStep(ollamaTools.length > 0 ? ollamaTools : undefined),
+      // When the tool-call budget runs out mid-chain, give the model one
+      // last turn with NO tools + a "wrap up now" nudge so the user gets a
+      // real answer instead of a stub. See runToolDispatch.
+      runFinalStep: makeStep(undefined),
       executeToolCall: (call, callId) => executeOllamaToolCall(
         aiSdkTools, call, callId, { conversationId, messageId: msgId },
       ),

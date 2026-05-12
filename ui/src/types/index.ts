@@ -528,6 +528,12 @@ export interface PluginHistoryEntry {
   githubProxy?: string;
 }
 
+export interface DashboardSummary {
+  modelsInstalled: number | null;
+  pluginsInstalled: number | null;
+  pluginHistory: PluginHistoryEntry[];
+}
+
 // Mirrors server's InstalledPackage (packages.service.ts:10-13).
 export interface PythonPackage {
   name: string;

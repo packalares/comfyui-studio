@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
+import { useMemo, type ComponentType, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Image as ImageIcon, Video, Music, Layers, WifiOff, Settings, Package,
@@ -9,9 +9,7 @@ import PageSubbar from '../components/layout/PageSubbar';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { Spinner } from '../components/ui/spinner';
-import { Badge } from '../components/ui/badge';
-import { api } from '../services/comfyui';
-import type { GalleryItem, PluginHistoryEntry } from '../types';
+import type { PluginHistoryEntry } from '../types';
 
 type ComfyUIProcessStatus = 'running' | 'stopped' | 'starting' | 'unknown';
 
@@ -30,223 +28,6 @@ function formatRelative(ts: number): string {
   if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h ago`;
   if (delta < 7 * 86_400_000) return `${Math.floor(delta / 86_400_000)}d ago`;
   return new Date(ts).toLocaleDateString();
-}
-
-// ---- TEMP: Badge consolidation preview ---------------------------------
-// Renders the PROPOSED post-consolidation Badge primitive in every variant
-// + treatment so we can pick the canonical look before migrating call sites.
-// Once approved, replace this with the real <Badge> rewrite. Delete after.
-
-// Inline preview of the proposed primitive — base: text-[10px], rounded (4px),
-// px-2 py-0.5, font-medium. Variants: success/warning/danger/brand/neutral/
-// secondary. Treatments: soft (default, `bg-X/10 + ring-X/30`) and solid
-// (`bg-X + text-X-foreground`).
-type PreviewVariant = 'success' | 'warning' | 'danger' | 'brand' | 'neutral' | 'secondary';
-type PreviewTreatment = 'soft' | 'solid';
-
-function PreviewBadge({
-  variant,
-  treatment = 'soft',
-  children,
-}: {
-  variant: PreviewVariant;
-  treatment?: PreviewTreatment;
-  children: React.ReactNode;
-}) {
-  const base = 'inline-flex h-5 items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium whitespace-nowrap';
-  const styleMap: Record<PreviewVariant, Record<PreviewTreatment, string>> = {
-    success: {
-      soft: 'bg-success/10 text-success ring-1 ring-inset ring-success/30',
-      solid: 'bg-success text-success-foreground',
-    },
-    warning: {
-      soft: 'bg-warning/10 text-warning ring-1 ring-inset ring-warning/30',
-      solid: 'bg-warning text-warning-foreground',
-    },
-    danger: {
-      soft: 'bg-destructive/10 text-destructive ring-1 ring-inset ring-destructive/30',
-      solid: 'bg-destructive text-primary-foreground',
-    },
-    brand: {
-      soft: 'bg-brand/10 text-brand ring-1 ring-inset ring-brand/30',
-      solid: 'bg-brand text-brand-foreground',
-    },
-    neutral: {
-      soft: 'bg-muted text-foreground ring-1 ring-inset ring-border',
-      solid: 'bg-foreground text-background',
-    },
-    secondary: {
-      soft: 'bg-secondary text-secondary-foreground',
-      solid: 'bg-secondary text-secondary-foreground',
-    },
-  };
-  return <span className={`${base} ${styleMap[variant][treatment]}`}>{children}</span>;
-}
-
-function BadgeShowcase() {
-  const variants: PreviewVariant[] = ['success', 'warning', 'danger', 'brand', 'neutral', 'secondary'];
-  return (
-    <Card className="p-4 space-y-6 border-warning/30">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-foreground">
-          Badge audit · BEFORE vs AFTER
-        </h3>
-        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-          temporary — pick a winner
-        </span>
-      </div>
-
-      {/* ============ BEFORE — every current pattern ============ */}
-      <div className="space-y-3">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-destructive bg-destructive/10 px-1.5 py-0.5 rounded">
-            BEFORE
-          </span>
-          <span className="text-xs text-muted-foreground">8 conflicting patterns currently shipped</span>
-        </div>
-
-        {/* C1: solid filled pill (TemplateCard) */}
-        <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5">
-            C1 — solid inline (`bg-X/90`, `rounded`, `text-[10px] font-semibold`)
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-success/90 text-success-foreground">success</span>
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-warning/90 text-warning-foreground">warning</span>
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-destructive/90 text-primary-foreground">destructive</span>
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand/90 text-brand-foreground">brand</span>
-          </div>
-        </div>
-
-        {/* C2: soft tinted, border-based (ImportWorkflowModal) */}
-        <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5">
-            C2 — soft, border (`bg-X/10`, `border-X/30`, `rounded`)
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            <span className="inline-flex items-center gap-1 rounded bg-success/10 border border-success/30 px-1.5 py-0.5 text-[10px] font-medium text-success">success</span>
-            <span className="inline-flex items-center gap-1 rounded bg-warning/10 border border-warning/30 px-1.5 py-0.5 text-[10px] font-medium text-warning">warning</span>
-            <span className="inline-flex items-center gap-1 rounded bg-destructive/10 border border-destructive/30 px-1.5 py-0.5 text-[10px] font-medium text-destructive">destructive</span>
-            <span className="inline-flex items-center gap-1 rounded bg-brand/10 border border-brand/30 px-1.5 py-0.5 text-[10px] font-medium text-brand">brand</span>
-          </div>
-        </div>
-
-        {/* B: shadcn <Badge> variants */}
-        <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5">
-            B — shadcn `&lt;Badge&gt;` (62 uses; `rounded-full`, `text-xs`, `ring-inset`)
-          </p>
-          <div className="flex flex-wrap gap-1.5 items-center">
-            <Badge variant="emerald">emerald</Badge>
-            <Badge variant="amber">amber</Badge>
-            <Badge variant="rose">rose</Badge>
-            <Badge variant="slate">slate</Badge>
-            <Badge variant="teal">teal</Badge>
-            <Badge variant="secondary">secondary</Badge>
-            <Badge variant="outline">outline</Badge>
-          </div>
-        </div>
-
-        {/* A: raw .badge .badge-X CSS classes */}
-        <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5">
-            A — raw `.badge .badge-X` CSS classes (same look as B, different routing)
-          </p>
-          <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="badge badge-emerald">emerald</span>
-            <span className="badge badge-amber">amber</span>
-            <span className="badge badge-rose">rose</span>
-            <span className="badge badge-slate">slate</span>
-            <span className="badge badge-teal">teal</span>
-            <span className="badge badge-gray">gray</span>
-            <span className="badge badge-secondary">secondary</span>
-            <span className="badge badge-outline">outline</span>
-            <span className="badge badge-destructive">destructive (dead)</span>
-          </div>
-        </div>
-
-        {/* C3-C6 + D: small specials & overlay */}
-        <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5">
-            C3 / C4 / C5 / C6 / D — assorted one-off patterns
-          </p>
-          <div className="flex flex-wrap gap-2 items-center">
-            <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-normal text-muted-foreground ring-1 ring-inset ring-border/70">creator name (C3)</span>
-            <span className="rounded bg-muted px-1 py-px text-[10px] font-medium text-muted-foreground font-mono">qwen3:30b (C4)</span>
-            <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Read-only (C5)</span>
-            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand/20 text-[10px] font-bold text-brand">3</span>
-            <span className="inline-flex items-center gap-1 rounded-full bg-foreground/60 text-background border border-transparent px-1.5 py-0.5 text-[10px] font-medium">Video (D overlay)</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="border-t border-border" />
-
-      {/* ============ AFTER — proposed primitive ============ */}
-      <div className="space-y-3">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-success bg-success/10 px-1.5 py-0.5 rounded">
-            AFTER
-          </span>
-          <span className="text-xs text-muted-foreground">
-            One `&lt;Badge variant treatment&gt;` primitive · base{' '}
-            <code className="rounded bg-muted px-1">text-[10px] · rounded · px-2 py-0.5 · font-medium · h-5</code>
-          </span>
-        </div>
-
-        <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5">
-            treatment="soft" (default — status pills, tags, kinds)
-          </p>
-          <div className="flex flex-wrap gap-1.5 items-center">
-            {variants.map(v => (
-              <PreviewBadge key={v} variant={v}>{v}</PreviewBadge>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5">
-            treatment="solid" (replaces the C1 inline pattern)
-          </p>
-          <div className="flex flex-wrap gap-1.5 items-center">
-            {variants.map(v => (
-              <PreviewBadge key={v} variant={v} treatment="solid">{v}</PreviewBadge>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5">
-            Real-world examples (what current call sites become)
-          </p>
-          <div className="flex flex-wrap gap-1.5 items-center">
-            <PreviewBadge variant="success" treatment="solid">Ready</PreviewBadge>
-            <PreviewBadge variant="brand" treatment="solid">User</PreviewBadge>
-            <PreviewBadge variant="brand" treatment="solid">CivitAI</PreviewBadge>
-            <PreviewBadge variant="success">Installed</PreviewBadge>
-            <PreviewBadge variant="brand">Downloading 42%</PreviewBadge>
-            <PreviewBadge variant="warning">Required</PreviewBadge>
-            <PreviewBadge variant="danger">Failed</PreviewBadge>
-            <PreviewBadge variant="neutral">SDXL</PreviewBadge>
-            <PreviewBadge variant="success">resolved via civitai</PreviewBadge>
-            <PreviewBadge variant="danger">Unresolved</PreviewBadge>
-          </div>
-        </div>
-
-        <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5">
-            Kept as separate primitives (different shape/intent, not Badge variants)
-          </p>
-          <div className="flex flex-wrap gap-2 items-center">
-            <span className="rounded bg-muted px-1 py-px text-[10px] font-medium text-muted-foreground font-mono">qwen3:30b</span>
-            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand/20 text-[10px] font-bold text-brand">3</span>
-            <span className="inline-flex items-center gap-1 rounded-full bg-foreground/60 text-background px-1.5 py-0.5 text-[10px] font-medium">Video</span>
-          </div>
-        </div>
-      </div>
-    </Card>
-  );
 }
 
 // ---- Big-number metric card ---------------------------------------------
@@ -459,35 +240,10 @@ function RecentActivityCard({ items, loading }: { items: ActivityItem[]; loading
 // ---- Page ----------------------------------------------------------------
 
 export default function Dashboard() {
-  const { systemStats, queueStatus, galleryTotal, connected, loading, launcherStatus, network } = useApp();
+  // recentGallery and dashboardSummary come from /api/system (exposed app-wide
+  // via useApp) — no separate fetch needed here.
+  const { systemStats, queueStatus, galleryTotal, recentGallery, connected, loading, launcherStatus, network, dashboardSummary } = useApp();
   const navigate = useNavigate();
-
-  const [modelsTotal, setModelsTotal] = useState<number | null>(null);
-  const [pluginsTotal, setPluginsTotal] = useState<number | null>(null);
-  const [recentGallery, setRecentGallery] = useState<GalleryItem[]>([]);
-  const [pluginHistory, setPluginHistory] = useState<PluginHistoryEntry[]>([]);
-  const [activityLoading, setActivityLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    // Each request is fired and resolved independently — a 4xx/5xx on one
-    // endpoint shouldn't blank the rest of the dashboard. Failed metrics
-    // fall back to "—" via the `?? '—'` render below.
-    api.getModelsCatalogPaged(1, 1, { installed: true })
-      .then(r => { if (!cancelled) setModelsTotal(r.total); })
-      .catch(() => { /* keep null */ });
-    api.getPluginsPaged(1, 1, { filter: 'installed' })
-      .then(r => { if (!cancelled) setPluginsTotal(r.total); })
-      .catch(() => { /* keep null */ });
-    api.getGalleryPaged(1, 6)
-      .then(r => { if (!cancelled) setRecentGallery(r.items); })
-      .catch(() => { /* keep [] */ });
-    api.getPluginHistory(20)
-      .then(r => { if (!cancelled) setPluginHistory(r.history ?? []); })
-      .catch(() => { /* keep [] */ })
-      .finally(() => { if (!cancelled) setActivityLoading(false); });
-    return () => { cancelled = true; };
-  }, []);
 
   const processStatus = useMemo<ComfyUIProcessStatus>(() => {
     if (!launcherStatus) return 'unknown';
@@ -511,7 +267,7 @@ export default function Dashboard() {
         ts,
       });
     }
-    for (const h of pluginHistory) {
+    for (const h of (dashboardSummary?.pluginHistory ?? [])) {
       const Icon = pluginIcon(h.type);
       const verb = pluginVerb(h.type);
       out.push({
@@ -522,7 +278,7 @@ export default function Dashboard() {
       });
     }
     return out.sort((a, b) => b.ts - a.ts).slice(0, 10);
-  }, [recentGallery, pluginHistory]);
+  }, [recentGallery, dashboardSummary]);
 
   if (loading) {
     return (
@@ -541,9 +297,6 @@ export default function Dashboard() {
         description="Overview of your ComfyUI instance"
       />
       <div className="page-container space-y-4">
-        {/* TEMP: Badge audit visual showcase. Delete once consolidation lands. */}
-        <BadgeShowcase />
-
         {/* Not Connected banner */}
         {!connected && processStatus !== 'stopped' && processStatus !== 'unknown' && (
           <Card className="px-4 py-3 border-warning/30 bg-warning/10">
@@ -587,13 +340,13 @@ export default function Dashboard() {
           <MetricCard
             icon={Box}
             label="Models"
-            value={modelsTotal ?? '—'}
+            value={dashboardSummary?.modelsInstalled ?? '—'}
             hint="Installed"
           />
           <MetricCard
             icon={Package}
             label="Plugins"
-            value={pluginsTotal ?? '—'}
+            value={dashboardSummary?.pluginsInstalled ?? '—'}
             hint="Installed"
           />
         </div>
@@ -612,7 +365,7 @@ export default function Dashboard() {
               </button>
             </div>
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-              {recentGallery.map((item) => (
+              {recentGallery.slice(0, 6).map((item) => (
                 <button
                   key={item.id}
                   type="button"
@@ -691,7 +444,7 @@ export default function Dashboard() {
             systemStats={systemStats}
             network={network}
           />
-          <RecentActivityCard items={activityItems} loading={activityLoading} />
+          <RecentActivityCard items={activityItems} loading={dashboardSummary === null} />
         </div>
       </div>
     </>

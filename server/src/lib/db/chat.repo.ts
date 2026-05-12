@@ -554,6 +554,22 @@ export function listAttachmentsForMessage(
   return rows.map(rowToAttachment);
 }
 
+/** All user-uploaded attachments in a conversation, newest first. The
+ *  generation tools use this to resolve a template's image/mask/audio/video
+ *  inputs — the file the user attached may have been an earlier turn, not the
+ *  one that triggered the submit, and the tool-side `messageId` is the
+ *  assistant's placeholder anyway. Tool-generated attachments are excluded. */
+export function listUserAttachmentsForConversation(
+  conversationId: string, db: Database.Database = getDb(),
+): AttachmentRow[] {
+  const rows = db.prepare(
+    `SELECT * FROM chat_attachments
+       WHERE conversation_id = ? AND source = 'user'
+       ORDER BY created_at DESC`,
+  ).all(conversationId) as Record<string, unknown>[];
+  return rows.map(rowToAttachment);
+}
+
 /** Batch lookup keyed by message_id — used to hydrate a whole conversation
  *  in one round-trip rather than N+1 queries. */
 export function listAttachmentsForMessages(
