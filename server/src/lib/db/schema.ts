@@ -10,12 +10,18 @@
 // KSampler params). Columns are added via ALTER TABLE in `connection.ts` so
 // pre-existing rows keep working without a full rewrite.
 //
+// Schema v19 adds `templates.favorite` (user-pinned flag). Added via ALTER
+// TABLE in `connection.ts` so existing rows default to 0; `writeRow`'s
+// ON CONFLICT update deliberately omits the column so a catalog re-seed /
+// refresh preserves the user's pins — only `setFavorite` writes it.
+//
 // Indexes are deliberately scoped to the columns we sort or filter on in
 // routes (`createdAt`, `mediaType`, `templateName`, `promptId`, `title`,
-// `author`, `installed`, `category`, `model_filename`, `plugin_id`). Anything
-// else stays unindexed or lives inside `raw_json` / `workflow_json`.
+// `author`, `installed`, `category`, `favorite`, `model_filename`,
+// `plugin_id`). Anything else stays unindexed or lives inside `raw_json` /
+// `workflow_json`.
 
-export const SCHEMA_VERSION = 18;
+export const SCHEMA_VERSION = 19;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -86,10 +92,14 @@ CREATE TABLE IF NOT EXISTS templates (
   workflow_json TEXT,
   tags_json     TEXT,
   installed     INTEGER NOT NULL DEFAULT 0,
+  favorite      INTEGER NOT NULL DEFAULT 0,
   updatedAt     INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_templates_installed ON templates(installed);
 CREATE INDEX IF NOT EXISTS idx_templates_category  ON templates(category);
+-- idx_templates_favorite is created in connection.ts alongside the v19 ALTER
+-- TABLE: on an existing DB the favorite column does not exist until the
+-- migration adds it, so indexing it here would fail before the migration runs.
 
 CREATE TABLE IF NOT EXISTS template_models (
   template       TEXT NOT NULL,

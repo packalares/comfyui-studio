@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import {
   Image, Video, Music, Box, HardDrive, Cpu,
   MoreHorizontal, Trash2, ExternalLink, FileJson, Check, ImageOff,
-  Puzzle, Info, Wand2, Download, User as UserIcon, Braces,
+  Puzzle, Info, Wand2, Download, User as UserIcon, Braces, Star,
 } from 'lucide-react';
 import { Spinner } from '../ui/spinner';
 import type { Template, CivitaiModelSummary, StagedImportManifest, RequiredItem } from '../../types';
@@ -24,6 +24,9 @@ interface Props {
   template: Template;
   /** Called after a successful delete so parent can refresh + show a toast. */
   onDeleted?: (name: string) => void;
+  /** Called after the favorite star is toggled (so a "Favorites" filtered
+   *  grid can drop a just-unpinned card). Gets the new state. */
+  onFavoriteToggled?: (name: string, favorite: boolean) => void;
 }
 
 const mediaIcons: Record<string, React.ElementType> = {
@@ -44,7 +47,7 @@ function formatCompact(n: number): string {
   return String(n);
 }
 
-function TemplateCardInner({ template, onDeleted }: Props) {
+function TemplateCardInner({ template, onDeleted, onFavoriteToggled }: Props) {
   const navigate = useNavigate();
   const Icon = mediaIcons[template.mediaType] || Image;
   const gradient = FALLBACK_GRADIENT;
@@ -71,6 +74,29 @@ function TemplateCardInner({ template, onDeleted }: Props) {
   const [depsLoading, setDepsLoading] = useState(false);
   const [depsMissing, setDepsMissing] = useState<RequiredItem[] | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+
+  // Optimistic local mirror of the server `favorite` flag so the star reacts
+  // instantly. Re-sync if the prop changes (the grid hands the card fresh
+  // data on refetch).
+  const [favorite, setFavoriteState] = useState<boolean>(template.favorite === true);
+  const [togglingFavorite, setTogglingFavorite] = useState(false);
+  useEffect(() => { setFavoriteState(template.favorite === true); }, [template.favorite]);
+
+  const handleToggleFavorite = useCallback(async (e: React.MouseEvent): Promise<void> => {
+    e.stopPropagation();
+    const next = !favorite;
+    setFavoriteState(next);
+    setTogglingFavorite(true);
+    try {
+      await api.setTemplateFavorite(template.name, next);
+      onFavoriteToggled?.(template.name, next);
+    } catch (err) {
+      setFavoriteState(!next);
+      toast.error(err instanceof Error ? err.message : 'Failed to update favorite');
+    } finally {
+      setTogglingFavorite(false);
+    }
+  }, [favorite, template.name, onFavoriteToggled]);
 
   // Plugin chip surfaces only when the template declares any plugins AND at
   // least one is not installed. The `installed` flag is filled in by the
@@ -216,49 +242,68 @@ function TemplateCardInner({ template, onDeleted }: Props) {
               {template.mediaType}
             </Badge>
           </div>
-          {/* Overflow menu — user-imported workflows only. Absolutely positioned
-              on top of the thumbnail; clicking never propagates to the card. */}
-          {isUser && (
-            <div
-              ref={menuRef}
-              className="absolute top-2 left-2"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Button
-                type="button"
-                aria-label="Template actions"
-                variant="ghost"
-                size="icon"
-                className="!bg-popover/90 hover:!bg-popover ring-1 ring-border"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setMenuOpen((v) => !v);
-                }}
-              >
-                <MoreHorizontal className="w-4 h-4" />
-              </Button>
-              {menuOpen && (
-                <div
-                  role="menu"
-                  className="absolute top-9 left-0 z-10 min-w-[10rem] rounded-md border bg-popover shadow-lg p-1"
+          {/* Top-left overlay: favorite star (always) + overflow menu (user
+              imports only). Absolutely positioned on the thumbnail; clicks in
+              here never propagate to the card. */}
+          <div
+            className="absolute top-2 left-2 flex items-center gap-1.5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  aria-label={favorite ? 'Remove from favorites' : 'Add to favorites'}
+                  aria-pressed={favorite}
+                  variant="ghost"
+                  size="icon"
+                  disabled={togglingFavorite}
+                  className={`!bg-popover/90 hover:!bg-popover ring-1 ring-border ${favorite ? 'text-amber-500' : 'text-muted-foreground'}`}
+                  onClick={(e) => { void handleToggleFavorite(e); }}
                 >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setMenuOpen(false);
-                      setConfirmOpen(true);
-                    }}
-                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-destructive hover:bg-destructive/10"
+                  <Star className={`w-4 h-4 ${favorite ? 'fill-current' : ''}`} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{favorite ? 'Remove from favorites' : 'Add to favorites'}</TooltipContent>
+            </Tooltip>
+            {isUser && (
+              <div ref={menuRef} className="relative">
+                <Button
+                  type="button"
+                  aria-label="Template actions"
+                  variant="ghost"
+                  size="icon"
+                  className="!bg-popover/90 hover:!bg-popover ring-1 ring-border"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenuOpen((v) => !v);
+                  }}
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                </Button>
+                {menuOpen && (
+                  <div
+                    role="menu"
+                    className="absolute top-9 left-0 z-10 min-w-[10rem] rounded-md border bg-popover shadow-lg p-1"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    Delete template
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMenuOpen(false);
+                        setConfirmOpen(true);
+                      }}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Delete template
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
         <div className="p-4 flex flex-col flex-1">
           <div className="flex items-center gap-2 mb-1">

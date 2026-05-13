@@ -26,6 +26,7 @@ const router = Router();
 
 export interface TemplateWithReady extends TemplateData {
   ready: boolean;
+  favorite: boolean;
 }
 
 // ComfyUI core node types surface as these repo keys from Manager.
@@ -36,14 +37,16 @@ const BUILTIN_PLUGIN_KEYS = new Set<string>([
   'comfyui',
 ]);
 
-function loadReadinessMap(): Map<string, boolean> {
-  const map = new Map<string, boolean>();
+interface TemplateFlags { ready: boolean; favorite: boolean; }
+
+function loadTemplateFlags(): Map<string, TemplateFlags> {
+  const map = new Map<string, TemplateFlags>();
   try {
     const { items, total } = templateRepo.listPaginated({ ready: 'all' }, 1, 100_000);
-    for (const row of items) map.set(row.name, row.installed);
+    for (const row of items) map.set(row.name, { ready: row.installed, favorite: row.favorite });
     if (total > items.length) return map; // paranoia cap
   } catch {
-    /* readiness unavailable => empty map => ready:false for all */
+    /* db unavailable => empty map => ready:false / favorite:false for all */
   }
   return map;
 }
@@ -68,11 +71,12 @@ function overlayPluginInstalled(
 }
 
 export function attachReady(list: TemplateData[]): TemplateWithReady[] {
-  const readyMap = loadReadinessMap();
+  const flags = loadTemplateFlags();
   const installedKeys = getInstalledPluginKeys();
   return list.map((t) => ({
     ...t,
-    ready: readyMap.get(t.name) ?? false,
+    ready: flags.get(t.name)?.ready ?? false,
+    favorite: flags.get(t.name)?.favorite ?? false,
     plugins: overlayPluginInstalled(t.plugins, installedKeys),
   }));
 }
@@ -134,6 +138,8 @@ router.get('/templates', async (req: Request, res: Response) => {
   else if (source === 'api') rows = rows.filter((t) => t.openSource === false);
   // `source=user` keeps only user-imported workflows — marker is the category label.
   else if (source === 'user') rows = rows.filter((t) => t.category === 'User Workflows');
+  // `source=favorites` keeps only the user-pinned templates.
+  else if (source === 'favorites') rows = rows.filter((t) => t.favorite);
   if (category && category !== 'All') {
     rows = rows.filter((t) => t.category === category);
   }
@@ -174,6 +180,19 @@ router.post('/templates/refresh', handleRefresh);
 // Import a CivitAI workflow version as a user template; DELETE for user-imported templates.
 router.post('/templates/import-civitai', handleImportCivitai);
 router.delete('/templates/:name', handleDeleteTemplate);
+
+// Pin / unpin a template (the "favorite" star on the Explore card). Body:
+// `{ favorite: boolean }`. 404 when the template has no sqlite row yet (a
+// just-appeared upstream entry — a `/templates/refresh` seeds it).
+router.patch('/templates/:name/favorite', (req: Request, res: Response): void => {
+  const name = req.params.name as string;
+  const favorite = (req.body as { favorite?: unknown } | undefined)?.favorite === true;
+  if (!templateRepo.setFavorite(name, favorite)) {
+    res.status(404).json({ error: `Template not found: ${name}` });
+    return;
+  }
+  res.json({ name, favorite });
+});
 
 // Queue installs for every plugin the template requires that isn't on disk.
 const handleInstallMissingPlugins = async (req: Request, res: Response): Promise<void> => {

@@ -69,7 +69,13 @@ function persistTemplates(list: TemplateData[]): void {
 
 let cachedTemplates: TemplateData[] = [];
 
-export async function loadTemplatesFromComfyUI(comfyuiUrl: string): Promise<void> {
+/**
+ * Returns `true` if the upstream fetch succeeded (cache replaced with fresh
+ * data), `false` if it failed (cache left as-is, only user workflows merged).
+ * Callers that mutate the DB based on the cache (e.g. refreshTemplates) MUST
+ * check this — see the comment in refresh.ts for why.
+ */
+export async function loadTemplatesFromComfyUI(comfyuiUrl: string): Promise<boolean> {
   try {
     const res = await fetch(`${comfyuiUrl}/templates/index.json`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -128,6 +134,7 @@ export async function loadTemplatesFromComfyUI(comfyuiUrl: string): Promise<void
     // shorthand would overwrite the deep extractions from `/refresh` and
     // reset readiness flags. Use `seedTemplatesOnce()` at boot + the refresh
     // endpoint for persistent writes.
+    return true;
   } catch (err) {
     logger.error('Failed to load templates from ComfyUI', { error: String(err) });
     logger.info('No upstream templates available - ComfyUI may not be running');
@@ -140,6 +147,7 @@ export async function loadTemplatesFromComfyUI(comfyuiUrl: string): Promise<void
       for (const u of userWorkflows) byName.set(u.name, u);
       cachedTemplates = Array.from(byName.values());
     }
+    return false;
   }
 }
 

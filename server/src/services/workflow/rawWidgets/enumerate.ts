@@ -6,7 +6,7 @@ import type {
   EnumeratedWidget,
 } from '../../../contracts/workflow.contract.js';
 import * as exposedWidgets from '../../exposedWidgets.js';
-import { isEnumerableWidget, titleCase } from '../constants.js';
+import { isEnumerableWidget, titleCase, TEXT_PLUMBING_CLASS_TYPES } from '../constants.js';
 import { getObjectInfo } from '../objectInfo.js';
 import { computeFormClaimedWidgets } from './claimed.js';
 import { findSubgraphDef } from '../proxyLabels.js';
@@ -76,6 +76,12 @@ export async function enumerateTemplateWidgets(
   for (const node of nodes) {
     const classType = (node.type as string | undefined) || (node.class_type as string | undefined);
     if (!classType) continue;
+    // Text-utility plumbing (StringReplace, StringFormat, MathExpression, ...)
+    // carries template-internal widgets ("search", "replace", "format") that
+    // are workflow author values, not user content. The main-form walker
+    // (widgetWalkCandidates.ts) already skips these; mirror that here so the
+    // "Expose fields" modal doesn't list them either.
+    if (TEXT_PLUMBING_CLASS_TYPES.has(classType)) continue;
     const props = node.properties as Record<string, unknown> | undefined;
     if (props?.proxyWidgets) continue; // skip wrappers
 
@@ -175,6 +181,10 @@ export function buildRawWidgetSettings(
     if (!node) continue;
     const classType = (node.type as string | undefined) || (node.class_type as string | undefined);
     if (!classType) continue;
+    // Stale exposed-widgets JSON may point at a plumbing node from a prior
+    // workflow revision (the modal no longer offers them after the filter
+    // above, but the saved pointer would still render). Drop it here too.
+    if (TEXT_PLUMBING_CLASS_TYPES.has(classType)) continue;
     const names = widgetNamesFor(objectInfo, classType);
     const idx = names.indexOf(e.widgetName);
     if (idx < 0) continue;

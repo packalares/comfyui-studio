@@ -338,12 +338,13 @@ export const api = {
       category?: string;
       tags?: string[];
       /**
-       * `open`  – open-source ComfyUI templates only (openSource !== false).
-       * `api`   – API-node workflows requiring an external key.
-       * `user`  – user-imported workflows (category === 'User Workflows').
-       * `all`   – no filter.
+       * `open`      – open-source ComfyUI templates only (openSource !== false).
+       * `api`       – API-node workflows requiring an external key.
+       * `user`      – user-imported workflows (category === 'User Workflows').
+       * `favorites` – only templates the user pinned (templates.favorite = 1).
+       * `all`       – no filter.
        */
-      source?: 'all' | 'open' | 'api' | 'user';
+      source?: 'all' | 'open' | 'api' | 'user' | 'favorites';
       ready?: 'all' | 'yes' | 'no';
     } = {},
   ) => {
@@ -356,11 +357,24 @@ export const api = {
     return fetchJson<PageEnvelope<Template>>(`/templates?${buildPagedQuery({ page, pageSize, extra })}`);
   },
 
-  /** POST /templates/refresh — re-pull template catalog + recompute readiness. */
+  /** POST /templates/refresh — re-pull template catalog + recompute readiness.
+   *  `skipped` is present only when the refresh aborted without touching the DB
+   *  (`upstream-unreachable` = ComfyUI didn't answer; `sanity-check` = upstream
+   *  returned suspiciously few entries so the delete pass was skipped). */
   refreshTemplates: () =>
-    fetchJson<{ added: number; updated: number; unchanged: number; removed: number }>(
+    fetchJson<{
+      added: number; updated: number; unchanged: number; removed: number;
+      skipped?: 'upstream-unreachable' | 'sanity-check';
+    }>(
       '/templates/refresh',
       { method: 'POST' },
+    ),
+
+  /** PATCH /templates/:name/favorite — pin / unpin a template. */
+  setTemplateFavorite: (name: string, favorite: boolean) =>
+    fetchJson<{ name: string; favorite: boolean }>(
+      `/templates/${encodeURIComponent(name)}/favorite`,
+      { method: 'PATCH', body: JSON.stringify({ favorite }) },
     ),
 
   generate: (templateName: string, inputs: Record<string, unknown>, advancedSettings?: Record<string, { proxyIndex: number; value: unknown }>) =>

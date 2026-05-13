@@ -364,6 +364,24 @@ function applyConversationsDropSystemPromptMigration(db: DB): void {
   }
 }
 
+/**
+ * Schema v19 adds `favorite` to `templates`. Default 0 so existing rows are
+ * unpinned after migration. Only `setFavorite` writes the column — `writeRow`'s
+ * ON CONFLICT update deliberately omits it, so a catalog re-seed at boot or a
+ * `/templates/refresh` preserves the user's pins.
+ */
+function applyTemplatesFavoriteMigration(db: DB): void {
+  const cols = db.prepare('PRAGMA table_info(templates)').all() as Array<{ name: string }>;
+  if (cols.length === 0) return; // table created above by SCHEMA_SQL
+  const present = new Set(cols.map(c => c.name));
+  if (!present.has('favorite')) {
+    // ALTER must come before the index — on an existing DB the column isn't
+    // there yet, which is also why SCHEMA_SQL can't index `favorite` directly.
+    db.exec('ALTER TABLE templates ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_templates_favorite ON templates(favorite)');
+}
+
 function openAndInit(dbPath: string): DB {
   const db = new Database(dbPath);
   // WAL: many readers + single writer, durable across crashes, and the
@@ -384,6 +402,7 @@ function openAndInit(dbPath: string): DB {
   applyGalleryProvenanceFingerprintMigration(db);
   applyConversationsSoulNameMigration(db);
   applyConversationsDropSystemPromptMigration(db);
+  applyTemplatesFavoriteMigration(db);
   const row = db.prepare('SELECT version FROM schema_version LIMIT 1').get() as
     | { version: number } | undefined;
   if (!row) {

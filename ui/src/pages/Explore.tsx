@@ -19,7 +19,7 @@ import { Button } from '../components/ui/button';
 import { ButtonGroup } from '../components/ui/button-group';
 
 type ReadyFilter = 'all' | 'yes' | 'no';
-type SourceFilter = 'all' | 'open' | 'api' | 'user' | 'civitai';
+type SourceFilter = 'all' | 'favorites' | 'open' | 'api' | 'user' | 'civitai';
 type CivitaiFeed = 'latest' | 'hot' | 'search';
 
 // Fixed page size for the civitai feed — pageSize selector is part of the
@@ -383,6 +383,7 @@ export default function Explore() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="favorites">Favorites</SelectItem>
                     <SelectItem value="open">ComfyUI (open source)</SelectItem>
                     {apiKeyConfigured && (
                       <SelectItem value="api">API (external providers)</SelectItem>
@@ -579,6 +580,7 @@ export default function Explore() {
                         key={`t-${row.template.name}`}
                         template={row.template}
                         onDeleted={handleTemplateDeleted}
+                        onFavoriteToggled={() => { if (sourceFilter === 'favorites') void refetch(); }}
                       />
                     ) : (
                       <CivitaiTemplateCard

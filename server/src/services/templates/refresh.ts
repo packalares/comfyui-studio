@@ -30,6 +30,10 @@ export interface RefreshResult {
   updated: number;
   unchanged: number;
   removed: number;
+  /** Present only when the refresh aborted before touching the DB. Lets the
+   *  UI / caller distinguish "ComfyUI honestly has nothing" from "we never
+   *  heard back so we did nothing". */
+  skipped?: 'upstream-unreachable' | 'sanity-check';
 }
 
 interface ComputedEntry {
@@ -119,7 +123,16 @@ async function toRefreshRow(t: TemplateData, workflow: unknown): Promise<Compute
  */
 export async function refreshTemplates(): Promise<RefreshResult> {
   logger.info('template refresh: pulling fresh catalog from ComfyUI');
-  await loadTemplatesFromComfyUI(env.COMFYUI_URL);
+  const upstreamOk = await loadTemplatesFromComfyUI(env.COMFYUI_URL);
+  if (!upstreamOk) {
+    // Critical: if the upstream fetch failed, the in-memory cache is stale or
+    // empty. Running the remove loop below would treat "ComfyUI didn't
+    // answer" as "ComfyUI has no templates" and delete every upstream row in
+    // sqlite — taking user pins / favorites with them. Bail out cleanly and
+    // leave the DB exactly as it was; the next successful refresh repairs.
+    logger.warn('template refresh skipped: upstream unreachable; DB left untouched');
+    return { added: 0, updated: 0, unchanged: 0, removed: 0, skipped: 'upstream-unreachable' };
+  }
   // User workflows live only in the in-memory cache + their JSON files on
   // disk; they must NOT flow through the sqlite upsert path (which would
   // overwrite their bundled workflow with a failed `/templates/:name.json`
@@ -165,12 +178,27 @@ export async function refreshTemplates(): Promise<RefreshResult> {
   // Without this guard, every refresh deletes the user's imports along
   // with their readiness flag — making them appear "not ready" forever
   // until the next import recreates the row.
+  //
+  // Sanity check: if the fresh upstream count has collapsed to less than
+  // half the currently-stored upstream count, treat the response as a
+  // partial read (HTTP 200 but truncated JSON, etc.) and skip the delete
+  // pass — but keep the upserts above since those are additive. Better to
+  // leave a few stale rows than risk wiping user favorites on a bad fetch.
+  const storedNames = templateRepo.listAllNames();
+  const storedUpstream = storedNames.filter((n) => !isUserWorkflow(n)).length;
+  const suspiciousShrink = storedUpstream > 0 && fresh.length < storedUpstream * 0.5;
   let removed = 0;
-  for (const name of templateRepo.listAllNames()) {
-    if (freshNames.has(name)) continue;
-    if (isUserWorkflow(name)) continue;
-    templateRepo.deleteTemplate(name);
-    removed++;
+  if (suspiciousShrink) {
+    logger.warn('template refresh: fresh upstream count suspiciously low; skipping delete pass', {
+      stored: storedUpstream, fresh: fresh.length,
+    });
+  } else {
+    for (const name of storedNames) {
+      if (freshNames.has(name)) continue;
+      if (isUserWorkflow(name)) continue;
+      templateRepo.deleteTemplate(name);
+      removed++;
+    }
   }
 
   // Recompute readiness for everything we touched so the `installed` flag
@@ -187,5 +215,8 @@ export async function refreshTemplates(): Promise<RefreshResult> {
   }
 
   logger.info('template refresh complete', { added, updated, unchanged, removed });
-  return { added, updated, unchanged, removed };
+  return {
+    added, updated, unchanged, removed,
+    ...(suspiciousShrink ? { skipped: 'sanity-check' as const } : {}),
+  };
 }

@@ -1,5 +1,6 @@
 // Templates repo tests — upsert, list filters (q/category/ready/all combos),
-// findTemplatesRequiringModel / findTemplatesRequiringPlugin, rebuildAll.
+// findTemplatesRequiringModel / findTemplatesRequiringPlugin, rebuildAll,
+// setFavorite.
 
 import { describe, expect, it } from 'vitest';
 import * as repo from '../../../src/lib/db/templates.repo.js';
@@ -61,6 +62,34 @@ describe('templates repo', () => {
     expect(repo.getTemplate('wf.two')?.installed).toBe(false);
     repo.setInstalledForTemplates(['wf.one', 'wf.two'], true);
     expect(repo.getTemplate('wf.two')?.installed).toBe(true);
+  });
+
+  it('setFavorite flips the favorite flag and survives a catalog re-upsert', () => {
+    const a = mk('wf.one');
+    repo.upsertTemplate(a.row, a.deps);
+    expect(repo.getTemplate('wf.one')?.favorite).toBe(false);
+    expect(repo.setFavorite('wf.one', true)).toBe(true);
+    expect(repo.getTemplate('wf.one')?.favorite).toBe(true);
+    // A re-seed (upsert with the same name) must NOT clear the pin — writeRow's
+    // ON CONFLICT update deliberately omits the `favorite` column.
+    repo.upsertTemplate(mk('wf.one', { displayName: 'Renamed' }).row, { models: [], plugins: [] });
+    const got = repo.getTemplate('wf.one');
+    expect(got?.displayName).toBe('Renamed');
+    expect(got?.favorite).toBe(true);
+    expect(repo.setFavorite('wf.one', false)).toBe(true);
+    expect(repo.getTemplate('wf.one')?.favorite).toBe(false);
+  });
+
+  it('setFavorite returns false for an unknown template', () => {
+    expect(repo.setFavorite('does.not.exist', true)).toBe(false);
+  });
+
+  it('listPaginated does not expose favorite as a filter but hydrate returns it', () => {
+    repo.upsertTemplate(mk('f1').row, { models: [], plugins: [] });
+    repo.setFavorite('f1', true);
+    const all = repo.listPaginated({ ready: 'all' }, 1, 10);
+    const row = all.items.find((r) => r.name === 'f1');
+    expect(row?.favorite).toBe(true);
   });
 
   it('findTemplatesRequiringModel returns every template with that filename', () => {

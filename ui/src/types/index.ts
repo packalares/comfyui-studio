@@ -157,6 +157,12 @@ export interface Template {
    */
   ready?: boolean;
   /**
+   * True when the user has pinned this template via the star on the Explore
+   * card. Backed by the `templates.favorite` column; `undefined`/`false` when
+   * unpinned or unknown. Toggle via PATCH /templates/:name/favorite.
+   */
+  favorite?: boolean;
+  /**
    * CivitAI origin metadata. Only populated for user-imported templates
    * that came in through the CivitAI URL tab.
    */

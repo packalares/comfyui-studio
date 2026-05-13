@@ -7,7 +7,7 @@
 
 import type { EnumeratedWidget } from '../../../contracts/workflow.contract.js';
 import { logger } from '../../../lib/logger.js';
-import { isEnumerableWidget, titleCase } from '../constants.js';
+import { isEnumerableWidget, titleCase, TEXT_PLUMBING_CLASS_TYPES } from '../constants.js';
 import { findSubgraphDef } from '../proxyLabels.js';
 import {
   filteredWidgetValues,
@@ -192,6 +192,10 @@ export function walkSubgraphWidgets(
   for (const innerNode of innerNodes) {
     const classType = (innerNode.type as string | undefined) || (innerNode.class_type as string | undefined);
     if (!classType) continue;
+    // Same filter as the top-level walker (enumerate.ts) and the main-form
+    // walker (widgetWalkCandidates.ts): plumbing nodes carry workflow-author
+    // strings, not user content.
+    if (TEXT_PLUMBING_CLASS_TYPES.has(classType)) continue;
 
     const props = innerNode.properties as Record<string, unknown> | undefined;
     if (props?.proxyWidgets) {

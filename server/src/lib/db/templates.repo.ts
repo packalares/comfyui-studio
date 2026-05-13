@@ -25,11 +25,13 @@ export interface TemplateRow {
   workflow_json?: string | null;
   tags_json?: string | null;
   installed?: boolean;
+  favorite?: boolean;
 }
 
 export interface TemplateListRow extends TemplateRow {
   updatedAt: number;
   installed: boolean;
+  favorite: boolean;
   models: string[];
   plugins: string[];
   tags: string[];
@@ -78,6 +80,7 @@ function hydrate(
     tags_json: row.tags_json == null ? null : String(row.tags_json),
     updatedAt: Number(row.updatedAt ?? 0),
     installed: Number(row.installed ?? 0) === 1,
+    favorite: Number(row.favorite ?? 0) === 1,
     models: models.map((r) => r.fn),
     plugins: plugins.map((r) => r.id),
     tags: parseJsonArray(row.tags_json),
@@ -161,6 +164,23 @@ export function setInstalledForTemplates(
     for (const n of list) stmt.run(installed ? 1 : 0, now, n);
   });
   tx(names);
+}
+
+/**
+ * Pin / unpin a template (the "favorite" star on the Explore card). Returns
+ * `false` when no row matched — callers surface that as a 404. `writeRow`'s
+ * ON CONFLICT update never touches `favorite`, so a catalog re-seed / refresh
+ * leaves this value alone; this is the only writer.
+ */
+export function setFavorite(
+  name: string,
+  favorite: boolean,
+  db: Database.Database = getDb(),
+): boolean {
+  const info = db
+    .prepare('UPDATE templates SET favorite = ?, updatedAt = ? WHERE name = ?')
+    .run(favorite ? 1 : 0, Date.now(), name);
+  return info.changes > 0;
 }
 
 export function findTemplatesRequiringModel(
