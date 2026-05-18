@@ -51,11 +51,16 @@ describe('gallery schema migration', () => {
     resetForTests();
     const db = getDb();
     const cols = pragmaCols(db, 'gallery');
-    for (const want of [
-      'workflowJson', 'promptText', 'negativeText', 'seed', 'model',
-      'sampler', 'steps', 'cfg', 'width', 'height',
-    ]) {
-      expect(cols).toContain(want);
+    // v21: workflowJson is kept; extracted columns are dropped.
+    expect(cols).toContain('workflowJson');
+    expect(cols).toContain('jobDurationMs');
+    expect(cols).toContain('mediaDurationMs');
+    expect(cols).toContain('mediaInfoJson');
+    // Extracted columns must be absent after v21 migration.
+    for (const dropped of ['promptText', 'negativeText', 'seed', 'model', 'sampler',
+      'steps', 'cfg', 'width', 'height', 'scheduler', 'denoise',
+      'lengthFrames', 'fps', 'batchSize']) {
+      expect(cols).not.toContain(dropped);
     }
     const rows = db.prepare('SELECT COUNT(*) AS c FROM gallery').get() as { c: number };
     expect(rows.c).toBe(0);

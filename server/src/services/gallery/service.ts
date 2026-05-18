@@ -1,8 +1,9 @@
 // Gallery service — glues the sqlite repo to ComfyUI history events.
 
 import fs from 'fs';
+import { randomUUID } from 'node:crypto';
 import { getGalleryItems, getHistoryForPrompt, deleteHistoryPrompts, detectMediaType, collectNodeOutputFiles } from '../comfyui/api.js';
-import type { GalleryItem, GalleryListItem } from '../../contracts/generation.contract.js';
+import type { GalleryItem, GalleryListItem, GalleryRowFull } from '../../contracts/generation.contract.js';
 import * as repo from '../../lib/db/gallery.repo.js';
 import { logger } from '../../lib/logger.js';
 import { paths } from '../../config/paths.js';
@@ -11,6 +12,9 @@ import { extractMetadata, type ApiPrompt } from './extract.js';
 import { workflowHash } from '../../lib/workflowHash.js';
 import { getPromptMeta, clearPromptMeta } from './promptMeta.js';
 import { getSnapshot, deleteSnapshot } from '../../lib/db/promptSnapshots.repo.js';
+import { sweepOrphansFromDisk } from './diskSweep.js';
+import { inspectFile } from './fileInspect.js';
+import { resolveViewPath } from '../../lib/viewPath.js';
 
 // Optional broadcaster for gallery-mutation WS notifications.
 let broadcaster: ((message: object) => void) | null = null;
@@ -80,12 +84,13 @@ export interface RowBuildInput {
 }
 
 /**
- * Build one or more rows from a single history entry. Each output file
- * becomes its own row (keyed `<promptId>-<filename>`); every row shares
- * the same extracted metadata + workflowJson since they all came from
- * the same execution.
+ * Build one or more rows from a single execution. Each output file becomes
+ * its own row (keyed `<promptId>-<filename>`); every row shares the same
+ * extracted metadata + workflowJson since they all came from the same
+ * execution. Also called by the disk-sweep path (apiPrompt=null, promptId='')
+ * so both code paths share a single row-build implementation.
  */
-export function buildRowsFromHistory(input: RowBuildInput): repo.GalleryRow[] {
+export async function buildRowsFromExecution(input: RowBuildInput): Promise<repo.GalleryRow[]> {
   const meta = extractMetadata(input.apiPrompt, input.workflowGraph, input.statusMessages);
   const workflowJson = input.apiPrompt ? JSON.stringify(input.apiPrompt) : null;
   const hash = input.apiPrompt ? workflowHash(input.apiPrompt) : null;
@@ -100,8 +105,16 @@ export function buildRowsFromHistory(input: RowBuildInput): repo.GalleryRow[] {
       if (f.type === 'temp') continue;
       const subfolder = f.subfolder || '';
       const type = f.type || 'output';
-      rows.push({
-        id: `${input.promptId}-${f.filename}`,
+
+      // Attempt a file stat so sizeBytes is populated on every row, not just
+      // disk-sweep rows. Null when COMFYUI_PATH is unset or the file is
+      // transiently absent (e.g. the row arrives before the file is flushed).
+      const resolved = resolveViewPath(f.filename, subfolder, type);
+      const inspection = resolved ? await inspectFile(resolved.absPath) : null;
+
+      const row: repo.GalleryRow = {
+        // UUID for live rows; disk-sweep rows use their own `disk-<uuid>` ids.
+        id: randomUUID(),
         filename: f.filename,
         subfolder,
         type,
@@ -111,29 +124,19 @@ export function buildRowsFromHistory(input: RowBuildInput): repo.GalleryRow[] {
         createdAt: input.createdAt - fileIndex,
         templateName: input.templateName ?? null,
         workflowJson,
-        promptText: meta.promptText,
-        negativeText: meta.negativeText,
-        seed: meta.seed,
-        model: meta.model,
-        sampler: meta.sampler,
-        steps: meta.steps,
-        cfg: meta.cfg,
-        width: meta.width,
-        height: meta.height,
         workflowHash: hash,
-        scheduler: meta.scheduler,
-        denoise: meta.denoise,
-        lengthFrames: meta.length,
-        fps: meta.fps,
-        batchSize: meta.batchSize,
-        durationMs: meta.durationMs,
         models: meta.models,
+        jobDurationMs: meta.durationMs,
         triggeredBy: input.triggeredBy ?? null,
         conversationId: input.conversationId ?? null,
         messageId: input.messageId ?? null,
         modelFingerprint: input.modelFingerprint ?? null,
         templateHash: input.templateHash ?? null,
-      });
+        sizeBytes: inspection?.sizeBytes ?? null,
+      };
+      if (inspection?.mediaDurationMs != null) row.mediaDurationMs = inspection.mediaDurationMs;
+      if (inspection?.mediaInfo != null) row.mediaInfoJson = JSON.stringify(inspection.mediaInfo);
+      rows.push(row);
       fileIndex += 1;
     }
   }
@@ -159,7 +162,7 @@ export async function onNodeExecuted(
     // `outputs` is keyed by node id in history, but for single-node events we
     // just need one synthetic bucket; the row id still combines promptId +
     // filename so dedup across `executed` bursts works.
-    const rows = buildRowsFromHistory({
+    const rows = await buildRowsFromExecution({
       promptId,
       outputs: { node: output as Record<string, unknown> },
       apiPrompt: null,
@@ -167,7 +170,7 @@ export async function onNodeExecuted(
     });
     let inserted = 0;
     for (const row of rows) {
-      if (repo.appendFromHistory(row)) inserted += 1;
+      if (repo.insertGalleryRow(row)) inserted += 1;
     }
     if (inserted > 0) emitGalleryUpdate();
     return inserted;
@@ -192,19 +195,25 @@ export async function appendHistoryEntry(promptId: string): Promise<number> {
     // When outputs are absent, snapshot can't help yet — caller will retry.
     if (!entry?.outputs) return 0;
     let apiPrompt = normalisePromptField(entry.prompt);
+    const snap = getSnapshot(promptId);
     if (!apiPrompt) {
-      const snap = getSnapshot(promptId);
       if (snap) { try { apiPrompt = JSON.parse(snap.apiPromptJson) as typeof apiPrompt; } catch { /* ignore */ } }
     }
-    const rows = buildRowsFromHistory({
+    // Snapshot is the durable source for the three provenance fields; fall
+    // back to in-memory meta for paths where the snapshot was already cleared.
+    const triggeredBy   = snap?.triggered_by   ?? meta?.triggeredBy   ?? null;
+    const conversationId = snap?.conversation_id ?? meta?.conversationId ?? null;
+    const messageId     = snap?.message_id      ?? meta?.messageId      ?? null;
+    const rows = await buildRowsFromExecution({
       promptId, outputs: entry.outputs, apiPrompt,
       createdAt: Date.now(), statusMessages: entry.status?.messages,
-      triggeredBy: meta?.triggeredBy, conversationId: meta?.conversationId,
-      messageId: meta?.messageId, modelFingerprint: meta?.modelFingerprint,
+      triggeredBy, conversationId,
+      messageId, modelFingerprint: meta?.modelFingerprint,
       templateHash: meta?.templateHash,
+      templateName: snap?.templateName ?? meta?.templateName ?? null,
     });
     let inserted = 0;
-    for (const row of rows) { if (repo.appendFromHistory(row)) inserted += 1; }
+    for (const row of rows) { if (repo.insertGalleryRow(row)) inserted += 1; }
     if (inserted > 0) { emitGalleryUpdate(); deleteSnapshot(promptId); clearPromptMeta(promptId); }
     return inserted;
   } catch (err) {
@@ -218,11 +227,16 @@ export async function onExecutionComplete(promptId: string): Promise<number> {
 }
 
 export interface ImportFromComfyUIResult {
+  /** Total rows inserted (history + disk sweep combined). */
   imported: number;
   skipped: number;
+  /** Rows inserted by the disk sweep alone (subset of `imported`). */
+  importedFromDisk: number;
+  /** Number of files visited on disk during the sweep. */
+  scanned: number;
 }
 
-/** Explicit "Import from ComfyUI history" path. Returns `{ imported, skipped }`. */
+/** Explicit "Import from ComfyUI history" path. Returns `{ imported, skipped, importedFromDisk, scanned }`. */
 export async function syncFromComfyUI(): Promise<ImportFromComfyUIResult> {
   let imported = 0;
   let skipped = 0;
@@ -235,7 +249,7 @@ export async function syncFromComfyUI(): Promise<ImportFromComfyUIResult> {
       try {
         const entry = await getHistoryForPrompt(promptId);
         if (!entry?.outputs) continue;
-        const rows = buildRowsFromHistory({
+        const rows = await buildRowsFromExecution({
           promptId,
           outputs: entry.outputs,
           apiPrompt: normalisePromptField(entry.prompt),
@@ -243,7 +257,7 @@ export async function syncFromComfyUI(): Promise<ImportFromComfyUIResult> {
           statusMessages: entry.status?.messages,
         });
         for (const row of rows) {
-          if (repo.appendFromHistory(row)) imported += 1;
+          if (repo.insertGalleryRow(row)) imported += 1;
           else skipped += 1;
         }
       } catch (err) {
@@ -257,23 +271,45 @@ export async function syncFromComfyUI(): Promise<ImportFromComfyUIResult> {
   } catch (err) {
     logger.warn('gallery sync failed', { message: err instanceof Error ? err.message : String(err) });
   }
+
+  // Walk the output directory for files the live pipeline never saw (e.g.
+  // generated via ComfyUI's own editor, or while the Studio backend was down).
+  const sweep = await sweepOrphansFromDisk();
+  imported += sweep.inserted;
+
   if (imported > 0) emitGalleryUpdate();
-  return { imported, skipped };
+  return { imported, skipped, importedFromDisk: sweep.inserted, scanned: sweep.scanned };
 }
 
 export interface ListFilter {
   mediaType?: string;
   sort?: 'newest' | 'oldest';
+  favorite?: boolean;
 }
 
 export async function list(): Promise<GalleryListItem[]> { return repo.listAll({ sort: 'newest' }); }
 export function listByPromptIds(promptIds: readonly string[]): GalleryListItem[] { return repo.listByPromptIds(promptIds); }
 export async function listPaginated(filter: ListFilter, page: number, pageSize: number): Promise<{ items: GalleryListItem[]; total: number }> {
-  return repo.listPaginated({ mediaType: filter.mediaType, sort: filter.sort === 'oldest' ? 'oldest' : 'newest' }, page, pageSize);
+  return repo.listPaginated({
+    mediaType: filter.mediaType,
+    sort: filter.sort === 'oldest' ? 'oldest' : 'newest',
+    favorite: filter.favorite,
+  }, page, pageSize);
 }
 export function remove(id: string): boolean { return repo.remove(id); }
-export function getById(id: string): GalleryItem | null { return repo.getById(id); }
-export function getByIdFull(id: string): GalleryItem | null { return repo.getByIdFull(id); }
+export function getById(id: string): GalleryRowFull | null { return repo.getById(id); }
+export function getByIdFull(id: string): GalleryRowFull | null { return repo.getByIdFull(id); }
+export function findNeighborIds(
+  id: string,
+  filter: { mediaType?: string; sort?: 'newest' | 'oldest'; favorite?: boolean } = {},
+): { prevId: string | null; nextId: string | null } {
+  return repo.findNeighborIds(id, filter);
+}
+
+/** Pin / unpin a gallery item. Returns false when the id is unknown (404). */
+export function setFavorite(id: string, favorite: boolean): boolean {
+  return repo.setFavorite(id, favorite);
+}
 
 export interface RemoveItemResult {
   id: string;

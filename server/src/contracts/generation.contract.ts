@@ -31,51 +31,79 @@ export interface GalleryListItem {
    * Generation wall-clock duration in milliseconds (captured from ComfyUI
    * status messages at write time). Surfaced on slim rows so the tile grid
    * can render a duration pill on audio/video items. Null on images and on
-   * rows older than Wave F.
+   * rows older than Wave F. Renamed from `durationMs` in v21 to disambiguate
+   * from `mediaDurationMs` (length of the actual file).
    */
-  durationMs?: number | null;
+  jobDurationMs?: number | null;
+  /**
+   * Whether the user has starred this gallery item. Backed by the
+   * `gallery.favorite` column (v22). Toggle via PUT /gallery/:id/favorite.
+   * False on un-starred items and on rows that pre-date v22.
+   */
+  favorite?: boolean;
+}
+
+/**
+ * Workflow recipe — derived on-the-fly from `workflowJson` via
+ * `extractMetadata` at request time, then bundled under one key on the wire.
+ * Null on rows without a stored workflow (disk-sweep, pre-Wave-F imports).
+ * Replaces the 14 scattered top-level fields that used to live on GalleryItem
+ * before v21 — same data, one bundle, easier null-check.
+ */
+export interface WorkflowDetail {
+  promptText: string | null;
+  negativeText: string | null;
+  seed: number | null;
+  model: string | null;
+  models: string[];
+  sampler: string | null;
+  scheduler: string | null;
+  steps: number | null;
+  cfg: number | null;
+  denoise: number | null;
+  /** What the workflow asked for. The actual rendered dimensions live on `mediaInfo`. */
+  width: number | null;
+  height: number | null;
+  lengthFrames: number | null;
+  fps: number | null;
+  batchSize: number | null;
 }
 
 export interface GalleryItem extends GalleryListItem {
   /**
-   * Optional generation metadata captured at execution time from ComfyUI's
-   * history entry. Wave F adds these; rows written before Wave F have them
-   * all null/undefined. `workflowJson` is the full API-format workflow
-   * object stringified — required for the regenerate endpoint. Wave P moved
-   * these off the list payload; only `GET /api/gallery/:id` returns them.
+   * Length of the media file itself (video/audio duration). Distinct from
+   * `jobDurationMs` which is the wall-clock generation time. Populated by
+   * `inspectFile` via ffprobe; null on images and when ffprobe is unavailable.
    */
+  mediaDurationMs?: number | null;
+  /**
+   * Per-media inspection blob (parsed from `mediaInfoJson`). For images:
+   * `{ width, height, format, channels?, hasAlpha? }`. For video:
+   * `{ width, height, fps, codec_name, pix_fmt? }`. For audio:
+   * `{ codec_name, sample_rate, channels, bit_rate? }`. Null otherwise.
+   */
+  mediaInfo?: Record<string, unknown> | null;
+  /**
+   * Workflow recipe derived from the stored `workflowJson`. Null when no
+   * workflow was captured for this row. UI uses `Boolean(workflowDetail)`
+   * as the regenerate-enabled gate.
+   */
+  workflowDetail?: WorkflowDetail | null;
+  /** ID of the visually-previous item in the gallery (respects filter+sort). Null at boundary. */
+  prevId?: string | null;
+  /** ID of the visually-next item in the gallery (respects filter+sort). Null at boundary. */
+  nextId?: string | null;
+}
+
+/**
+ * Internal storage shape: GalleryItem plus the raw DB-only fields used by
+ * routes that need the workflow string itself (regenerate, on-the-fly
+ * detail parsing). NOT sent over the wire — routes strip these before
+ * res.json.
+ */
+export interface GalleryRowFull extends GalleryItem {
   workflowJson?: string | null;
-  promptText?: string | null;
-  negativeText?: string | null;
-  seed?: number | null;
-  model?: string | null;
-  sampler?: string | null;
-  steps?: number | null;
-  cfg?: number | null;
-  width?: number | null;
-  height?: number | null;
-  /**
-   * Stable hash of the canonical apiPrompt JSON — used by the cache-hit
-   * resolver in `/api/history/:promptId` to look up the gallery row that
-   * produced the outputs the current (cached) prompt_id points to.
-   */
   workflowHash?: string | null;
-  /**
-   * Schema v4 metadata — workflow-agnostic extractor output. Populated by
-   * the new `extractMetadata()` pipeline across classic SD, modern subgraph
-   * video (LTX2/Wan/Hunyuan), and audio workflows. All optional + nullable
-   * so pre-v4 rows (and callers that never set them) keep compiling.
-   */
-  scheduler?: string | null;
-  denoise?: number | null;
-  /** Video frames or audio samples per generation. */
-  lengthFrames?: number | null;
-  fps?: number | null;
-  batchSize?: number | null;
-  /** Execution duration in ms, derived from history `status.messages` timestamps. */
-  durationMs?: number | null;
-  /** Every referenced model filename across loaders. Serialised as JSON in sqlite. */
-  models?: string[] | null;
 }
 
 /** One output row returned from `GET /api/history/:promptId`. */

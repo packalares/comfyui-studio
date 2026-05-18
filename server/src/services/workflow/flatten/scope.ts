@@ -58,8 +58,18 @@ export function emitScopeLinks(
 }
 
 // Emit real nodes (skip wrappers — they were expanded already, skip
-// Note / MarkdownNote markers, skip muted mode-2 nodes). Rewrites each
-// input's link id from local -> global.
+// Note / MarkdownNote markers, skip muted mode-2 nodes). Bypassed mode-4
+// nodes are KEPT in state.nodes so resolveInput can walk through them via
+// followBypassed for type-aware passthrough rewiring; nodeEmit then skips
+// them at API-prompt emission time so ComfyUI never sees them. Without
+// keeping bypassed nodes in the map the resolver fell back to a dangling
+// `[bypassed_id, slot]` ref and ComfyUI's prompt validator threw
+// `KeyError: '<bypassed_id>'` for any consumer downstream of a mid-chain
+// bypassed node (e.g. SeedVR2 templates ship with JoinImageWithAlpha
+// bypassed between LoadVideo and the upscaler — same pattern as ComfyUI
+// Web's own "skip this node" toggle).
+//
+// Rewrites each input's link id from local -> global.
 export function emitScopeNodes(
   state: FlattenState,
   scopeNodes: Array<Record<string, unknown>>,
@@ -73,7 +83,8 @@ export function emitScopeNodes(
     const localId = node.id as number;
     if (localId < 0) continue;
     if (state.sgMap.has(type)) continue;
-    if ((node.mode as number | undefined) === 2) continue;
+    const mode = node.mode as number | undefined;
+    if (mode === 2) continue;
 
     const gid = toGlobal(localId);
     const rawInputs = (node.inputs || []) as FlatNodeInput[];
@@ -115,7 +126,13 @@ export function expandScope(
   const linkIdMap = new Map<number, number>();
   for (const l of scopeLinks) linkIdMap.set(l.id, state.nextLinkId++);
 
-  // Pass 1 — expand wrappers.
+  // Pass 1 — expand wrappers. Skip bypassed (mode=4) or muted (mode=2)
+  // wrappers: a bypassed subgraph contributes no inner nodes and produces
+  // no outputs, so downstream consumers — themselves typically bypassed
+  // alongside — silently drop. Matches ComfyUI's native "this subgraph is
+  // disabled" behaviour and unbreaks templates like OneReward (which ships
+  // its outpaint subgraph bypassed) and Klein-4b-distilled (which ships its
+  // dual-reference variant bypassed).
   for (const node of scopeNodes) {
     const type = node.type as string;
     if (!type || type === 'MarkdownNote' || type === 'Note') continue;
@@ -123,6 +140,8 @@ export function expandScope(
     if (localId < 0) continue;
     const sg = state.sgMap.get(type);
     if (!sg) continue;
+    const wrapperMode = node.mode as number | undefined;
+    if (wrapperMode === 2 || wrapperMode === 4) continue;
     expandWrapper(
       state, node, sg, prefix, scopeNodes, scopeLinks,
       inputSubs, outputSubs, toGlobal(localId), expandScope,

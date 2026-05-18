@@ -239,6 +239,22 @@ function consumeWidget(
   return 1;
 }
 
+/**
+ * True when `inputName` is declared in this node type's
+ * `INPUT_TYPES["optional"]`. Read from objectInfo (the live ComfyUI
+ * metadata) rather than the workflow's `shape: 7` hint, which isn't
+ * always set by every node author.
+ */
+function isOptionalInput(
+  objectInfo: Record<string, Record<string, unknown>>,
+  nodeType: string,
+  inputName: string,
+): boolean {
+  const info = objectInfo[nodeType] as
+    { input?: { optional?: Record<string, unknown> } } | undefined;
+  return !!(info?.input?.optional && inputName in info.input.optional);
+}
+
 // Build the inputs dict for a single API prompt entry by walking node
 // inputs (resolveInput handles pass-through chains) and then filling in
 // widget values via the V3-aware walker.
@@ -255,6 +271,19 @@ function buildNodeInputs(
     if (inp.link == null) continue;
     const resolved = resolveInput(inp.link, ctx);
     if (!resolved) continue;
+    // Dangling-ref guard: scope.ts drops bypassed (mode=4) nodes from the
+    // flat state entirely; resolveInput then returns a ref to a node id that
+    // doesn't exist in the API prompt. For OPTIONAL inputs we drop the
+    // entry — ComfyUI then falls back to the node's default, which is the
+    // natural meaning of "optional". For REQUIRED inputs we leave the
+    // dangling ref so ComfyUI surfaces a clear validation error pointing at
+    // the genuinely-broken wire. Templates like 02_qwen_Image_edit_subgraphed
+    // ship with bypassed optional LoadImage feeding image2/image3 — without
+    // this guard the inner TextEncode nodes reference non-existent LoadImage
+    // ids and validation throws.
+    if (resolved.kind === 'ref' && !ctx.nodes.has(resolved.nodeId)) {
+      if (isOptionalInput(objectInfo, node.type, inp.name)) continue;
+    }
     inputs[inp.name] = resolved.kind === 'literal'
       ? resolved.value
       : [resolved.nodeId, resolved.slot];
@@ -296,7 +325,11 @@ export function emitNodesFromWorkflow(
   const prompt: ApiPrompt = {};
   for (const [id, node] of nodes.entries()) {
     if (UI_ONLY_TYPES.has(node.type)) continue;
-    if (node.mode === 2) continue;
+    // mode 2 = muted (skip entirely). mode 4 = bypassed (kept in
+    // ctx.nodes by flatten/scope.ts so resolveInput can walk through
+    // for type-aware passthrough rewiring, but NEVER emitted to the API
+    // prompt — ComfyUI's prompt validator would treat it as a real node.
+    if (node.mode === 2 || node.mode === 4) continue;
     const info = objectInfo[node.type];
     if (!info) continue;
     const inputs = buildNodeInputs(node, objectInfo, ctx);

@@ -113,6 +113,18 @@ const ROW_POLISH =
   + 'data-[active=true]:hover:bg-brand/15 data-[active=true]:hover:text-brand';
 
 export default function AppSidebar() {
+  const { pathname } = useLocation();
+  const { isMobile, openMobile, setOpenMobile } = useSidebar();
+  // Auto-close the mobile sheet on every route change. Catches every
+  // navigation path (NavLink, programmatic navigate, deep link) without
+  // wiring an onClick on each individual link.
+  useEffect(() => {
+    if (isMobile && openMobile) setOpenMobile(false);
+  // openMobile intentionally omitted: only fire on pathname change, not on
+  // the open/close transition itself (which would loop).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, isMobile]);
+
   return (
     <Sidebar variant="inset" collapsible="icon">
       <SidebarHeader>

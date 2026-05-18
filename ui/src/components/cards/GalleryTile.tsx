@@ -82,7 +82,7 @@ export default function GalleryTile({
 }: GalleryTileProps) {
   return (
     <div
-      className={`group relative overflow-hidden rounded-xl bg-muted ring-1 ring-border shadow-sm transition-all hover:shadow-lg hover:-translate-y-0.5 ${
+      className={`group relative overflow-hidden rounded-xl bg-muted ring-1 ring-border shadow-sm transition-all hover:shadow-lg hover:-translate-y-0.5 cursor-pointer ${
         isSelected ? 'ring-2 ring-brand' : ''
       }`}
     >
@@ -95,7 +95,9 @@ export default function GalleryTile({
             visual language across image / video / audio / 3D. */}
         <div className="absolute bottom-1 left-1 flex items-center gap-1 pointer-events-none">
           <MediaTypeBadge item={item} />
-          <DurationBadge ms={item.durationMs} />
+          {(item.mediaType === 'video' || item.mediaType === 'audio') && item.mediaDurationMs != null && (
+            <DurationBadge ms={item.mediaDurationMs} />
+          )}
         </div>
       </button>
 

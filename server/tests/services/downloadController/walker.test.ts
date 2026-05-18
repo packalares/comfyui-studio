@@ -88,6 +88,10 @@ describe('walkAndDownload', () => {
   });
 
   it('stops the walk on AUTH_REQUIRED HEAD without trying further URLs', async () => {
+    // 403 HEAD now triggers a Range-GET retry (see signed-URL tests below).
+    // The walker still halts iff the retry also returns 401/403 — that's
+    // the real "gated, give up" signal. Two fetches per URL (HEAD + GET);
+    // only the first candidate is probed because auth is terminal.
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(null, { status: 403 }),
     );
@@ -100,10 +104,96 @@ describe('walkAndDownload', () => {
         urlSource('https://civitai.com/api/download/models/1', 'civitai'),
       ],
       tokens: {},
-    })).rejects.toThrow(/HTTP 403/);
-    // Only the first URL was probed; the walker stopped.
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    })).rejects.toThrow(/HTTP 403 on GET/);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
     expect(mockedDownload).not.toHaveBeenCalled();
+  });
+
+  // Signed-URL CDNs (S3 / R2 / CloudFront) sign URLs for GET only — a HEAD
+  // against the signed redirect target returns 403 because the HTTP method
+  // is part of the canonical request in AWS Sig V4. Without the GET-retry
+  // fallback the walker mis-classifies these as gated.
+  it('signed-URL CDN: HEAD 403 + Range-GET 206 → proceeds to stream', async () => {
+    let calls = 0;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      calls += 1;
+      const method = (init?.method as string | undefined) || 'GET';
+      if (method === 'HEAD') return new Response(null, { status: 403 });
+      // Range-GET probe returns 206 from the signed CDN.
+      return new Response(null, { status: 206, headers: { 'content-range': 'bytes 0-0/12345' } });
+    });
+    mockedDownload.mockResolvedValueOnce(undefined);
+    const out = await walkAndDownload({
+      modelName: 'civitai.safetensors',
+      outputPath: '/tmp/civitai.safetensors',
+      taskId: 'task-signed-ok',
+      candidates: [urlSource('https://civitai.com/api/download/models/920957', 'civitai')],
+      tokens: {},
+    });
+    expect(out.url).toBe('https://civitai.com/api/download/models/920957');
+    expect(calls).toBe(2); // HEAD then Range-GET
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(mockedDownload).toHaveBeenCalledTimes(1);
+  });
+
+  it('signed-URL CDN: HEAD 403 + Range-GET 200 → proceeds (server ignores Range)', async () => {
+    let calls = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      calls += 1;
+      const method = (init?.method as string | undefined) || 'GET';
+      if (method === 'HEAD') return new Response(null, { status: 403 });
+      // Some servers don't honour Range and just return 200 with the full
+      // body. Either status is acceptable for the probe.
+      return new Response(null, { status: 200 });
+    });
+    mockedDownload.mockResolvedValueOnce(undefined);
+    const out = await walkAndDownload({
+      modelName: 'a.bin',
+      outputPath: '/tmp/a.bin',
+      taskId: 'task-signed-ok-200',
+      candidates: [urlSource('https://civitai.com/api/download/models/1', 'civitai')],
+      tokens: {},
+    });
+    expect(out.url).toBe('https://civitai.com/api/download/models/1');
+    expect(calls).toBe(2);
+  });
+
+  it('HEAD 405 method-not-allowed: retries as Range-GET', async () => {
+    let calls = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      calls += 1;
+      const method = (init?.method as string | undefined) || 'GET';
+      if (method === 'HEAD') return new Response(null, { status: 405 });
+      return new Response(null, { status: 200 });
+    });
+    mockedDownload.mockResolvedValueOnce(undefined);
+    const out = await walkAndDownload({
+      modelName: 'a.bin',
+      outputPath: '/tmp/a.bin',
+      taskId: 'task-405',
+      candidates: [urlSource('https://civitai.com/api/download/models/2', 'civitai')],
+      tokens: {},
+    });
+    expect(out.url).toBe('https://civitai.com/api/download/models/2');
+    expect(calls).toBe(2);
+  });
+
+  it('HEAD 200 succeeds directly: no Range-GET retry', async () => {
+    let calls = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      calls += 1;
+      return new Response(null, { status: 200 });
+    });
+    mockedDownload.mockResolvedValueOnce(undefined);
+    await walkAndDownload({
+      modelName: 'a.bin',
+      outputPath: '/tmp/a.bin',
+      taskId: 'task-head-ok',
+      candidates: [urlSource('https://huggingface.co/x', 'hf')],
+      tokens: {},
+    });
+    // Exactly one probe — HEAD only, no retry.
+    expect(calls).toBe(1);
   });
 
   it('falls through to next URL when the engine throws HTTP 404 mid-stream', async () => {

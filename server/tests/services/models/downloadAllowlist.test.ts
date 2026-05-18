@@ -1,10 +1,13 @@
-// Tests for the unified-download allow-list helper.
+// Tests for the unified-download URL validator + the host-membership helper.
 //
 // Coverage:
-//   - Built-in hosts (HF/civitai/github + www variants) are accepted.
-//   - Operator-added hosts (live setting) are accepted at runtime.
-//   - Hosts not on either list are rejected.
-//   - Private/loopback hosts are rejected even when on the allow-list.
+//   - `isAllowedDownloadHost` still recognises the built-in hosts (HF +
+//     mirror, civitai, github, Drive trio) plus operator-added hosts.
+//   - `validateAllowedUrl` is now permissive: any non-private http(s) URL
+//     passes (the host allow-list was removed in 2026-05 to mirror the
+//     paste-URL resolver, which content-checks URLs via HEAD-probe at
+//     resolve time and therefore doesn't need a second host gate).
+//   - Private/loopback hosts are still rejected regardless of host list.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as liveSettings from '../../../src/services/settings/network.js';
@@ -16,11 +19,13 @@ describe('isAllowedDownloadHost', () => {
   beforeEach(() => { liveSettings.setModelTrustedHosts([]); });
   afterEach(() => { liveSettings.setModelTrustedHosts([]); });
 
-  it('accepts the built-in trio + github', () => {
+  it('accepts the built-in trio + github + drive', () => {
     expect(isAllowedDownloadHost('https://huggingface.co/x')).toBe(true);
     expect(isAllowedDownloadHost('https://hf-mirror.com/x')).toBe(true);
     expect(isAllowedDownloadHost('https://civitai.com/api/download/models/1')).toBe(true);
     expect(isAllowedDownloadHost('https://github.com/o/r/releases/download/v1/a.bin')).toBe(true);
+    expect(isAllowedDownloadHost('https://drive.google.com/uc?id=abc')).toBe(true);
+    expect(isAllowedDownloadHost('https://docs.google.com/uc?id=abc')).toBe(true);
   });
 
   it('rejects a generic host when no operator override is set', () => {
@@ -55,6 +60,21 @@ describe('validateAllowedUrl', () => {
 
   it('accepts a built-in host with a valid URL', () => {
     expect(validateAllowedUrl('https://huggingface.co/x/y').ok).toBe(true);
+  });
+
+  it('accepts non-built-in public hosts (allow-list dropped 2026-05)', () => {
+    // Regression pin: pre-2026-05 these would have returned ok=false with
+    // "hfUrl host not allowed". The paste-URL resolver now content-checks
+    // any URL at resolve time, so the download validator only enforces
+    // SSRF + http(s).
+    expect(validateAllowedUrl('https://example.com/some-file.safetensors').ok).toBe(true);
+    expect(validateAllowedUrl('https://cdn.somerandom.host/4xFFHQDAT.pth').ok).toBe(true);
+    expect(validateAllowedUrl('https://drive.google.com/uc?export=download&id=abc').ok).toBe(true);
+  });
+
+  it('still rejects private/loopback hosts regardless of allow-list', () => {
+    expect(validateAllowedUrl('http://127.0.0.1/x').ok).toBe(false);
+    expect(validateAllowedUrl('http://10.0.0.5/x').ok).toBe(false);
   });
 });
 

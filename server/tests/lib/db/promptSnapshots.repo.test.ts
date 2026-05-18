@@ -67,4 +67,51 @@ describe('promptSnapshots repo', () => {
     expect(deleted).toBeGreaterThanOrEqual(1);
     expect(snapshotsRepo.getSnapshot('boundary-p')).toBeNull();
   });
+
+  it('insertSnapshot + getSnapshot round-trip with provenance fields', () => {
+    snapshotsRepo.insertSnapshot({
+      promptId: 'prov-1',
+      apiPromptJson: '{}',
+      triggered_by: 'chat',
+      conversation_id: 'conv-abc',
+      message_id: 'msg-xyz',
+    });
+    const snap = snapshotsRepo.getSnapshot('prov-1');
+    expect(snap).not.toBeNull();
+    expect(snap!.triggered_by).toBe('chat');
+    expect(snap!.conversation_id).toBe('conv-abc');
+    expect(snap!.message_id).toBe('msg-xyz');
+  });
+
+  it('insertSnapshot without provenance returns null for provenance fields', () => {
+    snapshotsRepo.insertSnapshot({ promptId: 'prov-2', apiPromptJson: '{}' });
+    const snap = snapshotsRepo.getSnapshot('prov-2');
+    expect(snap).not.toBeNull();
+    expect(snap!.triggered_by).toBeNull();
+    expect(snap!.conversation_id).toBeNull();
+    expect(snap!.message_id).toBeNull();
+  });
+
+  it('INSERT OR REPLACE preserves provenance on second insert with same promptId', () => {
+    snapshotsRepo.insertSnapshot({
+      promptId: 'prov-3',
+      apiPromptJson: '{"v":1}',
+      triggered_by: 'chat',
+      conversation_id: 'conv-1',
+      message_id: 'msg-1',
+    });
+    // Second insert replaces the row — provenance from second call wins.
+    snapshotsRepo.insertSnapshot({
+      promptId: 'prov-3',
+      apiPromptJson: '{"v":2}',
+      triggered_by: 'ui',
+      conversation_id: null,
+      message_id: null,
+    });
+    const snap = snapshotsRepo.getSnapshot('prov-3');
+    expect(snap!.apiPromptJson).toBe('{"v":2}');
+    expect(snap!.triggered_by).toBe('ui');
+    expect(snap!.conversation_id).toBeNull();
+    expect(snap!.message_id).toBeNull();
+  });
 });

@@ -11,6 +11,9 @@ import * as repo from '../../src/lib/db/gallery.repo.js';
 import { useFreshDb } from '../lib/db/_helpers.js';
 
 function mkFatRow(id: string): repo.GalleryRow {
+  // v21: extracted fields no longer stored in DB; workflowJson is the only
+  // metadata column. The old promptText, seed, model etc. are derived on-the-fly
+  // from workflowJson in the /api/gallery/:id route.
   return {
     id,
     filename: `${id}.png`,
@@ -18,20 +21,11 @@ function mkFatRow(id: string): repo.GalleryRow {
     type: 'output',
     mediaType: 'image',
     url: `/api/view?filename=${id}.png`,
-    promptId: 'p',
+    promptId: '',
     createdAt: Date.now(),
     templateName: 'tpl',
     sizeBytes: 1234,
     workflowJson: JSON.stringify({ '5': { class_type: 'KSampler', inputs: { seed: 1 } } }),
-    promptText: 'a photo of a dog',
-    negativeText: 'ugly',
-    seed: 42,
-    model: 'sd-xl.safetensors',
-    sampler: 'euler',
-    steps: 20,
-    cfg: 7,
-    width: 1024,
-    height: 1024,
   };
 }
 
@@ -89,17 +83,19 @@ describe('gallery repo slim vs full', () => {
     expect(row?.id).toBe('full-row');
     expect(row?.templateName).toBe('tpl');
     expect(row?.sizeBytes).toBe(1234);
-    // Fat fields must be populated — these are exactly what regenerate needs.
+    // v21: workflowJson is the fat field regenerate needs; extracted columns
+    // (promptText, seed, model etc.) are gone from the DB and derived on-the-fly
+    // by the route. The raw repo row must NOT have them.
     expect(row?.workflowJson).toContain('KSampler');
-    expect(row?.promptText).toBe('a photo of a dog');
-    expect(row?.negativeText).toBe('ugly');
-    expect(row?.seed).toBe(42);
-    expect(row?.model).toBe('sd-xl.safetensors');
-    expect(row?.sampler).toBe('euler');
-    expect(row?.steps).toBe(20);
-    expect(row?.cfg).toBe(7);
-    expect(row?.width).toBe(1024);
-    expect(row?.height).toBe(1024);
+    expect(row).not.toHaveProperty('promptText');
+    expect(row).not.toHaveProperty('negativeText');
+    expect(row).not.toHaveProperty('seed');
+    expect(row).not.toHaveProperty('model');
+    expect(row).not.toHaveProperty('sampler');
+    expect(row).not.toHaveProperty('steps');
+    expect(row).not.toHaveProperty('cfg');
+    expect(row).not.toHaveProperty('width');
+    expect(row).not.toHaveProperty('height');
   });
 
   it('getByIdFull returns null for unknown id', () => {

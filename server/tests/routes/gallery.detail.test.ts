@@ -38,22 +38,29 @@ describe('GET /gallery/:id', () => {
   });
 
   it('returns the full row with fat metadata on hit', async () => {
+    // v21: extracted fields no longer stored as DB columns — the route parses
+    // workflowJson on-the-fly. Use a full workflow with KSampler + CLIPTextEncode
+    // so extractMetadata can recover promptText, seed, sampler, steps, cfg.
+    const workflowJson = JSON.stringify({
+      '1': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: 'flux.safetensors' } },
+      '2': { class_type: 'CLIPTextEncode', inputs: { text: 'a photo' } },
+      '3': { class_type: 'CLIPTextEncode', inputs: { text: 'bad' } },
+      '4': { class_type: 'EmptyLatentImage', inputs: { width: 1024, height: 1024 } },
+      '5': {
+        class_type: 'KSampler',
+        inputs: {
+          seed: 42, steps: 20, cfg: 6, sampler_name: 'euler',
+          positive: ['2', 0], negative: ['3', 0], latent_image: ['4', 0],
+        },
+      },
+    });
     repo.insert({
       id: 'detail-1', filename: 'out.png', subfolder: '', type: 'output',
       mediaType: 'image', url: '/api/view?filename=out.png', promptId: 'p',
       createdAt: 1000,
       templateName: 'FluxDev',
       sizeBytes: 5555,
-      workflowJson: JSON.stringify({ '5': { class_type: 'KSampler', inputs: { seed: 42 } } }),
-      promptText: 'a photo',
-      negativeText: 'bad',
-      seed: 42,
-      model: 'flux.safetensors',
-      sampler: 'euler',
-      steps: 20,
-      cfg: 6,
-      width: 1024,
-      height: 1024,
+      workflowJson,
     });
     const app = await startApp();
     try {
@@ -64,16 +71,20 @@ describe('GET /gallery/:id', () => {
       expect(body.filename).toBe('out.png');
       expect(body.templateName).toBe('FluxDev');
       expect(body.sizeBytes).toBe(5555);
-      // Fat fields present.
-      expect(body.workflowJson).toContain('KSampler');
-      expect(body.promptText).toBe('a photo');
-      expect(body.seed).toBe(42);
-      expect(body.model).toBe('flux.safetensors');
-      expect(body.sampler).toBe('euler');
-      expect(body.steps).toBe(20);
-      expect(body.cfg).toBe(6);
-      expect(body.width).toBe(1024);
-      expect(body.height).toBe(1024);
+      // workflowJson and workflowHash are storage-only after v21; the wire
+      // shape exposes a `workflowDetail` bundle instead, derived on the fly.
+      expect(body.workflowJson).toBeUndefined();
+      expect(body.workflowHash).toBeUndefined();
+      const wd = body.workflowDetail as Record<string, unknown>;
+      expect(wd).toBeDefined();
+      expect(wd.promptText).toBe('a photo');
+      expect(wd.seed).toBe(42);
+      expect(wd.model).toBe('flux.safetensors');
+      expect(wd.sampler).toBe('euler');
+      expect(wd.steps).toBe(20);
+      expect(wd.cfg).toBe(6);
+      expect(wd.width).toBe(1024);
+      expect(wd.height).toBe(1024);
     } finally { await app.close(); }
   });
 
@@ -89,6 +100,22 @@ describe('GET /gallery/:id', () => {
       expect(res.status).toBe(200);
       const body = await res.json() as { id: string };
       expect(body.id).toBe('alias-1');
+    } finally { await app.close(); }
+  });
+
+  it('single row has null prevId and nextId', async () => {
+    repo.insert({
+      id: 'solo-1', filename: 'solo.png', subfolder: '', type: 'output',
+      mediaType: 'image', url: '/api/view?filename=solo.png', promptId: '',
+      createdAt: 5000,
+    });
+    const app = await startApp();
+    try {
+      const res = await fetch(`${app.url}/gallery/solo-1`);
+      expect(res.status).toBe(200);
+      const body = await res.json() as { prevId: unknown; nextId: unknown };
+      expect(body.prevId).toBeNull();
+      expect(body.nextId).toBeNull();
     } finally { await app.close(); }
   });
 });

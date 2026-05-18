@@ -13,6 +13,9 @@ export interface PromptSnapshot {
   promptId: string;
   apiPromptJson: string;
   templateName?: string | null;
+  triggered_by?: string | null;
+  conversation_id?: string | null;
+  message_id?: string | null;
   createdAt: number;
 }
 
@@ -20,6 +23,9 @@ export interface InsertSnapshotInput {
   promptId: string;
   apiPromptJson: string;
   templateName?: string | null;
+  triggered_by?: string | null;
+  conversation_id?: string | null;
+  message_id?: string | null;
 }
 
 export function insertSnapshot(
@@ -27,9 +33,18 @@ export function insertSnapshot(
   db: Database.Database = getDb(),
 ): void {
   db.prepare(
-    `INSERT OR REPLACE INTO prompt_snapshots (promptId, apiPromptJson, templateName, createdAt)
-     VALUES (?, ?, ?, ?)`,
-  ).run(input.promptId, input.apiPromptJson, input.templateName ?? null, Date.now());
+    `INSERT OR REPLACE INTO prompt_snapshots
+       (promptId, apiPromptJson, templateName, triggered_by, conversation_id, message_id, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    input.promptId,
+    input.apiPromptJson,
+    input.templateName ?? null,
+    input.triggered_by ?? null,
+    input.conversation_id ?? null,
+    input.message_id ?? null,
+    Date.now(),
+  );
 }
 
 export function getSnapshot(
@@ -37,10 +52,25 @@ export function getSnapshot(
   db: Database.Database = getDb(),
 ): Omit<PromptSnapshot, 'promptId'> | null {
   const row = db.prepare(
-    'SELECT apiPromptJson, templateName, createdAt FROM prompt_snapshots WHERE promptId = ?',
-  ).get(promptId) as { apiPromptJson: string; templateName: string | null; createdAt: number } | undefined;
+    `SELECT apiPromptJson, templateName, triggered_by, conversation_id, message_id, createdAt
+     FROM prompt_snapshots WHERE promptId = ?`,
+  ).get(promptId) as {
+    apiPromptJson: string;
+    templateName: string | null;
+    triggered_by: string | null;
+    conversation_id: string | null;
+    message_id: string | null;
+    createdAt: number;
+  } | undefined;
   if (!row) return null;
-  return { apiPromptJson: row.apiPromptJson, templateName: row.templateName, createdAt: row.createdAt };
+  return {
+    apiPromptJson: row.apiPromptJson,
+    templateName: row.templateName,
+    triggered_by: row.triggered_by,
+    conversation_id: row.conversation_id,
+    message_id: row.message_id,
+    createdAt: row.createdAt,
+  };
 }
 
 export function deleteSnapshot(

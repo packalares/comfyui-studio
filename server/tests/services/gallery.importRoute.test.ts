@@ -123,10 +123,14 @@ describe('POST /gallery/import-from-comfyui', () => {
       expect(body.imported).toBe(4);
       expect(body.skipped).toBe(0);
       expect(repo.count()).toBe(4);
-      // Verify metadata extracted end-to-end (seed from the 5-tuple prompt).
-      const row = repo.getById('prompt-a-a1.png');
-      expect(row?.seed).toBe(111);
-      expect(row?.sampler).toBe('euler');
+      // v21: IDs are UUIDs; look up by promptId to verify the row was inserted.
+      // Extracted fields (seed, sampler) are no longer stored on the row —
+      // they are derived from workflowJson on-the-fly in the /api/gallery/:id
+      // route. Verify workflowJson is present instead.
+      const rows = repo.listAll().filter(r => r.promptId === 'prompt-a');
+      expect(rows.length).toBe(2);
+      const fullRow = rows[0] ? repo.getByIdFull(rows[0].id) : null;
+      expect(fullRow?.workflowJson).not.toBeNull();
 
       // Second immediate call hits the 10s per-process cooldown.
       const rate = await fetch(`${app.url}/gallery/import-from-comfyui`, { method: 'POST' });

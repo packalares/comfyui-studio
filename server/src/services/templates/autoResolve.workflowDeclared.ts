@@ -15,7 +15,7 @@
 // per-file cap (it was already a baseline structure offender pre-split).
 
 import { resolveHuggingfaceUrl, type ResolvedModel } from '../models/resolvers.js';
-import { resolveCivitaiUrl } from '../models/resolvers.js';
+import { resolveCivitaiUrl, resolveGithubReleaseUrl, resolveGoogleDriveUrl, resolveGenericUrl } from '../models/resolvers.js';
 import type { AutoResolvedModel } from './importStaging.js';
 
 function sameFile(a: string, b: string): boolean { return a.toLowerCase() === b.toLowerCase(); }
@@ -97,6 +97,15 @@ export async function stepWorkflowDeclaredUrl(
       const host = new URL(url).hostname;
       if (/huggingface\.co$/i.test(host)) resolved = await resolveHuggingfaceUrl(url);
       else if (/civitai\.com$/i.test(host)) resolved = await resolveCivitaiUrl(url);
+      else if (/github\.com$/i.test(host)) resolved = await resolveGithubReleaseUrl(url);
+      else if (/(drive|docs)\.google\.com$|drive\.usercontent\.google\.com$/i.test(host)) {
+        resolved = await resolveGoogleDriveUrl(url);
+      } else {
+        // Last resort: HEAD-probe an unknown host. Auto-resolve stays silent
+        // on failure (returns null + falls through), unlike the manual-paste
+        // path which throws UNSUPPORTED_HOST.
+        resolved = await resolveGenericUrl(url);
+      }
     } catch { resolved = null; }
     if (!resolved || !sameFile(resolved.fileName, filename)) continue;
     deps.upsertCatalogFromAuto(filename, resolved, loaderClass, folderHint);

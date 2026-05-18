@@ -13,6 +13,8 @@
 
 import type { FormFieldCandidate } from './types.js';
 import type { RawTemplate } from '../types.js';
+import type { FlatLink, FlatNode } from '../../workflow/flatten/index.js';
+import { detectMaskKindsForLoadImage, type MaskDetection } from './maskDetect.js';
 
 function cleanFileName(file: string): string {
   return file
@@ -48,14 +50,41 @@ function loaderFeedsOptionalInput(
   return false;
 }
 
+interface FlatData {
+  nodes: Map<string, FlatNode>;
+  links: FlatLink[];
+}
+
 function mediaCandidate(
   mediaType: 'image' | 'audio' | 'video',
   index: number,
   input: { nodeId: number; nodeType: string; file?: string; mediaType: string },
   workflow?: Record<string, unknown>,
+  flatData?: FlatData,
 ): FormFieldCandidate {
   const defaultLabel = `${mediaType.charAt(0).toUpperCase()}${mediaType.slice(1)} ${index + 1}`;
   const isOptional = loaderFeedsOptionalInput(workflow, input.nodeId) === true;
+
+  // For LoadImage nodes, detect every mask/pad path the downstream graph
+  // exposes. A template with two pipelines (e.g. OneReward inpaint +
+  // outpaint) emits two entries — each tagged with the subgraph it requires
+  // — so the UI can swap the modal between brush and pad based on the
+  // active mode-select value.
+  let maskable: MaskDetection[] | undefined;
+  // Server-side submit uses the first pad detection's target id. ComfyUI
+  // bypasses inactive subgraphs, so writing pad widgets onto a bypassed
+  // ImagePadForOutpaint is a no-op — making "use the first one" safe even
+  // when multiple pad paths exist.
+  let padTargetNodeId: string | undefined;
+  if (mediaType === 'image' && input.nodeType === 'LoadImage' && flatData) {
+    const flatId = String(input.nodeId);
+    const detections = detectMaskKindsForLoadImage(flatData.nodes, flatData.links, flatId);
+    if (detections.length > 0) {
+      maskable = detections;
+      padTargetNodeId = detections.find(d => d.kind === 'pad')?.padTargetNodeId;
+    }
+  }
+
   return {
     id: `${mediaType}_${index}`,
     label: input.file ? cleanFileName(input.file) : defaultLabel,
@@ -65,6 +94,8 @@ function mediaCandidate(
     nodeType: input.nodeType,
     mediaType,
     source: 'media-upload',
+    ...(maskable !== undefined && { maskable }),
+    ...(padTargetNodeId !== undefined && { padTargetNodeId }),
   };
 }
 
@@ -72,16 +103,20 @@ function mediaCandidate(
  * Build media-upload candidates from `template.io.inputs`. Order matches the
  * iteration order so the UI renders uploads in the same sequence the workflow
  * declared them.
+ *
+ * `flatData` is optional: when present, image fields for LoadImage nodes are
+ * annotated with a `maskable` flag derived from the downstream graph.
  */
 export function collectMediaFields(
   template: RawTemplate,
   workflow?: Record<string, unknown>,
+  flatData?: FlatData,
 ): FormFieldCandidate[] {
   const out: FormFieldCandidate[] = [];
   const ioInputs = template.io?.inputs ?? [];
   for (let i = 0; i < ioInputs.length; i++) {
     const input = ioInputs[i];
-    if (input.mediaType === 'image') out.push(mediaCandidate('image', i, input, workflow));
+    if (input.mediaType === 'image') out.push(mediaCandidate('image', i, input, workflow, flatData));
     else if (input.mediaType === 'audio') out.push(mediaCandidate('audio', i, input, workflow));
     else if (input.mediaType === 'video') out.push(mediaCandidate('video', i, input, workflow));
   }

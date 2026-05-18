@@ -11,6 +11,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { paths } from '../../config/paths.js';
 import { safeResolve } from '../fs.js';
@@ -382,6 +383,140 @@ function applyTemplatesFavoriteMigration(db: DB): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_templates_favorite ON templates(favorite)');
 }
 
+/**
+ * Schema v20 adds three provenance columns to `prompt_snapshots`:
+ * `triggered_by`, `conversation_id`, `message_id`. The snapshot becomes the
+ * durable store for these fields so gallery hydration can recover them even
+ * after the in-memory PromptMeta is cleared.
+ */
+function applyPromptSnapshotsProvenanceMigration(db: DB): void {
+  const cols = db.prepare('PRAGMA table_info(prompt_snapshots)').all() as Array<{ name: string }>;
+  if (cols.length === 0) return; // table not created yet (handled by SCHEMA_SQL above)
+  const present = new Set(cols.map(c => c.name));
+  if (!present.has('triggered_by')) {
+    db.exec('ALTER TABLE prompt_snapshots ADD COLUMN triggered_by TEXT');
+  }
+  if (!present.has('conversation_id')) {
+    db.exec('ALTER TABLE prompt_snapshots ADD COLUMN conversation_id TEXT');
+  }
+  if (!present.has('message_id')) {
+    db.exec('ALTER TABLE prompt_snapshots ADD COLUMN message_id TEXT');
+  }
+}
+
+/**
+ * Schema v21: drop the 14 extracted-metadata columns from `gallery`, rename
+ * `durationMs` to `jobDurationMs`, add `mediaDurationMs` + `mediaInfoJson`,
+ * switch live-pipeline IDs to plain UUIDs, and create the new indexes. All
+ * steps are idempotent via PRAGMA table_info / CREATE INDEX IF NOT EXISTS /
+ * _meta guards.
+ */
+function applyGallerySchemaV21Migration(db: DB): void {
+  const cols = db.prepare('PRAGMA table_info(gallery)').all() as Array<{ name: string }>;
+  const present = new Set(cols.map(c => c.name));
+
+  // Step 1: rename durationMs → jobDurationMs (one ALTER per column; SQLite
+  // supports RENAME COLUMN since 3.25 and better-sqlite3 bundles ≥3.45).
+  if (present.has('durationMs') && !present.has('jobDurationMs')) {
+    db.exec('ALTER TABLE gallery RENAME COLUMN durationMs TO jobDurationMs');
+    present.delete('durationMs');
+    present.add('jobDurationMs');
+  }
+
+  // Step 2: drop the 14 extracted-metadata columns. Per-column catch so a
+  // single failure (e.g. version too old to DROP COLUMN) doesn't abort the
+  // rest. SQLite DROP COLUMN is supported since 3.35.0.
+  const EXTRACTED_COLS = [
+    'promptText', 'negativeText', 'seed', 'model', 'sampler',
+    'steps', 'cfg', 'width', 'height', 'scheduler', 'denoise',
+    'lengthFrames', 'fps', 'batchSize',
+  ];
+  for (const col of EXTRACTED_COLS) {
+    if (!present.has(col)) continue;
+    try {
+      db.exec(`ALTER TABLE gallery DROP COLUMN ${col}`);
+    } catch (err) {
+      // Log but continue; the column will simply stay (safe to read, no inserts).
+      const msg = err instanceof Error ? err.message : String(err);
+      // eslint-disable-next-line no-console
+      console.warn(`[v21 migration] could not drop column ${col}: ${msg}`);
+    }
+  }
+
+  // Step 3: add new inspection columns idempotently.
+  const cols2 = db.prepare('PRAGMA table_info(gallery)').all() as Array<{ name: string }>;
+  const present2 = new Set(cols2.map(c => c.name));
+  if (!present2.has('mediaDurationMs')) {
+    db.exec('ALTER TABLE gallery ADD COLUMN mediaDurationMs INTEGER');
+  }
+  if (!present2.has('mediaInfoJson')) {
+    db.exec('ALTER TABLE gallery ADD COLUMN mediaInfoJson TEXT');
+  }
+
+  // Step 4: re-ID live-pipeline rows to plain UUIDs. Guarded by _meta so it
+  // runs once per DB file. Disk-sweep IDs start with `disk-` and are left
+  // alone. Stale browser URLs that held the old composite IDs will 404 —
+  // acceptable per design.
+  const uuidFlag = db.prepare('SELECT v FROM _meta WHERE k = ?')
+    .get('gallery_id_uuid_v21') as { v: string } | undefined;
+  if (!uuidFlag) {
+    db.exec(`
+      UPDATE gallery
+      SET id = lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-' ||
+               lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(2))) || '-' ||
+               lower(hex(randomblob(6)))
+      WHERE id NOT LIKE 'disk-%'
+    `);
+    db.prepare('INSERT OR REPLACE INTO _meta (k, v) VALUES (?, ?)').run('gallery_id_uuid_v21', 'done');
+  }
+
+  // Step 5: drop old durationMs index (if it survived), create new ones.
+  db.exec('DROP INDEX IF EXISTS idx_gallery_durationMs');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_gallery_jobDurationMs ON gallery(jobDurationMs)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_gallery_mediaDurationMs ON gallery(mediaDurationMs)');
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_gallery_unique_promptid_path
+    ON gallery(promptId, subfolder, filename)
+    WHERE promptId IS NOT NULL AND promptId != ''
+  `);
+}
+
+/**
+ * One-shot data migration: rewrite legacy disk-sweep ids that contain `/`
+ * (the original `disk:<subfolder>/<filename>` shape) to the new URL-safe
+ * `disk-<uuid>` form. The slash in the legacy id broke every
+ * `/api/gallery/:id`-style route once a reverse proxy decoded `%2F` to `/`
+ * before reaching Express. Guarded on `_meta` so it runs once per DB.
+ */
+function applyDiskSweepIdMigration(db: DB): void {
+  const flag = db.prepare('SELECT v FROM _meta WHERE k = ?')
+    .get('disk_sweep_id_v2') as { v: string } | undefined;
+  if (flag) return;
+  const rows = db.prepare("SELECT id FROM gallery WHERE id LIKE 'disk:%'").all() as
+    Array<{ id: string }>;
+  if (rows.length > 0) {
+    const update = db.prepare('UPDATE gallery SET id = ? WHERE id = ?');
+    const tx = db.transaction((items: typeof rows) => {
+      for (const r of items) update.run(`disk-${randomUUID()}`, r.id);
+    });
+    tx(rows);
+  }
+  db.prepare('INSERT INTO _meta (k, v) VALUES (?, ?)').run('disk_sweep_id_v2', 'done');
+}
+
+/**
+ * Schema v22 adds `favorite` to `gallery`. Default 0 so existing rows are
+ * unfavorited after migration. Only `setFavorite` writes the column —
+ * insertGalleryRow's COALESCE upgrade deliberately omits it, so a metadata
+ * backfill at disk-sweep time never overwrites the user's pins.
+ */
+function applyGalleryFavoriteV22Migration(db: DB): void {
+  const cols = db.prepare('PRAGMA table_info(gallery)').all() as Array<{ name: string }>;
+  if (cols.some(c => c.name === 'favorite')) return;
+  db.exec('ALTER TABLE gallery ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_gallery_favorite ON gallery(favorite)');
+}
+
 function openAndInit(dbPath: string): DB {
   const db = new Database(dbPath);
   // WAL: many readers + single writer, durable across crashes, and the
@@ -403,6 +538,10 @@ function openAndInit(dbPath: string): DB {
   applyConversationsSoulNameMigration(db);
   applyConversationsDropSystemPromptMigration(db);
   applyTemplatesFavoriteMigration(db);
+  applyPromptSnapshotsProvenanceMigration(db);
+  applyDiskSweepIdMigration(db);
+  applyGallerySchemaV21Migration(db);
+  applyGalleryFavoriteV22Migration(db);
   const row = db.prepare('SELECT version FROM schema_version LIMIT 1').get() as
     | { version: number } | undefined;
   if (!row) {

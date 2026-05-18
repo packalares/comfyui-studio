@@ -13,6 +13,7 @@ import {
   ambiguousTemplateError,
 } from '../../../../templates/resolveTemplateName.js';
 import * as templateRepo from '../../../../../lib/db/templates.repo.js';
+import { buildTemplateBundle } from '../../../../../routes/templateWidgets.routes.js';
 
 export const description =
   'Return full metadata for a single template: form inputs, required models/plugins, readiness. '
@@ -44,6 +45,20 @@ export async function run(args: DescribeTemplateArgs): Promise<unknown> {
   const row = templateRepo.getTemplate(name);
   const ready = row?.installed ?? false;
 
+  // Compute the rich form-field plan from the actual workflow JSON instead
+  // of the catalog-time slim fallback. The Studio form's `/template-bundle`
+  // endpoint uses this same function — keeps the chat agent's view in sync
+  // with what a human sees in the form.
+  let formInputs = t.formInputs ?? [];
+  let widgets: unknown[] = [];
+  try {
+    const bundle = await buildTemplateBundle(name);
+    if (bundle) {
+      formInputs = bundle.primitiveFormFields;
+      widgets = bundle.widgets;
+    }
+  } catch { /* workflow fetch failed (ComfyUI offline?) — fall back to cached */ }
+
   return {
     name: t.name,
     ...(t.name !== args.name ? { resolvedFrom: args.name } : {}),
@@ -51,8 +66,8 @@ export async function run(args: DescribeTemplateArgs): Promise<unknown> {
     description: t.description,
     mediaType: t.mediaType,
     studioCategory: t.studioCategory ?? 'image',
-    formInputs: t.formInputs ?? [],
-    widgets: [],
+    formInputs,
+    widgets,
     models: t.models ?? [],
     plugins: (t.plugins ?? []).map((p) => ({
       repo: p.repo,

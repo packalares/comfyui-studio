@@ -126,18 +126,33 @@ function primitiveCandidate(
 
   const titleTrimmed = node.title.trim();
   const isPromptRole = /^prompt$/i.test(titleTrimmed);
+  // ComfyUI's default Primitive titles when the author hasn't renamed the
+  // node: "String (Multiline - Prompt)", "PrimitiveStringMultiline", etc.
+  // Treat these as non-descriptive and collapse to the canonical "Prompt"
+  // label like the canonical title. Author-set titles such as
+  // "prompt closeup" or "Prompt - 45° right" stay verbatim so multi-prompt
+  // workflows show each role's intent instead of `Prompt (67)` after the
+  // merge-time disambiguator runs.
+  const isBoringDefault =
+    /^string\s*\(.*\)$/i.test(titleTrimmed)
+    || /^primitive\w*$/i.test(titleTrimmed);
 
-  // Override label to "Prompt" when the output chain reaches a text-encode
-  // prompt input — catches cases where the title is verbose or non-canonical.
-  const feedsPrompt =
-    isPromptRole
-    || (fieldType === 'textarea' && feedsPromptInput(compoundId, forwardLinks, flatNodes));
+  const feedsPromptViaWire =
+    fieldType === 'textarea' && feedsPromptInput(compoundId, forwardLinks, flatNodes);
+  // `feedsPrompt` drives the `required` flag — every prompt-bearing field
+  // should be required regardless of label, single- or multi-prompt.
+  const feedsPrompt = isPromptRole || feedsPromptViaWire;
+  // `collapseToPrompt` controls label + id normalization. Only collapse when
+  // the title is canonical ("Prompt") or boring; descriptive titles like
+  // "prompt closeup" keep their own id + label and never trigger merge.ts's
+  // Rule B disambiguator.
+  const collapseToPrompt = isPromptRole || (feedsPromptViaWire && isBoringDefault);
 
   const default_ = coerceDefault(node.widgets_values?.[0], fieldType);
 
   const out: FormFieldCandidate = {
-    id: feedsPrompt ? 'prompt' : `primitive:${compoundId}`,
-    label: feedsPrompt ? 'Prompt' : titleTrimmed,
+    id: collapseToPrompt ? 'prompt' : `primitive:${compoundId}`,
+    label: collapseToPrompt ? 'Prompt' : titleTrimmed,
     type: fieldType,
     required: feedsPrompt,
     bindNodeId: compoundId,

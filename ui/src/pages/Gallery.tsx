@@ -41,10 +41,6 @@ export default function Gallery() {
   const [viewItem, setViewItem] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = usePersistedState('gallery.filtersOpen', false);
   const [onlyFavorites, setOnlyFavorites] = usePersistedState('gallery.onlyFavorites', false);
-  const [favorites, setFavorites] = useState<Set<string>>(() => {
-    const saved = localStorage.getItem('comfyui-studio-favorites');
-    return saved ? new Set(JSON.parse(saved)) : new Set();
-  });
   const [pendingDelete, setPendingDelete] = useState<DeleteRequest | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -53,19 +49,19 @@ export default function Gallery() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
 
-  // Server-paginated: media-type + sort apply globally; favorites stay
-  // client-side (localStorage) so they filter the current page only.
+  // Server-paginated: media-type + sort + favorite all apply at the server level.
   const fetcher = useCallback(
     async ({ page, pageSize }: { page: number; pageSize: number }) => {
       const res = await api.getGalleryPaged(page, pageSize, {
         mediaType: filter !== 'all' ? filter : undefined,
         sort: sortBy,
+        favorite: onlyFavorites || undefined,
       });
       return { items: res.items, total: res.total, hasMore: res.hasMore };
     },
-    [filter, sortBy],
+    [filter, sortBy, onlyFavorites],
   );
-  const paged = usePaginated<GalleryItem>(fetcher, { deps: [filter, sortBy] });
+  const paged = usePaginated<GalleryItem>(fetcher, { deps: [filter, sortBy, onlyFavorites] });
   const { items: pageItems, refetch } = paged;
 
   // Refetch when a generation completes. The backend appends the row + emits
@@ -84,10 +80,9 @@ export default function Gallery() {
     void refetch();
   }, [galleryTotal, refetch]);
 
-  const filteredGallery = useMemo(() => {
-    if (!onlyFavorites) return pageItems;
-    return pageItems.filter((item) => favorites.has(item.id));
-  }, [pageItems, onlyFavorites, favorites]);
+  // Server already filters by `favorite=true` when the toggle is on, so the
+  // visible items match the filter without a client-side pass.
+  const filteredGallery = pageItems;
 
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
@@ -98,14 +93,13 @@ export default function Gallery() {
     });
   };
 
-  const toggleFavorite = (id: string) => {
-    setFavorites(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      localStorage.setItem('comfyui-studio-favorites', JSON.stringify([...next]));
-      return next;
-    });
+  const toggleFavorite = async (id: string) => {
+    const current = pageItems.find(i => i.id === id);
+    if (!current) return;
+    try {
+      await api.setGalleryFavorite(id, !current.favorite);
+      void refetch();
+    } catch { /* swallow — refetch will resync state from server */ }
   };
 
   const selectAll = () => {
@@ -317,11 +311,13 @@ export default function Gallery() {
                     <span className="text-xs text-muted-foreground flex-1">Total</span>
                     <span className="font-mono text-sm font-semibold text-foreground">{paged.total}</span>
                   </div>
-                  <div className="flex items-center gap-2 px-3 py-2">
-                    <Star className="w-4 h-4 text-warning shrink-0" />
-                    <span className="text-xs text-muted-foreground flex-1">Favorites</span>
-                    <span className="font-mono text-sm font-semibold text-foreground">{favorites.size}</span>
-                  </div>
+                  {onlyFavorites && (
+                    <div className="flex items-center gap-2 px-3 py-2">
+                      <Star className="w-4 h-4 text-warning shrink-0" />
+                      <span className="text-xs text-muted-foreground flex-1">Favorites</span>
+                      <span className="font-mono text-sm font-semibold text-foreground">{paged.total}</span>
+                    </div>
+                  )}
                 </div>
               </div>
         </PageAside>
@@ -363,8 +359,10 @@ export default function Gallery() {
                       key={item.id}
                       item={item}
                       isSelected={selectedIds.has(item.id)}
-                      isFav={favorites.has(item.id)}
-                      onOpen={() => setViewItem(item.id)}
+                      isFav={item.favorite ?? false}
+                      onOpen={selectedIds.size > 0
+                        ? () => toggleSelect(item.id)
+                        : () => setViewItem(item.id)}
                       onToggleSelect={() => toggleSelect(item.id)}
                       onToggleFavorite={() => toggleFavorite(item.id)}
                       onDelete={() => openDeleteForItem(item.id)}
@@ -420,25 +418,22 @@ export default function Gallery() {
 
       {/* Full-size viewer modal — Wave F redesign with metadata + regenerate. */}
       {viewItem && (() => {
-        const idx = filteredGallery.findIndex(i => i.id === viewItem);
-        const found = idx >= 0 ? filteredGallery[idx] : null;
+        const found = filteredGallery.find(i => i.id === viewItem) ?? null;
         if (!found) {
           // The row disappeared under us (e.g. deleted in another tab). Bail.
           setViewItem(null);
           return null;
         }
-        // Lightbox-style prev/next traversal over the currently-filtered
-        // list. We hide the corresponding handler at the ends so the
-        // modal doesn't render a button that would do nothing.
-        const prev = idx > 0 ? filteredGallery[idx - 1] : null;
-        const next = idx < filteredGallery.length - 1 ? filteredGallery[idx + 1] : null;
         return (
           <GalleryDetailModal
             item={found}
             onClose={() => setViewItem(null)}
             onDelete={() => openDeleteForItem(found.id)}
-            onPrev={prev ? () => setViewItem(prev.id) : undefined}
-            onNext={next ? () => setViewItem(next.id) : undefined}
+            filter={{
+              mediaType: filter !== 'all' ? filter : undefined,
+              sort: sortBy,
+              favorite: onlyFavorites || undefined,
+            }}
             onRegenerated={() => {
               // Close the modal; the fresh prompt's outputs will stream in
               // via the normal WS gallery broadcast path and the refetch below.

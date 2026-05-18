@@ -8,6 +8,12 @@ export interface PromptMeta {
   messageId?: string | null;
   modelFingerprint?: string | null;
   templateHash?: string | null;
+  /**
+   * Studio template slug the prompt was submitted under. Threaded through
+   * so the gallery row can record `templateName` at WS-event time — the
+   * snapshot also carries it as the durable fallback.
+   */
+  templateName?: string | null;
 }
 
 const promptMeta = new Map<string, PromptMeta>();

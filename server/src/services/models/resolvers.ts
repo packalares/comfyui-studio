@@ -1,6 +1,9 @@
-// Paste-a-URL → ResolvedModel for three hosts: HuggingFace, CivitAI, GitHub.
-// Each resolver section is independent; they share the ResolvedModel type.
+// Paste-a-URL → ResolvedModel for five hosts: HuggingFace, CivitAI, GitHub
+// release assets, Google Drive shared files, and a generic HEAD-probe
+// fallback for any other public direct-download URL. Each resolver section
+// is independent; they share the ResolvedModel type.
 
+import { promises as dns } from 'node:dns';
 import { env } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
 import { getGithubAuthHeaders } from '../../lib/http.js';
@@ -19,7 +22,7 @@ export type SuggestedFolder =
   | 'embeddings';
 
 export interface ResolvedModel {
-  source: 'huggingface' | 'civitai';
+  source: 'huggingface' | 'civitai' | 'github' | 'gdrive' | 'generic';
   /** Direct HTTPS URL the launcher can stream into models/. */
   downloadUrl: string;
   fileName: string;
@@ -525,7 +528,7 @@ export async function resolveGithubReleaseUrl(url: string): Promise<ResolvedMode
   const probe = await fetchAssetSize(parsed);
   const suggestedFolder: SuggestedFolder | undefined = guessFolder('', parsed.fileName);
   const out: ResolvedModel = {
-    source: 'github' as unknown as ResolvedModel['source'],
+    source: 'github',
     downloadUrl: parsed.canonicalUrl,
     fileName: parsed.fileName,
   };
@@ -534,6 +537,196 @@ export async function resolveGithubReleaseUrl(url: string): Promise<ResolvedMode
     out.gatedMessage = 'paste your GitHub token in Settings to download';
   }
   if (typeof probe.sizeBytes === 'number') out.sizeBytes = probe.sizeBytes;
+  if (suggestedFolder) out.suggestedFolder = suggestedFolder;
+  return out;
+}
+
+// ── Google Drive ──────────────────────────────────────────────────────────────
+//
+// Accepts the two URL shapes Drive's share UI produces:
+//   - https://drive.google.com/file/d/<FILEID>/view?usp=sharing
+//   - https://drive.google.com/uc?id=<FILEID>&export=download
+// Also handles docs.google.com aliases. The download URL is rebuilt to the
+// canonical `/uc?export=download&id=<FILEID>` form so the engine has a
+// predictable shape to call.
+//
+// Drive doesn't expose a free file-metadata API without an OAuth token, so
+// we can only get filename + size from a HEAD probe. For files <100 MB Drive
+// returns the file directly. For larger files Drive returns an HTML
+// "scan for viruses?" interstitial that needs a confirm token to bypass —
+// the resolver still accepts the URL (we know it's a valid Drive shape) but
+// `fileName` and `sizeBytes` may be undefined until the downloader handles
+// the confirm flow.
+
+function parseGoogleDriveId(raw: string): string | null {
+  let u: URL;
+  try { u = new URL(raw); } catch { return null; }
+  const host = u.hostname.toLowerCase();
+  if (host !== 'drive.google.com' && host !== 'docs.google.com'
+      && host !== 'drive.usercontent.google.com') return null;
+  // Shape 1: /file/d/<ID>/view
+  const m = u.pathname.match(/^\/file\/d\/([^/]+)/);
+  if (m) return m[1];
+  // Shape 2: ?id=<ID>
+  const qid = u.searchParams.get('id');
+  if (qid) return qid;
+  return null;
+}
+
+function extractContentDispositionFilename(cd: string): string | null {
+  // RFC 5987: `filename*=UTF-8''<encoded>` wins over plain `filename=`.
+  const rfc5987 = cd.match(/filename\*\s*=\s*(?:UTF-\d+'')?([^;]+)/i);
+  if (rfc5987) {
+    try { return decodeURIComponent(rfc5987[1].trim().replace(/^["']|["']$/g, '')); }
+    catch { /* fall through */ }
+  }
+  const plain = cd.match(/filename\s*=\s*"?([^";]+)"?/i);
+  if (plain) return plain[1].trim();
+  return null;
+}
+
+/**
+ * Resolve a Google Drive shared-file URL. Returns null for any URL that
+ * isn't a recognisable Drive shape; never throws.
+ */
+export async function resolveGoogleDriveUrl(url: string): Promise<ResolvedModel | null> {
+  if (typeof url !== 'string' || url.length === 0) return null;
+  const fileId = parseGoogleDriveId(url);
+  if (!fileId) return null;
+  const downloadUrl = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`;
+  let fileName: string | undefined;
+  let sizeBytes: number | undefined;
+  try {
+    const res = await fetch(downloadUrl, { method: 'HEAD', redirect: 'follow' });
+    const cd = res.headers.get('content-disposition');
+    if (cd) {
+      const fn = extractContentDispositionFilename(cd);
+      if (fn) fileName = fn;
+    }
+    const cl = res.headers.get('content-length');
+    if (cl && Number.isFinite(Number(cl))) sizeBytes = Number(cl);
+  } catch (err) {
+    logger.warn('resolveGoogleDrive probe failed', {
+      fileId, message: err instanceof Error ? err.message : String(err),
+    });
+  }
+  if (!fileName) fileName = `gdrive-${fileId}`;
+  const suggestedFolder = guessFolder('', fileName);
+  const out: ResolvedModel = {
+    source: 'gdrive',
+    downloadUrl,
+    fileName,
+  };
+  if (typeof sizeBytes === 'number') out.sizeBytes = sizeBytes;
+  if (suggestedFolder) out.suggestedFolder = suggestedFolder;
+  return out;
+}
+
+// ── Generic HEAD-probe fallback ───────────────────────────────────────────────
+//
+// Last-resort resolver for any direct-download URL whose host isn't one of
+// the specialised resolvers above. Probes via HEAD with redirect follow,
+// requires the final response to look like a binary file (not HTML/JSON/
+// plain text), and extracts filename + size from headers / URL path.
+//
+// SSRF protection: rejects literal private/loopback IPs, link-local
+// addresses, and any hostname whose DNS lookup resolves to a private IP.
+// Bypasses are blocked because the resolver runs server-side inside the
+// Studio pod, where "localhost" / pod-internal IPs reach other services.
+
+const PRIVATE_IPV4_RE = /^(?:127\.|10\.|192\.168\.|169\.254\.|0\.0\.0\.0$|::1$)/;
+function isPrivateLiteralIp(host: string): boolean {
+  if (host === '0.0.0.0' || host === '::1' || host === '127.0.0.1') return true;
+  if (PRIVATE_IPV4_RE.test(host)) return true;
+  const m172 = host.match(/^172\.(\d+)\./);
+  if (m172) {
+    const second = parseInt(m172[1], 10);
+    if (second >= 16 && second <= 31) return true;
+  }
+  if (/^f[cd][0-9a-f]{2}:/i.test(host)) return true; // fc00::/7 unique-local
+  if (/^fe80::/i.test(host)) return true;            // link-local
+  return false;
+}
+
+async function isPrivateHost(hostname: string): Promise<boolean> {
+  const lc = hostname.toLowerCase();
+  if (lc === 'localhost' || lc.endsWith('.localhost')) return true;
+  if (isPrivateLiteralIp(lc)) return true;
+  // DNS-resolve to catch rebind attacks (`evil.com` → `127.0.0.1`).
+  try {
+    const { address } = await dns.lookup(lc);
+    return isPrivateLiteralIp(address.toLowerCase());
+  } catch {
+    // DNS failure: caller's HEAD will fail anyway. Treat as "not private"
+    // here so a transient DNS hiccup doesn't masquerade as SSRF rejection.
+    return false;
+  }
+}
+
+const REJECT_CONTENT_TYPES = [
+  'text/html', 'application/xhtml+xml', 'text/plain',
+  'application/json', 'application/xml',
+];
+const MODEL_FILENAME_EXT_RE = /\.(safetensors|pth|pt|ckpt|bin|gguf|onnx|tar|tar\.gz|tgz|zip)$/i;
+const MIN_MODEL_SIZE = 1 * 1024 * 1024;          // 1 MB
+const MAX_MODEL_SIZE = 100 * 1024 * 1024 * 1024; // 100 GB
+
+/**
+ * Generic HEAD-probe resolver. Returns null when the URL fails ANY of the
+ * sanity checks (private host, non-200, HTML content, missing model
+ * extension, size out of range). Never throws.
+ *
+ * Use as the last branch in the dispatch chain — specialised resolvers
+ * give richer metadata, so we only fall through to this when we don't
+ * recognise the host.
+ */
+export async function resolveGenericUrl(url: string): Promise<ResolvedModel | null> {
+  if (typeof url !== 'string' || url.length === 0) return null;
+  let u: URL;
+  try { u = new URL(url); } catch { return null; }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  if (await isPrivateHost(u.hostname)) {
+    logger.warn('resolveGeneric rejected private host', { host: u.hostname });
+    return null;
+  }
+  let res: Response;
+  try {
+    res = await fetch(url, { method: 'HEAD', redirect: 'follow' });
+  } catch (err) {
+    logger.warn('resolveGeneric HEAD failed', {
+      url, message: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+  if (res.status !== 200) return null;
+  const ct = (res.headers.get('content-type') || '').toLowerCase().split(';')[0].trim();
+  if (REJECT_CONTENT_TYPES.includes(ct)) return null;
+  const cd = res.headers.get('content-disposition');
+  let fileName: string | undefined;
+  if (cd) {
+    const fn = extractContentDispositionFilename(cd);
+    if (fn) fileName = fn;
+  }
+  if (!fileName) {
+    // Fall back to the URL path's last segment.
+    const last = u.pathname.split('/').filter(Boolean).pop();
+    if (last) {
+      try { fileName = decodeURIComponent(last); } catch { fileName = last; }
+    }
+  }
+  if (!fileName || !MODEL_FILENAME_EXT_RE.test(fileName)) return null;
+  const cl = res.headers.get('content-length');
+  const sizeBytes = cl && Number.isFinite(Number(cl)) ? Number(cl) : undefined;
+  if (typeof sizeBytes === 'number') {
+    if (sizeBytes < MIN_MODEL_SIZE || sizeBytes > MAX_MODEL_SIZE) return null;
+  }
+  const suggestedFolder = guessFolder('', fileName);
+  const out: ResolvedModel = {
+    source: 'generic',
+    downloadUrl: res.url || url, // follow-final URL after redirects
+    fileName,
+  };
+  if (typeof sizeBytes === 'number') out.sizeBytes = sizeBytes;
   if (suggestedFolder) out.suggestedFolder = suggestedFolder;
   return out;
 }

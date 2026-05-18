@@ -1,9 +1,9 @@
 // Integration test: build rows from a synthetic history entry and persist
-// via `appendFromHistory`. Exercises the full "history → gallery row" path
+// via `insertGalleryRow`. Exercises the full "history → gallery row" path
 // that Wave F's WS `execution_complete` handler now runs.
 
 import { describe, expect, it } from 'vitest';
-import { buildRowsFromHistory } from '../../src/services/gallery/index.js';
+import { buildRowsFromExecution } from '../../src/services/gallery/index.js';
 import * as repo from '../../src/lib/db/gallery.repo.js';
 import { useFreshDb } from '../lib/db/_helpers.js';
 import type { ApiPrompt } from '../../src/services/gallery/extract.js';
@@ -36,11 +36,11 @@ function fullPrompt(): ApiPrompt {
   };
 }
 
-describe('buildRowsFromHistory + appendFromHistory', () => {
+describe('buildRowsFromExecution + insertGalleryRow', () => {
   useFreshDb();
 
-  it('produces correctly-populated rows with metadata extracted', () => {
-    const rows = buildRowsFromHistory({
+  it('produces correctly-populated rows with metadata extracted', async () => {
+    const rows = await buildRowsFromExecution({
       promptId: 'P1',
       outputs: {
         '7': { images: [{ filename: 'out.png', subfolder: '', type: 'output' }] },
@@ -50,25 +50,24 @@ describe('buildRowsFromHistory + appendFromHistory', () => {
     });
     expect(rows.length).toBe(1);
     const row = rows[0];
-    expect(row.id).toBe('P1-out.png');
+    // v21: IDs are UUIDs, not composite promptId-filename strings.
+    expect(row.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     expect(row.filename).toBe('out.png');
     expect(row.mediaType).toBe('image');
-    expect(row.promptText).toBe('a photo of a dog');
-    expect(row.negativeText).toBe('text, watermark');
-    expect(row.seed).toBe(42);
-    expect(row.model).toBe('sd-xl.safetensors');
-    expect(row.sampler).toBe('dpmpp_2m');
-    expect(row.steps).toBe(25);
-    expect(row.cfg).toBe(6.0);
-    expect(row.width).toBe(1024);
-    expect(row.height).toBe(1024);
+    // v21: extracted metadata fields are no longer stored on the row; they live
+    // in workflowJson and are parsed on-the-fly by the /api/gallery/:id route.
+    expect(row).not.toHaveProperty('promptText');
+    expect(row).not.toHaveProperty('seed');
+    expect(row).not.toHaveProperty('model');
+    expect(row).not.toHaveProperty('sampler');
+    expect(row.promptId).toBe('P1');
     expect(row.workflowJson).not.toBeNull();
     const parsed = JSON.parse(row.workflowJson!);
     expect(parsed['5'].class_type).toBe('KSampler');
   });
 
-  it('returns empty when outputs is empty', () => {
-    const rows = buildRowsFromHistory({
+  it('returns empty when outputs is empty', async () => {
+    const rows = await buildRowsFromExecution({
       promptId: 'empty',
       outputs: {},
       apiPrompt: fullPrompt(),
@@ -77,8 +76,8 @@ describe('buildRowsFromHistory + appendFromHistory', () => {
     expect(rows).toEqual([]);
   });
 
-  it('handles missing apiPrompt gracefully — row still written with null metadata', () => {
-    const rows = buildRowsFromHistory({
+  it('handles missing apiPrompt gracefully — row still written with null metadata', async () => {
+    const rows = await buildRowsFromExecution({
       promptId: 'P2',
       outputs: {
         '7': { audio: [{ filename: 'song.mp3', subfolder: 'music', type: 'output' }] },
@@ -89,13 +88,15 @@ describe('buildRowsFromHistory + appendFromHistory', () => {
     expect(rows.length).toBe(1);
     expect(rows[0].mediaType).toBe('audio');
     expect(rows[0].subfolder).toBe('music');
-    expect(rows[0].promptText).toBeNull();
-    expect(rows[0].seed).toBeNull();
+    // v21: extracted fields not stored on row; workflowJson is the only stored state.
     expect(rows[0].workflowJson).toBeNull();
+    // Ensure the row has no unexpected extracted fields.
+    expect(rows[0]).not.toHaveProperty('promptText');
+    expect(rows[0]).not.toHaveProperty('seed');
   });
 
-  it('appendFromHistory is idempotent and returns false on duplicate id', () => {
-    const rows = buildRowsFromHistory({
+  it('insertGalleryRow is idempotent and returns false on duplicate id', async () => {
+    const rows = await buildRowsFromExecution({
       promptId: 'P3',
       outputs: {
         '7': { images: [{ filename: 'a.png', subfolder: '', type: 'output' }] },
@@ -103,14 +104,14 @@ describe('buildRowsFromHistory + appendFromHistory', () => {
       apiPrompt: fullPrompt(),
       createdAt: 3000,
     });
-    expect(repo.appendFromHistory(rows[0])).toBe(true);
+    expect(repo.insertGalleryRow(rows[0])).toBe(true);
     // Second insert: row exists, INSERT OR IGNORE is a no-op.
-    expect(repo.appendFromHistory(rows[0])).toBe(false);
+    expect(repo.insertGalleryRow(rows[0])).toBe(false);
     expect(repo.count()).toBe(1);
   });
 
-  it('appendFromHistory does NOT resurrect a deleted row', () => {
-    const rows = buildRowsFromHistory({
+  it('insertGalleryRow does NOT resurrect a deleted row', async () => {
+    const rows = await buildRowsFromExecution({
       promptId: 'P4',
       outputs: {
         '7': { images: [{ filename: 'b.png', subfolder: '', type: 'output' }] },
@@ -118,23 +119,23 @@ describe('buildRowsFromHistory + appendFromHistory', () => {
       apiPrompt: fullPrompt(),
       createdAt: 4000,
     });
-    expect(repo.appendFromHistory(rows[0])).toBe(true);
+    expect(repo.insertGalleryRow(rows[0])).toBe(true);
     expect(repo.remove(rows[0].id)).toBe(true);
     // Simulate the old bug: ComfyUI's history still has this prompt, so
     // the event path would try to write it again. INSERT OR IGNORE must
     // leave the tombstone in place — actually, we fully deleted the row
-    // so it IS absent; but since appendFromHistory uses OR IGNORE, a
-    // subsequent append would re-insert. That's the accepted semantics
+    // so it IS absent; but since insertGalleryRow uses OR IGNORE, a
+    // subsequent insert would re-insert. That's the accepted semantics
     // (the "tombstone" story only holds if we kept deletion markers).
     // This test locks in that IF you re-insert via OR IGNORE after a
     // delete, the id does come back — but it will not be resurrected
     // through a full-history rescan because that path is gone.
-    expect(repo.appendFromHistory(rows[0])).toBe(true);
+    expect(repo.insertGalleryRow(rows[0])).toBe(true);
     expect(repo.count()).toBe(1);
   });
 
-  it('skips type=temp outputs (PreviewImage / MaskPreview etc.)', () => {
-    const rows = buildRowsFromHistory({
+  it('skips type=temp outputs (PreviewImage / MaskPreview etc.)', async () => {
+    const rows = await buildRowsFromExecution({
       promptId: 'Ptemp',
       outputs: {
         '7': { images: [{ filename: 'final.png', subfolder: '', type: 'output' }] },
@@ -148,8 +149,8 @@ describe('buildRowsFromHistory + appendFromHistory', () => {
     expect(rows[0].filename).toBe('final.png');
   });
 
-  it('flattens multiple output node bags into multiple rows', () => {
-    const rows = buildRowsFromHistory({
+  it('flattens multiple output node bags into multiple rows', async () => {
+    const rows = await buildRowsFromExecution({
       promptId: 'P5',
       outputs: {
         '7': {
@@ -166,9 +167,16 @@ describe('buildRowsFromHistory + appendFromHistory', () => {
       createdAt: 5000,
     });
     expect(rows.length).toBe(3);
-    const ids = rows.map(r => r.id).sort();
-    expect(ids).toEqual(['P5-1.png', 'P5-2.png', 'P5-t.mp3']);
-    // All rows share metadata from the single execution.
-    for (const r of rows) expect(r.model).toBe('sd-xl.safetensors');
+    // v21: IDs are UUIDs — verify uniqueness and count rather than exact values.
+    const ids = rows.map(r => r.id);
+    expect(new Set(ids).size).toBe(3);
+    for (const id of ids) {
+      expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    }
+    // v21: model not stored on row — check workflowJson was captured instead.
+    for (const r of rows) {
+      expect(r.workflowJson).not.toBeNull();
+      expect(r).not.toHaveProperty('model');
+    }
   });
 });

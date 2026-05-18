@@ -4,6 +4,7 @@
 // Types live in types.ts (leaf) to avoid a cycle back from the pipelines.
 
 import * as galleryRepo from '../../lib/db/gallery.repo.js';
+import { extractMetadata } from '../gallery/extract.js';
 import { resolveViewPath } from '../../lib/viewPath.js';
 import { thumbnailForLocalImage, thumbnailForRemoteImage } from './pipelines/image.js';
 import { thumbnailForLocalVideo } from './pipelines/video.js';
@@ -102,7 +103,17 @@ async function dispatchGalleryItem(args: GalleryModeArgs): Promise<ThumbResult> 
   if (pipeline === 'image') return thumbnailForLocalImage(resolved.absPath, width);
   if (pipeline === 'video') return thumbnailForLocalVideo(resolved.absPath, width);
   if (pipeline === 'audio') {
-    const query = queryFromPrompt(row.promptText) || queryFromPrompt(filenameStem(row.filename));
+    // Derive promptText on-demand from workflowJson (v21 no longer stores it
+    // as a column). Falls through to the filename stem on parse failure or
+    // when no workflow is captured.
+    let promptText: string | null = null;
+    if (row.workflowJson) {
+      try {
+        const apiPrompt = JSON.parse(row.workflowJson);
+        promptText = extractMetadata(apiPrompt).promptText;
+      } catch { /* leave null */ }
+    }
+    const query = queryFromPrompt(promptText) || queryFromPrompt(filenameStem(row.filename));
     return thumbnailForLocalAudio(resolved.absPath, width, query);
   }
   if (pipeline === 'static3d') return inlineBoxSvg();

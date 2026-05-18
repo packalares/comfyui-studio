@@ -19,7 +19,8 @@ import * as gallery from '../services/gallery/index.js';
 import { submitPrompt } from '../services/comfyui/api.js';
 import { schedulePromptWatch } from '../services/gallery/sentry.js';
 import { parsePageQuery } from '../lib/pagination.js';
-import { randomizeStoredSeeds, type ApiPrompt } from '../services/gallery/extract.js';
+import { randomizeStoredSeeds, extractMetadata, type ApiPrompt } from '../services/gallery/extract.js';
+import type { WorkflowDetail } from '../contracts/generation.contract.js';
 import { logger } from '../lib/logger.js';
 
 const router = Router();
@@ -35,14 +36,15 @@ router.get('/gallery', async (req: Request, res: Response) => {
 
   // Optional media-type filter, applied globally before pagination so pages
   // match the sidebar state. `sort=oldest` reverses the default ComfyUI order
-  // (which is newest-first). Favourites stay client-side (localStorage).
+  // (which is newest-first). `favorite=true` restricts to server-favorited rows.
   const media = typeof req.query.mediaType === 'string' ? req.query.mediaType : '';
   const sort = typeof req.query.sort === 'string' && req.query.sort === 'oldest'
     ? 'oldest' : 'newest';
+  const favorite = req.query.favorite === 'true' ? true : undefined;
 
   try {
     const { items, total } = await gallery.listPaginated(
-      { mediaType: media, sort }, pq.page, pq.pageSize,
+      { mediaType: media, sort, favorite }, pq.page, pq.pageSize,
     );
     const totalPages = total === 0 ? 1 : Math.ceil(total / pq.pageSize);
     const safePage = Math.min(Math.max(1, pq.page), totalPages);
@@ -94,7 +96,60 @@ router.get('/gallery/:id', (req: Request, res: Response) => {
     res.status(404).json({ error: 'not_found', id });
     return;
   }
-  res.json(row);
+  // Bundle the workflow-derived fields under a single `workflowDetail` key
+  // instead of scattering 14 nullable columns across the response. Null when
+  // no workflow was captured for this row (disk-sweep / pre-Wave-F imports).
+  // Strip raw storage fields (workflowJson, workflowHash) from the wire —
+  // they're internal-only after v21.
+  const { workflowJson, workflowHash: _wfHash, ...rest } = row;
+  let workflowDetail: WorkflowDetail | null = null;
+  if (workflowJson) {
+    try {
+      const apiPrompt = JSON.parse(workflowJson) as ApiPrompt;
+      const extracted = extractMetadata(apiPrompt);
+      workflowDetail = {
+        promptText:   extracted.promptText   ?? null,
+        negativeText: extracted.negativeText ?? null,
+        seed:         extracted.seed         ?? null,
+        model:        extracted.model        ?? null,
+        models:       extracted.models       ?? [],
+        sampler:      extracted.sampler      ?? null,
+        scheduler:    extracted.scheduler    ?? null,
+        steps:        extracted.steps        ?? null,
+        cfg:          extracted.cfg          ?? null,
+        denoise:      extracted.denoise      ?? null,
+        // `width` / `height` / `fps` are what the workflow declared. The
+        // rendered file's actual dimensions live on `mediaInfo` so the UI
+        // can choose which to display.
+        width:        extracted.width        ?? null,
+        height:       extracted.height       ?? null,
+        lengthFrames: extracted.length       ?? null,
+        fps:          extracted.fps          ?? null,
+        batchSize:    extracted.batchSize    ?? null,
+      };
+    } catch { /* malformed workflowJson — workflowDetail stays null */ }
+  }
+  const mediaType = typeof req.query.mediaType === 'string' ? req.query.mediaType : '';
+  const sort = req.query.sort === 'oldest' ? 'oldest' : 'newest';
+  const favParam = req.query.favorite === 'true' ? true : undefined;
+  const { prevId, nextId } = gallery.findNeighborIds(id, { mediaType, sort, favorite: favParam });
+  res.json({ ...rest, workflowDetail, prevId, nextId });
+});
+
+// Pin / unpin a gallery item. Body: `{ favorite: boolean }`. Matches the same
+// PATCH + boolean-body shape used by PATCH /templates/:name/favorite.
+router.patch('/gallery/:id/favorite', (req: Request, res: Response): void => {
+  const id = req.params.id as string;
+  const body = (req.body ?? {}) as { favorite?: unknown };
+  if (typeof body.favorite !== 'boolean') {
+    res.status(400).json({ error: 'favorite must be boolean' });
+    return;
+  }
+  if (!gallery.setFavorite(id, body.favorite)) {
+    res.status(404).json({ error: 'not_found' });
+    return;
+  }
+  res.json({ id, favorite: body.favorite });
 });
 
 // Bulk delete. Mounted BEFORE the `:id` route so Express matches the bare

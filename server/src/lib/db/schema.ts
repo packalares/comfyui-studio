@@ -15,13 +15,36 @@
 // ON CONFLICT update deliberately omits the column so a catalog re-seed /
 // refresh preserves the user's pins — only `setFavorite` writes it.
 //
+// Schema v20 adds three provenance columns to `prompt_snapshots`:
+// `triggered_by`, `conversation_id`, `message_id`. The snapshot is now
+// the durable source for these three fields; `modelFingerprint` and
+// `templateHash` remain in-memory only (recomputable, not persisted).
+//
+// Schema v21 drops the 14 per-row extracted metadata columns from `gallery`
+// (promptText, negativeText, seed, model, sampler, scheduler, steps, cfg,
+// denoise, width, height, lengthFrames, fps, batchSize). These are all
+// derivable on-the-fly from `workflowJson` via extractMetadata(). Renames
+// `durationMs` to `jobDurationMs` (job wall-clock, not media duration), and
+// adds `mediaDurationMs` + `mediaInfoJson` for per-file inspection data (sharp
+// for images, ffprobe for audio/video). Live-pipeline row IDs switch to plain
+// UUIDs. A partial UNIQUE INDEX prevents duplicate (promptId, subfolder,
+// filename) combinations for live rows while allowing disk-sweep rows that
+// share the same filename to co-exist.
+//
+// Schema v22 adds `gallery.favorite` (INTEGER NOT NULL DEFAULT 0) so the user
+// can pin gallery items server-side. The column is added via ALTER TABLE in
+// `connection.ts` (applyGalleryFavoriteV22Migration) so existing rows default
+// to 0 without a table rewrite. Only `setFavorite` in gallery.repo.ts writes
+// this column — insertGalleryRow's COALESCE upgrade deliberately omits it so
+// metadata backfills never overwrite the user's pins.
+//
 // Indexes are deliberately scoped to the columns we sort or filter on in
 // routes (`createdAt`, `mediaType`, `templateName`, `promptId`, `title`,
 // `author`, `installed`, `category`, `favorite`, `model_filename`,
 // `plugin_id`). Anything else stays unindexed or lives inside `raw_json` /
 // `workflow_json`.
 
-export const SCHEMA_VERSION = 19;
+export const SCHEMA_VERSION = 22;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -34,41 +57,37 @@ CREATE TABLE IF NOT EXISTS _meta (
 );
 
 CREATE TABLE IF NOT EXISTS gallery (
-  id          TEXT PRIMARY KEY,
-  filename    TEXT NOT NULL,
-  subfolder   TEXT NOT NULL DEFAULT '',
-  mediaType   TEXT NOT NULL,
-  createdAt   INTEGER NOT NULL,
-  templateName TEXT,
-  promptId    TEXT,
-  sizeBytes   INTEGER,
-  url         TEXT,
-  type        TEXT NOT NULL DEFAULT 'output',
-  workflowJson TEXT,
-  promptText   TEXT,
-  negativeText TEXT,
-  seed         INTEGER,
-  model        TEXT,
-  sampler      TEXT,
-  steps        INTEGER,
-  cfg          REAL,
-  width        INTEGER,
-  height       INTEGER,
-  workflowHash TEXT,
-  scheduler    TEXT,
-  denoise      REAL,
-  lengthFrames INTEGER,
-  fps          REAL,
-  batchSize    INTEGER,
-  durationMs   INTEGER,
-  modelsJson   TEXT
+  id             TEXT PRIMARY KEY,
+  filename       TEXT NOT NULL,
+  subfolder      TEXT NOT NULL DEFAULT '',
+  mediaType      TEXT NOT NULL,
+  createdAt      INTEGER NOT NULL,
+  templateName   TEXT,
+  promptId       TEXT,
+  sizeBytes      INTEGER,
+  url            TEXT,
+  type           TEXT NOT NULL DEFAULT 'output',
+  workflowJson   TEXT,
+  workflowHash   TEXT,
+  modelsJson     TEXT,
+  jobDurationMs  INTEGER,
+  mediaDurationMs INTEGER,
+  mediaInfoJson  TEXT,
+  favorite       INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_gallery_createdAt ON gallery(createdAt DESC);
 CREATE INDEX IF NOT EXISTS idx_gallery_mediaType ON gallery(mediaType);
 CREATE INDEX IF NOT EXISTS idx_gallery_template  ON gallery(templateName);
 CREATE INDEX IF NOT EXISTS idx_gallery_prompt    ON gallery(promptId);
 CREATE INDEX IF NOT EXISTS idx_gallery_workflowHash ON gallery(workflowHash);
-CREATE INDEX IF NOT EXISTS idx_gallery_durationMs ON gallery(durationMs);
+CREATE INDEX IF NOT EXISTS idx_gallery_jobDurationMs ON gallery(jobDurationMs);
+CREATE INDEX IF NOT EXISTS idx_gallery_mediaDurationMs ON gallery(mediaDurationMs);
+-- idx_gallery_favorite is created in connection.ts alongside the v22 ALTER
+-- TABLE: on an existing DB the favorite column does not exist until the
+-- migration adds it, so indexing it here would fail before the migration runs.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_gallery_unique_promptid_path
+  ON gallery(promptId, subfolder, filename)
+  WHERE promptId IS NOT NULL AND promptId != '';
 
 CREATE TABLE IF NOT EXISTS plugins_catalog (
   id           TEXT PRIMARY KEY,
@@ -192,10 +211,13 @@ CREATE INDEX IF NOT EXISTS idx_ollama_library_title ON ollama_library(title);
 CREATE INDEX IF NOT EXISTS idx_ollama_library_updated_ago ON ollama_library(updated_ago_sec);
 
 CREATE TABLE IF NOT EXISTS prompt_snapshots (
-  promptId      TEXT PRIMARY KEY,
-  apiPromptJson TEXT NOT NULL,
-  templateName  TEXT,
-  createdAt     INTEGER NOT NULL
+  promptId        TEXT PRIMARY KEY,
+  apiPromptJson   TEXT NOT NULL,
+  templateName    TEXT,
+  triggered_by    TEXT,
+  conversation_id TEXT,
+  message_id      TEXT,
+  createdAt       INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_prompt_snapshots_createdAt ON prompt_snapshots(createdAt);
 `;

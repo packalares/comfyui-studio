@@ -5,14 +5,18 @@ import * as repo from '../../../src/lib/db/gallery.repo.js';
 import { useFreshDb } from './_helpers.js';
 
 function mkRow(overrides: Partial<repo.GalleryRow>): repo.GalleryRow {
+  // v21: the partial UNIQUE INDEX on (promptId, subfolder, filename) fires
+  // when promptId is non-empty. Use promptId='' in tests that insert many rows
+  // with the same filename so the index is bypassed and each id is the sole key.
+  const id = overrides.id ?? 'p-f.png';
   return {
-    id: 'p-f.png',
-    filename: 'f.png',
+    id,
+    filename: overrides.filename ?? `${id}.png`,
     subfolder: '',
     type: 'output',
     mediaType: 'image',
-    url: '/api/view?filename=f.png',
-    promptId: 'p',
+    url: `/api/view?filename=${overrides.filename ?? `${id}.png`}`,
+    promptId: '',
     createdAt: Date.now(),
     ...overrides,
   };
@@ -69,14 +73,14 @@ describe('gallery repo', () => {
     expect(new Set(allIds).size).toBe(15);
   });
 
-  it('appendFromHistory inserts new rows and returns true; duplicates return false', () => {
+  it('insertGalleryRow inserts new rows and returns true; duplicates return false', () => {
     const rows = Array.from({ length: 5 }, (_, i) =>
       mkRow({ id: `b${i}`, filename: `b${i}.png`, createdAt: i }),
     );
-    for (const row of rows) expect(repo.appendFromHistory(row)).toBe(true);
+    for (const row of rows) expect(repo.insertGalleryRow(row)).toBe(true);
     // Running the same batch again: every id already exists, OR IGNORE
     // no-ops, so every call returns false.
-    for (const row of rows) expect(repo.appendFromHistory(row)).toBe(false);
+    for (const row of rows) expect(repo.insertGalleryRow(row)).toBe(false);
     expect(repo.count()).toBe(5);
   });
 
@@ -86,5 +90,49 @@ describe('gallery repo', () => {
     }
     const asc = repo.listPaginated({ sort: 'oldest' }, 1, 10);
     expect(asc.items.map(r => r.id)).toEqual(['s0', 's1', 's2']);
+  });
+
+  describe('findNeighborIds', () => {
+    it('returns null/null for unknown id', () => {
+      const r = repo.findNeighborIds('no-such-id');
+      expect(r).toEqual({ prevId: null, nextId: null });
+    });
+
+    it('single row has no neighbours', () => {
+      repo.insert(mkRow({ id: 'only', createdAt: 1000 }));
+      const r = repo.findNeighborIds('only');
+      expect(r).toEqual({ prevId: null, nextId: null });
+    });
+
+    it('newest-first: middle row has correct prev and next', () => {
+      // visual order newest→oldest: n2 n1 n0
+      repo.insert(mkRow({ id: 'n0', createdAt: 100 }));
+      repo.insert(mkRow({ id: 'n1', createdAt: 200 }));
+      repo.insert(mkRow({ id: 'n2', createdAt: 300 }));
+      const r = repo.findNeighborIds('n1');
+      // prev = visually before = newer = n2; next = older = n0
+      expect(r.prevId).toBe('n2');
+      expect(r.nextId).toBe('n0');
+    });
+
+    it('oldest-first: middle row has correct prev and next', () => {
+      repo.insert(mkRow({ id: 'o0', createdAt: 100 }));
+      repo.insert(mkRow({ id: 'o1', createdAt: 200 }));
+      repo.insert(mkRow({ id: 'o2', createdAt: 300 }));
+      const r = repo.findNeighborIds('o1', { sort: 'oldest' });
+      // oldest-first visual order: o0 o1 o2 → prev=o0, next=o2
+      expect(r.prevId).toBe('o0');
+      expect(r.nextId).toBe('o2');
+    });
+
+    it('mediaType filter excludes other types', () => {
+      repo.insert(mkRow({ id: 'img1', mediaType: 'image', createdAt: 100 }));
+      repo.insert(mkRow({ id: 'vid1', mediaType: 'video', createdAt: 200 }));
+      repo.insert(mkRow({ id: 'img2', mediaType: 'image', createdAt: 300 }));
+      // Within images only (newest-first: img2 img1), img2 has no prev, next=img1
+      const r = repo.findNeighborIds('img2', { mediaType: 'image' });
+      expect(r.prevId).toBeNull();
+      expect(r.nextId).toBe('img1');
+    });
   });
 });

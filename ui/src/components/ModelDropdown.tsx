@@ -22,7 +22,7 @@ function getInitial(name: string): string {
 }
 
 function getSubtitle(template: TemplateSummary): string {
-  if (template.tags.length > 0) return template.tags[0];
+  if (template.tags && template.tags.length > 0) return template.tags[0];
   return template.mediaType;
 }
 
@@ -106,7 +106,8 @@ export default function ModelDropdown({ templates, selected, onSelect }: Props) 
             <CommandEmpty>No models found</CommandEmpty>
             <CommandGroup>
               {templates.map(t => {
-                const searchCorpus = `${t.title} ${t.models.join(' ')}`;
+                const models = t.models ?? [];
+                const searchCorpus = `${t.title} ${models.join(' ')}`;
                 const isSelected = t.name === selected;
                 const color = getAvatarClass(isSelected);
                 return (
@@ -123,9 +124,9 @@ export default function ModelDropdown({ templates, selected, onSelect }: Props) 
                       <p className="text-sm font-medium text-foreground truncate">{t.title}</p>
                       <p className="text-[11px] text-muted-foreground truncate">{getSubtitle(t)}</p>
                     </div>
-                    {t.models.length > 0 && (
+                    {models.length > 0 && (
                       <span className="ml-auto text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">
-                        {t.models[0]}
+                        {models[0]}
                       </span>
                     )}
                   </CommandItem>

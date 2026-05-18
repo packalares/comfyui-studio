@@ -370,6 +370,7 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
       }
       size="lg"
       disableClose={uploading || committing}
+      closeOnBackdropClick={false}
       footer={
         <>
           <div className="text-[11px] text-muted-foreground">

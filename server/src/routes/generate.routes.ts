@@ -138,6 +138,9 @@ router.post('/generate', generateLimiter, async (req: Request, res: Response) =>
           promptId: result.prompt_id,
           apiPromptJson: JSON.stringify(apiPrompt),
           templateName,
+          triggered_by: 'ui',
+          conversation_id: null,
+          message_id: null,
         });
       } catch { /* snapshot failure must not fail the submit */ }
 

@@ -18,7 +18,7 @@
 import * as catalog from '../catalog/index.js';
 import { formatBytes } from '../../lib/format.js';
 import { resolveHuggingfaceUrl, type ResolvedModel } from '../models/resolvers.js';
-import { resolveCivitaiUrl } from '../models/resolvers.js';
+import { resolveCivitaiUrl, resolveGithubReleaseUrl, resolveGoogleDriveUrl, resolveGenericUrl } from '../models/resolvers.js';
 import { folderForLoaderClass } from '../workflow/loaderFolders.js';
 import { getStaging } from './importStaging.js';
 
@@ -47,11 +47,29 @@ function isCivitaiUrl(raw: string): boolean {
   return h === 'civitai.com' || h === 'www.civitai.com';
 }
 
+function isGithubUrl(raw: string): boolean {
+  const h = hostOf(raw);
+  return h === 'github.com' || h === 'www.github.com';
+}
+
+function isGoogleDriveUrl(raw: string): boolean {
+  const h = hostOf(raw);
+  return h === 'drive.google.com' || h === 'docs.google.com'
+    || h === 'drive.usercontent.google.com';
+}
+
 async function runResolver(url: string): Promise<ResolvedModel | null> {
   if (isHfUrl(url)) return resolveHuggingfaceUrl(url);
   if (isCivitaiUrl(url)) return resolveCivitaiUrl(url);
+  if (isGithubUrl(url)) return resolveGithubReleaseUrl(url);
+  if (isGoogleDriveUrl(url)) return resolveGoogleDriveUrl(url);
+  // Generic catch-all: HEAD-probe any other public URL. Returns null when
+  // the probe fails sanity checks (private host, HTML content, no model
+  // extension, size out of range) — caller treats null as a typed error.
+  const generic = await resolveGenericUrl(url);
+  if (generic) return generic;
   throw new ResolverError('UNSUPPORTED_HOST',
-    'Only HuggingFace and CivitAI URLs are supported. Other sources must be added manually.');
+    'Could not resolve a downloadable model file from that URL. Supported: HuggingFace, CivitAI, GitHub release assets, Google Drive shared files, or any direct-download URL whose HEAD response is a binary file (.safetensors / .pth / .ckpt / .bin / .gguf / .onnx).');
 }
 
 /**

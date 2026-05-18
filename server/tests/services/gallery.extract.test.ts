@@ -313,6 +313,39 @@ describe('extractMetadata v4 — workflow-agnostic', () => {
       expect(meta.promptText).toContain('fuzzy cactus creature');
     });
 
+    it('chases through a conditioning combiner to a Qwen-style encoder (image-edit pipelines)', () => {
+      // Regression for promptId dec9a839: Qwen 2511 / Flux Kontext templates
+      // wire KSampler.positive → FluxKontextMultiReferenceLatentMethod
+      // (a conditioning combiner) → TextEncodeQwenImageEditPlus.prompt = "..."
+      // (literal string, not wired). The old resolvePromptText bailed because
+      // the combiner isn't CLIPTextEncode AND Step 3 rejected literal strings.
+      const qwenEdit: ApiPrompt = {
+        sampler: {
+          class_type: 'KSampler',
+          inputs: { positive: ['combiner-pos', 0], negative: ['combiner-neg', 0] },
+        },
+        'combiner-pos': {
+          class_type: 'FluxKontextMultiReferenceLatentMethod',
+          inputs: { conditioning: ['enc-pos', 0] },
+        },
+        'combiner-neg': {
+          class_type: 'FluxKontextMultiReferenceLatentMethod',
+          inputs: { conditioning: ['enc-neg', 0] },
+        },
+        'enc-pos': {
+          class_type: 'TextEncodeQwenImageEditPlus',
+          inputs: { prompt: 'Change the furniture leather to fur material.' },
+        },
+        'enc-neg': {
+          class_type: 'TextEncodeQwenImageEditPlus',
+          inputs: { prompt: 'replace red car with women' },
+        },
+      };
+      const meta = extractMetadata(qwenEdit);
+      expect(meta.promptText).toBe('Change the furniture leather to fur material.');
+      expect(meta.negativeText).toBe('replace red car with women');
+    });
+
     it('longest-literal fallback excludes the negative encoder', () => {
       // Bypass Step 1: drop the sampler entirely so resolvePromptText reaches
       // Step 2 (longestCLIPTextEncode). Only the negative encoder has a literal

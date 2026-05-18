@@ -30,8 +30,9 @@ export interface AppModalProps {
   onClose: () => void;
   /** Title text. Omit if you use the `header` slot. */
   title?: string;
-  /** Small text under the title in the header. */
-  subtitle?: string;
+  /** Small content under the title in the header. String renders inline; pass
+   *  a ReactNode for richer subtitles (links, tooltip icons, etc.). */
+  subtitle?: ReactNode;
   /** Optional leading icon for the header. */
   icon?: ReactNode;
   /** Size controls the max-width of the panel. */
@@ -80,7 +81,7 @@ export default function AppModal(props: AppModalProps): JSX.Element | null {
     size = 'md',
     scrollBody = true,
     disableClose = false,
-    closeOnBackdropClick = false,
+    closeOnBackdropClick = true,
     header,
     footer,
     children,
@@ -203,7 +204,7 @@ export default function AppModal(props: AppModalProps): JSX.Element | null {
                     {title}
                   </h2>
                 )}
-                {subtitle && <p className="mt-0.5 text-[11px] text-muted-foreground">{subtitle}</p>}
+                {subtitle && <div className="mt-0.5 text-[11px] text-muted-foreground">{subtitle}</div>}
               </div>
             </div>
             <Button

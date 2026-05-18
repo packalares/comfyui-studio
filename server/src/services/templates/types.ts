@@ -3,7 +3,8 @@
 export interface FormInputData {
   id: string;
   label: string;
-  type: 'text' | 'textarea' | 'image' | 'audio' | 'video' | 'number' | 'slider' | 'select' | 'toggle';
+  type: 'text' | 'textarea' | 'image' | 'audio' | 'video' | 'number' | 'slider' | 'select' | 'toggle'
+    | 'mode-select' | 'bypass-toggle';
   required: boolean;
   description?: string;
   placeholder?: string;
@@ -11,7 +12,12 @@ export interface FormInputData {
   min?: number;
   max?: number;
   step?: number;
-  options?: { label: string; value: string }[];
+  /**
+   * options is used both by 'select' (simple label/value pairs) and by
+   * 'mode-select' (each option also carries a bypassNodes list so the submit
+   * path knows which top-level nodes to set mode=4 when that option is active).
+   */
+  options?: Array<{ label: string; value: string; bypassNodes?: number[] }>;
   nodeId?: number;
   nodeType?: string;
   mediaType?: string;
@@ -26,6 +32,30 @@ export interface FormInputData {
    */
   bindNodeId?: string;
   bindWidgetName?: string;
+  /**
+   * Present on regular form fields when a mode-select field exists on the
+   * same form. Identifies which mode value(s) this field is relevant to.
+   * undefined → always visible. A string or string[] → show only when the
+   * selected mode matches one of the listed values.
+   * Used by DynamicForm on the UI to hide/show fields when the user switches
+   * the mode selector.
+   */
+  modeRequired?: string | string[];
+  /**
+   * All applicable mask/pad UI kinds for this image field. Each entry is
+   * tagged with the subgraph wrapper it requires (`requiresMode`); entries
+   * with no `requiresMode` apply in every mode. A simple inpaint template
+   * yields a single entry; OneReward-style templates with both inpaint and
+   * outpaint subgraphs yield one entry per pipeline so the UI can swap the
+   * modal between brush and pad based on the active mode-select value.
+   */
+  maskable?: Array<{ kind: 'brush' | 'pad'; requiresMode?: string }>;
+  /**
+   * Flat id of the ImagePadForOutpaint node when maskable === 'pad'.
+   * The submit path writes the user's pad values onto this node before
+   * converting the workflow to an API prompt.
+   */
+  padTargetNodeId?: string;
 }
 
 /**

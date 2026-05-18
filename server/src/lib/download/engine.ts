@@ -94,6 +94,51 @@ function authHeadersFor(options: DownloadOptions): Record<string, string> {
   return options.authHeaders || {};
 }
 
+/** Lowercase hostname, or empty string if the URL is malformed. */
+function hostOf(url: string): string {
+  try { return new URL(url).hostname.toLowerCase(); } catch { return ''; }
+}
+
+/**
+ * Strip Authorization when the request URL's host differs from the original.
+ * Mirrors fetch's default `redirect: 'follow'` behaviour, which strips
+ * Authorization on cross-host redirects.
+ *
+ * Without this, a caller-supplied Bearer leaks onto pre-signed CDN URLs
+ * (S3, R2, CloudFront) that CivitAI / HF LFS / GitHub release downloads
+ * redirect into. Those URLs carry their own AWS-Sig-V4 auth in the query
+ * string and reject foreign Bearer tokens with 400 Bad Request.
+ *
+ * Exported for unit testing; engine helpers below wrap it for InnerState.
+ */
+export function filterAuthHeadersForHost(
+  headers: Record<string, string> | undefined,
+  originalUrl: string,
+  requestUrl: string,
+): Record<string, string> {
+  const all = headers || {};
+  if (!all.Authorization) return all;
+  const origHost = hostOf(originalUrl);
+  const reqHost = hostOf(requestUrl);
+  if (origHost && reqHost && origHost === reqHost) return all;
+  const { Authorization: _drop, ...rest } = all;
+  return rest;
+}
+
+function authHeadersForRequest(
+  s: InnerState, requestUrl: string,
+): Record<string, string> {
+  return filterAuthHeadersForHost(authHeadersFor(s.options), s.url, requestUrl);
+}
+
+/** Strip Authorization from a DownloadOptions copy for cross-host re-entry. */
+function optionsWithoutAuth(options: DownloadOptions): DownloadOptions {
+  const ah = options.authHeaders;
+  if (!ah || !ah.Authorization) return options;
+  const { Authorization: _drop, ...rest } = ah;
+  return { ...options, authHeaders: rest };
+}
+
 /** Send a HEAD request to discover size; recurse through redirects; then GET. */
 function runHeadThenGet(s: InnerState): Promise<boolean> {
   return new Promise((resolve, reject) => {
@@ -141,7 +186,7 @@ function runGet(s: InnerState, totalBytes: number, finalUrl: string): Promise<bo
   if (totalBytes > 1_000_000 && s.startBytes >= totalBytes) {
     return shortCircuitComplete(s, totalBytes);
   }
-  const headers: Record<string, string> = { ...authHeadersFor(s.options) };
+  const headers: Record<string, string> = { ...authHeadersForRequest(s, finalUrl) };
   if (s.startBytes > 0) headers.Range = `bytes=${s.startBytes}-`;
   const reqOpts: http.RequestOptions = {
     method: 'GET',
@@ -179,8 +224,14 @@ function streamGet(
     const req = client.request(finalUrl, reqOpts, (res) => {
       const ctx: StreamCtx = {
         s, req, res, finalUrl, initialTotal, resolve, safeReject,
-        reenter: (url, skipHead) =>
-          downloadFile(url, s.destPath, s.onProgress, s.options, s.tracker, skipHead),
+        reenter: (url, skipHead) => {
+        // If the redirect points at a different host, drop Authorization
+        // before re-entering. The recursive frame's `s.url` becomes the
+        // new URL, so `authHeadersForRequest` would otherwise see
+        // same-host and pass the original Bearer through.
+        const opts = hostOf(s.url) === hostOf(url) ? s.options : optionsWithoutAuth(s.options);
+        return downloadFile(url, s.destPath, s.onProgress, opts, s.tracker, skipHead);
+      },
       };
       attachResponseHandlers(ctx);
     });

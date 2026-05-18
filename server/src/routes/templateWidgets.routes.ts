@@ -82,7 +82,7 @@ function rawTemplateOf(templateName: string): RawTemplate {
  *  All three derivations (settings, widgets, primitiveFormFields) share the
  *  same workflow JSON, the same memoised `getObjectInfo`, and the same
  *  `buildFormFieldPlan` invocation — they used to re-run them per endpoint. */
-async function buildTemplateBundle(templateName: string) {
+export async function buildTemplateBundle(templateName: string) {
   const workflow = await loadWorkflowJson(templateName);
   if (!workflow) return null;
   const objectInfo = await getObjectInfo();

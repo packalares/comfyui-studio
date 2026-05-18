@@ -1,7 +1,7 @@
-// Tests that provenance + fingerprint fields thread through buildRowsFromHistory.
+// Tests that provenance + fingerprint fields thread through buildRowsFromExecution.
 
 import { describe, expect, it } from 'vitest';
-import { buildRowsFromHistory } from '../../src/services/gallery/index.js';
+import { buildRowsFromExecution } from '../../src/services/gallery/index.js';
 import type { ApiPrompt } from '../../src/services/gallery/extract.js';
 
 const OUTPUTS = {
@@ -12,9 +12,9 @@ const API_PROMPT: ApiPrompt = {
   '1': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: 'flux.safetensors' } },
 };
 
-describe('buildRowsFromHistory provenance', () => {
-  it('propagates triggeredBy when present', () => {
-    const rows = buildRowsFromHistory({
+describe('buildRowsFromExecution provenance', () => {
+  it('propagates triggeredBy when present', async () => {
+    const rows = await buildRowsFromExecution({
       promptId: 'p1', outputs: OUTPUTS, apiPrompt: API_PROMPT,
       createdAt: 1000, triggeredBy: 'ui',
     });
@@ -23,8 +23,8 @@ describe('buildRowsFromHistory provenance', () => {
     expect(rows[0].messageId).toBeNull();
   });
 
-  it('propagates chat provenance with conversationId + messageId', () => {
-    const rows = buildRowsFromHistory({
+  it('propagates chat provenance with conversationId + messageId', async () => {
+    const rows = await buildRowsFromExecution({
       promptId: 'p2', outputs: OUTPUTS, apiPrompt: API_PROMPT,
       createdAt: 2000, triggeredBy: 'chat', conversationId: 'conv-1', messageId: 'msg-2',
     });
@@ -33,16 +33,16 @@ describe('buildRowsFromHistory provenance', () => {
     expect(rows[0].messageId).toBe('msg-2');
   });
 
-  it('propagates mcp triggeredBy', () => {
-    const rows = buildRowsFromHistory({
+  it('propagates mcp triggeredBy', async () => {
+    const rows = await buildRowsFromExecution({
       promptId: 'p3', outputs: OUTPUTS, apiPrompt: API_PROMPT,
       createdAt: 3000, triggeredBy: 'mcp',
     });
     expect(rows[0].triggeredBy).toBe('mcp');
   });
 
-  it('defaults to null when no provenance given', () => {
-    const rows = buildRowsFromHistory({
+  it('defaults to null when no provenance given', async () => {
+    const rows = await buildRowsFromExecution({
       promptId: 'p4', outputs: OUTPUTS, apiPrompt: API_PROMPT, createdAt: 4000,
     });
     expect(rows[0].triggeredBy).toBeNull();
@@ -50,8 +50,8 @@ describe('buildRowsFromHistory provenance', () => {
     expect(rows[0].messageId).toBeNull();
   });
 
-  it('propagates modelFingerprint and templateHash', () => {
-    const rows = buildRowsFromHistory({
+  it('propagates modelFingerprint and templateHash', async () => {
+    const rows = await buildRowsFromExecution({
       promptId: 'p5', outputs: OUTPUTS, apiPrompt: API_PROMPT,
       createdAt: 5000, modelFingerprint: '{"flux.safetensors":"123-456"}', templateHash: 'abcdef1234567890',
     });
@@ -59,14 +59,14 @@ describe('buildRowsFromHistory provenance', () => {
     expect(rows[0].templateHash).toBe('abcdef1234567890');
   });
 
-  it('all rows in a multi-output batch share the same provenance', () => {
+  it('all rows in a multi-output batch share the same provenance', async () => {
     const multiOutputs = {
       '7': { images: [
         { filename: '1.png', subfolder: '', type: 'output' },
         { filename: '2.png', subfolder: '', type: 'output' },
       ] },
     };
-    const rows = buildRowsFromHistory({
+    const rows = await buildRowsFromExecution({
       promptId: 'p6', outputs: multiOutputs, apiPrompt: API_PROMPT,
       createdAt: 6000, triggeredBy: 'chat', conversationId: 'c1',
     });

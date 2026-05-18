@@ -14,6 +14,7 @@ import { collectPrimitiveCandidates } from './primitiveCandidates.js';
 import { collectWidgetWalkCandidates } from './widgetWalkCandidates.js';
 import { collectProxyPromoteCandidates } from './proxyPromoteCandidates.js';
 import { mergeCandidates } from './merge.js';
+import { detectModeFields } from './modeDetect.js';
 import type { FormFieldCandidate, FormFieldPlan } from './types.js';
 import type { FormInputData, RawTemplate } from '../types.js';
 
@@ -85,7 +86,7 @@ export function buildFormFieldPlan(
     }
   }
 
-  candidates.push(...collectMediaFields(template, workflow));
+  candidates.push(...collectMediaFields(template, workflow, flat));
 
   const merged = mergeCandidates(candidates, flatNodes);
   let fields = merged.fields;
@@ -94,6 +95,26 @@ export function buildFormFieldPlan(
   // media, no triggers), surface the unbound generic prompt so the form
   // isn't blank. Mirrors the legacy "if (inputs.length === 0)" fallback.
   if (fields.length === 0) fields = [stripSource(defaultPromptCandidate())];
+
+  // Mode-detection: prepend the mode-select (if detected) and append any
+  // bypass-toggle fields. These are injected after the merge pipeline so
+  // they bypass the deduplicate / precedence logic — they're topology controls
+  // not widget bindings. They do still pass assertInvariants (unique ids +
+  // no competing (bindNodeId, bindWidgetName) pair).
+  if (workflow) {
+    const { modeSelect, bypassToggles } = detectModeFields(workflow);
+    if (modeSelect) {
+      // Tag each regular field with the mode(s) it belongs to. For v1 we
+      // don't have fine-grained reachability analysis, so all regular fields
+      // remain always-visible (modeRequired stays unset). A future pass can
+      // add per-subgraph tagging by tracing which subgraph's proxyWidgets
+      // each field's bindNodeId resolves to.
+      fields = [modeSelect as FormInputData, ...fields];
+    }
+    if (bypassToggles.length > 0) {
+      fields = [...fields, ...bypassToggles as FormInputData[]];
+    }
+  }
 
   assertInvariants(fields);
   return { fields, claimSet: merged.claimSet };

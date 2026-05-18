@@ -1,5 +1,5 @@
-import { useState, useRef, useCallback, useLayoutEffect, useEffect } from 'react';
-import { Info, Upload, X, Minus, Plus } from 'lucide-react';
+import { useState, useRef, useCallback, useLayoutEffect, useEffect, useMemo } from 'react';
+import { Info, Upload, X, Minus, Plus, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import type { FormInput } from '../../types';
 import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip';
@@ -9,6 +9,9 @@ import { SelectField, SelectContent, SelectItem, SelectTrigger, SelectValue } fr
 import { Combobox, COMBOBOX_SEARCH_THRESHOLD } from '../ui/combobox';
 import { AudioPlayer } from '../ui/audio-player';
 import { VideoPlayer } from '../ui/video-player';
+import MaskFieldModal, { type MaskSaveState } from './MaskFieldModal.js';
+import type { PadValues } from './PadCanvas.js';
+import { compositeMaskIntoImage } from './maskComposite.js';
 
 interface Props {
   input: FormInput;
@@ -16,11 +19,14 @@ interface Props {
   onChange: (value: unknown) => void;
   /** When true, marks the field's primary input aria-invalid so the field-wrap turns red. */
   invalid?: boolean;
+  /** Active value of the form's mode-select (when one exists). Used by image
+   *  fields with multiple maskable entries to pick the matching kind. */
+  activeMode?: string;
 }
 
-export default function FormField({ input, value, onChange, invalid }: Props) {
-  // Toggle fields render inline: label on the left, switch on the right, no body control below.
-  if (input.type === 'toggle') {
+export default function FormField({ input, value, onChange, invalid, activeMode }: Props) {
+  // Toggle fields (and bypass-toggle) render inline: label left, switch right.
+  if (input.type === 'toggle' || input.type === 'bypass-toggle') {
     return (
       <FieldLabel
         input={input}
@@ -36,7 +42,7 @@ export default function FormField({ input, value, onChange, invalid }: Props) {
   return (
     <div>
       <FieldLabel input={input} right={labelRight} />
-      <FieldControl input={input} value={value} onChange={onChange} invalid={invalid} />
+      <FieldControl input={input} value={value} onChange={onChange} invalid={invalid} activeMode={activeMode} />
     </div>
   );
 }
@@ -67,7 +73,7 @@ function FieldLabel({ input, right, inline }: { input: FormInput; right?: React.
   );
 }
 
-function FieldControl({ input, value, onChange, invalid }: Props) {
+function FieldControl({ input, value, onChange, invalid, activeMode }: Props) {
   switch (input.type) {
     case 'textarea':
       return <TextareaField input={input} value={value} onChange={onChange} invalid={invalid} />;
@@ -126,7 +132,7 @@ function FieldControl({ input, value, onChange, invalid }: Props) {
     }
 
     case 'image':
-      return <ImageField input={input} value={value} onChange={onChange} invalid={invalid} />;
+      return <ImageField input={input} value={value} onChange={onChange} invalid={invalid} activeMode={activeMode} />;
 
     case 'audio':
       return <AudioUploadField input={input} value={value} onChange={onChange} invalid={invalid} />;
@@ -276,8 +282,41 @@ async function convertHeicToJpeg(file: File): Promise<File | null> {
   }
 }
 
-function ImageField({ input, value, onChange, invalid }: Props) {
+function ImageField({ input, value, onChange, invalid, activeMode }: Props) {
   const [dragOver, setDragOver] = useState(false);
+  const [maskModalOpen, setMaskModalOpen] = useState(false);
+  const [maskState, setMaskState] = useState<MaskSaveState>({});
+  const [compositing, setCompositing] = useState(false);
+
+  // Pick the maskable entry that applies in the current mode. Search order:
+  //   1. Exact match by `requiresMode === activeMode` (multi-pipeline case).
+  //   2. Mode-agnostic entry (`requiresMode` undefined — top-level consumer).
+  //   3. Single-entry fallback. A template with one pipeline whose brush
+  //      consumer lives inside a subgraph (e.g. `flux_fill_inpaint_example`,
+  //      where the consumer is `47:38` so the detector tags the entry with
+  //      `requiresMode: '47'`) emits no mode-select on the form, so
+  //      `activeMode` is undefined and neither (1) nor (2) match. There's
+  //      still only one option, so use it.
+  //   4. Multiple tagged entries but none match → no mask UI; the user has
+  //      to pick a mode first.
+  const activeMaskable = useMemo(() => {
+    const list = input.maskable;
+    if (!list || list.length === 0) return undefined;
+    const exact = list.find(m => m.requiresMode === activeMode);
+    if (exact) return exact;
+    const agnostic = list.find(m => m.requiresMode === undefined);
+    if (agnostic) return agnostic;
+    if (list.length === 1) return list[0];
+    return undefined;
+  }, [input.maskable, activeMode]);
+  const activeKind = activeMaskable?.kind;
+
+  // When the active kind switches (e.g. user flips Mode from Inpaint to
+  // Outpaint), clear stale mask state from the previous kind — a brush
+  // mask isn't valid for a pad submit, and vice versa.
+  useEffect(() => {
+    setMaskState({});
+  }, [activeKind]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageValue = value as { file?: File; preview?: string; url?: string } | null;
 
@@ -312,6 +351,8 @@ function ImageField({ input, value, onChange, invalid }: Props) {
       effective = converted;
     }
     const preview = URL.createObjectURL(effective);
+    // Clear prior mask state when a new image is uploaded.
+    setMaskState({});
     onChange({ file: effective, preview });
   }, [onChange]);
 
@@ -326,20 +367,95 @@ function ImageField({ input, value, onChange, invalid }: Props) {
     if (imageValue?.preview) {
       URL.revokeObjectURL(imageValue.preview);
     }
+    setMaskState({});
     onChange(null);
   }, [imageValue, onChange]);
 
+  const handleMaskSave = useCallback(async (saved: MaskSaveState) => {
+    setMaskModalOpen(false);
+    setMaskState(saved);
+
+    if (activeKind === 'brush' && saved.maskDataUrl && imageValue?.file) {
+      // Composite the mask into the image's alpha channel immediately so
+      // Studio.tsx uploads the composited PNG at submit time.
+      setCompositing(true);
+      const composited = await compositeMaskIntoImage(imageValue.file, saved.maskDataUrl);
+      setCompositing(false);
+      if (!composited) {
+        toast.error('Mask apply failed', { description: 'Could not composite the mask onto the image.' });
+        return;
+      }
+      const preview = URL.createObjectURL(composited);
+      onChange({ file: composited, preview });
+    } else if (activeKind === 'pad' && saved.pad && imageValue) {
+      // Pad mode: piggyback pad values as sibling form keys via _padOverrides.
+      // DynamicForm intercepts this and merges the sibling keys into form state.
+      const p = saved.pad;
+      onChange({
+        ...imageValue,
+        _padOverrides: {
+          [`pad_${input.id}_left`]: p.left,
+          [`pad_${input.id}_top`]: p.top,
+          [`pad_${input.id}_right`]: p.right,
+          [`pad_${input.id}_bottom`]: p.bottom,
+          [`pad_${input.id}_feathering`]: p.feathering,
+        },
+      });
+    }
+  }, [activeKind, input.id, imageValue, onChange]);
+
+  const padSummary = (): string => {
+    const p = maskState.pad;
+    if (!p) return 'none';
+    return `L ${p.left} · T ${p.top} · R ${p.right} · B ${p.bottom}`;
+  };
+
   if (imageValue?.preview) {
     return (
-      <div className="relative rounded-lg overflow-hidden border">
-        <img src={imageValue.preview} alt="Upload preview" className="w-full h-36 object-cover" />
-        <button
-          onClick={handleClear}
-          className="absolute top-2 right-2 p-1 bg-foreground/50 rounded-full text-background hover:bg-foreground/70 transition-colors"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
+      <>
+        <div className="rounded-lg overflow-hidden border">
+          <div className="relative">
+            <img src={imageValue.preview} alt="Upload preview" className="w-full h-36 object-cover" />
+            <button
+              onClick={handleClear}
+              className="absolute top-2 right-2 p-1 bg-foreground/50 rounded-full text-background hover:bg-foreground/70 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          {activeKind && (
+            <div className="px-3 py-2 flex items-center justify-between bg-muted/50 border-t">
+              <span className="text-[10px] text-muted-foreground">
+                {activeKind === 'brush'
+                  ? (maskState.maskDataUrl ? 'Mask: painted' : 'Mask: not painted')
+                  : `Pad: ${padSummary()}`}
+              </span>
+              <button
+                type="button"
+                disabled={compositing}
+                onClick={() => setMaskModalOpen(true)}
+                className="flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded border bg-background hover:bg-muted transition-colors disabled:opacity-50"
+              >
+                <Pencil className="w-3 h-3" />
+                {compositing ? 'Applying...' : (activeKind === 'brush' ? 'Edit mask' : 'Set pad')}
+              </button>
+            </div>
+          )}
+        </div>
+        {maskModalOpen && imageValue.preview && activeKind && (
+          <MaskFieldModal
+            field={input}
+            imageSrc={imageValue.preview}
+            currentMode={activeKind}
+            initial={maskState.maskDataUrl || maskState.pad ? {
+              maskDataUrl: maskState.maskDataUrl ?? undefined,
+              pad: maskState.pad,
+            } : undefined}
+            onSave={handleMaskSave}
+            onClose={() => setMaskModalOpen(false)}
+          />
+        )}
+      </>
     );
   }
 

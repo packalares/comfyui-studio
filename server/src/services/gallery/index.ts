@@ -19,10 +19,12 @@ export {
   remove,
   getById,
   getByIdFull,
+  findNeighborIds,
+  setFavorite,
   removeItem,
   removeItems,
   normalisePromptField,
-  buildRowsFromHistory,
+  buildRowsFromExecution,
 } from './service.js';
 
 export type { } from './sentry.js';

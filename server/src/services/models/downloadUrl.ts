@@ -319,10 +319,15 @@ export function inferModelType(modelName: string): string {
 
 // ── Allow-list ────────────────────────────────────────────────────────────────
 
+// "Known-good" hosts that the operator explicitly trusts. Used today only as
+// a documentation/audit signal — `validateAllowedUrl` accepts any non-private
+// http(s) URL after the resolver has content-checked it at paste time. Future
+// callers may differentiate (e.g. skip extra retry backoff for these hosts).
 const BUILTIN_DOWNLOAD_HOSTS: ReadonlySet<string> = new Set([
   'huggingface.co', 'www.huggingface.co', 'hf-mirror.com',
   'civitai.com', 'www.civitai.com',
   'github.com', 'www.github.com',
+  'drive.google.com', 'docs.google.com', 'drive.usercontent.google.com',
 ]);
 
 /** Live read so operator-added hosts apply without restart. */
@@ -350,14 +355,19 @@ export interface AllowedUrlResult {
  * One-stop validator for the unified-download endpoint:
  *   - http(s) only.
  *   - Hostname not on the SSRF private-IP set.
- *   - Hostname on the allow-list (built-ins ∪ live operator additions).
+ *
+ * The host allow-list check was removed (2026-05) so the downloader and the
+ * paste-URL resolver agree on which URLs are acceptable. Any URL that
+ * passed `resolveGenericUrl`'s HEAD-probe at paste time has already been
+ * content-checked as a binary model file from a public, non-private host —
+ * gating again here was redundant and rejected legitimate downloads from
+ * hosts the resolver accepted (Google Drive, raw.githubusercontent.com,
+ * various ESRGAN/upscaler mirrors). The SSRF guard is the only real
+ * security boundary here — the allow-list was just paperwork.
  */
 export function validateAllowedUrl(url: string): AllowedUrlResult {
   if (!isHttpUrl(url)) return { ok: false, error: 'hfUrl must be http(s)' };
   if (hostIsPrivate(url)) return { ok: false, error: 'hfUrl points at a private/loopback host' };
-  if (!isAllowedDownloadHost(url)) {
-    return { ok: false, error: 'hfUrl host not allowed (huggingface.co, hf-mirror.com, civitai.com, github.com, or an operator-trusted host)' };
-  }
   return { ok: true };
 }
 

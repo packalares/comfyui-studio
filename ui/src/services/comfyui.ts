@@ -26,6 +26,15 @@ import type {
 
 const BASE = '/api';
 
+/** Build a /api/download URL for a gallery item. The endpoint streams the
+ *  original file with ComfyUI metadata (PNG tEXt / FLAC Vorbis / EXIF / MP4
+ *  comment) stripped — use this for user-facing downloads; use item.url
+ *  (/api/view) for internal callers that need the raw original. */
+export function buildDownloadUrl(item: { filename: string; subfolder: string; type: string }): string {
+  const qs = new URLSearchParams({ filename: item.filename, subfolder: item.subfolder, type: item.type });
+  return `${BASE}/download?${qs.toString()}`;
+}
+
 /** Standard paginated-list response envelope returned by `?page=N` endpoints. */
 export interface PageEnvelope<T> {
   items: T[];
@@ -436,20 +445,37 @@ export const api = {
    * the detail modal fetches them on open while falling back to the slim
    * row it received via props for instant display.
    */
-  getGalleryItem: (id: string) =>
-    fetchJson<GalleryItem>(`/gallery/${encodeURIComponent(id)}`),
+  getGalleryItem: (
+    id: string,
+    opts: { mediaType?: string; sort?: 'newest' | 'oldest'; favorite?: boolean } = {},
+  ) => {
+    const params = new URLSearchParams();
+    if (opts.mediaType && opts.mediaType !== 'all') params.set('mediaType', opts.mediaType);
+    if (opts.sort && opts.sort !== 'newest') params.set('sort', opts.sort);
+    if (opts.favorite) params.set('favorite', 'true');
+    const qs = params.toString();
+    return fetchJson<GalleryItem>(`/gallery/${encodeURIComponent(id)}${qs ? `?${qs}` : ''}`);
+  },
 
-  /** GET /gallery?page=&pageSize=&mediaType=&sort= — paginated gallery. */
+  /** GET /gallery?page=&pageSize=&mediaType=&sort=&favorite= — paginated gallery. */
   getGalleryPaged: (
     page: number,
     pageSize: number,
-    opts: { mediaType?: string; sort?: 'newest' | 'oldest' } = {},
+    opts: { mediaType?: string; sort?: 'newest' | 'oldest'; favorite?: boolean } = {},
   ) => {
     const extra: Record<string, string> = {};
     if (opts.mediaType && opts.mediaType !== 'all') extra.mediaType = opts.mediaType;
     if (opts.sort && opts.sort !== 'newest') extra.sort = opts.sort;
+    if (opts.favorite) extra.favorite = 'true';
     return fetchJson<PageEnvelope<GalleryItem>>(`/gallery?${buildPagedQuery({ page, pageSize, extra })}`);
   },
+
+  /** PATCH /gallery/:id/favorite — pin / unpin a gallery item. */
+  setGalleryFavorite: (id: string, favorite: boolean) =>
+    fetchJson<{ id: string; favorite: boolean }>(
+      `/gallery/${encodeURIComponent(id)}/favorite`,
+      { method: 'PATCH', body: JSON.stringify({ favorite }) },
+    ),
 
   /** DELETE /gallery/:id — remove a single gallery item + its file on disk. */
   deleteGalleryItem: (id: string) =>
@@ -479,7 +505,7 @@ export const api = {
    * abuse.
    */
   importGalleryFromComfyUI: () =>
-    fetchJson<{ imported: number; skipped: number }>(
+    fetchJson<{ imported: number; skipped: number; importedFromDisk: number; scanned: number }>(
       '/gallery/import-from-comfyui',
       { method: 'POST' },
     ),

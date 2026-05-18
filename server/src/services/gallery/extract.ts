@@ -524,27 +524,82 @@ function longestCLIPTextEncode(prompt: ApiPrompt): string | null {
   return best;
 }
 
+/**
+ * Walk the sampler wire backward through CONDITIONING-combiner nodes
+ * (ConditioningCombine, FluxKontextMultiReferenceLatentMethod, etc.) until
+ * we land on a TextEncode-like node — i.e. any node whose class name
+ * matches `TEXT_ENCODE_RX`. Returns the encoder's id or null.
+ *
+ * Modern image-edit pipelines (Qwen 2511, Flux Kontext) wire:
+ *   KSampler.positive → <combiner>.conditioning → TextEncode*.prompt
+ * The old code bailed at the combiner because it required CLIPTextEncode
+ * immediately off the sampler. This helper restores the chase.
+ */
+function chaseConditioningToEncoder(
+  prompt: ApiPrompt,
+  startId: string | null,
+  depth = 0,
+): string | null {
+  if (!startId || depth > PROMPT_CHASE_MAX_DEPTH) return null;
+  const node = prompt[startId];
+  if (!node?.class_type) return null;
+  if (TEXT_ENCODE_RX.test(node.class_type)) return startId;
+  // Combiners forward conditioning via `conditioning` / `positive` /
+  // `negative` array wires. Follow the first one present.
+  const inputs = node.inputs ?? {};
+  for (const name of ['conditioning', 'positive', 'negative', 'cond']) {
+    const next = (inputs as Record<string, unknown>)[name];
+    if (!Array.isArray(next)) continue;
+    const nextId = wireTargetId(next);
+    if (!nextId) continue;
+    const hit = chaseConditioningToEncoder(prompt, nextId, depth + 1);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/**
+ * Extract the prompt text from an encoder node, accepting both the literal
+ * `prompt: "..."` shape (TextEncodeQwenImageEditPlus, etc.) and the wired
+ * `text: ["sourceId", 0]` shape (CLIPTextEncode chained back to a Primitive).
+ */
+function extractEncoderPromptText(
+  prompt: ApiPrompt,
+  encoderId: string,
+): string | null {
+  const encoder = prompt[encoderId];
+  if (!encoder) return null;
+  const inputs = encoder.inputs ?? {};
+  for (const name of ['prompt', 'text']) {
+    const v = (inputs as Record<string, unknown>)[name];
+    if (typeof v === 'string' && v.trim() !== '') return v;
+    if (Array.isArray(v)) {
+      const chased = chasePromptWire(prompt, v);
+      if (chased !== null) return chased;
+    }
+  }
+  return null;
+}
+
 function resolvePromptText(prompt: ApiPrompt): string | null {
   // Step 0: domain-specific encoders (ACE-Step audio `tags`, etc.).
   const domain = resolveDomainSpecificPrompt(prompt);
   if (domain !== null) return domain;
 
-  // Step 1: KSampler-like sampler → positive wire → CLIPTextEncode.text →
-  // recursive chase to the literal source. Handles classic SD (literal text
-  // on the encoder), modern LTX/Wan/Hunyuan (wired through TextGenerate*
-  // back to a Primitive), and reroute chains transparently.
+  // Step 1: KSampler-like sampler → positive wire → encoder.
+  // Walks through any conditioning combiner nodes between the sampler and
+  // the TextEncode node, then accepts both literal-string and wired prompt
+  // values. Handles classic SD (CLIPTextEncode with literal `text`),
+  // modern LTX/Wan/Hunyuan (wired through TextGenerate* back to a
+  // Primitive), and image-edit pipelines like Qwen 2511 / Flux Kontext
+  // (KSampler → FluxKontextMultiReferenceLatentMethod → TextEncodeQwenImageEditPlus).
   for (const node of Object.values(prompt)) {
     if (!node?.class_type || !KSAMPLER_TYPES.has(node.class_type)) continue;
     const posId = wireTargetId(node.inputs?.positive);
-    if (!posId) continue;
-    const target = prompt[posId];
-    if (target?.class_type !== 'CLIPTextEncode') continue;
-    const t = target.inputs?.text;
-    if (typeof t === 'string' && t.trim() !== '') return t;
-    if (Array.isArray(t)) {
-      const chased = chasePromptWire(prompt, t);
-      if (chased !== null) return chased;
-    }
+    const encoderId = chaseConditioningToEncoder(prompt, posId);
+    if (!encoderId) continue;
+    const text = extractEncoderPromptText(prompt, encoderId);
+    if (text !== null) return text;
   }
 
   // Step 2: longest literal CLIPTextEncode, EXCLUDING negative encoders.
@@ -588,16 +643,17 @@ function resolveNegative(prompt: ApiPrompt, positive: string | null): string | n
   for (const node of Object.values(prompt)) {
     if (!node?.class_type || !KSAMPLER_TYPES.has(node.class_type)) continue;
     sawKSampler = true;
+    // Mirror the positive-side conditioning-combiner chase so image-edit
+    // pipelines (Qwen 2511, Flux Kontext) surface their negative prompt.
     const negId = wireTargetId(node.inputs?.negative);
-    if (!negId) continue;
-    const n = prompt[negId];
-    if (!n || n.class_type !== 'CLIPTextEncode') continue;
-    const t = n.inputs?.text;
-    if (typeof t === 'string') return t;
-    if (Array.isArray(t)) {
-      const lit = resolveLiteral(prompt, t);
-      if (typeof lit === 'string') return lit;
-    }
+    const encoderId = chaseConditioningToEncoder(prompt, negId);
+    if (!encoderId) continue;
+    const text = extractEncoderPromptText(prompt, encoderId);
+    if (text !== null) return text;
+    // Encoder reached but produced no usable text — preserve old behaviour
+    // (return empty string so "negative wire resolved but value empty" is
+    // distinguishable from "no negative wire at all").
+    return '';
   }
   if (sawKSampler) return '';
   for (const node of Object.values(prompt)) {

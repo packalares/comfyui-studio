@@ -125,8 +125,29 @@ async function probeUrl(url: string, tokens: WalkerTokens): Promise<ProbeOutcome
   const headers = getHostAuthHeaders(url, tokens);
   try {
     const res = await fetch(url, { method: 'HEAD', headers, redirect: 'follow' });
-    if (res.status === 401 || res.status === 403) {
+    if (res.status >= 200 && res.status < 300) return { ok: true };
+    if (res.status === 401) {
       return { ok: false, classified: { code: 'AUTH_REQUIRED', message: `HTTP ${res.status} on HEAD ${url}` } };
+    }
+    // CDNs that issue AWS-Sig-V4 signed redirects (CivitAI → R2, HF LFS →
+    // CloudFront, S3 pre-signed URLs) sign the URL for GET only — sending
+    // HEAD against the signed target returns 403 because the method is part
+    // of the canonical request. 405 is the explicit "method not allowed"
+    // variant. Retry once as a 1-byte Range GET before deciding whether the
+    // failure is real auth or a signed-URL method mismatch.
+    if (res.status === 403 || res.status === 405) {
+      const getRes = await fetch(url, {
+        method: 'GET',
+        headers: { ...headers, Range: 'bytes=0-0' },
+        redirect: 'follow',
+      });
+      // Discard the (at most 1-byte) body without consuming it.
+      try { await getRes.body?.cancel(); } catch { /* best effort */ }
+      if (getRes.status >= 200 && getRes.status < 300) return { ok: true };
+      if (getRes.status === 401 || getRes.status === 403) {
+        return { ok: false, classified: { code: 'AUTH_REQUIRED', message: `HTTP ${getRes.status} on GET ${url}` } };
+      }
+      return { ok: false, classified: { code: 'URL_BROKEN', message: `HTTP ${getRes.status} on GET ${url}` } };
     }
     if (res.status >= 400) {
       return { ok: false, classified: { code: 'URL_BROKEN', message: `HTTP ${res.status} on HEAD ${url}` } };

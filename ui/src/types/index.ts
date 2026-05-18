@@ -50,7 +50,8 @@ export interface TemplateOutput {
 export interface FormInput {
   id: string;
   label: string;
-  type: 'text' | 'textarea' | 'image' | 'audio' | 'video' | 'number' | 'slider' | 'select' | 'toggle';
+  type: 'text' | 'textarea' | 'image' | 'audio' | 'video' | 'number' | 'slider' | 'select' | 'toggle'
+    | 'mode-select' | 'bypass-toggle';
   required: boolean;
   description?: string;
   placeholder?: string;
@@ -58,7 +59,12 @@ export interface FormInput {
   min?: number;
   max?: number;
   step?: number;
-  options?: { label: string; value: string }[];
+  /**
+   * options is used by 'select' and 'mode-select'. Mode-select options
+   * also carry bypassNodes so the submit payload can convey which subgraph
+   * nodes to mute when that option is chosen (handled server-side).
+   */
+  options?: Array<{ label: string; value: string; bypassNodes?: number[] }>;
   nodeId?: number;
   nodeType?: string;
   mediaType?: string;
@@ -72,6 +78,34 @@ export interface FormInput {
    */
   bindNodeId?: string;
   bindWidgetName?: string;
+  /**
+   * Present on regular form fields when a mode-select field exists on the
+   * same form. Identifies which mode value(s) this field belongs to.
+   * undefined → always visible. A string or string[] → hide when the
+   * selected mode doesn't match.
+   */
+  modeRequired?: string | string[];
+  /**
+   * Present on image upload fields when the server detected at least one
+   * inpaint/outpaint pattern downstream of the LoadImage node. Each entry
+   * is one available mask UI kind, optionally tagged with the mode-select
+   * value that must be active for it to apply:
+   *   - one entry, no `requiresMode`  → single-pipeline template; that kind
+   *     is always shown.
+   *   - multiple entries with distinct `requiresMode` values → multi-pipeline
+   *     template (e.g. OneReward inpaint + outpaint). The UI picks the
+   *     entry matching the active mode-select value and swaps the modal
+   *     between brush and pad as the user toggles modes.
+   *   'brush' → show a brush-paint mask canvas.
+   *   'pad'   → show a drag-edges pad picker.
+   */
+  maskable?: Array<{ kind: 'brush' | 'pad'; requiresMode?: string }>;
+  /**
+   * Flat id of the ImagePadForOutpaint node when maskable === 'pad'.
+   * Included in the submit payload so the server can write pad values onto
+   * the correct node before executing the prompt.
+   */
+  padTargetNodeId?: string;
 }
 
 export type StudioCategory = 'image' | 'video' | 'audio' | '3d' | 'tools';
@@ -214,29 +248,49 @@ export interface GalleryItem {
   // still reading it as a date string keeps compiling.
   createdAt?: number | string;
   favorite?: boolean;
-  // Wave F metadata — captured from ComfyUI history at execution time.
-  // Every field is nullable because older rows, non-KSampler workflows,
-  // and partial-detection cases produce `null` freely. Wave P moved these
-  // off the list payload; only the detail endpoint (`GET /api/gallery/:id`)
-  // populates them now. Tiles that don't fetch detail see `undefined`.
-  workflowJson?: string | null;
-  promptText?: string | null;
-  negativeText?: string | null;
-  model?: string | null;
-  sampler?: string | null;
-  steps?: number | null;
-  cfg?: number | null;
-  width?: number | null;
-  height?: number | null;
-  // Schema v4: workflow-agnostic extractor output. Populated on modern
-  // (subgraph video, audio) workflows as well as classic SD.
-  scheduler?: string | null;
-  denoise?: number | null;
-  lengthFrames?: number | null;
-  fps?: number | null;
-  batchSize?: number | null;
-  durationMs?: number | null;
-  models?: string[] | null;
+  jobDurationMs?: number | null;
+  mediaDurationMs?: number | null;
+  mediaInfo?: {
+    width?: number;
+    height?: number;
+    fps?: number;
+    format?: string;
+    codec_name?: string;
+    sample_rate?: number;
+    channels?: number;
+    bit_rate?: number;
+    duration?: number;
+    [key: string]: unknown;
+  } | null;
+  /**
+   * Workflow recipe — server-derived on-the-fly from the stored workflowJson.
+   * Null when no workflow was captured (disk-sweep, pre-Wave-F imports).
+   * `Boolean(workflowDetail)` gates the Regenerate button.
+   */
+  workflowDetail?: WorkflowDetail | null;
+  /** ID of the visually-previous item in the gallery (respects filter+sort). Null at boundary. */
+  prevId?: string | null;
+  /** ID of the visually-next item in the gallery (respects filter+sort). Null at boundary. */
+  nextId?: string | null;
+}
+
+export interface WorkflowDetail {
+  promptText: string | null;
+  negativeText: string | null;
+  seed: number | null;
+  model: string | null;
+  models: string[];
+  sampler: string | null;
+  scheduler: string | null;
+  steps: number | null;
+  cfg: number | null;
+  denoise: number | null;
+  /** Workflow-declared dimensions. The rendered file's dimensions live on `mediaInfo`. */
+  width: number | null;
+  height: number | null;
+  lengthFrames: number | null;
+  fps: number | null;
+  batchSize: number | null;
 }
 
 export interface AppSettings {

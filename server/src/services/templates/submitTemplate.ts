@@ -17,6 +17,8 @@ import {
 } from '../workflow/index.js';
 import type { EnumeratedWidget } from '../../contracts/workflow.contract.js';
 import { applyNodeOverrides, applyProxyOverrides, splitAdvancedSettings } from './advancedSettings.js';
+import { applyPadOverrides } from './padOverrides.js';
+import { detectModeFields } from './formFieldPlan/modeDetect.js';
 import * as comfyui from '../comfyui/api.js';
 import { formInputsToSchema } from '../chat/tools/formInputsToSchema.js';
 import { getDb } from '../../lib/db/connection.js';
@@ -38,6 +40,39 @@ export interface SubmitTemplateResult {
   promptId: string;
   templateName: string;
   fieldId: string | null;
+}
+
+/**
+ * Apply the user's mode-select choice as mode=0/4 overrides on the workflow's
+ * top-level nodes, BEFORE the flattener/workflowToApiPrompt pipeline runs.
+ *
+ * bypass-toggle writes are deferred (TODO): toggle_<nodeId> targets nodes
+ * inside subgraph definitions. Mutating a shared def would affect all
+ * instances; safely handling per-instance overrides requires proxyOverrides
+ * plumbing that doesn't exist yet. For v1 only mode-select is applied.
+ */
+function applyModeOverrides(
+  workflow: Record<string, unknown>,
+  inputs: Record<string, unknown>,
+): void {
+  const chosenMode = inputs['mode'];
+  if (!chosenMode || typeof chosenMode !== 'string') return;
+
+  // Re-run detection so we know the cluster options and their bypassNodes.
+  const { modeSelect } = detectModeFields(workflow);
+  if (!modeSelect) return;
+
+  const topNodes = (workflow.nodes || []) as Array<Record<string, unknown>>;
+  const chosen = modeSelect.options.find(o => o.value === chosenMode);
+  if (!chosen) return;
+
+  // Activate the chosen node; bypass every other cluster node.
+  for (const opt of modeSelect.options) {
+    const targetId = Number(opt.value);
+    const node = topNodes.find(n => (n.id as number) === targetId);
+    if (!node) continue;
+    node.mode = opt.value === chosenMode ? 0 : 4;
+  }
 }
 
 async function buildOverridesFromArgs(
@@ -104,6 +139,12 @@ export async function submitTemplate(
   // Fix 4: template hash computed BEFORE any overrides.
   const templateHash = createHash('sha1').update(JSON.stringify(workflow)).digest('hex').slice(0, 16);
 
+  // Mode-select: if the user picked a mode, flip the top-level subgraph nodes
+  // so the chosen one is active (mode=0) and the rest are bypassed (mode=4).
+  // This must run before workflowToApiPrompt so the flattener sees the
+  // correct active/bypassed state.
+  applyModeOverrides(workflow, input.inputs);
+
   // Apply advanced-settings proxy overrides (before conversion).
   if (input.advancedSettings) {
     const { proxyEntries } = splitAdvancedSettings(input.advancedSettings);
@@ -156,6 +197,11 @@ export async function submitTemplate(
       Object.assign(nodeOverrides[nid], vals);
     }
   }
+
+  // Pad values (pad_<fieldId>_left etc.) are injected before prompt conversion
+  // so the ImagePadForOutpaint node sees the user's chosen amounts.
+  applyPadOverrides(nodeOverrides, formInputs, input.inputs);
+
   const apiPrompt = await workflowToApiPrompt(workflow, userInputs, formInputs);
   applyNodeOverrides(apiPrompt, nodeOverrides);
 
@@ -176,6 +222,9 @@ export async function submitTemplate(
       promptId: result.prompt_id,
       apiPromptJson: JSON.stringify(apiPrompt),
       templateName: input.templateName,
+      triggered_by: input.provenance?.triggeredBy ?? null,
+      conversation_id: input.provenance?.conversationId ?? null,
+      message_id: input.provenance?.messageId ?? null,
     });
   } catch { /* snapshot failure must not fail the submit */ }
 
@@ -186,6 +235,7 @@ export async function submitTemplate(
     messageId: input.provenance?.messageId ?? null,
     modelFingerprint,
     templateHash,
+    templateName: input.templateName,
   };
   schedulePromptWatch(result.prompt_id, meta);
   return {
