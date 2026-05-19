@@ -21,32 +21,69 @@ export interface TemplateRow {
   displayName: string;
   category?: string | null;
   description?: string | null;
-  source?: string | null;
-  workflow_json?: string | null;
   tags_json?: string | null;
   installed?: boolean;
   favorite?: boolean;
+  /** See SOURCE_* constants. Defaults to SOURCE_UNKNOWN (0). */
+  source_type?: number;
+  /** 1 = soft-deleted (comfy-catalog rows only), 0 = visible. */
+  soft_deleted?: number;
+  /** JSON array of thumbnail URLs. */
+  thumbnail_json?: string | null;
+  /** 'image' / 'video' / 'audio' / '3d' / 'tools' */
+  media_type?: string | null;
+  /** 0 = api (cloud-only), 1 = open-source. Default 1. */
+  open_source?: number;
+  /** Catalog featured rank; higher = shown first. */
+  search_rank?: number;
+  /** Author (mainly for civitai imports). */
+  username?: string | null;
 }
 
 export interface TemplateListRow extends TemplateRow {
   updatedAt: number;
   installed: boolean;
   favorite: boolean;
+  source_type: number;
+  soft_deleted: number;
   models: string[];
   plugins: string[];
   tags: string[];
+  thumbnail_json: string | null;
+  media_type: string | null;
+  open_source: number;
+  search_rank: number;
+  username: string | null;
 }
 
 export interface TemplatePageResult {
   items: TemplateListRow[];
   total: number;
   hasMore: boolean;
+  page: number;
+  pageSize: number;
 }
 
 export interface TemplateDeps {
   models: string[];
   plugins: string[];
 }
+
+// ---- Source-type constants -----------------------------------------------
+//
+// Exported so importFromComfy, delete handler, and tests can use the same
+// literals without string literals or magic numbers.
+
+/** Legacy rows created before source tracking was added. Treated as comfy-catalog. */
+export const SOURCE_UNKNOWN = 0;
+/** Imported via "Import from ComfyUI" endpoint. */
+export const SOURCE_COMFY_CATALOG = 1;
+/** Imported via CivitAI import endpoint. */
+export const SOURCE_CIVITAI = 2;
+/** Imported via GitHub import endpoint. */
+export const SOURCE_GITHUB = 3;
+/** Imported via file upload or paste. */
+export const SOURCE_UPLOAD = 4;
 
 // ---- Internal helpers ----------------------------------------------------
 
@@ -75,12 +112,17 @@ function hydrate(
     displayName: String(row.displayName ?? name),
     category: row.category == null ? null : String(row.category),
     description: row.description == null ? null : String(row.description),
-    source: row.source == null ? null : String(row.source),
-    workflow_json: row.workflow_json == null ? null : String(row.workflow_json),
     tags_json: row.tags_json == null ? null : String(row.tags_json),
     updatedAt: Number(row.updatedAt ?? 0),
     installed: Number(row.installed ?? 0) === 1,
     favorite: Number(row.favorite ?? 0) === 1,
+    source_type: Number(row.source_type ?? 0),
+    soft_deleted: Number(row.soft_deleted ?? 0),
+    thumbnail_json: row.thumbnail_json == null ? null : String(row.thumbnail_json),
+    media_type: row.media_type == null ? null : String(row.media_type),
+    open_source: Number(row.open_source ?? 1),
+    search_rank: Number(row.search_rank ?? 0),
+    username: row.username == null ? null : String(row.username),
     models: models.map((r) => r.fn),
     plugins: plugins.map((r) => r.id),
     tags: parseJsonArray(row.tags_json),
@@ -94,29 +136,39 @@ function writeRow(
 ): void {
   db.prepare(`
     INSERT INTO templates
-      (name, displayName, category, description, source, workflow_json,
-       tags_json, installed, updatedAt)
-    VALUES (@name, @displayName, @category, @description, @source,
-            @workflow_json, @tags_json, @installed, @updatedAt)
+      (name, displayName, category, description,
+       tags_json, installed, source_type, updatedAt,
+       thumbnail_json, media_type, open_source, search_rank, username)
+    VALUES (@name, @displayName, @category, @description,
+            @tags_json, @installed, @source_type, @updatedAt,
+            @thumbnail_json, @media_type, @open_source, @search_rank, @username)
     ON CONFLICT(name) DO UPDATE SET
-      displayName   = excluded.displayName,
-      category      = excluded.category,
-      description   = excluded.description,
-      source        = excluded.source,
-      workflow_json = excluded.workflow_json,
-      tags_json     = excluded.tags_json,
-      installed     = excluded.installed,
-      updatedAt     = excluded.updatedAt
+      displayName    = excluded.displayName,
+      category       = excluded.category,
+      description    = excluded.description,
+      tags_json      = excluded.tags_json,
+      installed      = excluded.installed,
+      source_type    = excluded.source_type,
+      updatedAt      = excluded.updatedAt,
+      thumbnail_json = excluded.thumbnail_json,
+      media_type     = excluded.media_type,
+      open_source    = excluded.open_source,
+      search_rank    = excluded.search_rank,
+      username       = excluded.username
   `).run({
     name: t.name,
     displayName: t.displayName,
     category: t.category ?? null,
     description: t.description ?? null,
-    source: t.source ?? null,
-    workflow_json: t.workflow_json ?? null,
     tags_json: t.tags_json ?? null,
     installed: t.installed ? 1 : 0,
+    source_type: t.source_type ?? SOURCE_UNKNOWN,
     updatedAt: Date.now(),
+    thumbnail_json: t.thumbnail_json ?? null,
+    media_type: t.media_type ?? null,
+    open_source: t.open_source ?? 1,
+    search_rank: t.search_rank ?? 0,
+    username: t.username ?? null,
   });
   db.prepare('DELETE FROM template_models WHERE template = ?').run(t.name);
   db.prepare('DELETE FROM template_plugins WHERE template = ?').run(t.name);
@@ -245,10 +297,37 @@ export function listPaginated(
   const total = (db.prepare(`SELECT COUNT(*) as c FROM templates ${where.sql}`)
     .get(...where.params) as { c: number }).c;
   const offset = Math.max(0, (page - 1) * pageSize);
-  const sql = `SELECT * FROM templates ${where.sql} ORDER BY displayName COLLATE NOCASE ASC LIMIT ? OFFSET ?`;
+  const sql = `SELECT * FROM templates ${where.sql} ORDER BY search_rank DESC, displayName COLLATE NOCASE ASC LIMIT ? OFFSET ?`;
   const rows = db.prepare(sql).all(...where.params, pageSize, offset) as Record<string, unknown>[];
   const items = rows.map((r) => hydrate(db, r));
-  return { items, total, hasMore: offset + items.length < total };
+  return { items, total, hasMore: offset + items.length < total, page, pageSize };
+}
+
+/**
+ * Set `soft_deleted = 1` on a templates row. Returns false when no row
+ * matched — caller surfaces that as a 404.
+ */
+export function setSoftDeleted(
+  name: string,
+  db: Database.Database = getDb(),
+): boolean {
+  const info = db
+    .prepare('UPDATE templates SET soft_deleted = 1, updatedAt = ? WHERE name = ?')
+    .run(Date.now(), name);
+  return info.changes > 0;
+}
+
+/**
+ * Check whether a template row exists with `soft_deleted = 1`.
+ * Used by the import endpoint to skip re-importing user-deleted entries.
+ */
+export function isSoftDeleted(
+  name: string,
+  db: Database.Database = getDb(),
+): boolean {
+  const row = db.prepare('SELECT soft_deleted FROM templates WHERE name = ?').get(name) as
+    | { soft_deleted: number } | undefined;
+  return row ? Number(row.soft_deleted) === 1 : false;
 }
 
 export interface RebuildEntry {

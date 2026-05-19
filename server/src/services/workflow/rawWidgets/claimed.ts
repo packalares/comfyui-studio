@@ -67,7 +67,7 @@ function collectFormInputClaimedWidgets(
   templateName: string,
 ): Set<string> {
   const claimed = new Set<string>();
-  const tpl = templates.getTemplate(templateName);
+  const tpl = templates.getUserTemplate(templateName);
   for (const fi of (tpl?.formInputs || [])) {
     const nodeId = (fi as unknown as { nodeId?: number | string }).nodeId;
     if (nodeId == null) continue;
@@ -83,7 +83,7 @@ function collectFormInputClaimedWidgets(
 }
 
 function rawTemplate(templateName: string): RawTemplate {
-  const tpl = templates.getTemplate(templateName);
+  const tpl = templates.getUserTemplate(templateName);
   return {
     name: templateName,
     title: tpl?.title ?? templateName,

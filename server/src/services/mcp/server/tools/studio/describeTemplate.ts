@@ -4,9 +4,12 @@
 // partial name: on a miss it fuzzy-resolves and either uses the single match,
 // hands back candidates to disambiguate, or points the caller at
 // studio_list_templates.
+//
+// DB-first: basic metadata comes from SQLite; formInputs/widgets come from the
+// disk JSON via buildTemplateBundle (same as the UI path).
 
 import { z } from 'zod';
-import { getTemplate } from '../../../../templates/index.js';
+import { getUserTemplate } from '../../../../templates/userTemplatesMeta.js';
 import {
   resolveTemplateName,
   unresolvedTemplateError,
@@ -31,25 +34,28 @@ export interface DescribeTemplateArgs {
 
 export async function run(args: DescribeTemplateArgs): Promise<unknown> {
   let name = args.name;
-  let t = getTemplate(name);
 
-  if (!t) {
+  // Check DB for existence first.
+  let dbRow = templateRepo.getTemplate(name);
+  let t = dbRow ? getUserTemplate(name) : null;
+
+  if (!dbRow && !t) {
     const resolved = resolveTemplateName(args.name);
     if (!resolved) return unresolvedTemplateError(args.name);
     if ('candidates' in resolved) return ambiguousTemplateError(args.name, resolved.candidates);
     name = resolved.name;
-    t = getTemplate(name);
-    if (!t) return { error: `Template "${name}" not found.` };
+    dbRow = templateRepo.getTemplate(name);
+    t = getUserTemplate(name);
+    if (!dbRow && !t) return { error: `Template "${name}" not found.` };
   }
 
-  const row = templateRepo.getTemplate(name);
-  const ready = row?.installed ?? false;
+  const ready = dbRow?.installed ?? false;
 
   // Compute the rich form-field plan from the actual workflow JSON instead
   // of the catalog-time slim fallback. The Studio form's `/template-bundle`
   // endpoint uses this same function — keeps the chat agent's view in sync
   // with what a human sees in the form.
-  let formInputs = t.formInputs ?? [];
+  let formInputs = t?.formInputs ?? [];
   let widgets: unknown[] = [];
   try {
     const bundle = await buildTemplateBundle(name);
@@ -57,19 +63,19 @@ export async function run(args: DescribeTemplateArgs): Promise<unknown> {
       formInputs = bundle.primitiveFormFields;
       widgets = bundle.widgets;
     }
-  } catch { /* workflow fetch failed (ComfyUI offline?) — fall back to cached */ }
+  } catch { /* workflow fetch failed (ComfyUI offline?) — fall back to disk */ }
 
   return {
-    name: t.name,
-    ...(t.name !== args.name ? { resolvedFrom: args.name } : {}),
-    title: t.title,
-    description: t.description,
-    mediaType: t.mediaType,
-    studioCategory: t.studioCategory ?? 'image',
+    name,
+    ...(name !== args.name ? { resolvedFrom: args.name } : {}),
+    title: t?.title ?? dbRow?.displayName ?? name,
+    description: t?.description ?? dbRow?.description ?? '',
+    mediaType: t?.mediaType ?? dbRow?.media_type ?? 'image',
+    studioCategory: t?.studioCategory ?? dbRow?.media_type ?? 'image',
     formInputs,
     widgets,
-    models: t.models ?? [],
-    plugins: (t.plugins ?? []).map((p) => ({
+    models: dbRow?.models ?? t?.models ?? [],
+    plugins: (t?.plugins ?? []).map((p) => ({
       repo: p.repo,
       title: p.title,
       installed: p.installed ?? false,

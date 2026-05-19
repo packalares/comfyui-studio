@@ -366,19 +366,6 @@ export const api = {
     return fetchJson<PageEnvelope<Template>>(`/templates?${buildPagedQuery({ page, pageSize, extra })}`);
   },
 
-  /** POST /templates/refresh — re-pull template catalog + recompute readiness.
-   *  `skipped` is present only when the refresh aborted without touching the DB
-   *  (`upstream-unreachable` = ComfyUI didn't answer; `sanity-check` = upstream
-   *  returned suspiciously few entries so the delete pass was skipped). */
-  refreshTemplates: () =>
-    fetchJson<{
-      added: number; updated: number; unchanged: number; removed: number;
-      skipped?: 'upstream-unreachable' | 'sanity-check';
-    }>(
-      '/templates/refresh',
-      { method: 'POST' },
-    ),
-
   /** PATCH /templates/:name/favorite — pin / unpin a template. */
   setTemplateFavorite: (name: string, favorite: boolean) =>
     fetchJson<{ name: string; favorite: boolean }>(

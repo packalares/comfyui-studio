@@ -8,14 +8,16 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 // ---- mock services -------------------------------------------------------
 
-vi.mock('../../../src/services/templates/index.js', () => ({
-  getTemplates: vi.fn(),
-  getTemplate: vi.fn(),
+vi.mock('../../../src/services/templates/index.js', () => ({}));
+
+vi.mock('../../../src/services/templates/userTemplatesMeta.js', () => ({
+  getUserTemplate: vi.fn(),
 }));
 
 vi.mock('../../../src/lib/db/templates.repo.js', () => ({
   listAllNames: vi.fn().mockReturnValue([]),
   getTemplate: vi.fn().mockReturnValue(null),
+  listPaginated: vi.fn().mockReturnValue({ items: [], total: 0, hasMore: false, page: 1, pageSize: 100 }),
 }));
 
 vi.mock('../../../src/services/templates/dependencyCheck.js', () => ({
@@ -39,7 +41,8 @@ vi.mock('../../../src/lib/db/gallery.repo.js', () => ({
 // ---- imports after mocks -------------------------------------------------
 
 import { createStudioMcpServer } from '../../../src/services/mcp/server/index.js';
-import * as tmpl from '../../../src/services/templates/index.js';
+import * as userTemplatesMeta from '../../../src/services/templates/userTemplatesMeta.js';
+import * as templateRepo from '../../../src/lib/db/templates.repo.js';
 import * as depCheck from '../../../src/services/templates/dependencyCheck.js';
 import * as submitMod from '../../../src/services/templates/submitTemplate.js';
 import * as comfyui from '../../../src/services/comfyui/api.js';
@@ -79,7 +82,12 @@ const FAKE_TEMPLATE: TemplateData = {
 
 describe('studio.listTemplates', () => {
   beforeEach(() => {
-    vi.mocked(tmpl.getTemplates).mockReturnValue([FAKE_TEMPLATE]);
+    vi.mocked(templateRepo.listPaginated).mockReturnValue({
+      items: [{ ...FAKE_TEMPLATE, displayName: FAKE_TEMPLATE.title, updatedAt: 0, installed: false, favorite: false,
+        source_type: 1, soft_deleted: 0, models: [], plugins: [], tags: [],
+        thumbnail_json: null, media_type: 'image', open_source: 1, search_rank: 0, username: null }],
+      total: 1, hasMore: false, page: 1, pageSize: 100,
+    });
   });
 
   it('returns items array', async () => {
@@ -91,10 +99,17 @@ describe('studio.listTemplates', () => {
   });
 
   it('filters by modality', async () => {
-    vi.mocked(tmpl.getTemplates).mockReturnValue([
-      FAKE_TEMPLATE,
-      { ...FAKE_TEMPLATE, name: 'vid', studioCategory: 'video', mediaType: 'video' },
-    ]);
+    vi.mocked(templateRepo.listPaginated).mockReturnValue({
+      items: [
+        { ...FAKE_TEMPLATE, displayName: FAKE_TEMPLATE.title, updatedAt: 0, installed: false, favorite: false,
+          source_type: 1, soft_deleted: 0, models: [], plugins: [], tags: [],
+          thumbnail_json: null, media_type: 'image', open_source: 1, search_rank: 0, username: null },
+        { ...FAKE_TEMPLATE, name: 'vid', displayName: 'Vid', updatedAt: 0, installed: false, favorite: false,
+          source_type: 1, soft_deleted: 0, models: [], plugins: [], tags: [],
+          thumbnail_json: null, media_type: 'video', open_source: 1, search_rank: 0, username: null },
+      ],
+      total: 2, hasMore: false, page: 1, pageSize: 100,
+    });
     const { client } = await makeClient();
     const result = await client.callTool({
       name: 'studio.listTemplates',
@@ -108,7 +123,8 @@ describe('studio.listTemplates', () => {
 
 describe('studio.describeTemplate', () => {
   it('returns error when template not found', async () => {
-    vi.mocked(tmpl.getTemplate).mockReturnValue(undefined);
+    vi.mocked(templateRepo.getTemplate).mockReturnValue(null);
+    vi.mocked(userTemplatesMeta.getUserTemplate).mockReturnValue(null);
     const { client } = await makeClient();
     const result = await client.callTool({
       name: 'studio.describeTemplate',
@@ -119,7 +135,13 @@ describe('studio.describeTemplate', () => {
   });
 
   it('returns full template data when found', async () => {
-    vi.mocked(tmpl.getTemplate).mockReturnValue(FAKE_TEMPLATE);
+    const fakeRow = {
+      ...FAKE_TEMPLATE, displayName: FAKE_TEMPLATE.title, updatedAt: 0, installed: false, favorite: false,
+      source_type: 1, soft_deleted: 0, models: [], plugins: [], tags: [],
+      thumbnail_json: null, media_type: 'image', open_source: 1, search_rank: 0, username: null,
+    };
+    vi.mocked(templateRepo.getTemplate).mockReturnValue(fakeRow);
+    vi.mocked(userTemplatesMeta.getUserTemplate).mockReturnValue(FAKE_TEMPLATE);
     const { client } = await makeClient();
     const result = await client.callTool({
       name: 'studio.describeTemplate',

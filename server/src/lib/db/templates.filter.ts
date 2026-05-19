@@ -7,8 +7,16 @@ export interface TemplateListFilter {
   q?: string;
   category?: string;
   tags?: string[];
-  source?: string;
+  /**
+   * Filter by source bucket. `visible` = open-from-comfy OR any user import
+   * (i.e. everything the user can run on local hardware). Used by the route
+   * when there's no API key so "All" still spans both ComfyUI-open templates
+   * and the user's own imports.
+   */
+  source?: 'open' | 'api' | 'user' | 'favorites' | 'visible' | 'all';
   ready?: 'yes' | 'no' | 'all';
+  /** When true, include soft-deleted rows (default: exclude). */
+  softDeleted?: boolean;
 }
 
 export interface WhereClause {
@@ -20,6 +28,11 @@ export function buildTemplatesWhere(filter: TemplateListFilter): WhereClause {
   const clauses: string[] = [];
   const params: unknown[] = [];
 
+  // Soft-delete exclusion (default behaviour).
+  if (!filter.softDeleted) {
+    clauses.push('soft_deleted = 0');
+  }
+
   const q = (filter.q ?? '').trim().toLowerCase();
   if (q) {
     // Last clause searches required-model filenames via the `template_models`
@@ -30,7 +43,7 @@ export function buildTemplatesWhere(filter: TemplateListFilter): WhereClause {
       "OR LOWER(displayName) LIKE ? " +
       "OR LOWER(COALESCE(description,'')) LIKE ? " +
       "OR LOWER(COALESCE(category,'')) LIKE ? " +
-      "OR LOWER(COALESCE(tags_json,'')) LIKE ? " +
+      "OR LOWER(COALESCE(username,'')) LIKE ? " +
       "OR EXISTS (SELECT 1 FROM template_models tm " +
       "WHERE tm.template = templates.name " +
       "AND LOWER(tm.model_filename) LIKE ?))",
@@ -42,9 +55,25 @@ export function buildTemplatesWhere(filter: TemplateListFilter): WhereClause {
     clauses.push('category = ?');
     params.push(filter.category);
   }
-  if (filter.source && filter.source !== 'all') {
-    clauses.push('source = ?');
-    params.push(filter.source);
+  // Source filter. The `open` / `api` filters are anchored to source_type=1
+  // (comfy-catalog) so they don't double-count user imports: a civitai or
+  // upload template is `open_source=1` too, but should only appear under
+  // "Imported", not under "ComfyUI". Keeping the filters mutually exclusive
+  // (open / api / user) means "All" stays consistent with the sum of parts.
+  const src = filter.source ?? 'all';
+  if (src === 'open') {
+    clauses.push('open_source = 1 AND source_type = 1');
+  } else if (src === 'api') {
+    clauses.push('open_source = 0 AND source_type = 1');
+  } else if (src === 'user') {
+    // source_type ∈ {2,3,4} = civitai / github / upload.
+    clauses.push('source_type IN (2, 3, 4)');
+  } else if (src === 'favorites') {
+    clauses.push('favorite = 1');
+  } else if (src === 'visible') {
+    // "Everything I can run locally": open comfy-catalog + any user import.
+    // Used by the route when no API key — hides cloud-API comfy templates.
+    clauses.push('(source_type IN (2, 3, 4) OR (source_type = 1 AND open_source = 1))');
   }
   if (filter.ready === 'yes') clauses.push('installed = 1');
   else if (filter.ready === 'no') clauses.push('installed = 0');

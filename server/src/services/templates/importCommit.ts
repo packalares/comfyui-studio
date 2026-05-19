@@ -239,16 +239,32 @@ export async function commitStaging(id: string, selection: CommitSelection): Pro
     try {
       const repo = await import('../../lib/db/templates.repo.js');
       const existing = repo.getTemplate(saved.name);
+      // Determine source_type based on staged import source.
+      let sourceType = repo.SOURCE_UPLOAD;
+      if (staged.sourceUrl) {
+        if (/civitai\.com/i.test(staged.sourceUrl)) sourceType = repo.SOURCE_CIVITAI;
+        else if (/github\.com/i.test(staged.sourceUrl)) sourceType = repo.SOURCE_GITHUB;
+      }
+      // Build thumbnail_json from the staged default thumbnail if available.
+      const thumbJson = thumbnails.length > 0
+        ? JSON.stringify(thumbnails)
+        : (Array.isArray(saved.thumbnail) && saved.thumbnail.length > 0
+          ? JSON.stringify(saved.thumbnail)
+          : null);
       repo.upsertTemplate(
         {
           name: saved.name,
           displayName: existing?.displayName ?? saved.title ?? saved.name,
           category: existing?.category ?? saved.category ?? null,
           description: existing?.description ?? saved.description ?? null,
-          source: existing?.source ?? 'open',
-          workflow_json: existing?.workflow_json ?? JSON.stringify(saved.workflow ?? {}),
           tags_json: existing?.tags_json ?? JSON.stringify(saved.tags ?? []),
           installed: existing?.installed ?? false,
+          source_type: existing?.source_type ?? sourceType,
+          media_type: existing?.media_type ?? (typeof saved.mediaType === 'string' ? saved.mediaType : null),
+          open_source: existing?.open_source ?? 1,
+          search_rank: existing?.search_rank ?? 0,
+          username: existing?.username ?? null,
+          thumbnail_json: existing?.thumbnail_json ?? thumbJson,
         },
         { models: deps.models, plugins: pluginRepoKeys },
       );

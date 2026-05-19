@@ -9,7 +9,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../../../src/services/templates/userTemplates.js', () => ({
-  isUserWorkflow: vi.fn().mockReturnValue(true),
   getUserWorkflowJson: vi.fn().mockReturnValue({
     nodes: [
       { id: 1, type: 'CheckpointLoaderSimple', widgets_values: ['z_image_turbo_bf16.safetensors'] },

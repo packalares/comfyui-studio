@@ -3,8 +3,10 @@
 // often passes a guessed display title ("Wan2.1 VACE Inpainting") instead of
 // the slug — this resolves an exact slug, a single fuzzy match, or hands back
 // a candidate list so the caller can ask the model to pick.
+//
+// DB-first: reads directly from SQLite instead of the old in-memory cache.
 
-import { getTemplate, getTemplates } from './index.js';
+import * as templateRepo from '../../lib/db/templates.repo.js';
 
 export interface TemplateRef {
   name: string;
@@ -16,10 +18,6 @@ export type TemplateNameResolution =
   | { candidates: TemplateRef[] }
   | null;
 
-function refOf(t: { name: string; title?: string }): TemplateRef {
-  return { name: t.name, title: t.title ?? t.name };
-}
-
 /**
  * Resolve a possibly-fuzzy template reference. Returns:
  *  - `{ name }`        when an exact slug matches, or there's exactly one fuzzy match
@@ -27,36 +25,38 @@ function refOf(t: { name: string; title?: string }): TemplateRef {
  *  - `null`            when nothing is close
  */
 export function resolveTemplateName(input: string): TemplateNameResolution {
-  if (getTemplate(input)) return { name: input };
+  // Exact DB lookup first.
+  const exact = templateRepo.getTemplate(input);
+  if (exact) return { name: input };
 
-  const all = getTemplates();
+  const all = templateRepo.listPaginated({}, 1, 100_000).items;
   const q = input.trim().toLowerCase();
 
   const ciExact = all.filter(
-    (t) => t.name.toLowerCase() === q || (t.title ?? '').toLowerCase() === q,
+    (t) => t.name.toLowerCase() === q || (t.displayName ?? '').toLowerCase() === q,
   );
   if (ciExact.length === 1) return { name: ciExact[0].name };
-  if (ciExact.length > 1) return { candidates: ciExact.map(refOf) };
+  if (ciExact.length > 1) return { candidates: ciExact.map((t) => ({ name: t.name, title: t.displayName })) };
 
   const subs = all.filter(
-    (t) => t.name.toLowerCase().includes(q) || (t.title ?? '').toLowerCase().includes(q),
+    (t) => t.name.toLowerCase().includes(q) || (t.displayName ?? '').toLowerCase().includes(q),
   );
   if (subs.length === 1) return { name: subs[0].name };
-  if (subs.length > 1) return { candidates: subs.slice(0, 8).map(refOf) };
+  if (subs.length > 1) return { candidates: subs.slice(0, 8).map((t) => ({ name: t.name, title: t.displayName })) };
 
-  // Token-overlap fallback: how many of the query's words land in name/title.
+  // Token-overlap fallback: how many of the query's words land in name/displayName.
   const words = q.split(/[\s_/.-]+/).filter(Boolean);
   if (words.length === 0) return null;
   const scored = all
     .map((t) => {
-      const hay = `${t.name} ${t.title ?? ''}`.toLowerCase();
+      const hay = `${t.name} ${t.displayName ?? ''}`.toLowerCase();
       return { t, hits: words.filter((w) => hay.includes(w)).length };
     })
     .filter((s) => s.hits > 0)
     .sort((a, b) => b.hits - a.hits);
   if (scored.length === 0) return null;
   if (scored.length === 1 && scored[0].hits === words.length) return { name: scored[0].t.name };
-  return { candidates: scored.slice(0, 8).map((s) => refOf(s.t)) };
+  return { candidates: scored.slice(0, 8).map((s) => ({ name: s.t.name, title: s.t.displayName })) };
 }
 
 /** Standard "couldn't resolve" payload for an MCP tool result, pointing the

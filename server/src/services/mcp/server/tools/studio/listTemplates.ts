@@ -1,8 +1,8 @@
 // Studio MCP tool: list templates with optional filters.
 // Exports `inputShape`, `description`, `run` for the unified toolRegistry.
+// DB-first: reads directly from SQLite instead of the old in-memory cache.
 
 import { z } from 'zod';
-import { getTemplates } from '../../../../templates/index.js';
 import * as templateRepo from '../../../../../lib/db/templates.repo.js';
 
 export const description =
@@ -26,41 +26,31 @@ export interface ListTemplatesArgs {
   limit?: number;
 }
 
-function matchesQuery(name: string, title: string, tags: string[], q: string): boolean {
-  const lq = q.toLowerCase();
-  return (
-    name.toLowerCase().includes(lq) ||
-    title.toLowerCase().includes(lq) ||
-    tags.some((tag) => tag.toLowerCase().includes(lq))
-  );
-}
-
 export async function run(args: ListTemplatesArgs): Promise<unknown> {
   const limit = args.limit ?? 50;
-  const raw = getTemplates();
-  const readinessMap = new Map<string, boolean>();
-  for (const name of templateRepo.listAllNames()) {
-    const row = templateRepo.getTemplate(name);
-    if (row) readinessMap.set(name, row.installed);
-  }
+  const readyFilter = args.ready === true ? 'yes' : args.ready === false ? 'no' : 'all';
 
-  const items = raw
+  const result = templateRepo.listPaginated(
+    {
+      q: args.q || undefined,
+      ready: readyFilter,
+    },
+    1,
+    limit,
+  );
+
+  const items = result.items
     .filter((t) => {
-      if (args.modality && t.studioCategory !== args.modality) return false;
-      if (args.ready !== undefined && (readinessMap.get(t.name) ?? false) !== args.ready) {
-        return false;
-      }
-      if (args.q && !matchesQuery(t.name, t.title, t.tags ?? [], args.q)) return false;
+      if (args.modality && t.media_type !== args.modality) return false;
       return true;
     })
-    .slice(0, limit)
     .map((t) => ({
       name: t.name,
-      title: t.title,
-      mediaType: t.mediaType,
-      studioCategory: t.studioCategory ?? 'image',
+      title: t.displayName,
+      mediaType: t.media_type,
+      studioCategory: t.media_type ?? 'image',
       tags: t.tags ?? [],
-      ready: readinessMap.get(t.name) ?? false,
+      ready: t.installed,
     }));
 
   return { items };

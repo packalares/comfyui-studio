@@ -8,7 +8,6 @@ import { fetchTemplateWorkflow } from './dependencyCheck.js';
 import { schedulePromptWatch } from '../gallery/sentry.js';
 import { type PromptMeta } from '../gallery/promptMeta.js';
 import { insertSnapshot } from '../../lib/db/promptSnapshots.repo.js';
-import { env } from '../../config/env.js';
 import type { RawTemplate } from './types.js';
 import {
   getObjectInfo,
@@ -118,23 +117,14 @@ export function computeModelFingerprint(modelNames: string[]): string | null {
 export async function submitTemplate(
   input: SubmitTemplateInput,
 ): Promise<SubmitTemplateResult> {
-  const template = templates.getTemplate(input.templateName);
+  const template = templates.getUserTemplate(input.templateName);
   if (!template) {
     throw new Error(`unknown template "${input.templateName}"`);
   }
 
-  let workflow: Record<string, unknown>;
-  if (templates.isUserWorkflow(input.templateName)) {
-    const local = templates.getUserWorkflowJson(input.templateName);
-    if (!local) throw new Error('user workflow file missing');
-    workflow = local;
-  } else {
-    const wfRes = await fetch(
-      `${env.COMFYUI_URL}/templates/${encodeURIComponent(input.templateName)}.json`,
-    );
-    if (!wfRes.ok) throw new Error(`workflow fetch ${wfRes.status}`);
-    workflow = await wfRes.json() as Record<string, unknown>;
-  }
+  // All templates now live on disk in user-workflows/ — read from disk directly.
+  const workflow = templates.getUserWorkflowJson(input.templateName);
+  if (!workflow) throw new Error('workflow file missing or unreadable');
 
   // Fix 4: template hash computed BEFORE any overrides.
   const templateHash = createHash('sha1').update(JSON.stringify(workflow)).digest('hex').slice(0, 16);

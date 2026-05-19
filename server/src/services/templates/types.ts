@@ -137,6 +137,14 @@ export interface TemplateData {
   date?: string;
   logos?: Array<{ provider: string | string[]; label?: string }>;
   searchRank?: number;
+  /**
+   * Provenance of the template: 1=comfy-catalog, 2=civitai, 3=github,
+   * 4=upload (paste/file), 0=unknown (legacy rows pre-v23). Read from the
+   * sqlite `templates.source_type` column during cache rebuild. Authoritative
+   * for the "User imports" filter on the Explore page — was previously a
+   * brittle `category === 'User Workflows'` string match.
+   */
+  source_type?: number;
 }
 
 export interface RawTemplate {

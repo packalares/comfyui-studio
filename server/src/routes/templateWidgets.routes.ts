@@ -19,24 +19,17 @@ import { computeWorkflowGroups } from '../services/workflow/workflowGroups.js';
 import { buildFormFieldPlan, disambiguateFieldLabels } from '../services/templates/formFieldPlan/index.js';
 import { filterProxySettingsByBoundKeys } from '../services/workflow/filterFormBoundProxies.js';
 import type { RawTemplate } from '../services/templates/types.js';
-import { env } from '../config/env.js';
 import { sendError } from '../middleware/errors.js';
 import type { AdvancedSetting } from '../contracts/workflow.contract.js';
 
-const COMFYUI_URL = env.COMFYUI_URL;
-
 /**
- * Load a workflow JSON by template name. User-imported templates live on our
- * disk (ComfyUI doesn't know about them) so check locally first; fall back to
+ * Load a workflow JSON by template name. All templates now live on disk in
+ * user-workflows/ — read from disk directly.
  * ComfyUI's `/templates/:name.json` for upstream templates.
  */
+// All templates now live on disk in user-workflows/ — read from disk directly.
 async function loadWorkflowJson(templateName: string): Promise<Record<string, unknown> | null> {
-  if (templates.isUserWorkflow(templateName)) {
-    return templates.getUserWorkflowJson(templateName);
-  }
-  const wfRes = await fetch(`${COMFYUI_URL}/templates/${encodeURIComponent(templateName)}.json`);
-  if (!wfRes.ok) return null;
-  return await wfRes.json() as Record<string, unknown>;
+  return templates.getUserWorkflowJson(templateName);
 }
 
 const router = Router();
@@ -65,7 +58,8 @@ function findWrapperNode(workflow: Record<string, unknown>): WrapperMatch {
 }
 
 function rawTemplateOf(templateName: string): RawTemplate {
-  const tpl = templates.getTemplate(templateName);
+  // Read from disk JSON for full metadata (title, io, etc.).
+  const tpl = templates.getUserTemplate(templateName);
   return {
     name: templateName,
     title: tpl?.title ?? templateName,

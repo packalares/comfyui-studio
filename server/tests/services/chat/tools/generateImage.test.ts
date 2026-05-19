@@ -12,8 +12,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../../../../src/services/templates/index.js', () => ({
-  getTemplate: vi.fn(),
-  isUserWorkflow: vi.fn(),
+  getUserTemplate: vi.fn(),
   getUserWorkflowJson: vi.fn(),
 }));
 
@@ -57,7 +56,7 @@ function envelopeText(out: unknown): string {
 
 describe('generateImageTool readiness gate', () => {
   beforeEach(() => {
-    vi.mocked(templates.getTemplate).mockReset();
+    vi.mocked(templates.getUserTemplate).mockReset();
     vi.mocked(depCheck.checkTemplateDependencies).mockReset();
     vi.mocked(comfyui.submitPrompt).mockReset();
   });
@@ -71,7 +70,7 @@ describe('generateImageTool readiness gate', () => {
   });
 
   it('returns an unknown-template message when the template is not cached', async () => {
-    vi.mocked(templates.getTemplate).mockReturnValue(undefined);
+    vi.mocked(templates.getUserTemplate).mockReturnValue(undefined);
     const out = await (await getExecute())({ prompt: 'a cat' }, {});
     expect(envelopeText(out)).toContain('default');
     expect(envelopeText(out)).toContain('not found');
@@ -80,7 +79,7 @@ describe('generateImageTool readiness gate', () => {
   });
 
   it('lists missing items when the template has unmet dependencies', async () => {
-    vi.mocked(templates.getTemplate).mockReturnValue({
+    vi.mocked(templates.getUserTemplate).mockReturnValue({
       name: 'sdxl-base', title: 'SDXL Base', description: '',
       mediaType: 'image', tags: [],
       models: ['sd_xl_base_1.0.safetensors'],
@@ -111,7 +110,7 @@ describe('generateImageTool readiness gate', () => {
   });
 
   it('truncates the missing-items list at six entries with ", and more"', async () => {
-    vi.mocked(templates.getTemplate).mockReturnValue({
+    vi.mocked(templates.getUserTemplate).mockReturnValue({
       name: 'sdxl-base', title: 'SDXL Base', description: '',
       mediaType: 'image', tags: [], models: [],
       category: 'image', io: { inputs: [], outputs: [] }, thumbnail: [],

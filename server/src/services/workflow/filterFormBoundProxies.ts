@@ -33,7 +33,7 @@ const PROMPT_SURFACE_WIDGET_NAMES = new Set<string>([
 ]);
 
 function rawTemplate(templateName: string): RawTemplate {
-  const tpl = templates.getTemplate(templateName);
+  const tpl = templates.getUserTemplate(templateName);
   return {
     name: templateName,
     title: tpl?.title ?? templateName,

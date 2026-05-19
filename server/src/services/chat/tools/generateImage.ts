@@ -168,7 +168,7 @@ export async function generateImageTool(config: GenerateImageConfig) {
       // execute-time call covers the registration->execute race when a
       // dependency is removed mid-turn. No ComfyUI submission, no GPU work,
       // until the gate passes.
-      const template = templates.getTemplate(templateName);
+      const template = templates.getUserTemplate(templateName);
       if (!template) {
         return notReadyMessage([], 'unknown template');
       }

@@ -6,7 +6,6 @@ import apiRouter from './routes/index.js';
 import { getComfyUIUrl, getQueue, getQueuePromptIds } from './services/comfyui/api.js';
 import * as galleryService from './services/gallery/index.js';
 import { hydrateFromQueue, onQueueStatus } from './services/gallery/sentry.js';
-import { loadTemplatesFromComfyUI } from './services/templates/index.js';
 import { wireTemplateEventHandlers } from './services/templates/eventSubscribers.js';
 import { wireCatalogEventHandlers } from './services/catalog/index.js';
 import {
@@ -317,34 +316,15 @@ async function start() {
     logger.error('failed to start comfyui proxy', { error: String(err) });
   }
 
-  async function loadWithRetry(retries: number, delay: number) {
-    await loadTemplatesFromComfyUI(comfyUrl);
-    const tmpl = await import('./services/templates/index.js');
-    if (tmpl.getTemplates().length === 0 && retries > 0) {
-      logger.info(`Templates not available, retrying in ${delay / 1000}s... (${retries} retries left)`);
-      setTimeout(() => loadWithRetry(retries - 1, delay), delay);
-      return;
-    }
-    if (tmpl.getTemplates().length > 0) {
-      // Populate the SQLite-backed model index BEFORE seeding templates so
-      // the readiness recompute that follows sees real on-disk state. The
-      // gate is age-based, not boot-on-every-restart.
-      try {
-        await ensureModelIndexFresh();
-      } catch (err) {
-        logger.warn('model index ensureFresh failed', { error: String(err) });
-      }
-      // Seed sqlite with the shorthand edges + kick off deep refresh in the
-      // background so real filenames populate without a manual click.
-      tmpl.seedTemplatesOnce();
-      tmpl.refreshTemplates().then(r => {
-        logger.info('auto template refresh complete', r);
-      }).catch(err => {
-        logger.warn('auto template refresh failed', { error: String(err) });
-      });
-    }
+  // Populate the SQLite-backed model index before seeding templates so
+  // the readiness recompute that follows sees real on-disk state.
+  try {
+    await ensureModelIndexFresh();
+  } catch (err) {
+    logger.warn('model index ensureFresh failed', { error: String(err) });
   }
-  loadWithRetry(12, 10000);
+  // No boot-time template cache rebuild needed — all template listing now
+  // goes directly to the DB via templates.repo.listPaginated.
 }
 
 start().catch((err) => logger.error('server failed to start', { error: String(err) }));

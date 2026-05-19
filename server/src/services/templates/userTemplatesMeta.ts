@@ -9,7 +9,7 @@ import fs from 'fs';
 import { atomicWrite, safeResolve } from '../../lib/fs.js';
 import { paths } from '../../config/paths.js';
 import { logger } from '../../lib/logger.js';
-import type { TemplateCivitaiMeta } from './types.js';
+import type { TemplateCivitaiMeta, TemplateData } from './types.js';
 
 const DIR = (): string => paths.userTemplatesDir;
 
@@ -67,4 +67,24 @@ export function deleteMeta(slug: string): void {
     const abs = metaFilePath(slug);
     if (fs.existsSync(abs)) fs.rmSync(abs, { force: true });
   } catch { /* best effort */ }
+}
+
+/**
+ * Read the full TemplateData for a named template from its disk JSON.
+ * Returns null when no file exists for that name. Unlike the old in-memory
+ * cache this always returns up-to-date disk state.
+ */
+export function getUserTemplate(name: string): TemplateData | null {
+  try {
+    const abs = safeResolve(DIR(), `${name}.json`);
+    if (!fs.existsSync(abs)) return null;
+    const raw = fs.readFileSync(abs, 'utf8');
+    const parsed = JSON.parse(raw) as TemplateData;
+    const meta = readMeta(parsed.name);
+    if (meta) parsed.civitaiMeta = meta;
+    return parsed;
+  } catch (err) {
+    logger.warn('user template read failed', { name, error: String(err) });
+    return null;
+  }
 }

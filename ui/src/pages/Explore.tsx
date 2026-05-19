@@ -1,6 +1,6 @@
 import { useMemo, useEffect, useCallback, useState, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Search, Layers, WifiOff, Settings, SlidersHorizontal, X, RefreshCw, Upload } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { Search, Layers, SlidersHorizontal, X, Upload, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { Spinner } from '../components/ui/spinner';
 import type { Template, CivitaiModelSummary, StagedImportManifest } from '../types';
@@ -36,9 +36,9 @@ type ExploreRow =
 const categories = ['All', 'Use Cases', 'Image', 'Video', 'Audio', '3D Model', 'LLM', 'Utility', 'Getting Started'];
 
 export default function Explore() {
-  const { templates, connected, refreshTemplates, apiKeyConfigured } = useApp();
-  const navigate = useNavigate();
+  const { templates, refreshTemplates, apiKeyConfigured } = useApp();
   const [searchParams] = useSearchParams();
+  const [importInitialTab, setImportInitialTab] = useState<'comfy' | undefined>(undefined);
 
   useEffect(() => {
     refreshTemplates();
@@ -69,7 +69,7 @@ export default function Explore() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlSource]);
 
-  const [refreshing, setRefreshing] = useState(false);
+  // (refreshing state removed — Refresh button removed)
 
   // CivitAI-only: feed selector + accumulator state used with the "Load more"
   // button. Civitai doesn't return totals, so numbered pagination can't work;
@@ -244,14 +244,16 @@ export default function Explore() {
     [refetch, refreshTemplates],
   );
 
-  const handleImportOpen = useCallback((manifest?: StagedImportManifest | null): void => {
+  const handleImportOpen = useCallback((manifest?: StagedImportManifest | null, tab?: 'comfy'): void => {
     setImportInitialManifest(manifest ?? null);
+    setImportInitialTab(tab);
     setImportOpen(true);
   }, []);
 
   const handleImportClose = useCallback((): void => {
     setImportOpen(false);
     setImportInitialManifest(null);
+    setImportInitialTab(undefined);
   }, []);
 
   const handleImported = useCallback(async (imported: string[]): Promise<void> => {
@@ -268,31 +270,30 @@ export default function Explore() {
     await refreshTemplates();
   }, [refetch, refreshTemplates, setSourceFilter]);
 
-  const handleRefresh = useCallback(async () => {
-    if (refreshing) return;
-    setRefreshing(true);
-    try {
-      const result = await api.refreshTemplates();
-      toast.success('Templates refreshed', {
-        description: `Added ${result.added}, updated ${result.updated}, removed ${result.removed}.`,
-      });
-      await refetch();
-    } catch (err) {
-      toast.error('Refresh failed', {
-        description: err instanceof Error ? err.message : String(err),
-      });
-    } finally {
-      setRefreshing(false);
-    }
-  }, [refreshing, refetch]);
 
-  // Tag options — top 20 by frequency, computed locally over the slim
-  // template list (tags + category fields are still on TemplateSummary, so
-  // a separate stats request would just duplicate work the browser does
-  // for free over a small array).
+  // Templates visible under the active source filter. Aggregations (tag
+  // chips, category counts) compute over THIS subset, not the full list —
+  // so when "Imported" is selected the chips reflect only the 4 user
+  // imports, not the 391-template catalog. CivitAI tab is external; treat
+  // as "no local matches" for the purposes of these counts.
+  const visibleForCounts = useMemo(() => {
+    if (sourceFilter === 'all') return templates;
+    if (sourceFilter === 'civitai') return [];
+    return templates.filter(t => {
+      switch (sourceFilter) {
+        case 'open':      return t.openSource !== false && t.source_type === 1;
+        case 'api':       return t.openSource === false && t.source_type === 1;
+        case 'user':      return t.source_type === 2 || t.source_type === 3 || t.source_type === 4;
+        case 'favorites': return t.favorite === true;
+        default:          return true;
+      }
+    });
+  }, [templates, sourceFilter]);
+
+  // Tag options — top 20 by frequency over the visible subset.
   const tagOptions = useMemo(() => {
     const tagCounts = new Map<string, number>();
-    templates.forEach(t => {
+    visibleForCounts.forEach(t => {
       t.tags.forEach(tag => {
         tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
       });
@@ -301,7 +302,7 @@ export default function Explore() {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 20)
       .map(([tag]) => tag);
-  }, [templates]);
+  }, [visibleForCounts]);
 
   const toggleTag = (tag: string) => {
     setActiveTags(prev =>
@@ -309,15 +310,16 @@ export default function Explore() {
     );
   };
 
-  // Count templates per category — local aggregation over the slim list.
+  // Count templates per category — local aggregation over the visible
+  // subset (same filter as tag chips).
   const categoryCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    counts.set('All', templates.length);
-    templates.forEach(t => {
+    counts.set('All', visibleForCounts.length);
+    visibleForCounts.forEach(t => {
       counts.set(t.category, (counts.get(t.category) || 0) + 1);
     });
     return counts;
-  }, [templates]);
+  }, [visibleForCounts]);
 
   const hasActiveFilters =
     activeCategory !== 'All' ||
@@ -341,16 +343,6 @@ export default function Explore() {
               >
                 <Upload className="w-3.5 h-3.5" />
                 Import workflow
-              </Button>
-              <Button
-                onClick={handleRefresh}
-                disabled={refreshing}
-                variant="secondary"
-                aria-label="Refresh templates"
-                title="Re-pull template catalog from ComfyUI and recompute readiness"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-                {refreshing ? 'Refreshing...' : 'Refresh'}
               </Button>
             </ButtonGroup>
             <Button
@@ -384,11 +376,11 @@ export default function Explore() {
                   <SelectContent>
                     <SelectItem value="all">All</SelectItem>
                     <SelectItem value="favorites">Favorites</SelectItem>
-                    <SelectItem value="open">ComfyUI (open source)</SelectItem>
+                    <SelectItem value="open">ComfyUI</SelectItem>
                     {apiKeyConfigured && (
                       <SelectItem value="api">API (external providers)</SelectItem>
                     )}
-                    <SelectItem value="user">User imported</SelectItem>
+                    <SelectItem value="user">Imported</SelectItem>
                     <SelectItem value="civitai">CivitAI</SelectItem>
                   </SelectContent>
                 </SelectField>
@@ -551,26 +543,16 @@ export default function Explore() {
 
               {sourceFilter !== 'civitai' && templates.length === 0 ? (
                 <div className="text-center py-20">
-                  {!connected ? (
-                    <>
-                      <WifiOff className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-                      <p className="text-sm font-medium text-muted-foreground">Connect to ComfyUI to load workflows</p>
-                      <p className="text-xs text-muted-foreground mt-1 mb-4">Workflows will appear once ComfyUI is running</p>
-                      <Button
-                        onClick={() => navigate('/settings')}
-                        variant="secondary"
-                      >
-                        <Settings className="w-3.5 h-3.5" />
-                        Check Settings
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <Layers className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-                      <p className="text-sm font-medium text-muted-foreground">No workflows available</p>
-                      <p className="text-xs text-muted-foreground mt-1">Start ComfyUI to load workflow templates</p>
-                    </>
-                  )}
+                  <Layers className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+                  <p className="text-sm font-medium text-muted-foreground">No workflows imported yet.</p>
+                  <p className="text-xs text-muted-foreground mt-1 mb-4">Import your ComfyUI catalog or upload a workflow file.</p>
+                  <Button
+                    onClick={() => handleImportOpen(null, 'comfy')}
+                    variant="secondary"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Import from ComfyUI →
+                  </Button>
                 </div>
               ) : gridRows.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
@@ -640,7 +622,12 @@ export default function Explore() {
         open={importOpen}
         onClose={handleImportClose}
         initialManifest={importInitialManifest}
+        initialTab={importInitialTab}
         onImported={handleImported}
+        onComfyImported={useCallback(async () => {
+          await refetch();
+          await refreshTemplates();
+        }, [refetch, refreshTemplates])}
       />
     </>
   );

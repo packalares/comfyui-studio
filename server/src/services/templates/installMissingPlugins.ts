@@ -17,12 +17,11 @@ import * as templateRepo from '../../lib/db/templates.repo.js';
 import * as pluginCache from '../plugins/cache.js';
 import * as pluginInstall from '../plugins/install.js';
 import type { CatalogPlugin } from '../plugins/cache.js';
-import type { TemplateRow } from '../../lib/db/templates.repo.js';
-import { getTemplate } from './templates.service.js';
 import { extractDeps } from './depExtract.js';
 import { extractDepsWithPluginResolution, resolutionsToRepoKeys } from './extractDepsAsync.js';
 import { isPluginInstalled, getInstalledPluginKeys } from '../plugins/cache.js';
 import { canonicalize, dedupKey } from '../plugins/nodes.js';
+import { getUserWorkflowJson } from './userTemplates.js';
 
 export interface InstallMissingResult {
   queued: Array<{ pluginId: string; taskId: string }>;
@@ -33,33 +32,33 @@ export interface InstallMissingResult {
 
 /**
  * Lazy-seed the sqlite templates row for a user-imported workflow that was
- * saved before `importCommit` started persisting the row. Looks up the
- * in-memory cache (loaded from the on-disk workflow JSON), recomputes deps,
- * upserts the row + plugin edges, returns the fresh list row.
+ * saved before `importCommit` started persisting the row. Reads the workflow
+ * from disk, recomputes deps, upserts the row + plugin edges, returns the
+ * fresh list row.
  *
  * Returns null when the template isn't a known user workflow (genuinely
  * unknown template name).
  */
 async function seedUserWorkflowRow(name: string) {
-  const t = getTemplate(name);
-  if (!t || !t.workflow) return null;
-  const cheap = extractDeps(t.workflow);
+  const workflow = getUserWorkflowJson(name);
+  if (!workflow) return null;
+  const cheap = extractDeps(workflow);
   let pluginKeys: string[] = cheap.plugins;
   try {
-    const resolved = await extractDepsWithPluginResolution(t.workflow);
+    const resolved = await extractDepsWithPluginResolution(workflow);
     pluginKeys = resolutionsToRepoKeys(resolved.plugins);
   } catch { /* Manager offline — aux_id fallback already set */ }
-  const row: TemplateRow = {
-    name,
-    displayName: t.title || name,
-    category: t.category ?? null,
-    description: t.description ?? null,
-    source: t.openSource === false ? 'api' : 'open',
-    workflow_json: JSON.stringify(t.workflow),
-    tags_json: JSON.stringify(t.tags ?? []),
-    installed: false,
-  };
-  templateRepo.upsertTemplate(row, { models: cheap.models, plugins: pluginKeys });
+  templateRepo.upsertTemplate(
+    {
+      name,
+      displayName: name,
+      category: null,
+      description: null,
+      tags_json: JSON.stringify([]),
+      installed: false,
+    },
+    { models: cheap.models, plugins: pluginKeys },
+  );
   return templateRepo.getTemplate(name);
 }
 

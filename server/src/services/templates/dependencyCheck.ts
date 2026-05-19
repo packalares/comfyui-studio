@@ -12,10 +12,9 @@
 // populated from the same function (see `templates/refresh.ts` etc.).
 
 import * as catalog from '../catalog/index.js';
-import { isUserWorkflow, getUserWorkflowJson } from './userTemplates.js';
+import { getUserWorkflowJson } from './userTemplates.js';
 import * as templateRepo from '../../lib/db/templates.repo.js';
 import { collectAllWorkflowNodes } from '../workflow/collect.js';
-import { env } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
 import type {
   RequiredItem,
@@ -37,22 +36,12 @@ export interface DependencyCheckResult {
   missing: RequiredItem[];
 }
 
-const COMFYUI_URL = env.COMFYUI_URL;
-
 export async function fetchTemplateWorkflow(
   templateName: string,
 ): Promise<Record<string, unknown> | null> {
+  // All templates now live on disk in user-workflows/. Read from disk directly.
   try {
-    if (isUserWorkflow(templateName)) {
-      return getUserWorkflowJson(templateName);
-    }
-    const wfRes = await fetch(
-      `${COMFYUI_URL}/templates/${encodeURIComponent(templateName)}.json`,
-    );
-    if (!wfRes.ok) return null;
-    const wfData = await wfRes.json();
-    if (!wfData || typeof wfData !== 'object') return null;
-    return wfData as Record<string, unknown>;
+    return getUserWorkflowJson(templateName);
   } catch {
     return null;
   }

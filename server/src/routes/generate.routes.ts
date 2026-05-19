@@ -22,7 +22,6 @@ import {
   applyProxyOverrides,
   splitAdvancedSettings,
 } from '../services/templates/advancedSettings.js';
-import { env } from '../config/env.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { sendError } from '../middleware/errors.js';
 
@@ -78,23 +77,11 @@ router.post('/generate', generateLimiter, async (req: Request, res: Response) =>
       return;
     }
 
-    let workflow: Record<string, unknown>;
-    if (templates.isUserWorkflow(templateName)) {
-      const local = templates.getUserWorkflowJson(templateName);
-      if (!local) {
-        res.status(404).json({ error: 'User workflow file missing or unreadable' });
-        return;
-      }
-      workflow = local;
-    } else {
-      const wfRes = await fetch(
-        `${env.COMFYUI_URL}/templates/${encodeURIComponent(templateName)}.json`,
-      );
-      if (!wfRes.ok) {
-        res.status(404).json({ error: 'Workflow not found' });
-        return;
-      }
-      workflow = await wfRes.json() as Record<string, unknown>;
+    // All templates now live on disk in user-workflows/ — read from disk directly.
+    const workflow = templates.getUserWorkflowJson(templateName);
+    if (!workflow) {
+      res.status(404).json({ error: 'Workflow file missing or unreadable' });
+      return;
     }
 
     // Hash the workflow BEFORE any overrides so identical templates with
@@ -108,7 +95,7 @@ router.post('/generate', generateLimiter, async (req: Request, res: Response) =>
     const { proxyEntries, nodeOverrides } = splitAdvancedSettings(advancedSettings);
     applyProxyOverrides(workflow, proxyEntries);
 
-    const template = templates.getTemplate(templateName);
+    const template = templates.getUserTemplate(templateName);
     const objectInfo = await getObjectInfo();
     const rawForBindings: RawTemplate = {
       name: templateName,

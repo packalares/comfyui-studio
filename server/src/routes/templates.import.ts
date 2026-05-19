@@ -14,6 +14,7 @@
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import multer from 'multer';
 import * as templates from '../services/templates/index.js';
+import * as templateRepo from '../lib/db/templates.repo.js';
 import { resolveModelForStaging, ResolverError } from '../services/templates/commitOverrides.js';
 import { CommitBlockedError } from '../services/templates/importCommit.js';
 import { WorkflowNameCollisionError } from '../services/templates/errors.js';
@@ -146,8 +147,6 @@ const handleCommit: RequestHandler = async (req, res) => {
     const result = await templates.commitStaging(id, {
       workflowIndices: indices, imagesCopy, titleOverrides,
     });
-    try { await templates.refreshTemplates(); }
-    catch { /* best effort; UI will show new rows after next GET */ }
     res.json(result);
   } catch (err) {
     if (err instanceof CommitBlockedError) {
@@ -452,20 +451,45 @@ export async function handleImportCivitai(req: Request, res: Response): Promise<
   }
 }
 
-/** DELETE /templates/:name — removes a user-imported workflow. */
+/** DELETE /templates/:name — soft-deletes comfy/unknown rows, hard-deletes others. */
 export function handleDeleteTemplate(req: Request, res: Response): void {
   const name = req.params.name as string;
-  if (!templates.isUserWorkflow(name)) {
-    res.status(403).json({ error: 'Only user-imported templates can be deleted' });
-    return;
-  }
-  const removed = templates.deleteUserWorkflow(name);
-  if (!removed) {
+
+  // Look up the DB row to determine source_type.
+  const dbRow = templateRepo.getTemplate(name);
+
+  // Also check disk — if neither DB nor disk has this template, 404.
+  const onDisk = templates.getUserWorkflowJson(name) !== null;
+  if (!dbRow && !onDisk) {
     res.status(404).json({ error: `Template not found: ${name}` });
     return;
   }
-  templates.loadTemplatesFromComfyUI(env.COMFYUI_URL).catch(() => { /* best effort */ });
-  res.json({ deleted: true, name });
+
+  const sourceType = dbRow?.source_type ?? templateRepo.SOURCE_UNKNOWN;
+
+  if (sourceType === templateRepo.SOURCE_COMFY_CATALOG || sourceType === templateRepo.SOURCE_UNKNOWN) {
+    // Soft delete: remove the JSON file from disk, mark DB row as soft_deleted.
+    // source_type=0 (legacy unknown) is treated the same as comfy-catalog —
+    // these rows existed before source tracking was added and were almost
+    // certainly comfy-catalog entries; preserving the row lets favorites survive.
+    templates.deleteUserWorkflow(name); // remove JSON file from disk
+    if (dbRow) {
+      templateRepo.setSoftDeleted(name);
+    }
+    res.json({ deleted: true, soft: true, name });
+    return;
+  }
+
+  // Hard delete for civitai / github / upload (source_type ∈ {2, 3, 4}).
+  const removed = templates.deleteUserWorkflow(name);
+  if (!removed && !dbRow) {
+    res.status(404).json({ error: `Template not found: ${name}` });
+    return;
+  }
+  if (dbRow) {
+    templateRepo.deleteTemplate(name);
+  }
+  res.json({ deleted: true, soft: false, name });
 }
 
 // ---- GitHub + paste-JSON ----

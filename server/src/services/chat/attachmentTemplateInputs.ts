@@ -22,7 +22,7 @@ import {
 } from '../../lib/db/chat.repo.js';
 import type { AttachmentRow } from '../../lib/db/chat.repo.js';
 import { attachmentDir } from './attachments.js';
-import { getTemplate } from '../templates/index.js';
+import { getUserTemplate } from '../templates/userTemplatesMeta.js';
 import { generateFormInputs } from '../templates/templates.formInputs.js';
 import { fetchTemplateWorkflow } from '../templates/dependencyCheck.js';
 import { getObjectInfo } from '../workflow/index.js';
@@ -81,7 +81,7 @@ export async function resolveAttachmentTemplateInputs(
     unmatchedRequiredFields: [],
   };
 
-  const template = getTemplate(opts.templateName);
+  const template = getUserTemplate(opts.templateName);
   if (!template) return empty;
 
   // Build the form-input plan (same call chain as submitTemplate).

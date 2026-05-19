@@ -44,7 +44,7 @@
 // `plugin_id`). Anything else stays unindexed or lives inside `raw_json` /
 // `workflow_json`.
 
-export const SCHEMA_VERSION = 22;
+export const SCHEMA_VERSION = 24;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -103,16 +103,21 @@ CREATE INDEX IF NOT EXISTS idx_plugins_title  ON plugins_catalog(title);
 CREATE INDEX IF NOT EXISTS idx_plugins_author ON plugins_catalog(author);
 
 CREATE TABLE IF NOT EXISTS templates (
-  name          TEXT PRIMARY KEY,
-  displayName   TEXT NOT NULL,
-  category      TEXT,
-  description   TEXT,
-  source        TEXT,
-  workflow_json TEXT,
-  tags_json     TEXT,
-  installed     INTEGER NOT NULL DEFAULT 0,
-  favorite      INTEGER NOT NULL DEFAULT 0,
-  updatedAt     INTEGER NOT NULL
+  name           TEXT PRIMARY KEY,
+  displayName    TEXT NOT NULL,
+  category       TEXT,
+  description    TEXT,
+  source         TEXT,
+  workflow_json  TEXT,
+  tags_json      TEXT,
+  installed      INTEGER NOT NULL DEFAULT 0,
+  favorite       INTEGER NOT NULL DEFAULT 0,
+  updatedAt      INTEGER NOT NULL,
+  thumbnail_json TEXT,
+  media_type     TEXT,
+  open_source    INTEGER NOT NULL DEFAULT 1,
+  search_rank    INTEGER NOT NULL DEFAULT 0,
+  username       TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_templates_installed ON templates(installed);
 CREATE INDEX IF NOT EXISTS idx_templates_category  ON templates(category);

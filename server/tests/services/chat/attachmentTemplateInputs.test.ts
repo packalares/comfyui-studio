@@ -11,8 +11,8 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 // --- mocks -------------------------------------------------------------------
 
-vi.mock('../../../src/services/templates/index.js', () => ({
-  getTemplate: vi.fn(),
+vi.mock('../../../src/services/templates/userTemplatesMeta.js', () => ({
+  getUserTemplate: vi.fn(),
 }));
 
 vi.mock('../../../src/services/templates/dependencyCheck.js', () => ({
@@ -48,12 +48,12 @@ vi.mock('../../../src/config/paths.js', async (importActual) => {
 });
 
 import { resolveAttachmentTemplateInputs } from '../../../src/services/chat/attachmentTemplateInputs.js';
-import * as templatesIndex from '../../../src/services/templates/index.js';
+import * as userTemplatesMeta from '../../../src/services/templates/userTemplatesMeta.js';
 import * as formInputsMod from '../../../src/services/templates/templates.formInputs.js';
 import * as chatRepo from '../../../src/lib/db/chat.repo.js';
 import * as uploadMod from '../../../src/services/comfyui/upload.js';
 
-const mockGetTemplate = vi.mocked(templatesIndex.getTemplate);
+const mockGetTemplate = vi.mocked(userTemplatesMeta.getUserTemplate);
 const mockGenerateFormInputs = vi.mocked(formInputsMod.generateFormInputs);
 const mockListAttachments = vi.mocked(chatRepo.listAttachmentsForMessage);
 const mockUploadFile = vi.mocked(uploadMod.uploadFileToComfyUI);

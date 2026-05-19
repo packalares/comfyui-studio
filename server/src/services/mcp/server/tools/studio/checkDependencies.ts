@@ -6,7 +6,7 @@
 
 import { z } from 'zod';
 import { checkTemplateDependencies } from '../../../../templates/dependencyCheck.js';
-import { getTemplate } from '../../../../templates/index.js';
+import * as templateRepo from '../../../../../lib/db/templates.repo.js';
 import {
   resolveTemplateName,
   unresolvedTemplateError,
@@ -29,7 +29,7 @@ export interface CheckDependenciesArgs {
 
 export async function run(args: CheckDependenciesArgs): Promise<unknown> {
   let name = args.name;
-  if (!getTemplate(name)) {
+  if (!templateRepo.getTemplate(name)) {
     const resolved = resolveTemplateName(args.name);
     if (!resolved) return unresolvedTemplateError(args.name);
     if ('candidates' in resolved) return ambiguousTemplateError(args.name, resolved.candidates);

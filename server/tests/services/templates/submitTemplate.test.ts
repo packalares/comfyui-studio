@@ -10,11 +10,10 @@ import { getPromptMeta } from '../../../src/services/gallery/promptMeta.js';
 // ---- Mocks ----------------------------------------------------------------
 
 vi.mock('../../../src/services/templates/index.js', () => ({
-  getTemplate: (name: string) => name === 'test-tmpl' ? {
+  getUserTemplate: (name: string) => name === 'test-tmpl' ? {
     title: 'Test', description: '', mediaType: 'image', tags: [], models: ['flux.safetensors'], io: undefined, openSource: true,
   } : null,
-  isUserWorkflow: () => false,
-  getUserWorkflowJson: () => null,
+  getUserWorkflowJson: () => ({ nodes: [] }),
 }));
 
 vi.mock('../../../src/services/templates/templates.formInputs.js', () => ({

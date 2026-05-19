@@ -3,16 +3,18 @@ import { useNavigate } from 'react-router-dom';
 import {
   UploadCloud, FileJson, Github, Clipboard,
   CheckCircle2, AlertCircle, Image as ImageIcon, Layers, Puzzle,
-  Package, Link2,
+  Package, Link2, Download, RefreshCw, WifiOff,
 } from 'lucide-react';
 import type { StagedImportManifest } from '../../types';
 import { api, ApiError } from '../../services/comfyui';
+import { useApp } from '../../context/AppContext';
 import { Checkbox } from '../ui/checkbox';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';
 import AppModal from './AppModal';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Spinner } from '../ui/spinner';
+import { cn } from '../../lib/utils';
 
 interface Props {
   open: boolean;
@@ -29,10 +31,16 @@ interface Props {
    * navigates to `/explore?source=user` as a fallback.
    */
   onImported?: (imported: string[]) => void;
+  /** Open directly on a specific tab ('comfy', 'upload', etc.). */
+  initialTab?: SourceTab;
+  /** Called after a successful comfy-import to refresh the template list. */
+  onComfyImported?: () => void;
 }
 
 type Step = 'source' | 'upload' | 'review';
-type SourceTab = 'upload' | 'github' | 'civitai' | 'paste';
+// `paste` was a separate tab; merged into `upload` because both produce the
+// same workflow JSON — just different input mechanisms (file vs textarea).
+type SourceTab = 'comfy' | 'upload' | 'github' | 'civitai';
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
@@ -52,11 +60,11 @@ function humanBytes(n: number): string {
 }
 
 export default function ImportWorkflowModal(props: Props): JSX.Element | null {
-  const { open, onClose, initialManifest, onImported } = props;
+  const { open, onClose, initialManifest, onImported, initialTab, onComfyImported } = props;
   const navigate = useNavigate();
 
   const [step, setStep] = useState<Step>('upload');
-  const [tab, setTab] = useState<SourceTab>('upload');
+  const [tab, setTab] = useState<SourceTab>(initialTab ?? 'comfy');
   const [manifest, setManifest] = useState<StagedImportManifest | null>(null);
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [copyImages, setCopyImages] = useState<boolean>(true);
@@ -101,7 +109,7 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
     }
     setError(null);
     setCopyImages(true);
-    setTab('upload');
+    setTab(initialTab ?? 'comfy');
     setPluginInstallChoices({});
     setInstallProgress(null);
     setGithubUrl('');
@@ -427,6 +435,7 @@ export default function ImportWorkflowModal(props: Props): JSX.Element | null {
           civitaiUrl={civitaiUrl}
           onCivitaiUrlChange={setCivitaiUrl}
           onFetchCivitai={handleFetchCivitai}
+          onComfyImported={onComfyImported}
         />
       )}
       {/* CollisionPrompt sits BEFORE the review step so it's visible at the
@@ -542,6 +551,37 @@ interface UploadStepProps {
   civitaiUrl: string;
   onCivitaiUrlChange: (v: string) => void;
   onFetchCivitai: () => void | Promise<void>;
+  onComfyImported?: () => void;
+}
+
+/** Pill-style file/paste toggle for the Upload tab. Mirrors the
+ *  `wf-viewtoggle` pattern used by the Studio graph view. Used twice in the
+ *  same render: once anchored to the dropzone's corner, once inline next to
+ *  the paste title input. Pulling it out keeps both call sites in sync.
+ */
+function UploadModeToggle({
+  mode, onChange,
+}: { mode: 'file' | 'paste'; onChange: (m: 'file' | 'paste') => void }): JSX.Element {
+  return (
+    <div className="wf-viewtoggle">
+      <button
+        type="button"
+        onClick={() => onChange('file')}
+        className={cn('wf-viewtoggle-btn', mode === 'file' && 'is-active')}
+      >
+        <UploadCloud className="w-3 h-3 inline-block mr-1 -mt-px" />
+        File
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('paste')}
+        className={cn('wf-viewtoggle-btn', mode === 'paste' && 'is-active')}
+      >
+        <Clipboard className="w-3 h-3 inline-block mr-1 -mt-px" />
+        Paste
+      </button>
+    </div>
+  );
 }
 
 function UploadStep(p: UploadStepProps): JSX.Element {
@@ -551,16 +591,25 @@ function UploadStep(p: UploadStepProps): JSX.Element {
     githubUrl, onGithubUrlChange, onFetchGithub,
     pasteText, onPasteTextChange, pasteTitle, onPasteTitleChange, onParsePaste,
     civitaiUrl, onCivitaiUrlChange, onFetchCivitai,
+    onComfyImported,
   } = p;
   const pasteBytes = useMemo(
     () => new TextEncoder().encode(pasteText).length,
     [pasteText],
   );
   const pasteOver = pasteBytes > MAX_UPLOAD_BYTES;
+  // File vs paste-text picker inside the Upload tab. They produce the same
+  // workflow JSON downstream, so the tab is a single space with a toggle
+  // rather than two separate tabs in the outer Tabs list.
+  const [uploadMode, setUploadMode] = useState<'file' | 'paste'>('file');
   return (
     <div className="space-y-3">
       <Tabs value={tab} onValueChange={(v) => onTabChange(v as SourceTab)}>
         <TabsList className="w-full">
+          <TabsTrigger value="comfy" className="flex-1">
+            <Download className="w-3.5 h-3.5" />
+            From ComfyUI
+          </TabsTrigger>
           <TabsTrigger value="upload" className="flex-1">
             <UploadCloud className="w-3.5 h-3.5" />
             Upload
@@ -573,43 +622,90 @@ function UploadStep(p: UploadStepProps): JSX.Element {
             <FileJson className="w-3.5 h-3.5" />
             CivitAI
           </TabsTrigger>
-          <TabsTrigger value="paste" className="flex-1">
-            <Clipboard className="w-3.5 h-3.5" />
-            Paste JSON
-          </TabsTrigger>
         </TabsList>
-        <TabsContent value="upload" className="pt-4">
-          <div
-            onDragOver={(e) => { e.preventDefault(); onDragStateChange(true); }}
-            onDragLeave={() => onDragStateChange(false)}
-            onDrop={onDrop}
-            className={`rounded-xl border-2 border-dashed transition p-8 text-center ${
-              dragActive
-                ? 'border-brand bg-brand/10'
-                : 'border-input bg-muted'
-            }`}
-          >
-            <UploadCloud className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-            <p className="text-sm font-medium text-foreground">Drag a file here</p>
-            <p className="text-xs text-muted-foreground mt-1">or click to pick one from your computer</p>
-            <p className="text-[11px] text-muted-foreground mt-2">Accepts .json or .zip up to 20 MB</p>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".json,.zip,application/json,application/zip"
-              className="hidden"
-              onChange={onFileSelect}
-            />
-            <Button
-              type="button"
-              className="mt-4"
-              disabled={uploading}
-              onClick={() => fileInputRef.current?.click()}
+
+        <TabsContent value="comfy" className="pt-4">
+          <ComfyImportTab onImported={onComfyImported} />
+        </TabsContent>
+        <TabsContent value="upload" className="pt-4 space-y-3">
+          {/* The pill toggle is rendered INSIDE each mode's content, anchored
+              so it shares vertical space with the existing UI:
+                - File mode: top-right of the dropzone (absolute)
+                - Paste mode: inline next to the title input
+              This avoids a wasted "switcher row" above the content. */}
+          {uploadMode === 'file' && (
+            <div
+              onDragOver={(e) => { e.preventDefault(); onDragStateChange(true); }}
+              onDragLeave={() => onDragStateChange(false)}
+              onDrop={onDrop}
+              className={`relative rounded-xl border-2 border-dashed transition p-8 text-center ${
+                dragActive
+                  ? 'border-brand bg-brand/10'
+                  : 'border-input bg-muted'
+              }`}
             >
-              {uploading ? <Spinner size="sm" /> : <FileJson className="w-3.5 h-3.5" />}
-              {uploading ? 'Uploading…' : 'Choose file'}
-            </Button>
-          </div>
+              <div className="absolute right-3 top-3">
+                <UploadModeToggle mode={uploadMode} onChange={setUploadMode} />
+              </div>
+              <UploadCloud className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+              <p className="text-sm font-medium text-foreground">Drag a file here</p>
+              <p className="text-xs text-muted-foreground mt-1">or click to pick one from your computer</p>
+              <p className="text-[11px] text-muted-foreground mt-2">Accepts .json or .zip up to 20 MB</p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json,.zip,application/json,application/zip"
+                className="hidden"
+                onChange={onFileSelect}
+              />
+              <Button
+                type="button"
+                className="mt-4"
+                disabled={uploading}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {uploading ? <Spinner size="sm" /> : <FileJson className="w-3.5 h-3.5" />}
+                {uploading ? 'Uploading…' : 'Choose file'}
+              </Button>
+            </div>
+          )}
+
+          {uploadMode === 'paste' && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={pasteTitle}
+                  onChange={(e) => onPasteTitleChange(e.target.value)}
+                  placeholder="Optional title"
+                  className="flex-1 rounded-md border border-input px-3 py-2 text-sm focus:outline-none focus:border-ring"
+                  disabled={uploading}
+                />
+                <UploadModeToggle mode={uploadMode} onChange={setUploadMode} />
+              </div>
+              <textarea
+                value={pasteText}
+                onChange={(e) => onPasteTextChange(e.target.value)}
+                placeholder='{"nodes":[...], "links":[...]}'
+                rows={10}
+                className="w-full rounded-md border border-input px-3 py-2 text-xs font-mono focus:outline-none focus:border-ring"
+                disabled={uploading}
+              />
+              <div className="flex items-center justify-between text-[11px]">
+                <span className={pasteOver ? 'text-destructive font-medium' : 'text-muted-foreground'}>
+                  {humanBytes(pasteBytes)} / Max {humanBytes(MAX_UPLOAD_BYTES)}
+                </span>
+                <Button
+                  type="button"
+                  disabled={uploading || !pasteText.trim() || pasteOver}
+                  onClick={() => void onParsePaste()}
+                >
+                  {uploading ? <Spinner size="sm" /> : <Clipboard className="w-3.5 h-3.5" />}
+                  {uploading ? 'Parsing…' : 'Parse'}
+                </Button>
+              </div>
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="github" className="pt-4">
@@ -680,43 +776,6 @@ function UploadStep(p: UploadStepProps): JSX.Element {
           </div>
         </TabsContent>
 
-        <TabsContent value="paste" className="pt-4">
-          <div className="space-y-3">
-            <p className="text-[11px] text-muted-foreground">
-              Paste a ComfyUI workflow JSON exported from the editor
-              (Workflow → Export).
-            </p>
-            <input
-              type="text"
-              value={pasteTitle}
-              onChange={(e) => onPasteTitleChange(e.target.value)}
-              placeholder="Optional title"
-              className="w-full rounded-md border border-input px-3 py-2 text-sm focus:outline-none focus:border-ring"
-              disabled={uploading}
-            />
-            <textarea
-              value={pasteText}
-              onChange={(e) => onPasteTextChange(e.target.value)}
-              placeholder='{"nodes":[...], "links":[...]}'
-              rows={10}
-              className="w-full rounded-md border border-input px-3 py-2 text-xs font-mono focus:outline-none focus:border-ring"
-              disabled={uploading}
-            />
-            <div className="flex items-center justify-between text-[11px]">
-              <span className={pasteOver ? 'text-destructive font-medium' : 'text-muted-foreground'}>
-                {humanBytes(pasteBytes)} / Max {humanBytes(MAX_UPLOAD_BYTES)}
-              </span>
-              <Button
-                type="button"
-                disabled={uploading || !pasteText.trim() || pasteOver}
-                onClick={() => void onParsePaste()}
-              >
-                {uploading ? <Spinner size="sm" /> : <Clipboard className="w-3.5 h-3.5" />}
-                {uploading ? 'Parsing…' : 'Parse'}
-              </Button>
-            </div>
-          </div>
-        </TabsContent>
       </Tabs>
     </div>
   );
@@ -1002,6 +1061,179 @@ function ReviewStep(p: ReviewStepProps): JSX.Element {
             ))}
           </div>
         </details>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ComfyUI catalog import tab
+
+interface ComfySSEEvent {
+  type: 'progress' | 'skip' | 'done' | 'error';
+  current?: number;
+  total?: number;
+  name?: string;
+  reason?: string;
+  added?: number;
+  updated?: number;
+  skipped?: number;
+  errors?: number;
+  message?: string;
+}
+
+interface ComfyImportTabProps {
+  onImported?: () => void;
+}
+
+function ComfyImportTab({ onImported }: ComfyImportTabProps): JSX.Element {
+  const [running, setRunning] = useState(false);
+  const [current, setCurrent] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [currentName, setCurrentName] = useState('');
+  const [done, setDone] = useState<{ added: number; updated: number; skipped: number; errors: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const esRef = useRef<EventSource | null>(null);
+
+  const startImport = useCallback(() => {
+    if (running) return;
+    setRunning(true);
+    setCurrent(0);
+    setTotal(0);
+    setCurrentName('');
+    setDone(null);
+    setError(null);
+
+    const es = new EventSource('/api/templates/import-from-comfy');
+    esRef.current = es;
+
+    es.onmessage = (e) => {
+      try {
+        const ev = JSON.parse(e.data as string) as ComfySSEEvent;
+        if (ev.type === 'progress') {
+          setCurrent(ev.current ?? 0);
+          setTotal(ev.total ?? 0);
+          setCurrentName(ev.name ?? '');
+        } else if (ev.type === 'done') {
+          setDone({ added: ev.added ?? 0, updated: ev.updated ?? 0, skipped: ev.skipped ?? 0, errors: ev.errors ?? 0 });
+          setRunning(false);
+          es.close();
+          if (onImported) onImported();
+        } else if (ev.type === 'error') {
+          setError(ev.message ?? 'Unknown error');
+          setRunning(false);
+          es.close();
+        }
+      } catch { /* ignore parse errors */ }
+    };
+
+    es.onerror = () => {
+      if (running) {
+        setError('Connection lost during import');
+        setRunning(false);
+      }
+      es.close();
+    };
+  }, [running, onImported]);
+
+  // Cleanup on unmount
+  useEffect(() => () => { esRef.current?.close(); }, []);
+
+  const progressPct = total > 0 ? Math.round((current / total) * 100) : 0;
+  // The Explore page's connectivity flag mirrors the ComfyUI proxy heartbeat.
+  // When the upstream is down there's nothing to import from, so we replace
+  // the action button with an inline offline banner instead of letting the
+  // user click and wait for a stream that'll immediately emit `error`.
+  const { connected } = useApp();
+
+  return (
+    <div className="rounded-xl border border-input bg-card p-5 space-y-4">
+      {/* Header card: icon + title + description */}
+      <div className="flex items-start gap-3">
+        <div className="rounded-lg bg-brand/10 p-2.5 shrink-0">
+          <Download className="w-5 h-5 text-brand" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-sm font-semibold text-foreground">Import from ComfyUI</h3>
+          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+            Pulls every workflow from your local ComfyUI catalog and saves them
+            to disk so Studio works offline. Re-running this overwrites updated
+            ones and preserves your favorites. Soft-deleted flows stay hidden
+            and won&apos;t come back on re-import.
+          </p>
+        </div>
+      </div>
+
+      {/* Offline state: hide the action, show a clear reason */}
+      {!connected && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2.5 flex items-start gap-2">
+          <WifiOff className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+          <div className="text-xs">
+            <p className="font-medium text-destructive">ComfyUI is offline</p>
+            <p className="text-destructive/80 mt-0.5">
+              Start ComfyUI and reopen this dialog to import.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Idle state with connection: a contained right-aligned action.
+          Full-width felt heavy for a single CTA; this keeps the card balanced. */}
+      {connected && !running && !done && !error && (
+        <div className="flex justify-end pt-1">
+          <Button type="button" onClick={startImport}>
+            <Download className="w-3.5 h-3.5" />
+            Import all
+          </Button>
+        </div>
+      )}
+
+      {running && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Spinner size="sm" />
+            <span className="truncate">{currentName || 'Starting…'}</span>
+            <span className="ml-auto shrink-0">{current} / {total}</span>
+          </div>
+          <div className="h-2 rounded-full bg-muted overflow-hidden">
+            <div
+              className="h-full bg-brand transition-all"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {done && (
+        <div className="rounded-md border border-success/30 bg-success/10 px-3 py-3 text-xs space-y-1">
+          <div className="flex items-center gap-2 font-medium text-success">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            Import complete
+          </div>
+          <div className="text-muted-foreground grid grid-cols-2 gap-x-4 gap-y-1 mt-1">
+            <span>Added</span><span className="font-mono">{done.added}</span>
+            <span>Updated</span><span className="font-mono">{done.updated}</span>
+            <span>Skipped</span><span className="font-mono">{done.skipped}</span>
+            <span>Errors</span><span className="font-mono">{done.errors}</span>
+          </div>
+          <Button type="button" variant="secondary" className="mt-2" onClick={startImport}>
+            <RefreshCw className="w-3.5 h-3.5" />
+            Re-import
+          </Button>
+        </div>
+      )}
+
+      {error && (
+        <div className="space-y-2">
+          <div className="rounded-md bg-destructive/10 border border-destructive/30 px-3 py-2 text-xs text-destructive flex items-start gap-2">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </div>
+          <Button type="button" variant="secondary" onClick={startImport}>
+            <RefreshCw className="w-3.5 h-3.5" />
+            Retry
+          </Button>
+        </div>
       )}
     </div>
   );

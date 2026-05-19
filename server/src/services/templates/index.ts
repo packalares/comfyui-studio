@@ -3,13 +3,6 @@
 // single-file templates.ts used to expose so router code stays unchanged.
 
 export type { TemplateData, FormInputData, TemplatePluginEntry, TemplateCivitaiMeta } from './types.js';
-export {
-  loadTemplatesFromComfyUI,
-  getTemplates,
-  getTemplate,
-  getTemplateNames,
-  seedTemplatesOnce,
-} from './templates.service.js';
 export { extractDeps, extractNodeTypes } from './depExtract.js';
 export type { ExtractedDeps } from './depExtract.js';
 export {
@@ -20,8 +13,6 @@ export type {
   ExtractedDepsAsync,
   PluginResolution,
 } from './extractDepsAsync.js';
-export { refreshTemplates } from './refresh.js';
-export type { RefreshResult } from './refresh.js';
 export { installMissingPluginsForTemplate } from './installMissingPlugins.js';
 export type { InstallMissingResult } from './installMissingPlugins.js';
 export { checkTemplateDependencies, recomputeTemplateReadiness } from './dependencyCheck.js';
@@ -30,11 +21,11 @@ export {
   saveUserWorkflow,
   listUserWorkflows,
   deleteUserWorkflow,
-  isUserWorkflow,
   getUserWorkflowJson,
   slugifyTemplateName,
 } from './userTemplates.js';
 export type { SaveWorkflowInput } from './userTemplates.js';
+export { getUserTemplate } from './userTemplatesMeta.js';
 export {
   getStaging,
   abortStaging,

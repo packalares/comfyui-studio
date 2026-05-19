@@ -12,7 +12,7 @@ import type { TemplateData } from '../../src/services/templates/types.js';
 // the legacy fallback without touching disk or the real cache.
 let mockTpl: TemplateData | undefined = undefined;
 vi.mock('../../src/services/templates/index.js', () => ({
-  getTemplate: (_name: string) => mockTpl,
+  getUserTemplate: (_name: string) => mockTpl,
 }));
 
 // Import AFTER the mock so the module under test picks up the stub.

@@ -153,6 +153,11 @@ export interface TemplateSummary {
   /** First-required-model badge shown by ModelDropdown + the search corpus. */
   models: string[];
   openSource?: boolean;
+  /** 0 unknown / 1 comfy-catalog / 2 civitai / 3 github / 4 upload. Enables
+   *  client-side aggregation that respects the active source filter (tag
+   *  chips + category counts only reflect the visible subset). */
+  source_type?: number;
+  favorite?: boolean;
 }
 
 export interface Template {

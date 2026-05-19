@@ -517,6 +517,129 @@ function applyGalleryFavoriteV22Migration(db: DB): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_gallery_favorite ON gallery(favorite)');
 }
 
+/**
+ * Schema v23 adds `source_type` and `soft_deleted` to `templates`.
+ *
+ * source_type (INTEGER NOT NULL DEFAULT 0):
+ *   0 = unknown (legacy rows — treated as comfy-catalog for compat)
+ *   1 = comfy-catalog (imported via import-from-comfy)
+ *   2 = civitai
+ *   3 = github
+ *   4 = upload (paste / file upload)
+ *
+ * soft_deleted (INTEGER NOT NULL DEFAULT 0):
+ *   0 = visible, 1 = hidden (comfy-catalog soft-delete)
+ *   Only set by the DELETE endpoint for source_type ∈ {0, 1}.
+ *   A soft-deleted row is excluded from the cache; its JSON file is removed
+ *   from disk. On re-import, if soft_deleted=1 the row is skipped so the
+ *   user's explicit hide decision is respected.
+ */
+function applyTemplatesV23Migration(db: DB): void {
+  const cols = db.prepare('PRAGMA table_info(templates)').all() as Array<{ name: string }>;
+  const present = new Set(cols.map(c => c.name));
+  if (!present.has('source_type')) {
+    db.exec('ALTER TABLE templates ADD COLUMN source_type INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!present.has('soft_deleted')) {
+    db.exec('ALTER TABLE templates ADD COLUMN soft_deleted INTEGER NOT NULL DEFAULT 0');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_templates_softdel ON templates(soft_deleted)');
+}
+
+/**
+ * Schema v24: DB-first templates layer.
+ *
+ * Adds the metadata columns the in-memory cache used to carry
+ * (thumbnail_json, media_type, open_source, search_rank, username), drops the
+ * vestigial workflow_json and source columns (never read), adds sort/filter
+ * indexes, and backfills the new columns from the user-workflows/ disk JSONs.
+ *
+ * Idempotent — guarded by `PRAGMA user_version` via the `_meta` table check.
+ */
+function applyTemplatesV24Migration(db: DB): void {
+  const done = db.prepare('SELECT v FROM _meta WHERE k = ?')
+    .get('templates_v24') as { v: string } | undefined;
+  if (done) return;
+
+  const cols = db.prepare('PRAGMA table_info(templates)').all() as Array<{ name: string }>;
+  const present = new Set(cols.map(c => c.name));
+
+  // Add new columns if they don't already exist (fresh DBs have them from SCHEMA_SQL).
+  if (!present.has('thumbnail_json')) {
+    db.exec('ALTER TABLE templates ADD COLUMN thumbnail_json TEXT');
+  }
+  if (!present.has('media_type')) {
+    db.exec('ALTER TABLE templates ADD COLUMN media_type TEXT');
+  }
+  if (!present.has('open_source')) {
+    db.exec('ALTER TABLE templates ADD COLUMN open_source INTEGER NOT NULL DEFAULT 1');
+  }
+  if (!present.has('search_rank')) {
+    db.exec('ALTER TABLE templates ADD COLUMN search_rank INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!present.has('username')) {
+    db.exec('ALTER TABLE templates ADD COLUMN username TEXT');
+  }
+
+  // Drop vestigial columns on SQLite 3.35+. Failures are caught per-column
+  // so an older SQLite doesn't abort the entire migration.
+  for (const col of ['workflow_json', 'source'] as const) {
+    if (present.has(col)) {
+      try {
+        db.exec(`ALTER TABLE templates DROP COLUMN ${col}`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // eslint-disable-next-line no-console
+        console.warn(`[v24 migration] could not drop column ${col}: ${msg}`);
+      }
+    }
+  }
+
+  // Sort + filter indexes.
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_templates_sort
+      ON templates(search_rank DESC, displayName);
+    CREATE INDEX IF NOT EXISTS idx_templates_filter
+      ON templates(soft_deleted, category, source_type);
+  `);
+
+  // One-shot backfill from disk JSONs.
+  const dir: string = paths.userTemplatesDir;
+  if (fs.existsSync(dir)) {
+    const files = fs.readdirSync(dir).filter(
+      (n: string) => n.endsWith('.json') && !n.endsWith('.meta.json'),
+    );
+    const upd = db.prepare(`
+      UPDATE templates SET
+        thumbnail_json = COALESCE(@thumbnail_json, thumbnail_json),
+        media_type     = COALESCE(@media_type, media_type),
+        open_source    = COALESCE(@open_source, open_source),
+        search_rank    = COALESCE(@search_rank, search_rank),
+        username       = COALESCE(@username, username)
+      WHERE name = @name
+    `);
+    for (const f of files) {
+      const safe = f.replace(/\.json$/, '');
+      if (!/^[a-z0-9_.-]+$/i.test(safe)) continue;
+      try {
+        const data = JSON.parse(
+          fs.readFileSync(path.join(dir, f), 'utf8'),
+        ) as Record<string, unknown>;
+        upd.run({
+          name: safe,
+          thumbnail_json: Array.isArray(data.thumbnail) ? JSON.stringify(data.thumbnail) : null,
+          media_type: (typeof data.mediaType === 'string' ? data.mediaType : null),
+          open_source: data.openSource === false ? 0 : 1,
+          search_rank: typeof data.searchRank === 'number' ? data.searchRank : null,
+          username: (typeof data.username === 'string' ? data.username : null),
+        });
+      } catch { /* skip malformed; row keeps defaults */ }
+    }
+  }
+
+  db.prepare('INSERT OR REPLACE INTO _meta (k, v) VALUES (?, ?)').run('templates_v24', 'done');
+}
+
 function openAndInit(dbPath: string): DB {
   const db = new Database(dbPath);
   // WAL: many readers + single writer, durable across crashes, and the
@@ -542,6 +665,8 @@ function openAndInit(dbPath: string): DB {
   applyDiskSweepIdMigration(db);
   applyGallerySchemaV21Migration(db);
   applyGalleryFavoriteV22Migration(db);
+  applyTemplatesV23Migration(db);
+  applyTemplatesV24Migration(db);
   const row = db.prepare('SELECT version FROM schema_version LIMIT 1').get() as
     | { version: number } | undefined;
   if (!row) {

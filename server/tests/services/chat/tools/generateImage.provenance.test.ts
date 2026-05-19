@@ -4,8 +4,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 vi.mock('../../../../src/services/templates/index.js', () => ({
-  getTemplate: vi.fn(),
-  isUserWorkflow: vi.fn(),
+  getUserTemplate: vi.fn(),
   getUserWorkflowJson: vi.fn(),
 }));
 
@@ -40,10 +39,10 @@ const TEMPLATE_STUB = {
 
 describe('generateImageTool provenance threading', () => {
   beforeEach(() => {
-    vi.mocked(templates.getTemplate).mockReset();
+    vi.mocked(templates.getUserTemplate).mockReset();
     vi.mocked(depCheck.checkTemplateDependencies).mockReset();
     vi.mocked(submitMod.submitTemplate).mockReset();
-    vi.mocked(templates.getTemplate).mockReturnValue(TEMPLATE_STUB);
+    vi.mocked(templates.getUserTemplate).mockReturnValue(TEMPLATE_STUB);
     vi.mocked(depCheck.checkTemplateDependencies).mockResolvedValue({
       ready: true, required: [], missing: [],
     });
