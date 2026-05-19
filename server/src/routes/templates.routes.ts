@@ -16,48 +16,17 @@ import { runImportFromComfy } from '../services/templates/importFromComfy.js';
 import * as templates from '../services/templates/index.js';
 import { env } from '../config/env.js';
 import type { TemplateListRow } from '../lib/db/templates.repo.js';
+import { deriveStudioCategory } from '../services/templates/categoryMap.js';
 
 const router = Router();
 
-// Cheap derivation of the UI's studioCategory bucket from media_type + the
-// raw catalog category text. Matches the legacy `mapCategory()` mapping so
-// the Tools home-screen and any other studioCategory consumer keep working.
-function deriveStudioCategory(
-  mediaType: string | null | undefined,
-  category: string | null | undefined,
-): 'image' | 'video' | 'audio' | '3d' | 'tools' {
-  if (mediaType === 'video' || mediaType === 'audio' || mediaType === '3d') return mediaType;
-  const t = (category ?? '').toLowerCase();
-  if (t.includes('video')) return 'video';
-  if (t.includes('audio')) return 'audio';
-  if (t.includes('3d')) return '3d';
-  if (t.includes('utility') || t.includes('tool') || t.includes('llm')) return 'tools';
-  return 'image';
-}
-
-// Slim shape used by `/templates/list`. ~8 fields per row, no thumbnail, no
-// description — small enough that fetching all 391 entries to compute tag
-// chips + category counts in the browser is essentially free. Carries the
-// discriminators (source_type, openSource, favorite) so the UI can re-filter
-// client-side without a second round-trip.
-function rowToSummary(t: TemplateListRow): Record<string, unknown> {
-  return {
-    name: t.name,
-    title: t.displayName,
-    category: t.category ?? '',
-    studioCategory: deriveStudioCategory(t.media_type, t.category),
-    mediaType: t.media_type ?? 'image',
-    tags: t.tags ?? [],
-    models: t.models ?? [],
-    openSource: t.open_source !== 0,
-    source_type: t.source_type ?? 0,
-    favorite: t.favorite === true || (t.favorite as unknown) === 1,
-  };
-}
-
-// Full Template shape used by the paginated `/templates` endpoint that
-// renders the Explore grid. Includes thumbnail + description + the per-row
-// ready flag (joined from the installed column).
+// Full Template shape used by both `/templates` (paginated Explore grid)
+// and `/templates/list` (the slim bootstrap fetched once at app load).
+// `displayName` is duplicated under `title` because Explore cards / the
+// ModelDropdown / TemplateCard all read `t.title`; consumers of the slim
+// list only touch a handful of fields, so the wire-size overhead is
+// negligible at ~400 rows. Includes thumbnail (parsed from JSON) + the
+// per-row ready flag (joined from the `installed` column).
 function rowToTemplate(t: TemplateListRow): Record<string, unknown> {
   let thumbnail: string[] = [];
   if (t.thumbnail_json) {

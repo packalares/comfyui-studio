@@ -102,17 +102,23 @@ CREATE TABLE IF NOT EXISTS plugins_catalog (
 CREATE INDEX IF NOT EXISTS idx_plugins_title  ON plugins_catalog(title);
 CREATE INDEX IF NOT EXISTS idx_plugins_author ON plugins_catalog(author);
 
+-- Templates table. Canonical shape after v24 -- the source (text) and
+-- workflow_json columns are gone (v24 DROP); slim metadata + provenance
+-- columns are first-class. Migration paths in connection.ts bring older
+-- DBs to this shape; fresh DBs get the right shape directly here.
 CREATE TABLE IF NOT EXISTS templates (
   name           TEXT PRIMARY KEY,
   displayName    TEXT NOT NULL,
   category       TEXT,
   description    TEXT,
-  source         TEXT,
-  workflow_json  TEXT,
   tags_json      TEXT,
   installed      INTEGER NOT NULL DEFAULT 0,
   favorite       INTEGER NOT NULL DEFAULT 0,
   updatedAt      INTEGER NOT NULL,
+  -- v23
+  source_type    INTEGER NOT NULL DEFAULT 0,
+  soft_deleted   INTEGER NOT NULL DEFAULT 0,
+  -- v24
   thumbnail_json TEXT,
   media_type     TEXT,
   open_source    INTEGER NOT NULL DEFAULT 1,
@@ -121,6 +127,9 @@ CREATE TABLE IF NOT EXISTS templates (
 );
 CREATE INDEX IF NOT EXISTS idx_templates_installed ON templates(installed);
 CREATE INDEX IF NOT EXISTS idx_templates_category  ON templates(category);
+CREATE INDEX IF NOT EXISTS idx_templates_softdel   ON templates(soft_deleted);
+CREATE INDEX IF NOT EXISTS idx_templates_sort      ON templates(search_rank DESC, displayName);
+CREATE INDEX IF NOT EXISTS idx_templates_filter    ON templates(soft_deleted, category, source_type);
 -- idx_templates_favorite is created in connection.ts alongside the v19 ALTER
 -- TABLE: on an existing DB the favorite column does not exist until the
 -- migration adds it, so indexing it here would fail before the migration runs.

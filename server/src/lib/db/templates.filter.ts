@@ -15,6 +15,12 @@ export interface TemplateListFilter {
    */
   source?: 'open' | 'api' | 'user' | 'favorites' | 'visible' | 'all';
   ready?: 'yes' | 'no' | 'all';
+  /**
+   * Narrow by `media_type` column at the SQL level. Used by MCP
+   * `studio_list_templates` so a `modality=video` request actually returns
+   * `limit` video templates, not `limit` mixed rows trimmed client-side.
+   */
+  mediaType?: 'image' | 'video' | 'audio' | '3d' | 'tools';
   /** When true, include soft-deleted rows (default: exclude). */
   softDeleted?: boolean;
 }
@@ -77,6 +83,10 @@ export function buildTemplatesWhere(filter: TemplateListFilter): WhereClause {
   }
   if (filter.ready === 'yes') clauses.push('installed = 1');
   else if (filter.ready === 'no') clauses.push('installed = 0');
+  if (filter.mediaType) {
+    clauses.push('media_type = ?');
+    params.push(filter.mediaType);
+  }
   if (filter.tags && filter.tags.length > 0) {
     const tagClauses = filter.tags.map(() => "COALESCE(tags_json, '') LIKE ?");
     clauses.push(`(${tagClauses.join(' OR ')})`);

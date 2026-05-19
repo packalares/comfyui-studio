@@ -18,6 +18,7 @@ import { paths } from '../../config/paths.js';
 import { logger } from '../../lib/logger.js';
 import * as templateRepo from '../../lib/db/templates.repo.js';
 import { generateFormInputs } from './templates.formInputs.js';
+import { deriveStudioCategory } from './categoryMap.js';
 import type { TemplateData, RawCategory } from './types.js';
 
 export interface ImportProgress {
@@ -105,15 +106,6 @@ async function fetchWorkflowJson(comfyUrl: string, name: string): Promise<Record
   }
 }
 
-function mapCategory(categoryTitle: string): 'image' | 'video' | 'audio' | '3d' | 'tools' {
-  const title = categoryTitle.toLowerCase();
-  if (title.includes('video')) return 'video';
-  if (title.includes('audio')) return 'audio';
-  if (title.includes('3d')) return '3d';
-  if (title.includes('utility') || title.includes('tool') || title.includes('llm')) return 'tools';
-  return 'image';
-}
-
 /**
  * Run the import-from-ComfyUI pipeline, calling `emit` for each event.
  * Returns when the pipeline is complete (all workers finished).
@@ -180,7 +172,7 @@ export async function runImportFromComfy(
       }
 
       // 4. Build TemplateData from slim metadata + workflow.
-      const studioCategory = mapCategory(entry.category);
+      const studioCategory = deriveStudioCategory(entry.slim.mediaType, entry.category);
       const raw = entry.slim;
       const templateData: TemplateData = {
         name: safeName,

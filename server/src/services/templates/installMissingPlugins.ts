@@ -22,6 +22,7 @@ import { extractDepsWithPluginResolution, resolutionsToRepoKeys } from './extrac
 import { isPluginInstalled, getInstalledPluginKeys } from '../plugins/cache.js';
 import { canonicalize, dedupKey } from '../plugins/nodes.js';
 import { getUserWorkflowJson } from './userTemplates.js';
+import { getUserTemplate } from './userTemplatesMeta.js';
 
 export interface InstallMissingResult {
   queued: Array<{ pluginId: string; taskId: string }>;
@@ -48,14 +49,24 @@ async function seedUserWorkflowRow(name: string) {
     const resolved = await extractDepsWithPluginResolution(workflow);
     pluginKeys = resolutionsToRepoKeys(resolved.plugins);
   } catch { /* Manager offline — aux_id fallback already set */ }
+  // Pull display metadata from the disk JSON so a row seeded here looks
+  // like the rest of the catalog. Without this the upsert falls back to
+  // the slug as displayName, leaving the template unlabelled in the UI.
+  // `studioCategory` is NOT stored — it's derived at read time from
+  // media_type + category by the shared `deriveStudioCategory` helper.
+  const meta = getUserTemplate(name);
   templateRepo.upsertTemplate(
     {
       name,
-      displayName: name,
-      category: null,
-      description: null,
-      tags_json: JSON.stringify([]),
+      displayName: meta?.title || name,
+      category: meta?.category ?? null,
+      description: meta?.description ?? null,
+      tags_json: JSON.stringify(meta?.tags ?? []),
       installed: false,
+      media_type: meta?.mediaType ?? null,
+      open_source: meta?.openSource === false ? 0 : 1,
+      username: meta?.username ?? null,
+      thumbnail_json: meta?.thumbnail ? JSON.stringify(meta.thumbnail) : null,
     },
     { models: cheap.models, plugins: pluginKeys },
   );

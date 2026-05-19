@@ -1094,15 +1094,29 @@ function ComfyImportTab({ onImported }: ComfyImportTabProps): JSX.Element {
   const [done, setDone] = useState<{ added: number; updated: number; skipped: number; errors: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const esRef = useRef<EventSource | null>(null);
+  // Refs (not state) for lifecycle so the SSE callbacks read live values.
+  // `running` state is captured-by-value inside the onerror closure, so
+  // checking it there would only ever see the value at callback creation
+  // time. A ref bypasses that — `streamActive` flips to false the moment
+  // we receive `done` / `error`, and `onerror` reads the *current* value.
+  // Without this the "connection lost" toast either fires after every
+  // normal completion (no guard) or never fires at all (stale closure).
+  const streamActiveRef = useRef(false);
 
   const startImport = useCallback(() => {
-    if (running) return;
+    if (streamActiveRef.current) return;
+    streamActiveRef.current = true;
     setRunning(true);
     setCurrent(0);
     setTotal(0);
     setCurrentName('');
     setDone(null);
     setError(null);
+
+    const finish = () => {
+      streamActiveRef.current = false;
+      setRunning(false);
+    };
 
     const es = new EventSource('/api/templates/import-from-comfy');
     esRef.current = es;
@@ -1116,25 +1130,28 @@ function ComfyImportTab({ onImported }: ComfyImportTabProps): JSX.Element {
           setCurrentName(ev.name ?? '');
         } else if (ev.type === 'done') {
           setDone({ added: ev.added ?? 0, updated: ev.updated ?? 0, skipped: ev.skipped ?? 0, errors: ev.errors ?? 0 });
-          setRunning(false);
+          finish();
           es.close();
           if (onImported) onImported();
         } else if (ev.type === 'error') {
           setError(ev.message ?? 'Unknown error');
-          setRunning(false);
+          finish();
           es.close();
         }
       } catch { /* ignore parse errors */ }
     };
 
     es.onerror = () => {
-      if (running) {
+      // Browsers also fire onerror on a clean stream close after `done` /
+      // `error` — only surface a "lost" toast for true mid-stream drops
+      // (i.e. when we hadn't yet flipped the ref to inactive).
+      if (streamActiveRef.current) {
         setError('Connection lost during import');
-        setRunning(false);
+        finish();
       }
       es.close();
     };
-  }, [running, onImported]);
+  }, [onImported]);
 
   // Cleanup on unmount
   useEffect(() => () => { esRef.current?.close(); }, []);

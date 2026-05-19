@@ -30,20 +30,19 @@ export async function run(args: ListTemplatesArgs): Promise<unknown> {
   const limit = args.limit ?? 50;
   const readyFilter = args.ready === true ? 'yes' : args.ready === false ? 'no' : 'all';
 
+  // Push modality through to SQL so `LIMIT n` returns n rows of the
+  // requested media type, not n mixed rows trimmed client-side.
   const result = templateRepo.listPaginated(
     {
       q: args.q || undefined,
       ready: readyFilter,
+      mediaType: args.modality,
     },
     1,
     limit,
   );
 
   const items = result.items
-    .filter((t) => {
-      if (args.modality && t.media_type !== args.modality) return false;
-      return true;
-    })
     .map((t) => ({
       name: t.name,
       title: t.displayName,
