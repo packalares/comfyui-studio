@@ -266,7 +266,7 @@ function TemplateCardInner({ template, onDeleted, onFavoriteToggled }: Props) {
               </TooltipTrigger>
               <TooltipContent>{favorite ? 'Remove from favorites' : 'Add to favorites'}</TooltipContent>
             </Tooltip>
-            {isUser && (
+            {(
               <div ref={menuRef} className="relative">
                 <Button
                   type="button"
@@ -466,7 +466,7 @@ function TemplateCardInner({ template, onDeleted, onFavoriteToggled }: Props) {
         open={confirmOpen}
         onClose={() => setConfirmOpen(false)}
         title="Delete template?"
-        description={`This removes the user-imported workflow "${template.title}" from your library. The underlying models on disk are kept.`}
+        description={`This removes "${template.title}" from your library. Imported workflows are deleted; built-in templates are hidden and stay hidden. Models on disk are kept.`}
         confirmLabel={deleting ? 'Deleting…' : 'Delete'}
         confirmTone="danger"
         busy={deleting}

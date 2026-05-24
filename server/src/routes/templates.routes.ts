@@ -118,6 +118,7 @@ router.get('/templates', (req: Request, res: Response) => {
     total: result.total,
     page: result.page,
     pageSize: result.pageSize,
+    hasMore: result.hasMore,
   });
 });
 
