@@ -8,9 +8,10 @@ import { logger } from '../../lib/logger.js';
 import * as bus from '../../lib/events.js';
 import {
   load, persist, persistCurrent, seedFromComfyUI,
-  markInstalled, markDownloadFailed,
+  markInstalled, markDownloadFailed, findRow, findRowFromStore,
 } from './store.js';
 import { declaredByFor, mergeIntoExisting, urlSourceFor } from './urlSources.js';
+import { canonicalizeSync } from './canonicalize.js';
 import * as models from '../models/service.js';
 import type { CatalogModel, MergedModel, FileStatus, UrlSource } from '../../contracts/catalog.contract.js';
 
@@ -24,8 +25,13 @@ export function getAllModels(): CatalogModel[] {
   return load().models;
 }
 
+/** Filename-only lookup used by the auto-resolver as a URL hint. Refuses to
+ *  return ANYTHING when the filename is ambiguous (shared by multiple rows) —
+ *  silently picking row[0] is how we ended up downloading the wrong repo's
+ *  bytes earlier. Callers needing disambiguation should pass save_path via
+ *  `findRowFromStore({filename, save_path})` directly. */
 export function getModel(filename: string): CatalogModel | undefined {
-  return load().models.find(m => m.filename === filename);
+  return findRowFromStore({ filename });
 }
 
 /** Merge or append a single entry. Existing entries keep their size + only missing fields are filled. */
@@ -33,8 +39,26 @@ export function upsertModel(
   entry: Omit<CatalogModel, 'size_pretty' | 'size_bytes' | 'size_fetched_at'>
     & Partial<Pick<CatalogModel, 'size_pretty' | 'size_bytes' | 'size_fetched_at'>>,
 ): CatalogModel {
+  // Normalize the entry before dedup so `(save_path, filename)` keys match
+  // across paths that wrote the same model with different shapes (e.g. a
+  // pasted URL with `Wan/lora.safetensors` filename + save_path=loras vs a
+  // template import with `lora.safetensors` filename + save_path=loras/Wan).
+  const cleaned = canonicalizeSync(entry);
+  if (cleaned.unrecoverable) {
+    // Garbage in (Windows path, bare placeholder) — silently drop instead of
+    // polluting the catalog. The original `entry` is lost; callers that
+    // catalog from user input should validate upstream.
+    return entry as CatalogModel;
+  }
+  entry = cleaned.entry as typeof entry;
+  if (cleaned.pendingNodeInstall) {
+    (entry as Partial<CatalogModel>).pendingNodeInstall = true;
+  }
   const data = load();
-  const existing = data.models.find(m => m.filename === entry.filename);
+  const existing = findRow(data.models, {
+    filename: entry.filename,
+    save_path: entry.save_path,
+  });
   if (existing) {
     mergeIntoExisting(existing, entry);
     persist(data);
@@ -180,20 +204,29 @@ async function fetchLauncherScan(): Promise<LauncherScanEntry[]> {
 export async function getMergedModels(): Promise<MergedModel[]> {
   await seedFromComfyUI();
   const scan = await fetchLauncherScan();
-  const scanByFilename = new Map<string, typeof scan[number]>();
-  for (const s of scan) if (s.filename) scanByFilename.set(s.filename, s);
+  // Key by (save_path, filename) — bare filename collides when the same
+  // shard name appears in multiple folders (e.g. ACE-Step transcriber and
+  // captioner both ship model-00001-of-00005.safetensors).
+  const scanByKey = new Map<string, typeof scan[number]>();
+  for (const s of scan) {
+    if (!s.filename) continue;
+    const key = s.save_path ? `${s.save_path}/${s.filename}` : s.filename;
+    scanByKey.set(key, s);
+  }
 
   const merged: MergedModel[] = [];
-  const seenFilenames = new Set<string>();
+  const seenKeys = new Set<string>();
 
   for (const model of load().models) {
-    seenFilenames.add(model.filename);
-    const disk = scanByFilename.get(model.filename);
+    const key = model.save_path ? `${model.save_path}/${model.filename}` : model.filename;
+    seenKeys.add(key);
+    const disk = scanByKey.get(key);
     let installed = !!disk?.installed;
     let fileSize = disk?.fileSize;
     if (!installed) {
+      const expected = model.save_path ? `${model.save_path}/${model.filename}` : null;
       const hit = modelFiles.listByFilename(model.filename)
-        .find((r) => r.status === 'complete');
+        .find((r) => r.status === 'complete' && (!expected || r.rel_path === expected));
       if (hit) { installed = true; fileSize = hit.size; }
     }
     merged.push({
@@ -205,7 +238,9 @@ export async function getMergedModels(): Promise<MergedModel[]> {
   }
 
   for (const s of scan) {
-    if (!s.filename || seenFilenames.has(s.filename)) continue;
+    if (!s.filename) continue;
+    const key = s.save_path ? `${s.save_path}/${s.filename}` : s.filename;
+    if (seenKeys.has(key)) continue;
     merged.push(scanEntryToMerged(s));
   }
   return merged;

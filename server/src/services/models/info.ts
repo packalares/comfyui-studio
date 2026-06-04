@@ -176,9 +176,11 @@ export function invalidateModelListMemo(): void {
   memCache = null;
 }
 
-/** Look up an entry by `name` (launcher contract). */
+/** Look up an entry by `name` or `filename` (launcher contract).
+ *  Most upstream entries have a descriptive `name` ≠ `filename`, so callers
+ *  passing a filename (e.g. dep check) miss without the filename fallback. */
 export function getModelInfo(modelName: string): CatalogModelEntry | undefined {
-  return getModelList().find((m) => m.name === modelName);
+  return getModelList().find((m) => m.name === modelName || m.filename === modelName);
 }
 
 /** Replace the in-memory cache (used after a disk-status refresh). */

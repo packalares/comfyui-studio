@@ -91,7 +91,7 @@ function CatalogRow({
       ) : null}
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-foreground truncate">
-          {model.filename || model.name}
+          {model.hfRepo ? (model.name || model.filename) : (model.filename || model.name)}
         </p>
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
           {showTypeBadge && model.type && (

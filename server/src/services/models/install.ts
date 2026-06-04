@@ -83,8 +83,11 @@ function findMatch(
     const candidate = path.posix.join(model.save_path, model.filename);
     const info = installed.get(candidate);
     if (info && !claimed.has(candidate)) return { pathKey: candidate, info };
+    // Catalog declares a save_path: a same-named file in a different folder
+    // is a DIFFERENT model. Don't fall through to the bare-filename match.
+    return null;
   }
-  // 2) First unclaimed filename match.
+  // 2) First unclaimed filename match (only when catalog has no save_path).
   if (model.filename) {
     const candidates = byFilename.get(model.filename) || [];
     const unclaimed = candidates.find((c) => !claimed.has(c.pathKey));

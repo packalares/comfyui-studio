@@ -54,6 +54,18 @@ export async function getSystemStats() {
   return fetchComfyUI('/api/system_stats');
 }
 
+/** Each entry: a logical folder name (canonical) + every physical path
+ *  ComfyUI walks for it. The `folders` array reveals aliases (path basenames
+ *  ≠ name) and external mounts. */
+export interface RegisteredFolder {
+  name: string;
+  folders: string[];
+}
+
+export async function getRegisteredFolders(): Promise<RegisteredFolder[]> {
+  return fetchComfyUI<RegisteredFolder[]>('/api/experiment/models');
+}
+
 export async function getQueue() {
   const data = await fetchComfyUI<{ queue_running: unknown[]; queue_pending: unknown[] }>('/api/queue');
   return {

@@ -53,6 +53,20 @@ export interface CatalogModel {
   downloading?: boolean;
   /** Last download failure message. Cleared when a subsequent download starts. */
   error?: string;
+  /**
+   * Optional HuggingFace repo id ("<owner>/<repo>") for multi-file models.
+   * When set, the install path uses `downloadHfRepo` (fetches the entire repo
+   * into `save_path`) instead of the single-file URL walker. The `filename`
+   * field is still used for install-status detection by checking whether
+   * `<save_path>/<filename>` exists on disk.
+   */
+  hfRepo?: string;
+  /** Set by canonicalize when the row's save_path references a folder that
+   *  isn't currently registered by any custom_node (folder kind = 'unregistered').
+   *  UI surfaces this as "waiting for custom_node X" rather than treating
+   *  the row as broken. Cleared on next canonicalize pass once the node is
+   *  installed and the folder appears in ComfyUI's API. */
+  pendingNodeInstall?: boolean;
 }
 
 /** Catalog entry augmented with on-disk state from the launcher scan. */

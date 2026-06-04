@@ -11,8 +11,8 @@ import {
 } from '../models/info.js';
 import type { CatalogModel } from '../../contracts/catalog.contract.js';
 
-interface CatalogFile {
-  version: 1;
+export interface CatalogFile {
+  version: number;
   models: CatalogModel[];
   seeded_at?: string;
 }
@@ -75,10 +75,59 @@ export function persistCurrent(): void {
   persist(load());
 }
 
+/**
+ * Canonical row lookup. The catalog row's IDENTITY is its disk location, not
+ * its bare basename — multi-file HF models like ACE-Step transcriber/captioner
+ * both ship `model-00001-of-00005.safetensors`. ALL row-finding logic should
+ * delegate here so the (save_path, filename) key is enforced consistently.
+ *
+ * Resolution order:
+ *   1. Exact (filename, save_path) match — strictest, used by upsertModel / merge.
+ *   2. Name match — bus events emit `displayName` as their `filename` field for
+ *      multi-file HF repo downloads (download.ts:208).
+ *   3. Filename-only, but ONLY when unambiguous. Returns undefined when 2+ rows
+ *      share the filename — caller must disambiguate by providing save_path
+ *      rather than risk auto-selecting the wrong row.
+ */
+/**
+ * Pure lookup over a passed-in row array. Operates on whatever snapshot the
+ * caller already has so mutations + persist stay coherent. Callers needing a
+ * fresh read use `findRowFromStore` (below).
+ */
+export function findRow(
+  models: CatalogModel[],
+  query: { filename?: string; save_path?: string; name?: string },
+): CatalogModel | undefined {
+  if (query.filename && query.save_path) {
+    const hit = models.find(m =>
+      m.filename === query.filename && (m.save_path || '') === query.save_path);
+    if (hit) return hit;
+  }
+  if (query.name) {
+    const hit = models.find(m => m.name === query.name);
+    if (hit) return hit;
+  }
+  if (query.filename) {
+    const matches = models.filter(m => m.filename === query.filename);
+    if (matches.length === 1) return matches[0];
+    // 0 or 2+ matches → undefined. Ambiguous filename-only lookups silently
+    // picking row[0] is the root of half of today's bugs — refuse.
+  }
+  return undefined;
+}
+
+/** findRow that loads a fresh snapshot. Read-only — callers that mutate must
+ *  use findRow + persist(data) together to stay coherent. */
+export function findRowFromStore(query: Parameters<typeof findRow>[1]): CatalogModel | undefined {
+  return findRow(load().models, query);
+}
+
 // Clears the in-flight flag + any prior error. Called via model:installed event.
-export function markInstalled(filename: string, opts: { fileSize?: number } = {}): CatalogModel | null {
+// Event carries `filename`, which may be either the on-disk filename OR the
+// display name for HF-repo downloads. findRow handles both via name-fallback.
+export function markInstalled(filename: string, opts: { fileSize?: number; save_path?: string } = {}): CatalogModel | null {
   const data = load();
-  const m = data.models.find(x => x.filename === filename);
+  const m = findRow(data.models, { filename, save_path: opts.save_path, name: filename });
   if (!m) return null;
   m.downloading = false;
   m.error = undefined;
@@ -90,9 +139,9 @@ export function markInstalled(filename: string, opts: { fileSize?: number } = {}
 }
 
 // Stamps a failure message on the row and clears the in-flight flag; row stays for retry.
-export function markDownloadFailed(filename: string, error: string): CatalogModel | null {
+export function markDownloadFailed(filename: string, error: string, save_path?: string): CatalogModel | null {
   const data = load();
-  const m = data.models.find(x => x.filename === filename);
+  const m = findRow(data.models, { filename, save_path, name: filename });
   if (!m) return null;
   m.downloading = false;
   m.error = error;

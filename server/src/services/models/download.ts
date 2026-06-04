@@ -181,7 +181,16 @@ export async function downloadHfRepo(
 
   const taskId = createDownloadTask();
   setModelMapping(modelName, taskId);
-  const absDir = path.join(env.COMFYUI_PATH, directory);
+  // Auto-prepend `models/` for plain catalog save_paths so callers don't have
+  // to remember the prefix. The previous behaviour landed snapshots at
+  // `/root/ComfyUI/<save_path>/` instead of `/root/ComfyUI/models/<save_path>/`,
+  // which is why captioner files were going to the wrong place. Custom-node
+  // installs (`custom_nodes/<plugin>/checkpoints`) and explicit prefixes are
+  // left alone.
+  const safeDir = directory.startsWith('models/') || directory.startsWith('custom_nodes/')
+    ? directory
+    : `models/${directory}`;
+  const absDir = path.join(env.COMFYUI_PATH, safeDir);
   fs.mkdirSync(absDir, { recursive: true });
 
   updateTaskProgress(taskId, {

@@ -76,7 +76,7 @@ export interface ScanInfo {
   type: string;
 }
 
-export const MODEL_EXTS = new Set(['.safetensors', '.ckpt', '.pth', '.pt', '.bin', '.onnx']);
+export const MODEL_EXTS = new Set(['.safetensors', '.ckpt', '.pth', '.pt', '.bin', '.onnx', '.gguf']);
 
 /**
  * Recursively walk `dir` and accumulate model files into `result`.

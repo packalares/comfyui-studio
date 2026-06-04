@@ -24,6 +24,7 @@ import {
 import { parsePageQuery, paginate } from '../lib/pagination.js';
 import { markDownloadFailed } from '../services/catalog/index.js';
 import * as catalog from '../services/catalog/index.js';
+import { discoverHfSnapshotDirs, discoverAndUpsert } from '../services/models/discoverHfRepos.js';
 import { formatBytes } from '../lib/format.js';
 import { env } from '../config/env.js';
 
@@ -288,6 +289,22 @@ const handleDownloadHfRepo: RequestHandler = async (req: Request, res: Response)
   } catch (err) { sendError(res, err, 500, 'HF repo download failed'); }
 };
 
+// Walk the on-disk models tree for HF-snapshot directories, classify whether
+// each has a derivable repo id, optionally upsert findings into the catalog
+// with hfRepo set so the install button routes to downloadHfRepo. GET = dry
+// run (no mutation); POST = mutate catalog.
+const handleDiscoverHfRepos: RequestHandler = async (req, res) => {
+  try {
+    if (req.method === 'GET') {
+      const found = await discoverHfSnapshotDirs();
+      res.json({ success: true, found });
+      return;
+    }
+    const result = await discoverAndUpsert();
+    res.json({ success: true, ...result });
+  } catch (err) { sendError(res, err, 500, 'HF-repo discovery failed'); }
+};
+
 // ---- Routes ----
 
 router.get('/models/folders', handleFolders);
@@ -301,5 +318,7 @@ router.post('/models/download-history/clear', handleHistoryClear);
 router.post('/models/download-history/delete', handleHistoryDelete);
 router.post('/models/download-custom', downloadCustomLimiter, handleDownloadCustom);
 router.post('/models/download-hf-repo', downloadCustomLimiter, handleDownloadHfRepo);
+router.get('/models/discover-hf-repos', handleDiscoverHfRepos);
+router.post('/models/discover-hf-repos', handleDiscoverHfRepos);
 
 export default router;

@@ -8,6 +8,8 @@ import * as galleryService from './services/gallery/index.js';
 import { hydrateFromQueue, onQueueStatus } from './services/gallery/sentry.js';
 import { wireTemplateEventHandlers } from './services/templates/eventSubscribers.js';
 import { wireCatalogEventHandlers } from './services/catalog/index.js';
+import { migrateCatalogIfNeeded } from './services/catalog/migrate.js';
+import { refreshRegistry } from './services/catalog/folderRegistry.js';
 import {
   ensureFresh as ensureModelIndexFresh,
   wireModelIndexEventHandlers,
@@ -264,6 +266,22 @@ async function start() {
   // Subscribe the SQLite-backed model index to the bus so single-file
   // installs/removals stay in sync without a full disk walk.
   wireModelIndexEventHandlers();
+
+  // Hot the folder registry (cached /api/experiment/models) before the
+  // catalog migration runs — migration needs disk-truth lookups against the
+  // current ComfyUI folder layout.
+  refreshRegistry(true).catch((err) => {
+    logger.warn('folderRegistry: initial refresh failed', {
+      message: err instanceof Error ? err.message : String(err),
+    });
+  });
+  // Version-gated one-shot canonicalize migration. No-op once schema_version
+  // matches TARGET_VERSION. Errors don't block boot.
+  migrateCatalogIfNeeded().catch((err) => {
+    logger.warn('catalog migrate: aborted', {
+      message: err instanceof Error ? err.message : String(err),
+    });
+  });
 
   // Open the persistent server-owned WS subscription to ComfyUI so videoboard
   // jobs get terminal events (success / cancelled / error / interrupted)

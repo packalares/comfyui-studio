@@ -330,18 +330,25 @@ export interface DownloadState {
   error: string | null;
 }
 
-/** Find a live download that matches a model by filename, modelName, or either-as-the-other. */
+/** Find a live download that matches a model. Prefers modelName match — bare
+ *  filename collides when multiple catalog rows share a basename (e.g. the
+ *  multi-file HF models ACE-Step transcriber + captioner both ship
+ *  `model-00001-of-00005.safetensors`). Falls back to filename only when the
+ *  row has no name (legacy / uncatalogued disk entry). */
 export function findDownloadForModel(
   downloads: Record<string, DownloadState>,
   model: { name?: string; filename?: string },
 ): DownloadState | undefined {
-  const candidates = [model.filename, model.name].filter(Boolean) as string[];
-  if (candidates.length === 0) return undefined;
-  for (const dl of Object.values(downloads)) {
-    if (
-      (dl.filename && candidates.includes(dl.filename)) ||
-      (dl.modelName && candidates.includes(dl.modelName))
-    ) return dl;
+  if (model.name) {
+    for (const dl of Object.values(downloads)) {
+      if (dl.modelName === model.name) return dl;
+    }
+    return undefined;
+  }
+  if (model.filename) {
+    for (const dl of Object.values(downloads)) {
+      if (dl.filename === model.filename || dl.modelName === model.filename) return dl;
+    }
   }
   return undefined;
 }
@@ -400,6 +407,10 @@ export interface CatalogModel {
   downloading?: boolean;
   /** Last download failure message (cleared when a new download starts). */
   error?: string;
+  /** Optional HF repo id for multi-file models (e.g. "ACE-Step/acestep-captioner").
+   *  When set, install routes through downloadHfRepo for snapshot download instead
+   *  of the single-URL walker. UI also prefers `name` over `filename` for display. */
+  hfRepo?: string;
 }
 
 export interface RequiredModel {

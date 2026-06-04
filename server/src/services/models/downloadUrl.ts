@@ -108,14 +108,19 @@ export function getAllDownloadUrls(
   return out;
 }
 
-/** Replace `huggingface.co` with a user-configured mirror endpoint. */
+/** Replace `huggingface.co` with a user-configured mirror endpoint.
+ *  Strip the scheme AND any trailing slash from the endpoint, then rejoin
+ *  with the expected `/` separator. Earlier the replacement read
+ *  `huggingface.co/` → `<endpoint-no-scheme>` (no slash), producing
+ *  `https://hf-mirror.comACE-Step/...` and 404ing every download. */
 export function processHfEndpoint(
   downloadUrl: string,
   hfEndpoint: string = liveSettings.getHfEndpoint(),
 ): string {
   if (hfEndpoint && downloadUrl.includes('huggingface.co')) {
+    const host = hfEndpoint.replace(/^https?:\/\//, '').replace(/\/+$/, '');
     logger.info('download HF endpoint override applied', { endpoint: hfEndpoint });
-    return downloadUrl.replace('huggingface.co/', hfEndpoint.replace(/^https?:\/\//, ''));
+    return downloadUrl.replace('huggingface.co/', host + '/');
   }
   return downloadUrl;
 }

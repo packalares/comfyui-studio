@@ -357,7 +357,12 @@ export default function Models() {
   const [folderPickModel, setFolderPickModel] = useState<CatalogModel | null>(null);
 
   const installCatalogWithDir = useCallback(async (model: CatalogModel, dir: string) => {
-    if (model.url) {
+    // Route multi-file HF repos through the snapshot-download path; the
+    // single-URL walker only fetches one shard which is useless on its own
+    // (downloaded shard 1 of ACE-Step captioner from the wrong repo earlier).
+    if (model.hfRepo) {
+      await api.downloadHfRepo(model.hfRepo, dir, model.name);
+    } else if (model.url) {
       await api.downloadCustomModel(model.url, dir, { modelName: model.name, filename: model.filename });
     } else {
       await api.installModel(model.name);

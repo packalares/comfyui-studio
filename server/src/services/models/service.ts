@@ -160,6 +160,18 @@ export async function installFromCatalog(
   const info = getModelInfo(modelName);
   if (!info) throw new Error(`Model info not found for ${modelName}`);
 
+  // Multi-file HF repos: route to the snapshot-download path instead of the
+  // single-URL walker so all shards + config files land together.
+  if (info.hfRepo && info.save_path) {
+    const repoOut = await downloadHfRepoImpl(
+      info.hfRepo, info.save_path, info.name || modelName,
+      scanAndRefresh,
+      { hfToken: hfToken || settings.getHfToken() },
+    );
+    setModelMapping(modelName, repoOut.taskId);
+    return { taskId: repoOut.taskId, fileName: modelName };
+  }
+
   // Resolve candidates BEFORE allocating a taskId — without this, a row with
   // no usable URL would still produce a "task created" success response while
   // the walker silently failed, leaving the user with a phantom Install click.
