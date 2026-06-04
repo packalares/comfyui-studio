@@ -1,19 +1,30 @@
-// Pilot extraction: minimal route module.
+// `GET /api/health` — liveness probe.
 //
-// Every subsequent route extraction (Agent B's phase) follows this template:
-//  - One file per thematic group under `src/routes/*.routes.ts`.
-//  - Default-export an Express `Router`.
-//  - Mounted from `api.ts` (or directly in `index.ts` for non-`/api` paths).
-//
-// Keep this file short and free of service imports so it proves the pattern
-// without accidentally growing into another monolith.
+// First production route on the `defineRoute` foundation. Returns a tiny
+// `{ status, timestamp }` envelope so external uptime checks have a stable
+// machine-readable shape. No auth: probes must work without credentials.
 
-import { Router, type Request, type Response } from 'express';
+import { Router } from 'express';
+import { z } from 'zod';
+import { defineRoute } from '../lib/defineRoute.js';
+
+export const HealthResponseSchema = z.object({
+  status: z.literal('ok'),
+  timestamp: z.string(),
+});
+
+const healthRoute = defineRoute({
+  method: 'GET',
+  path: '/health',
+  response: HealthResponseSchema,
+  auth: { required: false },
+  tags: ['system'],
+  summary: 'Liveness probe',
+}, (ctx) => {
+  return ctx.ok({ status: 'ok' as const, timestamp: new Date().toISOString() });
+});
 
 const router = Router();
-
-router.get('/health', (_req: Request, res: Response) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
+healthRoute.register(router);
 
 export default router;

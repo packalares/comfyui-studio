@@ -28,6 +28,7 @@ import { requestLogger } from './middleware/logging.js';
 import { errorHandler } from './middleware/errors.js';
 import { pickNotFoundMessage } from './lib/notFoundMessages.js';
 import { logger } from './lib/logger.js';
+import { warnRoutesMissingAuth } from './lib/defineRoute.js';
 
 // Phase-6 path consolidation: move runtime-written JSON out of the bundled
 // data dir and into `~/.config/comfyui-studio/runtime/` so it survives image
@@ -47,6 +48,11 @@ app.use(express.json({ limit: '50mb' }));
 app.use(requestLogger());
 
 app.use('/api', apiRouter);
+
+// Audit defineRoute routes for missing `auth` declarations. Wave 2 wires the
+// auth middleware; until then we surface the gap as one warning per route so
+// nothing ships silently un-gated.
+warnRoutesMissingAuth();
 
 // 404 fallback for unknown /api routes. Returns JSON (matches the rest of
 // the API) with a randomly-picked message from `lib/notFoundMessages` —

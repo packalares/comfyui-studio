@@ -6,8 +6,13 @@
 // preserve the legacy (un-wrapped) response shape for back-compat callers.
 //
 // `paginate` slices an in-memory array and returns the standard envelope.
+//
+// `splitPaginated` converts a `PageEnvelope<T>` (items + flat meta) into the
+// `{ items, meta }` shape `defineRoute` handlers return via `ctx.ok(...)`.
+// The meta shape matches `PageMeta` from `envelope.contract.ts`.
 
 import type { Request } from 'express';
+import type { PageMeta } from '../contracts/envelope.contract.js';
 
 export interface PageQuery {
   page: number;
@@ -62,4 +67,10 @@ export function paginate<T>(items: readonly T[], page: number, pageSize: number)
     total,
     hasMore: start + slice.length < total,
   };
+}
+
+/** Split a flat `PageEnvelope<T>` into the `{ items, meta }` pair `defineRoute` handlers return. */
+export function splitPaginated<T>(envelope: PageEnvelope<T>): { items: T[]; meta: PageMeta } {
+  const { items, page, pageSize, total, hasMore } = envelope;
+  return { items, meta: { page, pageSize, total, hasMore } };
 }

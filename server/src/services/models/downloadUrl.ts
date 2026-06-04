@@ -28,6 +28,7 @@ export interface CatalogModelEntry {
   fileSize?: number;
   size?: string;
   base?: string;
+  hfRepo?: string;
 }
 
 // ── URL builders ─────────────────────────────────────────────────────────────

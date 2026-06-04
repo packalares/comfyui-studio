@@ -44,7 +44,12 @@
 // `plugin_id`). Anything else stays unindexed or lives inside `raw_json` /
 // `workflow_json`.
 
-export const SCHEMA_VERSION = 28;
+// Schema v29 adds `api_keys` for the auth layer. Each row holds a non-secret
+// `prefix` (used to identify which key was presented without hashing every
+// candidate on every request) and a `hash` of the full plain secret. The plain
+// secret is returned exactly once at creation and is never persisted. See
+// `lib/auth/keyGen.ts` for the prefix / plain / hash format.
+export const SCHEMA_VERSION = 29;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -223,6 +228,20 @@ CREATE TABLE IF NOT EXISTS ollama_library (
 );
 CREATE INDEX IF NOT EXISTS idx_ollama_library_title ON ollama_library(title);
 CREATE INDEX IF NOT EXISTS idx_ollama_library_updated_ago ON ollama_library(updated_ago_sec);
+
+CREATE TABLE IF NOT EXISTS api_keys (
+  id           TEXT PRIMARY KEY,
+  prefix       TEXT NOT NULL UNIQUE,
+  hash         TEXT NOT NULL,
+  name         TEXT NOT NULL,
+  scopes       TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  last_used_at INTEGER,
+  expires_at   INTEGER,
+  revoked_at   INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_api_keys_prefix     ON api_keys(prefix);
+CREATE INDEX IF NOT EXISTS idx_api_keys_created_at ON api_keys(created_at DESC);
 
 CREATE TABLE IF NOT EXISTS prompt_snapshots (
   promptId        TEXT PRIMARY KEY,

@@ -16,6 +16,7 @@ import Database from 'better-sqlite3';
 import { paths } from '../../config/paths.js';
 import { safeResolve } from '../fs.js';
 import { SCHEMA_SQL, SCHEMA_VERSION } from './schema.js';
+import { applyApiKeysMigration } from './migrations/0001_api_keys.js';
 import { workflowHash } from '../workflowHash.js';
 import { extractMetadata, type ApiPrompt } from '../../services/gallery/extract.js';
 
@@ -818,6 +819,7 @@ function openAndInit(dbPath: string): DB {
   applyVideoboardV26Migration(db);
   applyVideoboardV27Migration(db);
   applyVideoboardV28Migration(db);
+  applyApiKeysMigration(db);
   const row = db.prepare('SELECT version FROM schema_version LIMIT 1').get() as
     | { version: number } | undefined;
   if (!row) {
