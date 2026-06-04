@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState, type ComponentType } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Compass, Wand2, Image, Box, Package, Settings,
-  MessageSquare, ChevronRight,
+  MessageSquare, ChevronRight, Film,
 } from 'lucide-react';
 import {
   Sidebar, SidebarHeader, SidebarContent, SidebarFooter,
@@ -54,6 +54,15 @@ const linkSections: { label: string; items: NavLinkItem[] }[] = [
       { to: '/studio', label: 'Studio', icon: Wand2 },
       { to: '/chat', label: 'Chat', icon: MessageSquare },
       { to: '/gallery', label: 'Gallery', icon: Image },
+      {
+        to: '/videoboard',
+        label: 'Videoboard',
+        icon: Film,
+        children: [
+          { to: '/videoboard', label: 'Projects' },
+          { to: '/videoboard/characters', label: 'Characters' },
+        ],
+      },
     ],
   },
   {

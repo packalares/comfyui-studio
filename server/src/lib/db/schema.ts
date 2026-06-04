@@ -44,7 +44,7 @@
 // `plugin_id`). Anything else stays unindexed or lives inside `raw_json` /
 // `workflow_json`.
 
-export const SCHEMA_VERSION = 24;
+export const SCHEMA_VERSION = 28;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_version (

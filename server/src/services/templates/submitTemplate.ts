@@ -33,6 +33,11 @@ export interface SubmitTemplateInput {
   inputs: { prompt?: string; [k: string]: unknown };
   advancedSettings?: unknown;
   provenance?: SubmitProvenance;
+  /** Optional client id for the ComfyUI submission. When the caller is
+   *  awaiting WS completion events (e.g. videoboard job runners using
+   *  `comfyJobBridge`), pass `getBridgeClientId()` so ComfyUI routes
+   *  `executed`/`execution_success`/`execution_error` events to that WS. */
+  clientId?: string;
 }
 
 export interface SubmitTemplateResult {
@@ -196,7 +201,10 @@ export async function submitTemplate(
   applyNodeOverrides(apiPrompt, nodeOverrides);
 
   const attachApiKey = template.openSource === false;
-  const result = await comfyui.submitPrompt(apiPrompt, { attachApiKey });
+  const result = await comfyui.submitPrompt(apiPrompt, {
+    attachApiKey,
+    clientId: input.clientId,
+  });
   if (!result?.prompt_id) {
     throw new Error('comfyui did not return a prompt_id');
   }

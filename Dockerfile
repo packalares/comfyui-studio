@@ -8,7 +8,7 @@
 #
 # Pick which to build with `--target prod` or `--target dev`.
 
-ARG BASE_IMAGE=docker.io/beclab/comfyui:v0.20.1
+ARG BASE_IMAGE=docker.io/beclab/comfyui:v0.22.0
 
 # ======================================================================
 # Stage: frontend-build — throwaway; we only need its dist/.
@@ -48,6 +48,24 @@ FROM ${BASE_IMAGE} AS prod
 # Drop the baked-in launcher & its old SPA. ComfyUI's own editor frontend is kept.
 RUN rm -rf /app/server /app/dist/spa
 
+# System libs needed by custom_nodes that bind to C libraries:
+#   libturbojpeg0  — APZmedia-comfyui-fast-image-save (TurboJPEG encoder)
+#   libportaudio2  — ComfyUI_AudioTools + TTS Audio Suite (PortAudio runtime)
+RUN zypper --non-interactive --no-refresh install -y \
+      libturbojpeg0 \
+      libportaudio2 \
+  && zypper clean -a
+
+# Python deps the base image doesn't ship or ships too old:
+#   ml_dtypes==0.5.4   — required by PuLID-Flux2 (needs float4_e2m1fn attr)
+#   facenet-pytorch    — required by comfyui_pulid_flux_ll
+# PIP_USER is set later (line below), so this install lands in /usr/local
+# site-packages and gets baked into the image layer (not the ephemeral overlay).
+RUN pip install --no-cache-dir \
+      ml_dtypes==0.5.4 \
+      facenet-pytorch \
+      audio-separator
+
 # Studio backend (port 3002)
 COPY --from=studio-server-build /build/studio-server/dist          /studio/server/dist
 COPY --from=studio-server-build /build/studio-server/node_modules  /studio/server/node_modules
@@ -82,11 +100,22 @@ CMD ["/app/start.sh"]
 #   can rebuild `better-sqlite3` without failing on missing headers.
 # ======================================================================
 FROM ${BASE_IMAGE} AS dev
-RUN zypper --non-interactive --no-refresh install -y nodejs24-devel \
+# nodejs24-devel: needed for native rebuild of better-sqlite3 in-pod.
+# libturbojpeg0 / libportaudio2: same custom_node C bindings as prod stage.
+RUN zypper --non-interactive --no-refresh install -y \
+      nodejs24-devel \
+      libturbojpeg0 \
+      libportaudio2 \
   && zypper clean -a
 
 # Drop the baked-in launcher & old SPA.
 RUN rm -rf /app/server /app/dist/spa
+
+# Same python deps as prod stage — keep dev and prod custom_nodes set in sync.
+RUN pip install --no-cache-dir \
+      ml_dtypes==0.5.4 \
+      facenet-pytorch \
+      audio-separator
 
 # --- Studio frontend source + full deps (needed for vite dev + vite build) ---
 WORKDIR /studio/ui

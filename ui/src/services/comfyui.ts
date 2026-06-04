@@ -225,7 +225,7 @@ export interface SettingsResponseByKey {
 
 export type ProbeType = 'ollama' | 'searxng';
 export type ProbeResult =
-  | { ok: true; count: number }
+  | { ok: true; count?: number; version?: string }
   | { ok: false; error: string };
 
 // Shape of a single pending soul-edit proposal, mirroring the server type.

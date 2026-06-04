@@ -30,6 +30,8 @@ import chatModels from './chat.models.routes.js';
 import mcp from './mcp.routes.js';
 import mcpServers from './mcpServers.routes.js';
 import { personalityRouter } from './personality.routes.js';
+import videoboard from './videoboard.routes.js';
+import characters from './characters.routes.js';
 
 const router = Router();
 
@@ -61,5 +63,7 @@ router.use(chatModels);
 router.use('/mcp', mcp);          // /api/mcp — Studio's MCP server endpoint
 router.use(mcpServers);            // /api/mcp/servers and /api/mcp/profiles
 router.use(personalityRouter);
+router.use(videoboard);
+router.use(characters);
 
 export default router;

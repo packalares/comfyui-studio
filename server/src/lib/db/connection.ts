@@ -556,6 +556,153 @@ function applyTemplatesV23Migration(db: DB): void {
  *
  * Idempotent — guarded by `PRAGMA user_version` via the `_meta` table check.
  */
+/**
+ * Schema v25 adds five tables for the Videoboard (music-video maker) feature:
+ *   - videoboard_projects  — top-level project row
+ *   - videoboard_shots     — per-shot rows (FK → projects, CASCADE DELETE)
+ *   - videoboard_analyses  — audio analysis cache (FK → projects, CASCADE DELETE)
+ *   - videoboard_characters — saved PuLID / LoRA character identities
+ *   - videoboard_jobs      — async job tracking (FK → projects, CASCADE DELETE)
+ *
+ * All JSON-compound columns (character_ids, settings, lyrics_json, etc.) are
+ * stored as TEXT and deserialized in the repo layer. Runs once, guarded on
+ * `_meta` key `videoboard_v25`.
+ */
+function applyVideoboardV25Migration(db: DB): void {
+  const done = db.prepare('SELECT v FROM _meta WHERE k = ?')
+    .get('videoboard_v25') as { v: string } | undefined;
+  if (done) return;
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS videoboard_projects (
+      id                TEXT PRIMARY KEY,
+      name              TEXT NOT NULL,
+      audio_path        TEXT,
+      audio_duration_ms INTEGER,
+      analysis_status   TEXT NOT NULL DEFAULT 'none',
+      character_ids     TEXT NOT NULL DEFAULT '[]',
+      settings          TEXT NOT NULL DEFAULT '{}',
+      status            TEXT NOT NULL DEFAULT 'draft',
+      created_at        INTEGER NOT NULL,
+      updated_at        INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS videoboard_shots (
+      project_id TEXT NOT NULL REFERENCES videoboard_projects(id) ON DELETE CASCADE,
+      idx        INTEGER NOT NULL,
+      start_ms   INTEGER NOT NULL DEFAULT 0,
+      end_ms     INTEGER NOT NULL DEFAULT 0,
+      lyrics     TEXT NOT NULL DEFAULT '',
+      prompt     TEXT NOT NULL DEFAULT '',
+      seed       INTEGER NOT NULL DEFAULT 0,
+      image_url  TEXT,
+      video_url  TEXT,
+      status     TEXT NOT NULL DEFAULT 'pending',
+      PRIMARY KEY (project_id, idx)
+    );
+
+    CREATE TABLE IF NOT EXISTS videoboard_analyses (
+      project_id    TEXT PRIMARY KEY REFERENCES videoboard_projects(id) ON DELETE CASCADE,
+      bpm           REAL,
+      energy        REAL,
+      lyrics_json   TEXT NOT NULL DEFAULT '[]',
+      sections_json TEXT NOT NULL DEFAULT '[]'
+    );
+
+    CREATE TABLE IF NOT EXISTS videoboard_characters (
+      id               TEXT PRIMARY KEY,
+      name             TEXT NOT NULL,
+      kind             TEXT NOT NULL DEFAULT 'pulid',
+      base_model       TEXT NOT NULL DEFAULT 'flux1-dev',
+      ref_photos_json  TEXT NOT NULL DEFAULT '[]',
+      pulid_embed_path TEXT,
+      lora_path        TEXT,
+      created_at       INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS videoboard_jobs (
+      id         TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES videoboard_projects(id) ON DELETE CASCADE,
+      shot_idx   INTEGER,
+      kind       TEXT NOT NULL,
+      status     TEXT NOT NULL DEFAULT 'queued',
+      progress   REAL NOT NULL DEFAULT 0,
+      message    TEXT,
+      output_url TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_vb_projects_created   ON videoboard_projects(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_vb_shots_project      ON videoboard_shots(project_id);
+    CREATE INDEX IF NOT EXISTS idx_vb_jobs_project       ON videoboard_jobs(project_id);
+    CREATE INDEX IF NOT EXISTS idx_vb_jobs_status        ON videoboard_jobs(status);
+  `);
+
+  db.prepare('INSERT OR REPLACE INTO _meta (k, v) VALUES (?, ?)').run('videoboard_v25', 'done');
+}
+
+/**
+ * Schema v26 adds `metadata_json` to `videoboard_analyses` so the new
+ * extended analysis fields (bpmMin, bpmMax, tempoTag, timeSignature,
+ * audioMeta, summary, emotions, keywords, genre, mood) can be persisted
+ * without further schema changes. Guarded on `_meta` key `videoboard_v26`.
+ */
+function applyVideoboardV26Migration(db: DB): void {
+  const done = db.prepare('SELECT v FROM _meta WHERE k = ?')
+    .get('videoboard_v26') as { v: string } | undefined;
+  if (done) return;
+  const cols = db.prepare('PRAGMA table_info(videoboard_analyses)').all() as Array<{ name: string }>;
+  if (cols.length === 0) return; // table not yet created (handled by v25)
+  if (!cols.some(c => c.name === 'metadata_json')) {
+    db.exec('ALTER TABLE videoboard_analyses ADD COLUMN metadata_json TEXT');
+  }
+  db.prepare('INSERT OR REPLACE INTO _meta (k, v) VALUES (?, ?)').run('videoboard_v26', 'done');
+}
+
+/**
+ * Schema v27 adds `analysis_json` to `videoboard_analyses`. The new pipeline
+ * (OMNI_AUDIO_Analyze) emits the whole analysis as one JSON blob; we store
+ * it verbatim so the DB shape and the analyzer output stay byte-identical.
+ * The legacy columns (bpm/energy/lyrics_json/sections_json/metadata_json)
+ * are left in place but no longer read or written — old rows are orphaned
+ * and getAnalysis returns null for them, forcing a re-analyze. Guarded on
+ * `_meta` key `videoboard_v27`.
+ */
+function applyVideoboardV27Migration(db: DB): void {
+  const done = db.prepare('SELECT v FROM _meta WHERE k = ?')
+    .get('videoboard_v27') as { v: string } | undefined;
+  if (done) return;
+  const cols = db.prepare('PRAGMA table_info(videoboard_analyses)').all() as Array<{ name: string }>;
+  if (cols.length === 0) return; // table not yet created (handled by v25)
+  if (!cols.some(c => c.name === 'analysis_json')) {
+    db.exec('ALTER TABLE videoboard_analyses ADD COLUMN analysis_json TEXT');
+  }
+  db.prepare('INSERT OR REPLACE INTO _meta (k, v) VALUES (?, ?)').run('videoboard_v27', 'done');
+}
+
+/**
+ * Schema v28 adds `scene_json TEXT` to `videoboard_shots`. The Director
+ * (OMNI_AUDIO_VideoScenes) emits richer per-shot data than the legacy
+ * mock-shot schema (image_prompt, video_prompt, key_visual, treatment
+ * snapshot, chunk_idx); rather than add five columns each time the schema
+ * evolves, we serialize the new fields into one TEXT blob. The existing
+ * columns (start_ms/end_ms/lyrics/prompt/seed/image_url/video_url/status)
+ * still hold the cross-cutting shot state. Guarded on `_meta` key
+ * `videoboard_v28`.
+ */
+function applyVideoboardV28Migration(db: DB): void {
+  const done = db.prepare('SELECT v FROM _meta WHERE k = ?')
+    .get('videoboard_v28') as { v: string } | undefined;
+  if (done) return;
+  const cols = db.prepare('PRAGMA table_info(videoboard_shots)').all() as Array<{ name: string }>;
+  if (cols.length === 0) return; // table not yet created (handled by v25)
+  if (!cols.some(c => c.name === 'scene_json')) {
+    db.exec('ALTER TABLE videoboard_shots ADD COLUMN scene_json TEXT');
+  }
+  db.prepare('INSERT OR REPLACE INTO _meta (k, v) VALUES (?, ?)').run('videoboard_v28', 'done');
+}
+
 function applyTemplatesV24Migration(db: DB): void {
   const done = db.prepare('SELECT v FROM _meta WHERE k = ?')
     .get('templates_v24') as { v: string } | undefined;
@@ -667,6 +814,10 @@ function openAndInit(dbPath: string): DB {
   applyGalleryFavoriteV22Migration(db);
   applyTemplatesV23Migration(db);
   applyTemplatesV24Migration(db);
+  applyVideoboardV25Migration(db);
+  applyVideoboardV26Migration(db);
+  applyVideoboardV27Migration(db);
+  applyVideoboardV28Migration(db);
   const row = db.prepare('SELECT version FROM schema_version LIMIT 1').get() as
     | { version: number } | undefined;
   if (!row) {

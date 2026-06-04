@@ -15,6 +15,13 @@ import { toast } from 'sonner';
 import { api } from '../services/comfyui';
 import type { NetworkConfigView, ChatSettingsView } from '../services/comfyui';
 import { chatEvents } from '../services/chatEvents';
+import { videoboardEvents } from '../services/videoboardEvents';
+import type {
+  JobRecord as VbJobRecord,
+  Shot as VbShot,
+  Analysis as VbAnalysis,
+  Project as VbProject,
+} from '../api/videoboard';
 import type {
   ChatStartPayload, ChatChunkPayload, ChatDonePayload, ChatErrorPayload,
   ChatStatusPayload, ChatTitlePayload, ChatToolPayload, ChatReasoningPayload,
@@ -462,6 +469,20 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
             chatEvents.dispatchPullDone(msg.data as ModelPullDonePayload);
           } else if (msg.type === 'model:pull:error') {
             chatEvents.dispatchPullError(msg.data as ModelPullErrorPayload);
+          } else if (msg.type === 'videoboard:job') {
+            videoboardEvents.dispatchJob(msg.record as VbJobRecord);
+          } else if (msg.type === 'videoboard:project:updated') {
+            videoboardEvents.dispatchProjectUpdated(msg.project as VbProject);
+          } else if (msg.type === 'videoboard:shot:updated') {
+            videoboardEvents.dispatchShotUpdated({
+              projectId: msg.projectId as string,
+              shot: msg.shot as VbShot,
+            });
+          } else if (msg.type === 'videoboard:analysis:updated') {
+            videoboardEvents.dispatchAnalysisUpdated({
+              projectId: msg.projectId as string,
+              analysis: msg.analysis as VbAnalysis,
+            });
           } else if (msg.type === 'crystools.monitor') {
             const d = msg.data as {
               cpu_utilization?: number;

@@ -22,6 +22,7 @@ import {
   applyProxyOverrides,
   splitAdvancedSettings,
 } from '../services/templates/advancedSettings.js';
+import { getBridgeClientId } from '../services/videoboard/comfyJobBridge.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { sendError } from '../middleware/errors.js';
 
@@ -116,7 +117,7 @@ router.post('/generate', generateLimiter, async (req: Request, res: Response) =>
     applyNodeOverrides(apiPrompt, nodeOverrides);
 
     const attachApiKey = template?.openSource === false;
-    const result = await comfyui.submitPrompt(apiPrompt, { attachApiKey });
+    const result = await comfyui.submitPrompt(apiPrompt, { attachApiKey, clientId: getBridgeClientId() });
     if (result?.prompt_id) {
       // Snapshot for race-recovery: gallery hydration falls back to this
       // row if the WS event path misses execution_success.

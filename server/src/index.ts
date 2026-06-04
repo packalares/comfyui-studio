@@ -14,6 +14,8 @@ import {
 } from './services/models/modelIndex.js';
 import { setDownloadBroadcaster, getAllDownloads } from './services/downloads/index.js';
 import { setChatBroadcaster } from './services/chat/broadcaster.js';
+import { setVideoboardBroadcaster } from './services/videoboard/jobTracker.js';
+import { setVideoboardRouteBroadcaster } from './routes/videoboard.routes.js';
 import { sweepStaleUploads } from './routes/upload.routes.js';
 import * as promptSnapshotsRepo from './lib/db/promptSnapshots.repo.js';
 import { getStatus as getLocalComfyUIStatus } from './services/comfyui/status.js';
@@ -142,6 +144,9 @@ setDownloadBroadcaster(broadcast);
 galleryService.setGalleryBroadcaster(broadcast);
 // Chat streaming + Ollama model-pull progress flow through this same broadcaster.
 setChatBroadcaster(broadcast);
+// Videoboard job tracker + route stubs broadcast WS events through this.
+setVideoboardBroadcaster(broadcast);
+setVideoboardRouteBroadcaster(broadcast);
 
 // ---- Queue & gallery broadcasts ----
 // Triggered by ComfyUI WS events. Debounced so bursts of messages (e.g. per-node
@@ -259,6 +264,14 @@ async function start() {
   // Subscribe the SQLite-backed model index to the bus so single-file
   // installs/removals stay in sync without a full disk walk.
   wireModelIndexEventHandlers();
+
+  // Open the persistent server-owned WS subscription to ComfyUI so videoboard
+  // jobs get terminal events (success / cancelled / error / interrupted)
+  // pushed in real time instead of relying on a 30-min /history poll timeout.
+  // Independent of the per-browser-client comfyWs bridge — both can coexist;
+  // ComfyUI broadcasts execution_* to every connected client.
+  const { startComfyJobBridge } = await import('./services/videoboard/comfyJobBridge.js');
+  startComfyJobBridge();
 
   // Sweep leftover files in the uploads tmp dir (orphans from any prior
   // crash mid-upload). Safe because we only delete files older than 1h.

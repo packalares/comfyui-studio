@@ -95,6 +95,23 @@ export async function getHistoryForPrompt(
   return data[promptId] ?? null;
 }
 
+// Drop a list of prompt_ids from ComfyUI's pending queue. Does NOT interrupt
+// an already-running prompt — for that you'd need /api/interrupt which is
+// global and would kill unrelated work. Used by the videoboard cancel path so
+// dropped runs don't keep rendering as orphans in /output/.
+export async function deleteQueuedPrompts(promptIds: string[]): Promise<void> {
+  if (promptIds.length === 0) return;
+  try {
+    await fetch(`${COMFYUI_URL}/api/queue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ delete: promptIds }),
+    });
+  } catch {
+    /* best-effort */
+  }
+}
+
 // Swallows errors — the gallery row + file are already gone, so a failed
 // upstream delete is non-fatal.
 export async function deleteHistoryPrompts(promptIds: string[]): Promise<void> {
@@ -112,9 +129,16 @@ export async function deleteHistoryPrompts(promptIds: string[]): Promise<void> {
 
 export async function submitPrompt(
   workflow: Record<string, unknown>,
-  opts?: { attachApiKey?: boolean },
+  opts?: { attachApiKey?: boolean; clientId?: string },
 ) {
   const body: Record<string, unknown> = { prompt: workflow };
+  if (opts?.clientId) {
+    // ComfyUI's executor uses this to route per-prompt events
+    // (`executed`, `execution_success`, `execution_error`, ...) back to
+    // the WS connection holding this same clientId. Without it those
+    // events broadcast to no one and any listener relying on them hangs.
+    body.client_id = opts.clientId;
+  }
   if (opts?.attachApiKey) {
     const { getApiKey } = await import('../settings/index.js');
     const apiKey = getApiKey();

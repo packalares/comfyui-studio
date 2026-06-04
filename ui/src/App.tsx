@@ -15,6 +15,9 @@ const PluginsHistory = lazy(() => import('./pages/plugins/History'));
 const PluginsPythonDependencies = lazy(() => import('./pages/plugins/python/Dependencies'));
 const PluginsPythonPackages = lazy(() => import('./pages/plugins/python/Packages'));
 const Settings = lazy(() => import('./pages/Settings'));
+const Videoboard = lazy(() => import('./pages/Videoboard'));
+const VideoboardProject = lazy(() => import('./pages/VideoboardProject'));
+const Characters = lazy(() => import('./pages/Characters'));
 
 function RouteFallback() {
   return (
@@ -58,6 +61,9 @@ function App() {
             <Route path="civitai/*" element={<Navigate to="/plugins/installed" replace />} />
           </Route>
           <Route path="/settings" element={<Settings />} />
+          <Route path="/videoboard" element={<Videoboard />} />
+          <Route path="/videoboard/characters" element={<Characters />} />
+          <Route path="/videoboard/:id" element={<VideoboardProject />} />
         </Routes>
       </Suspense>
     </Layout>
