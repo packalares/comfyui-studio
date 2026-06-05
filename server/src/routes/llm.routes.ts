@@ -99,8 +99,24 @@ async function proxyToOllama(
   const isStream = taskType !== 'llm-embeddings'
     && (body as Record<string, unknown>).stream !== false;
 
+  // For streaming, commit response headers + a newline every 30s WHILE waiting
+  // in the GPU queue so intermediate proxies (nginx, cloudflare) don't close
+  // the idle connection. NDJSON parsers ignore blank lines, so this is a safe
+  // no-op event. Cleared the moment the scheduler hands us the slot.
+  let queueHeartbeat: NodeJS.Timeout | null = null;
+  if (isStream) {
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.setHeader('Transfer-Encoding', 'chunked');
+    res.status(200);
+    res.flushHeaders();
+    queueHeartbeat = setInterval(() => {
+      if (!res.writableEnded) res.write('\n');
+    }, 30_000);
+  }
+
   try {
     await submitGpuJob(taskType, async (release) => {
+      if (queueHeartbeat) { clearInterval(queueHeartbeat); queueHeartbeat = null; }
       const ac = new AbortController();
 
       // Abort upstream when the client disconnects.
@@ -172,6 +188,8 @@ async function proxyToOllama(
         res.status(502).json({ error: { code: 'upstream_unavailable', message: msg } });
       }
     }
+  } finally {
+    if (queueHeartbeat) clearInterval(queueHeartbeat);
   }
 }
 

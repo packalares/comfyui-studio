@@ -34,6 +34,7 @@ import { randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
 import { logger } from '../../lib/logger.js';
 import { getComfyUIUrl, getQueuePromptIds, getHistoryForPrompt } from '../comfyui/api.js';
+import * as eventBus from '../jobs/eventBus.js';
 
 // ---------------------------------------------------------------------------
 // Tracked-prompt registry
@@ -198,6 +199,10 @@ interface ComfyExecutionEvent {
     exception_message?: string;
     exception_type?: string;
     traceback?: unknown;
+    // progress event fields
+    node?: string;
+    value?: number;
+    max?: number;
   };
 }
 
@@ -220,7 +225,14 @@ function handleComfyMessage(raw: string): void {
   }
 
   const promptId = msg.data?.prompt_id;
-  if (typeof promptId !== 'string' || !tracked.has(promptId)) return;
+  if (typeof promptId !== 'string') return;
+
+  // Fan relevant events to the per-job event bus for SSE subscribers.
+  // This runs for ALL prompts, not just tracked ones, so external callers
+  // submitting via /api/generate also see live events.
+  fanToEventBus(promptId, msg);
+
+  if (!tracked.has(promptId)) return;
 
   switch (msg.type) {
     // execution/server.py:795 — emitted after all nodes finish successfully.
@@ -249,6 +261,43 @@ function handleComfyMessage(raw: string): void {
     // handles the clear-queue case where NO terminal event fires.
     // `executing` with node=null is only sent on WS reconnect (server.py:276),
     // not as a completion signal — do not treat it as terminal.
+    default:
+      break;
+  }
+}
+
+function fanToEventBus(promptId: string, msg: ComfyExecutionEvent): void {
+  switch (msg.type) {
+    case 'execution_success':
+    case 'execution_complete':
+      eventBus.emit(promptId, { type: 'done', data: { status: 'success' } });
+      break;
+    case 'execution_interrupted':
+    case 'execution_cancelled':
+      eventBus.emit(promptId, {
+        type: 'error',
+        data: { code: 'cancelled', message: `prompt ${promptId} was cancelled` },
+      });
+      break;
+    case 'execution_error': {
+      const exc = msg.data?.exception_message ?? msg.data?.exception_type ?? 'unknown';
+      eventBus.emit(promptId, {
+        type: 'error',
+        data: { code: 'execution_error', message: String(exc) },
+      });
+      break;
+    }
+    case 'progress': {
+      const node = msg.data?.node ?? '';
+      const step = typeof msg.data?.value === 'number' ? msg.data.value : 0;
+      const total = typeof msg.data?.max === 'number' ? msg.data.max : 0;
+      eventBus.emit(promptId, { type: 'progress', data: { node, step, total } });
+      break;
+    }
+    case 'executing':
+      // `executing` with a node id means a node started; emit a status update.
+      eventBus.emit(promptId, { type: 'status', data: { status: 'running' } });
+      break;
     default:
       break;
   }

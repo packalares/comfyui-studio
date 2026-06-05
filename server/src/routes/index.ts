@@ -36,6 +36,7 @@ import characters from './characters.routes.js';
 import openapi from './openapi.routes.js';
 import gpu from './gpu.routes.js';
 import llm from './llm.routes.js';
+import jobs from './jobs.routes.js';
 
 const router = Router();
 
@@ -73,5 +74,6 @@ router.use(characters);
 router.use(openapi);
 router.use(gpu);
 router.use(llm);
+router.use(jobs);
 
 export default router;

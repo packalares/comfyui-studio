@@ -22,6 +22,8 @@ export const GenerateNodeErrorSchema = z.object({
 
 export const GenerateResponseSchema = z.object({
   promptId: z.string(),
+  statusUrl: z.string(),   // '/api/jobs/:promptId'
+  streamUrl: z.string(),   // '/api/jobs/:promptId/events'
   number: z.number().int().nonnegative().optional(),
   node_errors: z.record(z.string(), z.unknown()).optional(),
 }).passthrough();

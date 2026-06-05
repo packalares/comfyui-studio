@@ -31,7 +31,7 @@ import { extractAndPersistAttachments } from './attachments.js';
 import { ThinkParser } from './thinkParser.js';
 import { enforceContextStrategy } from './contextEnforce.js';
 import { isLikelyColocated } from './gpuOrchestrator.js';
-import { scheduler } from '../gpu/scheduler.js';
+import { scheduler, submitGpuJob } from '../gpu/scheduler.js';
 import { expandLatestSlashCommand } from './commands.js';
 
 // `LOADING_HINT_MS` and `MAX_TOOL_STEPS` are now `settings.chatLoadingHintMs`
@@ -290,7 +290,10 @@ async function runStream(args: RunStreamArgs): Promise<void> {
         },
       });
 
-    const dispatch = await runToolDispatch({
+    // Acquire the GPU slot for the duration of the chat turn. switchTenant
+    // calls inside tool dispatch only flip residency; the slot stays owned
+    // by this job so a parallel comfy gen can't elbow in mid-stream.
+    const dispatch = await submitGpuJob('llm-chat', async () => runToolDispatch({
       maxSteps: settings.getChatMaxToolSteps(),
       enabledTools: aiSdkTools,
       ollamaTools,
@@ -335,7 +338,7 @@ async function runStream(args: RunStreamArgs): Promise<void> {
         emitChatEvent({ type: 'chat:tool', data: { msgId, part } });
       },
       seedMessages: ollamaMessages,
-    });
+    }));
     finalFrame = dispatch.finalFrame;
     thinkParser.flush();
 

@@ -79,7 +79,11 @@ RUN pip install --no-cache-dir --no-deps \
       --index-url https://download.pytorch.org/whl/cu128
 
 # flash_attn — needed by ComfyUI-layerdiffuse (`flash_attn.flash_attn_interface`).
-RUN pip install --no-cache-dir flash-attn --no-build-isolation
+# Source build takes 30+ min and needs nvcc + headers we don't ship — use the
+# prebuilt wheel matching our torch 2.8 + cu12.x stack. cxx11abiTRUE is what
+# the PyTorch official linux wheels have used since 2.7.
+RUN pip install --no-cache-dir --no-deps \
+      https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp312-cp312-linux_x86_64.whl
 
 # nunchaku — working build for torch 2.8 + cu12.8. SVDQuant Flux quantization.
 # The wheel for cu12.8torch2.8 matches our stack exactly; the broken 1.2.1+torch2.11

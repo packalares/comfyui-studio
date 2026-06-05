@@ -25,6 +25,7 @@ import { getBridgeClientId, trackComfyPrompt } from '../services/videoboard/comf
 import { rateLimit } from '../middleware/rateLimit.js';
 import { GenerateBodySchema, GenerateResponseSchema } from '../contracts/generate.contract.js';
 import { submitGpuJob } from '../services/gpu/scheduler.js';
+import { buildJobUrls } from '../services/jobs/urls.js';
 
 const generateLimiter = rateLimit({ windowMs: 60_000, max: 60 });
 
@@ -155,10 +156,11 @@ const generateRoute = defineRoute({
     });
   }
 
-  // Wrap ComfyUI's response: rename prompt_id → promptId at the top level
-  // and preserve all other fields verbatim.
+  // Wrap ComfyUI's response: rename prompt_id → promptId, add job URL helpers.
   const { prompt_id, ...rest } = result ?? {};
-  return ok({ promptId: prompt_id ?? '', ...rest });
+  const pid = prompt_id ?? '';
+  const { statusUrl, streamUrl } = buildJobUrls(pid);
+  return ok({ promptId: pid, statusUrl, streamUrl, ...rest });
 });
 
 const router = Router();
