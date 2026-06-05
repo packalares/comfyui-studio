@@ -164,6 +164,15 @@ function broadcast(message: object) {
   }
 }
 
+// Forward raw ComfyUI JSON strings verbatim to every open browser client.
+// Distinct from broadcast() which serialises Studio-internal objects — these
+// strings are already serialised and must not be double-encoded.
+function broadcastRaw(json: string) {
+  for (const ws of clients) {
+    if (ws.readyState === WebSocket.OPEN) ws.send(json);
+  }
+}
+
 // ---- Single ComfyUI status poller, broadcast on change ----
 // Status is sourced from the local status service. The WS message type is
 // kept as `launcher-status` for frontend back-compat (it still listens under
@@ -240,7 +249,8 @@ function scheduleQueueBroadcast() {
   }, 100);
 }
 
-// ---- Client WS: survives ComfyUI outages, retries upstream automatically ----
+// ---- Client WS: browser clients join the `clients` set; ComfyUI events are
+// forwarded by the shared bridge (wired once in start() below), not per-client.
 wss.on('connection', (clientWs) => {
   clients.add(clientWs);
 
@@ -253,67 +263,8 @@ wss.on('connection', (clientWs) => {
     clientWs.send(JSON.stringify({ type: 'downloads-snapshot', data: snapshot }));
   }
 
-  let comfyWs: WebSocket | null = null;
-  let comfyRetryTimer: NodeJS.Timeout | null = null;
-  let closed = false;
-
-  const openComfyWs = () => {
-    if (closed) return;
-    const comfyUrl = getComfyUIUrl().replace(/^http/, 'ws');
-    try {
-      comfyWs = new WebSocket(`${comfyUrl}/ws?clientId=${crypto.randomUUID()}`);
-      comfyWs.on('message', (data) => {
-        const str = data.toString();
-        if (clientWs.readyState === WebSocket.OPEN) clientWs.send(str);
-        // ComfyUI emits `executed` per node with the node's full output
-        // payload inline, and `execution_success` once everything is done.
-        // We append gallery rows directly from the `executed` event payload
-        // (no history fetch, no race with /api/history persistence), and
-        // also fall back to a history-based reconcile on `execution_success`
-        // in case any events were missed.
-        try {
-          const msg = JSON.parse(str) as {
-            type?: string;
-            data?: {
-              prompt_id?: string;
-              node?: string;
-              output?: Record<string, unknown>;
-            };
-          };
-          if (msg?.type === 'status') scheduleQueueBroadcast();
-          else if (msg?.type === 'executed') {
-            scheduleQueueBroadcast();
-            const promptId = msg?.data?.prompt_id;
-            const output = msg?.data?.output;
-            if (typeof promptId === 'string' && promptId.length > 0) {
-              void galleryService.onNodeExecuted(promptId, output ?? {});
-            }
-          } else if (msg?.type === 'execution_success' || msg?.type === 'execution_complete') {
-            scheduleQueueBroadcast();
-            const promptId = msg?.data?.prompt_id;
-            if (typeof promptId === 'string' && promptId.length > 0) {
-              void galleryService.onExecutionComplete(promptId);
-            }
-          }
-        } catch { /* non-JSON */ }
-      });
-      comfyWs.on('error', () => { /* silent — close handler retries */ });
-      comfyWs.on('close', () => {
-        comfyWs = null;
-        if (!closed) comfyRetryTimer = setTimeout(openComfyWs, 5000);
-      });
-    } catch {
-      if (!closed) comfyRetryTimer = setTimeout(openComfyWs, 5000);
-    }
-  };
-
-  openComfyWs();
-
   const cleanup = () => {
-    closed = true;
     clients.delete(clientWs);
-    if (comfyRetryTimer) clearTimeout(comfyRetryTimer);
-    comfyWs?.close();
   };
 
   clientWs.on('close', cleanup);
@@ -351,13 +302,35 @@ async function start() {
     });
   });
 
-  // Open the persistent server-owned WS subscription to ComfyUI so videoboard
-  // jobs get terminal events (success / cancelled / error / interrupted)
-  // pushed in real time instead of relying on a 30-min /history poll timeout.
-  // Independent of the per-browser-client comfyWs bridge — both can coexist;
-  // ComfyUI broadcasts execution_* to every connected client.
-  const { startComfyJobBridge } = await import('./services/videoboard/comfyJobBridge.js');
+  // Open the ONE shared ComfyUI upstream WS. All event consumers subscribe
+  // here; no per-browser upstream is opened. Subscriptions are mounted ONCE
+  // at boot so there are no per-request listener leaks.
+  const {
+    startComfyJobBridge,
+    onRaw,
+    onStatus,
+    onExecuted,
+    onExecutionComplete,
+  } = await import('./services/videoboard/comfyJobBridge.js');
   startComfyJobBridge();
+
+  // Forward every raw ComfyUI message to all connected browser clients.
+  onRaw((json) => broadcastRaw(json));
+
+  // Queue broadcast on status messages (queue changes).
+  onStatus(() => scheduleQueueBroadcast());
+
+  // Gallery + queue on executed (node finished with output).
+  onExecuted((promptId, output) => {
+    void galleryService.onNodeExecuted(promptId, output);
+    scheduleQueueBroadcast();
+  });
+
+  // Gallery reconcile + queue on execution complete.
+  onExecutionComplete((promptId) => {
+    void galleryService.onExecutionComplete(promptId);
+    scheduleQueueBroadcast();
+  });
 
   // Probe boot state: align GPU residency with what was already running.
   const { bootRecovery } = await import('./services/gpu/bootRecovery.js');

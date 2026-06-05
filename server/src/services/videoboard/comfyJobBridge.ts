@@ -1,40 +1,104 @@
 /**
  * Server-owned persistent WebSocket subscription to ComfyUI's `/ws` endpoint.
  *
- * Why this exists (the gap before this module):
- *   index.ts opens a fresh ComfyUI WS per browser client and forwards events
- *   to that browser + the gallery service. There was NO persistent server-
- *   side bridge that could:
- *     - survive a browser disconnect during a long ComfyUI run
- *     - notify videoboard job tracking on `execution_cancelled` /
- *       `execution_error` / `execution_interrupted` (the per-client handler
- *       only listened for `executed` / `execution_success`)
- *
- *   Effect: a Director run cancelled in the ComfyUI canvas left the
- *   videoboard_jobs row stuck on 'running' until the 30-minute /history
- *   poll timeout fired. This module fixes that.
- *
  * Design:
- *   - One singleton WS, auto-reconnects with a 5 s backoff. Independent of
- *     any browser connection.
- *   - `trackComfyPrompt(promptId, opts)` returns a Promise that resolves on
- *     `execution_success` / `execution_complete` and rejects on
- *     `execution_cancelled` / `execution_interrupted` / `execution_error`.
- *   - A safety-net timeout (caller-provided) rejects after a hard deadline
- *     so we never leak a Promise if ComfyUI dies between events.
- *   - The Promise does NOT carry the run's output payload — callers fetch
- *     `/history/{promptId}` once after resolution. That keeps this module
- *     output-shape-agnostic (works for any node, not just the Director).
+ *   - ONE singleton WS for the life of the server process, auto-reconnects
+ *     with 5 s backoff. All consumers subscribe here; nobody opens a second
+ *     upstream connection.
  *
- *   The existing per-browser-client comfyWs bridge in index.ts is unchanged;
- *   ComfyUI broadcasts execution events to every connected client so both
- *   subscriptions independently see the same stream.
+ * Subscription API (mount ONCE at boot, never per-request):
+ *   bridge.onRaw(json => ...)            — raw ComfyUI JSON string → forward to browsers
+ *   bridge.onStatus(() => ...)           — fired on every `status` message
+ *   bridge.onExecuted((id, out) => ...)  — fired on `executed` with prompt_id + output
+ *   bridge.onExecutionComplete(id => ...)— fired on execution_success / execution_complete
+ *
+ * Tracked-prompt API (videoboard):
+ *   trackComfyPrompt(promptId, opts)     — Promise<void>, resolves/rejects on terminal events
+ *
+ * Jobs SSE API (internal):
+ *   fanToEventBus(promptId, msg)         — fires for ALL prompts, not only tracked ones
  */
 import { randomUUID } from 'node:crypto';
+import EventEmitter from 'node:events';
 import WebSocket from 'ws';
 import { logger } from '../../lib/logger.js';
 import { getComfyUIUrl, getQueuePromptIds, getHistoryForPrompt } from '../comfyui/api.js';
 import * as eventBus from '../jobs/eventBus.js';
+
+// ---------------------------------------------------------------------------
+// Internal event emitter — backs the public subscription API.
+// Max-listeners raised to 32 per event so boot-time wiring + tests never
+// trigger Node's "possible leak" warning.
+// ---------------------------------------------------------------------------
+
+// Typed event map keeps subscriber signatures correct without `any`.
+interface BridgeEvents {
+  raw: [json: string];
+  status: [];
+  executed: [promptId: string, output: Record<string, unknown>];
+  executionComplete: [promptId: string];
+}
+
+class BridgeEmitter extends EventEmitter {
+  // Override to carry the typed event map.
+  override emit<K extends keyof BridgeEvents>(
+    event: K,
+    ...args: BridgeEvents[K]
+  ): boolean {
+    return super.emit(event, ...args);
+  }
+  override on<K extends keyof BridgeEvents>(
+    event: K,
+    listener: (...args: BridgeEvents[K]) => void,
+  ): this {
+    return super.on(event, listener as (...a: unknown[]) => void);
+  }
+  override off<K extends keyof BridgeEvents>(
+    event: K,
+    listener: (...args: BridgeEvents[K]) => void,
+  ): this {
+    return super.off(event, listener as (...a: unknown[]) => void);
+  }
+}
+
+const emitter = new BridgeEmitter();
+// 0 = unlimited; suppresses Node's "possible leak" warning even in tests that
+// stress-subscribe 1000 times. Memory-leak protection is provided by tests
+// (see comfyJobBridge.test.ts) that assert the count returns to baseline, not
+// by EventEmitter's built-in cap (which would only warn, not throw).
+emitter.setMaxListeners(0);
+
+// ---------------------------------------------------------------------------
+// Public subscription API
+// Each on* returns an unsubscribe function so callers can clean up.
+// ALL should be mounted ONCE at boot, never inside a per-request handler.
+// ---------------------------------------------------------------------------
+
+/** Subscribe to every raw ComfyUI JSON string as-received. */
+export function onRaw(handler: (json: string) => void): () => void {
+  emitter.on('raw', handler);
+  return () => emitter.off('raw', handler);
+}
+
+/** Subscribe to ComfyUI `status` messages (fires on queue changes). */
+export function onStatus(handler: () => void): () => void {
+  emitter.on('status', handler);
+  return () => emitter.off('status', handler);
+}
+
+/** Subscribe to ComfyUI `executed` events (node finished, has output). */
+export function onExecuted(
+  handler: (promptId: string, output: Record<string, unknown>) => void,
+): () => void {
+  emitter.on('executed', handler);
+  return () => emitter.off('executed', handler);
+}
+
+/** Subscribe to ComfyUI execution_success / execution_complete events. */
+export function onExecutionComplete(handler: (promptId: string) => void): () => void {
+  emitter.on('executionComplete', handler);
+  return () => emitter.off('executionComplete', handler);
+}
 
 // ---------------------------------------------------------------------------
 // Tracked-prompt registry
@@ -214,6 +278,9 @@ function handleComfyMessage(raw: string): void {
     return; // ComfyUI also sends binary frames for previews; ignore non-JSON.
   }
 
+  // Always forward raw JSON to all raw subscribers (browser passthrough).
+  emitter.emit('raw', raw);
+
   // Temporary diagnostic: log EVERY non-progress event type ComfyUI broadcasts,
   // regardless of whether it's tied to a tracked prompt. Lets us see if the
   // bridge's WS is receiving `executed` / `execution_*` events at all on
@@ -224,8 +291,26 @@ function handleComfyMessage(raw: string): void {
     );
   }
 
+  // `status` messages carry queue state but may omit prompt_id; fire before
+  // the prompt_id guard so the queue-broadcast subscriber always fires.
+  if (msg.type === 'status') {
+    emitter.emit('status');
+  }
+
   const promptId = msg.data?.prompt_id;
   if (typeof promptId !== 'string') return;
+
+  // Fire typed subscription events for prompt-scoped message types.
+  if (msg.type === 'executed') {
+    const output = (msg.data as Record<string, unknown> | undefined)?.['output'];
+    emitter.emit(
+      'executed',
+      promptId,
+      (output !== null && typeof output === 'object' ? output : {}) as Record<string, unknown>,
+    );
+  } else if (msg.type === 'execution_success' || msg.type === 'execution_complete') {
+    emitter.emit('executionComplete', promptId);
+  }
 
   // Fan relevant events to the per-job event bus for SSE subscribers.
   // This runs for ALL prompts, not just tracked ones, so external callers
@@ -434,4 +519,23 @@ export function stopComfyJobBridge(): void {
   for (const promptId of Array.from(tracked.keys())) {
     rejectTracked(promptId, new ComfyJobCancelledError(promptId, 'caller'));
   }
+}
+
+// ---------------------------------------------------------------------------
+// Test helpers (underscore-prefixed; not for production callers)
+// ---------------------------------------------------------------------------
+
+/** Inject a raw JSON string directly into handleComfyMessage without a real WS. */
+export function _simulateMessageForTests(raw: string): void {
+  handleComfyMessage(raw);
+}
+
+/** Current listener count for a given bridge event (for leak assertions). */
+export function _listenerCountForTests(event: 'raw' | 'status' | 'executed' | 'executionComplete'): number {
+  return emitter.listenerCount(event);
+}
+
+/** Remove all listeners from the emitter (test teardown). */
+export function _removeAllListenersForTests(): void {
+  emitter.removeAllListeners();
 }

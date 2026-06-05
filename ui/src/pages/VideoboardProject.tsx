@@ -394,7 +394,7 @@ export default function VideoboardProject() {
           prev
             ? {
                 ...prev,
-                shots: prev.shots.map((s) => (s.idx === updated.idx ? updated : s)),
+                shots: prev.shots.map((s: typeof updated) => (s.idx === updated.idx ? updated : s)),
               }
             : prev,
         )

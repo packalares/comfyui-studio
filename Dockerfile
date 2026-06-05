@@ -12,11 +12,15 @@ ARG BASE_IMAGE=docker.io/beclab/comfyui:v0.24.0
 
 # ======================================================================
 # Stage: frontend-build — throwaway; we only need its dist/.
+# UI imports type-only Zod schemas from server/src/contracts/* via the
+# `@server/*` tsconfig path alias (resolves to ../server/src/*). The server
+# source must be present in the build context so vite's TS resolver finds it.
 # ======================================================================
 FROM ${BASE_IMAGE} AS frontend-build
 WORKDIR /build/studio/ui
 COPY ui/package.json ui/package-lock.json ./
 RUN npm ci --include=dev
+COPY server/src /build/studio/server/src
 COPY ui/ ./
 RUN npm run build
 
