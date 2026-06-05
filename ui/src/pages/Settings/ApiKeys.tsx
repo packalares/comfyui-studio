@@ -4,8 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Key, Copy, Check, Plus, Trash2, RefreshCw, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
-import { SCOPES, type Scope } from '@server/lib/auth/scopes';
-import type { ApiKey } from '@server/contracts/auth.contract';
+import { SCOPES, type Scope, type ApiKey } from '@server/contracts/auth.contract';
 import { createApiKey, listApiKeys, revokeApiKey } from '../../api/auth.js';
 import { Badge } from '../../components/ui/badge.js';
 import { Button } from '../../components/ui/button.js';
@@ -189,7 +188,7 @@ function CreateModal({ open, onClose, onCreated }: CreateModalProps) {
         <div className="space-y-1.5">
           <label className="field-label">Scopes</label>
           <div className="flex flex-wrap gap-1.5">
-            {SCOPES.map((s) => {
+            {SCOPES.map((s: Scope) => {
               const active = selectedScopes.has(s);
               return (
                 <button
