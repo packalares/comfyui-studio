@@ -125,7 +125,7 @@ RUN pip install --no-cache-dir \
       transformers==4.57.6 \
       torchcrepe \
       comfyui-manager \
-      s3tokenizer \
+      s3tokenizer==0.0.2 \
       descript-audio-codec \
       opencv-contrib-python \
       packaging
@@ -226,7 +226,7 @@ RUN pip install --no-cache-dir \
       transformers==4.57.6 \
       torchcrepe \
       comfyui-manager \
-      s3tokenizer \
+      s3tokenizer==0.0.2 \
       descript-audio-codec \
       opencv-contrib-python \
       packaging
