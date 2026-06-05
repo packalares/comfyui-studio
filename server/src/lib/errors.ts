@@ -74,6 +74,13 @@ export class UpstreamUnavailableError extends HttpError {
   }
 }
 
+export class InternalError extends HttpError {
+  constructor(message = 'Internal error', details?: unknown) {
+    super('internal_error', message, details);
+    this.name = 'InternalError';
+  }
+}
+
 export function isHttpError(err: unknown): err is HttpError {
   return err instanceof HttpError;
 }

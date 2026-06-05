@@ -17,12 +17,13 @@
 // composed, and the resolved path is checked against the configured
 // output root to prevent escaping the expected directory tree.
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Request, type Response, type NextFunction } from 'express';
 import fs from 'fs';
 import path from 'path';
 import * as comfyui from '../services/comfyui/api.js';
 import { logger } from '../lib/logger.js';
 import { sanitizeSegment, resolveViewPath } from '../lib/viewPath.js';
+import { ValidationError, UpstreamUnavailableError } from '../lib/errors.js';
 
 const router = Router();
 
@@ -91,14 +92,13 @@ function serveLocal(
   return true;
 }
 
-router.get('/view', async (req: Request, res: Response) => {
+router.get('/view', async (req: Request, res: Response, next: NextFunction) => {
   const rawFilename = req.query.filename;
   const rawSubfolder = req.query.subfolder;
   const rawType = req.query.type;
 
   if (typeof rawFilename !== 'string' || rawFilename.length === 0) {
-    res.status(400).json({ error: 'filename required' });
-    return;
+    next(new ValidationError('filename required')); return;
   }
   const filename = sanitizeSegment(rawFilename);
   const subfolder = sanitizeSegment(
@@ -108,8 +108,7 @@ router.get('/view', async (req: Request, res: Response) => {
     typeof rawType === 'string' ? rawType : undefined,
   );
   if (filename === null || subfolder === null || type === null) {
-    res.status(400).json({ error: 'invalid path segment' });
-    return;
+    next(new ValidationError('invalid path segment')); return;
   }
 
   // Fast path — serve from disk directly. Works even when ComfyUI is down.
@@ -134,7 +133,7 @@ router.get('/view', async (req: Request, res: Response) => {
       type,
       error: err instanceof Error ? err.message : String(err),
     });
-    res.status(502).json({ error: 'Media not available' });
+    next(new UpstreamUnavailableError('Media not available'));
   }
 });
 

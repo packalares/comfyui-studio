@@ -11,6 +11,7 @@ import type { AddressInfo } from 'net';
 import galleryRouter from '../../src/routes/gallery.routes.js';
 import * as repo from '../../src/lib/db/gallery.repo.js';
 import { useFreshDb } from '../lib/db/_helpers.js';
+import { authedFetch } from '../helpers/authedFetch.js';
 
 function startApp(): Promise<{ url: string; close: () => Promise<void> }> {
   const app = express();
@@ -75,7 +76,7 @@ describe('POST /gallery/:id/regenerate', () => {
   it('returns 404 for unknown id', async () => {
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/gallery/does-not-exist/regenerate`, {
+      const res = await authedFetch(`${app.url}/gallery/does-not-exist/regenerate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
@@ -84,7 +85,7 @@ describe('POST /gallery/:id/regenerate', () => {
     } finally { await app.close(); }
   });
 
-  it('returns 422 WORKFLOW_MISSING when the row has no workflowJson', async () => {
+  it('returns 400 when the row has no workflowJson', async () => {
     repo.insert({
       id: 'p-1.png', filename: '1.png', subfolder: '', type: 'output',
       mediaType: 'image', url: '/api/view?filename=1.png', promptId: 'p',
@@ -93,14 +94,14 @@ describe('POST /gallery/:id/regenerate', () => {
     });
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/gallery/p-1.png/regenerate`, {
+      const res = await authedFetch(`${app.url}/gallery/p-1.png/regenerate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
-      expect(res.status).toBe(422);
-      const body = await res.json() as { error: string };
-      expect(body.error).toBe('WORKFLOW_MISSING');
+      expect(res.status).toBe(400);
+      const body = await res.json() as { error: { code: string } };
+      expect(body.error.code).toBe('validation_failed');
     } finally { await app.close(); }
   });
 
@@ -113,14 +114,14 @@ describe('POST /gallery/:id/regenerate', () => {
     });
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/gallery/p-ok.png/regenerate`, {
+      const res = await authedFetch(`${app.url}/gallery/p-ok.png/regenerate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as { promptId: string };
-      expect(body.promptId).toBe('regen-123');
+      const body = await res.json() as { data: { promptId: string } };
+      expect(body.data.promptId).toBe('regen-123');
       expect(submitted.length).toBe(1);
       expect(submitted[0].url).toContain('/api/prompt');
       const payload = submitted[0].body as { prompt: Record<string, unknown> };
@@ -140,7 +141,7 @@ describe('POST /gallery/:id/regenerate', () => {
     });
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/gallery/p-rand.png/regenerate`, {
+      const res = await authedFetch(`${app.url}/gallery/p-rand.png/regenerate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ randomizeSeed: true }),
@@ -170,14 +171,14 @@ describe('POST /gallery/:id/regenerate', () => {
     }) as unknown as typeof fetch;
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/gallery/p-fail.png/regenerate`, {
+      const res = await authedFetch(`${app.url}/gallery/p-fail.png/regenerate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
       expect(res.status).toBe(502);
-      const body = await res.json() as { error: string };
-      expect(body.error).toBe('QUEUE_FAILED');
+      const body = await res.json() as { error: { code: string } };
+      expect(body.error.code).toBe('upstream_unavailable');
     } finally { await app.close(); }
   });
 });

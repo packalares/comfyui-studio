@@ -6,7 +6,7 @@
 //   GET    /api/thumbnail/template/<path>   — ComfyUI templates/<path>
 //   GET    /api/thumbnail/:galleryId        — DB row thumbnail (sqlite lookup)
 
-import { Router, type Request, type Response, type RequestHandler } from 'express';
+import { Router, type Request, type Response, type NextFunction, type RequestHandler } from 'express';
 import { createReadStream } from 'fs';
 import { logger } from '../lib/logger.js';
 import {
@@ -15,6 +15,7 @@ import {
   isThumbError,
 } from '../services/thumbnail/index.js';
 import type { ThumbResult } from '../services/thumbnail/index.js';
+import { ValidationError, NotFoundError, UpstreamUnavailableError } from '../lib/errors.js';
 
 // Boot-time side effect: register the 30s-delayed first sweep + 6h interval
 // on first import of this router module. Idempotent — subsequent imports
@@ -53,7 +54,8 @@ function sendThumb(res: Response, result: ThumbResult): void {
   createReadStream(result.filePath).pipe(res);
 }
 
-function mapError(res: Response, err: unknown, context: Record<string, unknown>): void {
+/** Translate a ThumbError or unknown caught value into an HttpError and throw it. */
+function throwMappedError(err: unknown, context: Record<string, unknown>): never {
   if (isThumbError(err)) {
     if (
       err.code === 'INVALID_WIDTH'
@@ -61,11 +63,10 @@ function mapError(res: Response, err: unknown, context: Record<string, unknown>)
       || err.code === 'INVALID_PATH'
       || err.code === 'INVALID_URL'
     ) {
-      res.status(400).json({ error: err.code });
-      return;
+      throw new ValidationError(err.code);
     }
-    // DB_LOOKUP_FAILED maps to 404 (not 502) so tile grids that pass an id
-    // the DB can't find degrade gracefully instead of painting an error.
+    // DB_LOOKUP_FAILED maps to 404 so tile grids that pass an id the DB can't
+    // find degrade gracefully instead of painting an error.
     if (
       err.code === 'NOT_FOUND'
       || err.code === 'UNSUPPORTED_EXTENSION'
@@ -75,78 +76,76 @@ function mapError(res: Response, err: unknown, context: Record<string, unknown>)
       if (err.code === 'DB_LOOKUP_FAILED') {
         logger.warn('thumbnail: db lookup failed', { ...context, detail: err.detail });
       }
-      res.status(404).json({ error: err.code });
-      return;
+      throw new NotFoundError(err.code);
     }
     logger.warn('thumbnail: pipeline error', { ...context, code: err.code, detail: err.detail });
-    res.status(502).json({ error: err.code });
-    return;
+    throw new UpstreamUnavailableError(err.code);
   }
   logger.warn('thumbnail: unexpected error', {
     ...context,
     message: err instanceof Error ? err.message : String(err),
   });
-  res.status(502).json({ error: 'THUMBNAIL_FAILED' });
+  throw new UpstreamUnavailableError('THUMBNAIL_FAILED');
 }
 
-const handleStats: RequestHandler = async (_req: Request, res: Response) => {
+const handleStats: RequestHandler = async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const stats = await collectStats();
     res.json(stats);
   } catch (err) {
-    mapError(res, err, { op: 'stats' });
+    try { throwMappedError(err, { op: 'stats' }); } catch (mapped) { next(mapped); }
   }
 };
 
-const handleClear: RequestHandler = async (_req: Request, res: Response) => {
+const handleClear: RequestHandler = async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const { deleted } = await clearCache();
     res.json({ deleted });
   } catch (err) {
-    mapError(res, err, { op: 'clear' });
+    try { throwMappedError(err, { op: 'clear' }); } catch (mapped) { next(mapped); }
   }
 };
 
-const handleUrlMode: RequestHandler = async (req: Request, res: Response) => {
+const handleUrlMode: RequestHandler = async (req: Request, res: Response, next: NextFunction) => {
   const url = typeof req.query.url === 'string' ? req.query.url : '';
-  if (!url) { res.status(400).json({ error: 'url required' }); return; }
+  if (!url) { next(new ValidationError('url required')); return; }
   const width = parseWidth(req.query.w);
-  if (typeof width !== 'number') { res.status(400).json({ error: width.error }); return; }
+  if (typeof width !== 'number') { next(new ValidationError(width.error)); return; }
   try {
     const result = await thumbnailForUrl({ url, width });
     sendThumb(res, result);
   } catch (err) {
-    mapError(res, err, { url });
+    try { throwMappedError(err, { url }); } catch (mapped) { next(mapped); }
   }
 };
 
-const handleIdMode: RequestHandler = async (req: Request, res: Response) => {
+const handleIdMode: RequestHandler = async (req: Request, res: Response, next: NextFunction) => {
   const rawId = req.params.galleryId;
   const galleryId = typeof rawId === 'string' ? rawId : '';
-  if (!galleryId) { res.status(400).json({ error: 'galleryId required' }); return; }
+  if (!galleryId) { next(new ValidationError('galleryId required')); return; }
   const width = parseWidth(req.query.w);
-  if (typeof width !== 'number') { res.status(400).json({ error: width.error }); return; }
+  if (typeof width !== 'number') { next(new ValidationError(width.error)); return; }
   try {
     const result = await thumbnailForGalleryItem({ galleryId, width });
     sendThumb(res, result);
   } catch (err) {
-    mapError(res, err, { galleryId });
+    try { throwMappedError(err, { galleryId }); } catch (mapped) { next(mapped); }
   }
 };
 
-const handleTemplateMode: RequestHandler = async (req: Request, res: Response) => {
+const handleTemplateMode: RequestHandler = async (req: Request, res: Response, next: NextFunction) => {
   // `*` glob captures the rest of the path including nested segments — the
   // matched value lives at `req.params[0]` per Express 4 wildcard semantics.
   const rawPath = (req.params as Record<string, unknown>)[0];
   const assetPath = typeof rawPath === 'string' ? rawPath : '';
-  if (!assetPath) { res.status(400).json({ error: 'assetPath required' }); return; }
+  if (!assetPath) { next(new ValidationError('assetPath required')); return; }
   const width = parseWidth(req.query.w);
-  if (typeof width !== 'number') { res.status(400).json({ error: width.error }); return; }
+  if (typeof width !== 'number') { next(new ValidationError(width.error)); return; }
   try {
     const result = await thumbnailForTemplateAsset({ assetPath, width });
     sendThumb(res, result);
   } catch (err) {
-    mapError(res, err, { assetPath });
+    try { throwMappedError(err, { assetPath }); } catch (mapped) { next(mapped); }
   }
 };
 

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import express from 'express';
 import type { AddressInfo } from 'net';
 import civitaiRoutes from '../../src/routes/civitai.routes.js';
+import { authedFetch } from '../helpers/authedFetch.js';
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -48,18 +49,14 @@ describe('civitai list routes envelope shape', () => {
 
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/civitai/models/latest`);
+      const res = await authedFetch(`${app.url}/civitai/models/latest`);
       expect(res.status).toBe(200);
       const body = await res.json() as {
-        items: Array<{ id: number }>;
-        hasMore: boolean;
-        total: number;
-        page: number;
-        pageSize: number;
+        data: { items: Array<{ id: number }>; hasMore: boolean; total: number; page: number; pageSize: number };
       };
-      expect(body.items).toHaveLength(1);
-      expect(body.hasMore).toBe(true);
-      expect(typeof body.total).toBe('number');
+      expect(body.data.items).toHaveLength(1);
+      expect(body.data.hasMore).toBe(true);
+      expect(typeof body.data.total).toBe('number');
     } finally { await app.close(); }
   });
 
@@ -77,11 +74,11 @@ describe('civitai list routes envelope shape', () => {
 
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/civitai/models/search?q=sd`);
+      const res = await authedFetch(`${app.url}/civitai/models/search?q=sd`);
       expect(res.status).toBe(200);
-      const body = await res.json() as { hasMore: boolean; nextCursor?: string };
-      expect(body.hasMore).toBe(true);
-      expect(body.nextCursor).toBe('abc123');
+      const body = await res.json() as { data: { hasMore: boolean; nextCursor?: string } };
+      expect(body.data.hasMore).toBe(true);
+      expect(body.data.nextCursor).toBe('abc123');
     } finally { await app.close(); }
   });
 
@@ -99,11 +96,11 @@ describe('civitai list routes envelope shape', () => {
 
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/civitai/models/hot`);
+      const res = await authedFetch(`${app.url}/civitai/models/hot`);
       expect(res.status).toBe(200);
-      const body = await res.json() as { hasMore: boolean; nextCursor?: string };
-      expect(body.hasMore).toBe(false);
-      expect(body.nextCursor).toBeUndefined();
+      const body = await res.json() as { data: { hasMore: boolean; nextCursor?: string } };
+      expect(body.data.hasMore).toBe(false);
+      expect(body.data.nextCursor).toBeUndefined();
     } finally { await app.close(); }
   });
 });

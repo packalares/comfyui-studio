@@ -2,7 +2,7 @@
 // persist their selection, and return the merged Advanced Settings list
 // (proxy-widget entries + user-exposed raw-node entries).
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Request, type Response, type NextFunction } from 'express';
 import * as exposedWidgets from '../services/exposedWidgets.js';
 import * as templates from '../services/templates/index.js';
 import {
@@ -19,7 +19,7 @@ import { computeWorkflowGroups } from '../services/workflow/workflowGroups.js';
 import { buildFormFieldPlan, disambiguateFieldLabels } from '../services/templates/formFieldPlan/index.js';
 import { filterProxySettingsByBoundKeys } from '../services/workflow/filterFormBoundProxies.js';
 import type { RawTemplate } from '../services/templates/types.js';
-import { sendError } from '../middleware/errors.js';
+import { NotFoundError, InternalError } from '../lib/errors.js';
 import type { AdvancedSetting } from '../contracts/workflow.contract.js';
 
 /**
@@ -118,13 +118,13 @@ export async function buildTemplateBundle(templateName: string) {
   return { settings, widgets, primitiveFormFields, apiPrompt, groups };
 }
 
-router.get('/workflow-settings/:templateName', async (req: Request, res: Response) => {
+router.get('/workflow-settings/:templateName', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const bundle = await buildTemplateBundle(req.params.templateName as string);
-    if (!bundle) { res.status(404).json({ error: 'Workflow not found' }); return; }
+    if (!bundle) throw new NotFoundError('Workflow not found');
     res.json({ settings: bundle.settings });
   } catch (err) {
-    sendError(res, err, 500, 'Failed to extract workflow settings');
+    next(err instanceof Error ? err : new InternalError('Failed to extract workflow settings'));
   }
 });
 
@@ -134,13 +134,13 @@ router.get('/workflow-settings/:templateName', async (req: Request, res: Respons
 // Primitive* nodes still surface, plus widget-walk fields with `bindNodeId`+`bindWidgetName` for
 // modern multi-field encoders (TextEncodeAceStepAudio1.5's `tags`/`lyrics` etc.) so the Studio
 // form can route each field to its own widget instead of fanning one prompt across all of them.
-router.get('/template-widgets/:templateName', async (req: Request, res: Response) => {
+router.get('/template-widgets/:templateName', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const bundle = await buildTemplateBundle(req.params.templateName as string);
-    if (!bundle) { res.status(404).json({ error: 'Workflow not found' }); return; }
+    if (!bundle) throw new NotFoundError('Workflow not found');
     res.json({ widgets: bundle.widgets, primitiveFormFields: bundle.primitiveFormFields });
   } catch (err) {
-    sendError(res, err, 500, 'Failed to enumerate template widgets');
+    next(err instanceof Error ? err : new InternalError('Failed to enumerate template widgets'));
   }
 });
 
@@ -148,13 +148,13 @@ router.get('/template-widgets/:templateName', async (req: Request, res: Response
 // Studio page open used to fire both back-to-back; serving them together
 // halves network trips and runs `loadWorkflowJson` + `buildFormFieldPlan`
 // once instead of twice.
-router.get('/template-bundle/:templateName', async (req: Request, res: Response) => {
+router.get('/template-bundle/:templateName', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const bundle = await buildTemplateBundle(req.params.templateName as string);
-    if (!bundle) { res.status(404).json({ error: 'Workflow not found' }); return; }
+    if (!bundle) throw new NotFoundError('Workflow not found');
     res.json(bundle);
   } catch (err) {
-    sendError(res, err, 500, 'Failed to build template bundle');
+    next(err instanceof Error ? err : new InternalError('Failed to build template bundle'));
   }
 });
 
@@ -168,23 +168,20 @@ router.get('/template-bundle/:templateName', async (req: Request, res: Response)
  * Output is stripped of per-submission randomness (seeds zeroed) so two
  * successive calls produce a stable payload for comparison.
  */
-router.get('/template-api-prompt/:templateName', async (req: Request, res: Response) => {
+router.get('/template-api-prompt/:templateName', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const templateName = req.params.templateName as string;
     const workflow = await loadWorkflowJson(templateName);
-    if (!workflow) {
-      res.status(404).json({ error: 'Workflow not found' });
-      return;
-    }
+    if (!workflow) throw new NotFoundError('Workflow not found');
     const apiPrompt = await buildStableApiPrompt(workflow);
     res.json({ templateName, apiPrompt });
   } catch (err) {
-    sendError(res, err, 500, 'Failed to build API prompt');
+    next(err instanceof Error ? err : new InternalError('Failed to build API prompt'));
   }
 });
 
 // Save the user's selection of which widgets should appear in Advanced Settings for this template.
-router.put('/template-widgets/:templateName', (req: Request, res: Response) => {
+router.put('/template-widgets/:templateName', (req: Request, res: Response, next: NextFunction) => {
   try {
     const templateName = req.params.templateName as string;
     const body = req.body as {
@@ -193,7 +190,7 @@ router.put('/template-widgets/:templateName', (req: Request, res: Response) => {
     const saved = exposedWidgets.setForTemplate(templateName, body.exposed || []);
     res.json({ exposed: saved });
   } catch (err) {
-    sendError(res, err, 400, 'Failed to save exposed widgets');
+    next(err instanceof Error ? err : new InternalError('Failed to save exposed widgets'));
   }
 });
 

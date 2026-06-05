@@ -9,6 +9,7 @@ import pluginsRouter from '../../src/routes/plugins.routes.js';
 import * as repo from '../../src/lib/db/plugins.repo.js';
 import * as cacheService from '../../src/services/plugins/cache.js';
 import { useFreshDb } from '../lib/db/_helpers.js';
+import { authedFetch } from '../helpers/authedFetch.js';
 
 function startApp(): Promise<{ url: string; close: () => Promise<void> }> {
   const app = express();
@@ -40,42 +41,43 @@ describe('GET /plugins (sqlite-backed)', () => {
   it('unpaginated: returns flat array of catalog plugins', async () => {
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/plugins`);
+      const res = await authedFetch(`${app.url}/plugins`);
       expect(res.status).toBe(200);
-      const body = await res.json() as Array<Record<string, unknown>>;
-      expect(Array.isArray(body)).toBe(true);
-      expect(body.length).toBe(3);
-      expect(body[0]).toHaveProperty('id');
-      expect(body[0]).toHaveProperty('name');
-      expect(body[0]).toHaveProperty('installed');
+      const body = await res.json() as { data: { items: Array<Record<string, unknown>> } };
+      const items = body.data.items;
+      expect(Array.isArray(items)).toBe(true);
+      expect(items.length).toBe(3);
+      expect(items[0]).toHaveProperty('id');
+      expect(items[0]).toHaveProperty('name');
+      expect(items[0]).toHaveProperty('installed');
     } finally { await app.close(); }
   });
 
   it('paginated: returns PageEnvelope with items/total/hasMore', async () => {
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/plugins?page=1&pageSize=2`);
+      const res = await authedFetch(`${app.url}/plugins?page=1&pageSize=2`);
       expect(res.status).toBe(200);
       const body = await res.json() as {
-        items: unknown[]; page: number; pageSize: number; total: number; hasMore: boolean;
+        data: { items: unknown[]; page: number; pageSize: number; total: number; hasMore: boolean };
       };
-      expect(body.page).toBe(1);
-      expect(body.pageSize).toBe(2);
-      expect(body.total).toBe(3);
-      expect(body.items.length).toBe(2);
-      expect(body.hasMore).toBe(true);
+      expect(body.data.page).toBe(1);
+      expect(body.data.pageSize).toBe(2);
+      expect(body.data.total).toBe(3);
+      expect(body.data.items.length).toBe(2);
+      expect(body.data.hasMore).toBe(true);
     } finally { await app.close(); }
   });
 
   it('paginated: q filter narrows by name substring', async () => {
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/plugins?page=1&pageSize=50&q=beta`);
+      const res = await authedFetch(`${app.url}/plugins?page=1&pageSize=50&q=beta`);
       const body = await res.json() as {
-        items: Array<{ id: string }>; total: number;
+        data: { items: Array<{ id: string }>; total: number };
       };
-      expect(body.total).toBe(1);
-      expect(body.items[0].id).toBe('beta-node');
+      expect(body.data.total).toBe(1);
+      expect(body.data.items[0].id).toBe('beta-node');
     } finally { await app.close(); }
   });
 

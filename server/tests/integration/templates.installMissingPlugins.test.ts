@@ -38,6 +38,13 @@ vi.mock('../../src/services/plugins/cache.js', () => ({
       name: 'Pack Disabled',
     },
   ],
+  // getInstalledPluginKeys: returns installed+non-disabled repos as keys.
+  getInstalledPluginKeys: () => {
+    const set = new Set(['pack-a', 'alice/pack-a']);
+    return { set, byCanonical: set };
+  },
+  // isPluginInstalled delegates to the keys set; mock returns true only for pack-a.
+  isPluginInstalled: (ref: string) => ref.toLowerCase().includes('pack-a') || ref.toLowerCase() === 'alice/pack-a',
 }));
 
 vi.mock('../../src/services/plugins/install.js', () => ({

@@ -13,6 +13,7 @@ import type { AddressInfo } from 'net';
 import galleryRouter from '../../src/routes/gallery.routes.js';
 import * as repo from '../../src/lib/db/gallery.repo.js';
 import { useFreshDb } from '../lib/db/_helpers.js';
+import { authedFetch } from '../helpers/authedFetch.js';
 
 function startApp(): Promise<{ url: string; close: () => Promise<void> }> {
   const app = express();
@@ -117,11 +118,11 @@ describe('POST /gallery/import-from-comfyui', () => {
   it('imports every row on a cold DB, then rate-limits the immediate next call', async () => {
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/gallery/import-from-comfyui`, { method: 'POST' });
+      const res = await authedFetch(`${app.url}/gallery/import-from-comfyui`, { method: 'POST' });
       expect(res.status).toBe(200);
-      const body = await res.json() as { imported: number; skipped: number };
-      expect(body.imported).toBe(4);
-      expect(body.skipped).toBe(0);
+      const body = await res.json() as { data: { imported: number; skipped: number } };
+      expect(body.data.imported).toBe(4);
+      expect(body.data.skipped).toBe(0);
       expect(repo.count()).toBe(4);
       // v21: IDs are UUIDs; look up by promptId to verify the row was inserted.
       // Extracted fields (seed, sampler) are no longer stored on the row —
@@ -133,7 +134,7 @@ describe('POST /gallery/import-from-comfyui', () => {
       expect(fullRow?.workflowJson).not.toBeNull();
 
       // Second immediate call hits the 10s per-process cooldown.
-      const rate = await fetch(`${app.url}/gallery/import-from-comfyui`, { method: 'POST' });
+      const rate = await authedFetch(`${app.url}/gallery/import-from-comfyui`, { method: 'POST' });
       expect(rate.status).toBe(429);
       expect(rate.headers.get('Retry-After')).not.toBeNull();
     } finally { await app.close(); }

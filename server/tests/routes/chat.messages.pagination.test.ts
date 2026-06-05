@@ -88,7 +88,9 @@ afterAll(async () => {
 async function getMessages(qs = '') {
   const url = `${baseUrl}/api/chat/conversations/${CONV_ID}/messages${qs}`;
   const res = await fetch(url);
-  const body = await res.json() as unknown;
+  const raw = await res.json() as unknown;
+  // Routes are wrapped in { data: ... } envelope; unwrap for test convenience.
+  const body = (raw as { data?: unknown }).data ?? raw;
   return { status: res.status, body };
 }
 

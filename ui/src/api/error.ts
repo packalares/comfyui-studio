@@ -5,7 +5,7 @@
 // human-readable `message`. `status` is the HTTP status the server attached
 // per `errorStatus[code]`; surfaced for callers that key on status as well.
 
-import type { ErrorCode } from '@server/contracts/envelope.contract.js';
+import type { ErrorCode } from '@server/contracts/envelope.contract';
 
 export interface ApiClientErrorInit {
   code: ErrorCode;

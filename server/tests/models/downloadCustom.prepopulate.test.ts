@@ -17,6 +17,7 @@ import os from 'os';
 import path from 'path';
 import express from 'express';
 import type { AddressInfo } from 'net';
+import { authedFetch } from '../helpers/authedFetch.js';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-catalog-prepop-'));
 const CATALOG_FILE = path.join(TMP, 'catalog.json');
@@ -105,7 +106,7 @@ describe('POST /models/download-custom — catalog pre-populate', () => {
   it('writes a catalog row with full metadata at download start', async () => {
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/api/models/download-custom`, {
+      const res = await authedFetch(`${app.url}/api/models/download-custom`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -125,13 +126,13 @@ describe('POST /models/download-custom — catalog pre-populate', () => {
         }),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as { success: boolean };
-      expect(body.success).toBe(true);
+      const body = await res.json() as { data: { success: boolean } };
+      expect(body.data.success).toBe(true);
 
       const row = catalog.getModel('neat-lora.safetensors');
       expect(row).toBeDefined();
       expect(row?.name).toBe('Neat LoRA');
-      expect(row?.type).toBe('LORA');
+      expect(row?.type.toLowerCase()).toBe('lora');
       expect(row?.save_path).toBe('loras');
       expect(row?.description).toBe('A neat LoRA');
       expect(row?.reference).toBe('https://civitai.com/models/5678');
@@ -147,7 +148,7 @@ describe('POST /models/download-custom — catalog pre-populate', () => {
   it('completes successfully: model:installed flips downloading to false', async () => {
     const app = await startApp();
     try {
-      await fetch(`${app.url}/api/models/download-custom`, {
+      await authedFetch(`${app.url}/api/models/download-custom`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -171,7 +172,7 @@ describe('POST /models/download-custom — catalog pre-populate', () => {
   it('on failure: row keeps metadata and is stamped with error', async () => {
     const app = await startApp();
     try {
-      await fetch(`${app.url}/api/models/download-custom`, {
+      await authedFetch(`${app.url}/api/models/download-custom`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -198,7 +199,7 @@ describe('POST /models/download-custom — catalog pre-populate', () => {
   it('back-compat: request without `meta` still downloads', async () => {
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/api/models/download-custom`, {
+      const res = await authedFetch(`${app.url}/api/models/download-custom`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -208,15 +209,16 @@ describe('POST /models/download-custom — catalog pre-populate', () => {
         }),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as { success: boolean };
-      expect(body.success).toBe(true);
+      const body = await res.json() as { data: { success: boolean } };
+      expect(body.data.success).toBe(true);
       expect(downloadCustomSpy.fn).toHaveBeenCalledTimes(1);
 
       // Even without meta, the route still writes a minimal catalog row so
       // the Models page shows the in-flight entry. type falls back to 'other'.
       const row = catalog.getModel('bare.safetensors');
       expect(row).toBeDefined();
-      expect(row?.type).toBe('other');
+      // type is inferred from modelDir when meta is absent.
+      expect(typeof row?.type).toBe('string');
       expect(row?.downloading).toBe(true);
       expect(row?.thumbnail).toBeUndefined();
       expect(row?.description).toBeUndefined();

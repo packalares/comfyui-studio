@@ -95,7 +95,7 @@ describe('buildRowsFromExecution + insertGalleryRow', () => {
     expect(rows[0]).not.toHaveProperty('seed');
   });
 
-  it('insertGalleryRow is idempotent and returns false on duplicate id', async () => {
+  it('insertGalleryRow is idempotent on duplicate id', async () => {
     const rows = await buildRowsFromExecution({
       promptId: 'P3',
       outputs: {
@@ -105,8 +105,8 @@ describe('buildRowsFromExecution + insertGalleryRow', () => {
       createdAt: 3000,
     });
     expect(repo.insertGalleryRow(rows[0])).toBe(true);
-    // Second insert: row exists, INSERT OR IGNORE is a no-op.
-    expect(repo.insertGalleryRow(rows[0])).toBe(false);
+    // Second insert: ON CONFLICT DO UPDATE with COALESCE; SQLite counts as 1 change.
+    expect(repo.insertGalleryRow(rows[0])).toBe(true);
     expect(repo.count()).toBe(1);
   });
 

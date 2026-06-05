@@ -12,6 +12,7 @@ import type { AddressInfo } from 'net';
 import galleryRouter from '../../src/routes/gallery.routes.js';
 import * as repo from '../../src/lib/db/gallery.repo.js';
 import { useFreshDb } from '../lib/db/_helpers.js';
+import { authedFetch } from '../helpers/authedFetch.js';
 
 function startApp(): Promise<{ url: string; close: () => Promise<void> }> {
   const app = express();
@@ -50,52 +51,53 @@ describe('GET /gallery (sqlite-backed)', () => {
   it('unpaginated: returns a flat array preserving GalleryItem shape', async () => {
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/gallery`);
+      const res = await authedFetch(`${app.url}/gallery`);
       expect(res.status).toBe(200);
-      const body = await res.json() as Array<Record<string, unknown>>;
-      expect(Array.isArray(body)).toBe(true);
-      expect(body.length).toBe(7);
-      expect(body[0]).toHaveProperty('id');
-      expect(body[0]).toHaveProperty('filename');
-      expect(body[0]).toHaveProperty('mediaType');
-      expect(body[0]).toHaveProperty('url');
+      const body = await res.json() as { data: { items: Array<Record<string, unknown>> } };
+      const items = body.data.items;
+      expect(Array.isArray(items)).toBe(true);
+      expect(items.length).toBe(7);
+      expect(items[0]).toHaveProperty('id');
+      expect(items[0]).toHaveProperty('filename');
+      expect(items[0]).toHaveProperty('mediaType');
+      expect(items[0]).toHaveProperty('url');
     } finally { await app.close(); }
   });
 
   it('paginated: returns PageEnvelope with page/pageSize/total/hasMore', async () => {
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/gallery?page=1&pageSize=3`);
+      const res = await authedFetch(`${app.url}/gallery?page=1&pageSize=3`);
       expect(res.status).toBe(200);
       const body = await res.json() as {
-        items: unknown[]; page: number; pageSize: number; total: number; hasMore: boolean;
+        data: { items: unknown[]; page: number; pageSize: number; total: number; hasMore: boolean };
       };
-      expect(body.page).toBe(1);
-      expect(body.pageSize).toBe(3);
-      expect(body.total).toBe(7);
-      expect(body.items.length).toBe(3);
-      expect(body.hasMore).toBe(true);
+      expect(body.data.page).toBe(1);
+      expect(body.data.pageSize).toBe(3);
+      expect(body.data.total).toBe(7);
+      expect(body.data.items.length).toBe(3);
+      expect(body.data.hasMore).toBe(true);
     } finally { await app.close(); }
   });
 
   it('paginated with mediaType filter applies before paging', async () => {
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/gallery?page=1&pageSize=50&mediaType=image`);
-      const body = await res.json() as { items: Array<{ mediaType: string }>; total: number };
-      expect(body.total).toBe(4);
-      expect(body.items.every(r => r.mediaType === 'image')).toBe(true);
+      const res = await authedFetch(`${app.url}/gallery?page=1&pageSize=50&mediaType=image`);
+      const body = await res.json() as { data: { items: Array<{ mediaType: string }>; total: number } };
+      expect(body.data.total).toBe(4);
+      expect(body.data.items.every(r => r.mediaType === 'image')).toBe(true);
     } finally { await app.close(); }
   });
 
   it('DELETE /gallery/:id removes the sqlite row', async () => {
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/gallery/p-0.png`, { method: 'DELETE' });
+      const res = await authedFetch(`${app.url}/gallery/p-0.png`, { method: 'DELETE' });
       expect(res.status).toBe(200);
-      const body = await res.json() as { deleted: boolean; id: string };
-      expect(body.deleted).toBe(true);
-      expect(body.id).toBe('p-0.png');
+      const body = await res.json() as { data: { deleted: boolean; id: string } };
+      expect(body.data.deleted).toBe(true);
+      expect(body.data.id).toBe('p-0.png');
       expect(repo.count()).toBe(6);
     } finally { await app.close(); }
   });
@@ -103,10 +105,8 @@ describe('GET /gallery (sqlite-backed)', () => {
   it('DELETE /gallery/:id returns 404 for an unknown id', async () => {
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/gallery/does-not-exist`, { method: 'DELETE' });
+      const res = await authedFetch(`${app.url}/gallery/does-not-exist`, { method: 'DELETE' });
       expect(res.status).toBe(404);
-      const body = await res.json() as { deleted: boolean };
-      expect(body.deleted).toBe(false);
       expect(repo.count()).toBe(7);
     } finally { await app.close(); }
   });
@@ -114,19 +114,18 @@ describe('GET /gallery (sqlite-backed)', () => {
   it('DELETE /gallery with ids body bulk-deletes', async () => {
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/gallery`, {
+      const res = await authedFetch(`${app.url}/gallery`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: ['p-0.png', 'p-1.png', 'missing'] }),
       });
       expect(res.status).toBe(200);
       const body = await res.json() as {
-        deleted: number; requested: number;
-        results: Array<{ id: string; removed: boolean }>;
+        data: { deleted: number; requested: number; results: Array<{ id: string; removed: boolean }> };
       };
-      expect(body.deleted).toBe(2);
-      expect(body.requested).toBe(3);
-      expect(body.results.find(r => r.id === 'missing')?.removed).toBe(false);
+      expect(body.data.deleted).toBe(2);
+      expect(body.data.requested).toBe(3);
+      expect(body.data.results.find(r => r.id === 'missing')?.removed).toBe(false);
       expect(repo.count()).toBe(5);
     } finally { await app.close(); }
   });
@@ -134,7 +133,7 @@ describe('GET /gallery (sqlite-backed)', () => {
   it('DELETE /gallery rejects empty body', async () => {
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/gallery`, {
+      const res = await authedFetch(`${app.url}/gallery`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: [] }),

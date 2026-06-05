@@ -208,10 +208,8 @@ export interface Template {
   civitaiMeta?: TemplateCivitaiMeta;
 }
 
-export interface QueueStatus {
-  queue_running: number;
-  queue_pending: number;
-}
+// Re-exported from server contract (single source of truth).
+export type { QueueStatus } from '@server/contracts/system.contract';
 
 export interface GenerationJob {
   id: string;
@@ -236,67 +234,8 @@ export interface GenerationOutput {
   mediaType: string;
 }
 
-export interface GalleryItem {
-  id: string;
-  filename: string;
-  subfolder: string;
-  type?: string;
-  mediaType: string;
-  url?: string;
-  promptId?: string;
-  templateName?: string | null;
-  sizeBytes?: number | null;
-  prompt?: string;
-  seed?: number | null;
-  // Wave P: `createdAt` comes back as a number (epoch ms) from the slim list
-  // endpoint. The legacy `string` typing is kept as a union so any call site
-  // still reading it as a date string keeps compiling.
-  createdAt?: number | string;
-  favorite?: boolean;
-  jobDurationMs?: number | null;
-  mediaDurationMs?: number | null;
-  mediaInfo?: {
-    width?: number;
-    height?: number;
-    fps?: number;
-    format?: string;
-    codec_name?: string;
-    sample_rate?: number;
-    channels?: number;
-    bit_rate?: number;
-    duration?: number;
-    [key: string]: unknown;
-  } | null;
-  /**
-   * Workflow recipe — server-derived on-the-fly from the stored workflowJson.
-   * Null when no workflow was captured (disk-sweep, pre-Wave-F imports).
-   * `Boolean(workflowDetail)` gates the Regenerate button.
-   */
-  workflowDetail?: WorkflowDetail | null;
-  /** ID of the visually-previous item in the gallery (respects filter+sort). Null at boundary. */
-  prevId?: string | null;
-  /** ID of the visually-next item in the gallery (respects filter+sort). Null at boundary. */
-  nextId?: string | null;
-}
-
-export interface WorkflowDetail {
-  promptText: string | null;
-  negativeText: string | null;
-  seed: number | null;
-  model: string | null;
-  models: string[];
-  sampler: string | null;
-  scheduler: string | null;
-  steps: number | null;
-  cfg: number | null;
-  denoise: number | null;
-  /** Workflow-declared dimensions. The rendered file's dimensions live on `mediaInfo`. */
-  width: number | null;
-  height: number | null;
-  lengthFrames: number | null;
-  fps: number | null;
-  batchSize: number | null;
-}
+// Re-exported from server contracts (single source of truth).
+export type { GalleryItem, WorkflowDetail } from '@server/contracts/gallery.contract';
 
 export interface AppSettings {
   comfyuiUrl: string;
@@ -308,6 +247,7 @@ export interface AppSettings {
   galleryPath: string;
 }
 
+/** Launcher status as seen by the UI (richer than the server's index-signature version). */
 export interface LauncherStatus {
   running: boolean;
   uptime?: string;
@@ -316,19 +256,9 @@ export interface LauncherStatus {
   reachable?: boolean;
 }
 
-export interface DownloadState {
-  taskId: string;
-  modelName?: string;
-  filename?: string;
-  progress: number;
-  currentModelProgress: number;
-  totalBytes: number;
-  downloadedBytes: number;
-  speed: number;
-  status: string;
-  completed: boolean;
-  error: string | null;
-}
+// Re-exported from server contracts (single source of truth).
+import type { DownloadState } from '@server/contracts/system.contract';
+export type { DownloadState };
 
 /** Find a live download that matches a model. Prefers modelName match — bare
  *  filename collides when multiple catalog rows share a basename (e.g. the
@@ -368,50 +298,11 @@ export interface WorkflowGroup {
   nodes: WorkflowGroupNode[];
 }
 
-/** Host family for a catalog URL source. Mirrors the server contract. */
-export type UrlHost = 'hf' | 'civitai' | 'github' | 'generic';
+// Re-exported from server contracts (single source of truth).
+export type { UrlHost, UrlSource } from '@server/contracts/catalog.contract';
 
-/** One declared download URL on a catalog row. */
-export interface UrlSource {
-  url: string;
-  host: UrlHost;
-  /** Discovery context: 'seed' | 'template:<name>' | 'user' | 'manual' | 'scan'. */
-  declaredBy: string;
-}
-
-/** Catalog entry merged with on-disk scan state — the thing the Models page renders. */
-export interface CatalogModel {
-  filename: string;
-  name: string;
-  type: string;
-  base?: string;
-  save_path: string;
-  description?: string;
-  reference?: string;
-  url: string;
-  /** Priority-sorted list of all known download URLs (hf, civitai, github,
-   * generic). Mirrors `urlSources[0].url` onto the legacy `url` field. */
-  urlSources?: UrlSource[];
-  size_pretty: string;
-  size_bytes: number;
-  size_fetched_at: string | null;
-  gated?: boolean;
-  gated_message?: string;
-  source: string;
-  installed: boolean;
-  fileSize?: number;
-  fileStatus?: 'complete' | 'incomplete' | 'corrupt' | null;
-  /** Preview image URL, populated at download start from card metadata. */
-  thumbnail?: string;
-  /** In-flight download marker — set true from download start to completion. */
-  downloading?: boolean;
-  /** Last download failure message (cleared when a new download starts). */
-  error?: string;
-  /** Optional HF repo id for multi-file models (e.g. "ACE-Step/acestep-captioner").
-   *  When set, install routes through downloadHfRepo for snapshot download instead
-   *  of the single-URL walker. UI also prefers `name` over `filename` for display. */
-  hfRepo?: string;
-}
+// Re-exported from server contracts: MergedModel = CatalogModel + installed/fileSize/fileStatus.
+export type { MergedModel as CatalogModel } from '@server/contracts/catalog.contract';
 
 export interface RequiredModel {
   /** Discriminator for the union with `RequiredPlugin`. Optional for back-
@@ -462,34 +353,8 @@ export interface DependencyCheck {
   missing: RequiredItem[];
 }
 
-export interface AdvancedSetting {
-  id: string;
-  label: string;
-  /**
-   * Scope disclosure (node title / class, subgraph path). Rendered by the
-   * UI as a tooltip next to the short `label` so users can tell where the
-   * control came from without inflating the primary label text.
-   */
-  scopeLabel?: string;
-  type: 'number' | 'slider' | 'seed' | 'select' | 'toggle' | 'text' | 'textarea';
-  value: unknown;
-  min?: number;
-  max?: number;
-  step?: number;
-  options?: { label: string; value: string }[];
-  // `proxyIndex >= 0` = wrapper-node proxy widget (legacy path).
-  // `proxyIndex === -1` = user-exposed raw-node widget, keyed by `id` of the form "node:<nodeId>:<widgetName>".
-  proxyIndex: number;
-  /**
-   * Source node id (top-level numeric or compound subgraph id `267:6`).
-   * Used by AdvancedSettings.tsx to group settings under per-node section
-   * headings. Optional — legacy stored settings without attribution fall
-   * through to an "Other" group at the bottom.
-   */
-  nodeId?: string;
-  /** Source node display name (`node.title` || class type). Section heading text. */
-  nodeTitle?: string;
-}
+// Re-exported from server contracts (single source of truth).
+export type { AdvancedSetting } from '@server/contracts/workflow.contract';
 
 export interface EnumeratedWidget {
   nodeId: string;

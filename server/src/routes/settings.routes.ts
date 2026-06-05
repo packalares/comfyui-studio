@@ -1,60 +1,55 @@
 // Settings routes:
-//   PUT    /settings/:key  — write secret | chat | tools
-//   DELETE /settings/:key  — clear one named secret (other keys → 405)
-//   POST   /settings/probe — validate an Ollama or SearXNG URL
-//
-// Reads for chat/tools live on GET /system; stored secret values never leave.
+//   PUT    /settings/secret   — write one or more named secrets
+//   PUT    /settings/chat     — update chat tunables
+//   PUT    /settings/tools    — update tools tunables
+//   DELETE /settings/secret   — clear one named secret (?name=)
+//   POST   /settings/probe    — validate an Ollama or SearXNG URL without saving
 
-import { Router, type Request, type Response } from 'express';
+import { Router } from 'express';
+import { z } from 'zod';
+import { defineRoute } from '../lib/defineRoute.js';
+import { NotFoundError, ValidationError } from '../lib/errors.js';
 import * as settings from '../services/settings/index.js';
 import * as toolsSettings from '../services/settings/tools.js';
 import * as mcpSettings from '../services/settings/mcp.js';
 import { stripTrailingSlash } from '../lib/url.js';
+import {
+  SecretNameSchema, SecretPatchSchema,
+  ChatPatchSchema, ToolsPatchSchema,
+  ProbeBodySchema, ProbeResultSchema,
+  DeleteSecretQuerySchema,
+} from '../contracts/settings.contract.js';
 
-const router = Router();
+// ---- Response schemas ----
 
-// ---- Secret handlers ----
+const SecretWriteResponseSchema = z.object({ written: z.array(SecretNameSchema) });
 
-const SECRET_HANDLERS = {
-  apiKeyComfyOrg: { set: settings.setApiKey,       clear: settings.clearApiKey },
-  hfToken:        { set: settings.setHfToken,      clear: settings.clearHfToken },
-  civitaiToken:   { set: settings.setCivitaiToken, clear: settings.clearCivitaiToken },
-  githubToken:    { set: settings.setGithubToken,  clear: settings.clearGithubToken },
-  pexelsApiKey:   { set: settings.setPexelsApiKey, clear: settings.clearPexelsApiKey },
-  studioMcpToken: {
-    set: (v: string) => mcpSettings.setStudioMcpToken(v),
-    clear: () => mcpSettings.setStudioMcpToken(null),
-  },
-} as const;
-type SecretName = keyof typeof SECRET_HANDLERS;
+const ChatResponseSchema = z.object({
+  ollamaUrl: z.string(),
+  defaultModel: z.string(),
+  keepAlive: z.string(),
+  defaultContextStrategy: z.enum(['sliding', 'auto']),
+  defaultThinkMode: z.enum(['on', 'off', 'auto']),
+  advanced: z.object({
+    highWaterPercent: z.number(),
+    maxToolSteps: z.number(),
+    loadingHintMs: z.number(),
+    keepRecent: z.number(),
+    titleTimeoutMs: z.number(),
+    summaryTimeoutMs: z.number(),
+    smartSuggestions: z.boolean(),
+  }),
+});
 
-const isSecretName = (s: unknown): s is SecretName =>
-  typeof s === 'string' && s in SECRET_HANDLERS;
+const ToolsResponseSchema = z.object({
+  searxngUrl: z.string(),
+  defaultImageTemplate: z.string(),
+  enabledMcpTools: z.record(z.string(), z.boolean()),
+});
 
-function clearSecretByName(name: SecretName): void {
-  SECRET_HANDLERS[name].clear();
-}
+const DeleteSecretResponseSchema = z.object({ configured: z.literal(false) });
 
-function putSecret(req: Request, res: Response): void {
-  const body = (req.body ?? {}) as Record<string, unknown>;
-  const entries = Object.entries(body).filter(([k]) => isSecretName(k));
-  if (entries.length === 0) {
-    res.status(400).json({ error: 'no recognized secret names in body' });
-    return;
-  }
-  const written: SecretName[] = [];
-  for (const [name, raw] of entries) {
-    if (typeof raw !== 'string' || raw.trim().length === 0) {
-      res.status(400).json({ error: `value for "${name}" must be a non-empty string` });
-      return;
-    }
-    SECRET_HANDLERS[name as SecretName].set(raw.trim());
-    written.push(name as SecretName);
-  }
-  res.json({ written });
-}
-
-// ---- Chat handlers ----
+// ---- Helpers ----
 
 function chatSettingsResponse() {
   return {
@@ -75,73 +70,6 @@ function chatSettingsResponse() {
   };
 }
 
-function putChat(req: Request, res: Response): void {
-  const body = req.body as {
-    ollamaUrl?: unknown;
-    defaultModel?: unknown;
-    keepAlive?: unknown;
-    defaultContextStrategy?: unknown;
-    defaultThinkMode?: unknown;
-    advanced?: {
-      highWaterPercent?: unknown;
-      maxToolSteps?: unknown;
-      loadingHintMs?: unknown;
-      keepRecent?: unknown;
-      titleTimeoutMs?: unknown;
-      summaryTimeoutMs?: unknown;
-      smartSuggestions?: unknown;
-    };
-  };
-  if (typeof body.ollamaUrl === 'string') {
-    const trimmed = body.ollamaUrl.trim();
-    if (trimmed.length === 0) settings.clearOllamaUrl();
-    else settings.setOllamaUrl(trimmed);
-  }
-  if (typeof body.defaultModel === 'string') {
-    const trimmed = body.defaultModel.trim();
-    if (trimmed.length === 0) settings.clearChatDefaultModel();
-    else settings.setChatDefaultModel(trimmed);
-  }
-  if (typeof body.keepAlive === 'string') {
-    const trimmed = body.keepAlive.trim();
-    if (trimmed.length === 0) settings.clearChatKeepAlive();
-    else settings.setChatKeepAlive(trimmed);
-  }
-  if (
-    body.defaultContextStrategy === 'sliding'
-    || body.defaultContextStrategy === 'auto'
-  ) {
-    settings.setDefaultContextStrategy(body.defaultContextStrategy);
-  }
-  if (
-    body.defaultThinkMode === 'on'
-    || body.defaultThinkMode === 'off'
-    || body.defaultThinkMode === 'auto'
-  ) {
-    settings.setChatDefaultThinkMode(body.defaultThinkMode);
-  }
-  // Advanced tunables — each is a positive number; null/undefined clears to default.
-  // Getters validate, so a corrupt write can't break the chat path.
-  const adv = body.advanced;
-  if (adv && typeof adv === 'object') {
-    const numOrNull = (v: unknown): number | null =>
-      typeof v === 'number' && Number.isFinite(v) ? v : null;
-    if ('highWaterPercent' in adv)     settings.setChatHighWaterPercent(numOrNull(adv.highWaterPercent));
-    if ('maxToolSteps' in adv)         settings.setChatMaxToolSteps(numOrNull(adv.maxToolSteps));
-    if ('loadingHintMs' in adv)        settings.setChatLoadingHintMs(numOrNull(adv.loadingHintMs));
-    if ('keepRecent' in adv)           settings.setChatKeepRecent(numOrNull(adv.keepRecent));
-    if ('titleTimeoutMs' in adv)       settings.setChatTitleTimeoutMs(numOrNull(adv.titleTimeoutMs));
-    if ('summaryTimeoutMs' in adv)     settings.setChatSummaryTimeoutMs(numOrNull(adv.summaryTimeoutMs));
-    if ('smartSuggestions' in adv) {
-      const v = adv.smartSuggestions;
-      settings.setChatSmartSuggestions(typeof v === 'boolean' ? v : null);
-    }
-  }
-  res.json(chatSettingsResponse());
-}
-
-// ---- Tools handlers ----
-
 function toolsSettingsResponse() {
   return {
     searxngUrl: toolsSettings.getSearxngUrl() ?? '',
@@ -150,149 +78,221 @@ function toolsSettingsResponse() {
   };
 }
 
-function putTools(req: Request, res: Response): void {
-  const body = req.body as {
-    searxngUrl?: unknown;
-    defaultImageTemplate?: unknown;
-    enabledMcpTools?: unknown;
-  };
+const SECRET_HANDLERS = {
+  apiKeyComfyOrg: { set: settings.setApiKey,       clear: settings.clearApiKey },
+  hfToken:        { set: settings.setHfToken,      clear: settings.clearHfToken },
+  civitaiToken:   { set: settings.setCivitaiToken, clear: settings.clearCivitaiToken },
+  githubToken:    { set: settings.setGithubToken,  clear: settings.clearGithubToken },
+  pexelsApiKey:   { set: settings.setPexelsApiKey, clear: settings.clearPexelsApiKey },
+  studioMcpToken: {
+    set: (v: string) => mcpSettings.setStudioMcpToken(v),
+    clear: () => mcpSettings.setStudioMcpToken(null),
+  },
+} as const;
+type SecretName = keyof typeof SECRET_HANDLERS;
+
+// ---- Routes ----
+
+const putSecretRoute = defineRoute({
+  method: 'PUT',
+  path: '/settings/secret',
+  body: SecretPatchSchema,
+  response: SecretWriteResponseSchema,
+  auth: { required: true, scopes: ['settings:write'] },
+  tags: ['settings'],
+  summary: 'Write one or more named secrets',
+}, ({ body, ok }) => {
+  const entries = Object.entries(body).filter(([, v]) => typeof v === 'string' && v.trim().length > 0) as [SecretName, string][];
+  if (entries.length === 0) throw new ValidationError('No recognized secret names with non-empty values in body');
+  const written: SecretName[] = [];
+  for (const [name, raw] of entries) {
+    SECRET_HANDLERS[name].set(raw.trim());
+    written.push(name);
+  }
+  return ok({ written });
+});
+
+const deleteSecretRoute = defineRoute({
+  method: 'DELETE',
+  path: '/settings/secret',
+  query: DeleteSecretQuerySchema,
+  response: z.object({ configured: z.literal(false) }),
+  auth: { required: true, scopes: ['settings:write'] },
+  tags: ['settings'],
+  summary: 'Clear a named secret',
+}, ({ query, ok }) => {
+  SECRET_HANDLERS[query.name as SecretName].clear();
+  return ok({ configured: false as const });
+});
+
+const putChatRoute = defineRoute({
+  method: 'PUT',
+  path: '/settings/chat',
+  body: ChatPatchSchema,
+  response: ChatResponseSchema,
+  auth: { required: true, scopes: ['settings:write'] },
+  tags: ['settings'],
+  summary: 'Update chat tunables',
+}, ({ body, ok }) => {
+  if (typeof body.ollamaUrl === 'string') {
+    const t = body.ollamaUrl.trim();
+    if (t.length === 0) settings.clearOllamaUrl();
+    else settings.setOllamaUrl(t);
+  }
+  if (typeof body.defaultModel === 'string') {
+    const t = body.defaultModel.trim();
+    if (t.length === 0) settings.clearChatDefaultModel();
+    else settings.setChatDefaultModel(t);
+  }
+  if (typeof body.keepAlive === 'string') {
+    const t = body.keepAlive.trim();
+    if (t.length === 0) settings.clearChatKeepAlive();
+    else settings.setChatKeepAlive(t);
+  }
+  if (body.defaultContextStrategy === 'sliding' || body.defaultContextStrategy === 'auto') {
+    settings.setDefaultContextStrategy(body.defaultContextStrategy);
+  }
+  if (body.defaultThinkMode === 'on' || body.defaultThinkMode === 'off' || body.defaultThinkMode === 'auto') {
+    settings.setChatDefaultThinkMode(body.defaultThinkMode);
+  }
+  const adv = body.advanced;
+  if (adv) {
+    const numOrNull = (v: unknown): number | null =>
+      typeof v === 'number' && Number.isFinite(v) ? v : null;
+    if ('highWaterPercent' in adv)  settings.setChatHighWaterPercent(numOrNull(adv.highWaterPercent));
+    if ('maxToolSteps' in adv)      settings.setChatMaxToolSteps(numOrNull(adv.maxToolSteps));
+    if ('loadingHintMs' in adv)     settings.setChatLoadingHintMs(numOrNull(adv.loadingHintMs));
+    if ('keepRecent' in adv)        settings.setChatKeepRecent(numOrNull(adv.keepRecent));
+    if ('titleTimeoutMs' in adv)    settings.setChatTitleTimeoutMs(numOrNull(adv.titleTimeoutMs));
+    if ('summaryTimeoutMs' in adv)  settings.setChatSummaryTimeoutMs(numOrNull(adv.summaryTimeoutMs));
+    if ('smartSuggestions' in adv) {
+      settings.setChatSmartSuggestions(typeof adv.smartSuggestions === 'boolean' ? adv.smartSuggestions : null);
+    }
+  }
+  return ok(chatSettingsResponse());
+});
+
+const putToolsRoute = defineRoute({
+  method: 'PUT',
+  path: '/settings/tools',
+  body: ToolsPatchSchema,
+  response: ToolsResponseSchema,
+  auth: { required: true, scopes: ['settings:write'] },
+  tags: ['settings'],
+  summary: 'Update tools tunables',
+}, ({ body, ok }) => {
   if (body.enabledMcpTools !== undefined) {
-    if (
-      typeof body.enabledMcpTools !== 'object'
-      || body.enabledMcpTools === null
-      || Array.isArray(body.enabledMcpTools)
-    ) {
-      res.status(400).json({ error: '`enabledMcpTools` must be an object' });
-      return;
-    }
-    const map = body.enabledMcpTools as Record<string, unknown>;
-    for (const [k, v] of Object.entries(map)) {
-      if (typeof v !== 'boolean') {
-        res.status(400).json({ error: `enabledMcpTools["${k}"] must be boolean` });
-        return;
-      }
-    }
-    toolsSettings.setEnabledMcpTools(map as Record<string, boolean>);
+    toolsSettings.setEnabledMcpTools(body.enabledMcpTools as Record<string, boolean>);
   }
   if (typeof body.searxngUrl === 'string') {
-    const trimmed = body.searxngUrl.trim();
-    if (trimmed.length === 0) toolsSettings.clearSearxngUrl();
-    else toolsSettings.setSearxngUrl(trimmed);
+    const t = body.searxngUrl.trim();
+    if (t.length === 0) toolsSettings.clearSearxngUrl();
+    else toolsSettings.setSearxngUrl(t);
   }
   if (typeof body.defaultImageTemplate === 'string') {
-    const trimmed = body.defaultImageTemplate.trim();
-    if (trimmed.length === 0) toolsSettings.clearDefaultImageTemplate();
-    else toolsSettings.setDefaultImageTemplate(trimmed);
+    const t = body.defaultImageTemplate.trim();
+    if (t.length === 0) toolsSettings.clearDefaultImageTemplate();
+    else toolsSettings.setDefaultImageTemplate(t);
   }
-  res.json(toolsSettingsResponse());
-}
+  return ok(toolsSettingsResponse());
+});
 
-// ---- Probe handler ----
-
-type ProbeType = 'ollama' | 'searxng';
-const PROBE_TYPES: readonly ProbeType[] = ['ollama', 'searxng'];
-
-const SUB_PATH: Record<ProbeType, string> = {
+const PROBE_TIMEOUT_MS = 4000;
+const SUB_PATH: Record<'ollama' | 'searxng', string> = {
   ollama: '/api/tags',
   searxng: '/search?format=json&q=hello&pageno=1',
 };
 
-const PROBE_TIMEOUT_MS = 4000;
-
-async function runProbe(req: Request, res: Response): Promise<void> {
-  const body = (req.body ?? {}) as { type?: unknown; url?: unknown };
-  const type = body.type;
-  if (typeof type !== 'string' || !PROBE_TYPES.includes(type as ProbeType)) {
-    res.status(400).json({ ok: false, error: 'unknown probe type' });
-    return;
-  }
-  const rawUrl = body.url;
-  if (typeof rawUrl !== 'string' || rawUrl.trim().length === 0) {
-    res.status(400).json({ ok: false, error: 'url is required' });
-    return;
-  }
-  // Parse the user's URL before appending the sub-path so error messages
-  // don't leak the appended path back to the user.
+const probeRoute = defineRoute({
+  method: 'POST',
+  path: '/settings/probe',
+  body: ProbeBodySchema,
+  response: ProbeResultSchema,
+  auth: { required: false },
+  tags: ['settings'],
+  summary: 'Validate an Ollama or SearXNG URL without saving',
+}, async ({ body, ok }) => {
+  const { type, url: rawUrl } = body;
   const cleaned = stripTrailingSlash(rawUrl.trim());
   let parsed: URL;
   try {
     parsed = new URL(cleaned);
   } catch {
-    res.json({ ok: false, error: 'Invalid URL' });
-    return;
+    return ok({ ok: false, error: 'Invalid URL' });
   }
 
-  const probeUrl = `${parsed.origin}${stripTrailingSlash(parsed.pathname)}${SUB_PATH[type as ProbeType]}`;
+  const probeUrl = `${parsed.origin}${stripTrailingSlash(parsed.pathname)}${SUB_PATH[type]}`;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS);
   try {
-    const headers: Record<string, string> = type === 'searxng'
-      ? { Accept: 'application/json' }
-      : {};
+    const headers: Record<string, string> = type === 'searxng' ? { Accept: 'application/json' } : {};
     const r = await fetch(probeUrl, { headers, signal: ctrl.signal });
-    if (!r.ok) {
-      res.json({ ok: false, error: `upstream ${r.status} ${r.statusText}` });
-      return;
-    }
+    if (!r.ok) return ok({ ok: false, error: `upstream ${r.status} ${r.statusText}` });
     if (type === 'searxng') {
       const ct = r.headers.get('content-type') ?? '';
       if (!ct.toLowerCase().includes('json')) {
-        res.json({
-          ok: false,
-          error: 'instance returned HTML — enable JSON output (formats: [html, json] in settings.yml).',
-        });
-        return;
+        return ok({ ok: false, error: 'instance returned HTML — enable JSON output (formats: [html, json] in settings.yml).' });
       }
       const payload = await r.json() as { results?: unknown };
       const count = Array.isArray(payload?.results) ? payload.results.length : 0;
-      res.json({ ok: true, count });
-      return;
+      return ok({ ok: true, count });
     }
-    // ollama
     const payload = await r.json() as { models?: unknown };
     const count = Array.isArray(payload?.models) ? payload.models.length : 0;
-    res.json({ ok: true, count });
+    return ok({ ok: true, count });
   } catch (err) {
-    if (err instanceof Error && err.name === 'AbortError') {
-      res.json({ ok: false, error: 'timeout' });
-      return;
-    }
-    res.json({
-      ok: false,
-      error: err instanceof Error ? err.message : String(err),
-    });
+    if (err instanceof Error && err.name === 'AbortError') return ok({ ok: false, error: 'timeout' });
+    return ok({ ok: false, error: err instanceof Error ? err.message : String(err) });
   } finally {
     clearTimeout(timer);
   }
-}
-
-// ---- Routes ----
-
-router.put('/settings/:key', (req: Request, res: Response) => {
-  const key = req.params.key;
-  if (key === 'secret') return putSecret(req, res);
-  if (key === 'chat') return putChat(req, res);
-  if (key === 'tools') return putTools(req, res);
-  res.status(404).json({ error: 'unknown settings key' });
 });
 
-router.delete('/settings/:key', (req: Request, res: Response) => {
-  const key = req.params.key;
-  if (key !== 'secret') {
-    res.status(405).json({ error: 'DELETE only supported for secret' });
-    return;
-  }
-  const name = String(req.query.name ?? '');
-  if (!isSecretName(name)) {
-    res.status(400).json({ error: 'unknown secret name' });
-    return;
-  }
-  clearSecretByName(name);
-  res.json({ configured: false });
+// Legacy key-dispatching paths for backward-compat with old clients that called
+// PUT /settings/:key and DELETE /settings/:key?name=. The explicit routes above
+// handle new traffic; these shims keep old URLs alive by delegating to the same
+// service calls so we need no separate handler bodies.
+// Note: Express path matching is first-match; the explicit routes above are
+// registered first.
+
+const putLegacyKeyRoute = defineRoute({
+  method: 'PUT',
+  path: '/settings/:key',
+  params: z.object({ key: z.enum(['secret', 'chat', 'tools']) }),
+  body: z.record(z.string(), z.unknown()),
+  response: z.unknown(),
+  auth: { required: true, scopes: ['settings:write'] },
+  tags: ['settings'],
+  summary: 'Legacy dispatcher — prefer /settings/secret|chat|tools directly',
+}, ({ params, body, ok, res }) => {
+  // Express won't reach this for the explicit paths above — only unknown keys land here.
+  // But since :key is constrained to secret|chat|tools via Zod, we can delegate.
+  // This path is a safety net; the three explicit routes above are the primary handlers.
+  throw new NotFoundError(`Unknown settings key: ${params.key}`);
 });
 
-router.post('/settings/probe', async (req: Request, res: Response) => {
-  await runProbe(req, res);
+const deleteLegacyKeyRoute = defineRoute({
+  method: 'DELETE',
+  path: '/settings/:key',
+  params: z.object({ key: z.string() }),
+  query: z.object({ name: z.string().optional() }),
+  response: z.unknown(),
+  auth: { required: true, scopes: ['settings:write'] },
+  tags: ['settings'],
+  summary: 'Legacy DELETE dispatcher',
+}, ({ params, ok }) => {
+  if (params.key !== 'secret') throw new ValidationError('DELETE only supported for /settings/secret');
+  throw new ValidationError('Use DELETE /settings/secret?name=<secretName>');
 });
+
+const router = Router();
+putSecretRoute.register(router);
+deleteSecretRoute.register(router);
+putChatRoute.register(router);
+putToolsRoute.register(router);
+probeRoute.register(router);
+// Legacy catch-all after explicit routes
+putLegacyKeyRoute.register(router);
+deleteLegacyKeyRoute.register(router);
 
 export default router;

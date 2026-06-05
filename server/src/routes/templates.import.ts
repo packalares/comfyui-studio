@@ -11,7 +11,7 @@
 // are exported for `templates.routes.ts` (POST /templates/import-civitai,
 // DELETE /templates/:name).
 
-import { Router, type Request, type Response, type RequestHandler } from 'express';
+import { Router, type Request, type Response, type NextFunction, type RequestHandler } from 'express';
 import multer from 'multer';
 import * as templates from '../services/templates/index.js';
 import * as templateRepo from '../lib/db/templates.repo.js';
@@ -23,7 +23,7 @@ import * as settings from '../services/settings/index.js';
 import * as civitai from '../services/civitai/civitai.service.js';
 import { fetchWithRetry, getCivitaiAuthHeaders } from '../lib/http.js';
 import { hostIsPrivate } from '../lib/security.js';
-import { sendError } from '../middleware/errors.js';
+import { InternalError } from '../lib/errors.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { logger } from '../lib/logger.js';
 import { env } from '../config/env.js';
@@ -64,7 +64,7 @@ function parseTitleOverrides(raw: unknown): Record<number, string> {
   return out;
 }
 
-const handleUpload: RequestHandler = async (req, res) => {
+const handleUpload: RequestHandler = async (req, res, next) => {
   try {
     const file = (req as Request & { file?: Express.Multer.File }).file;
     if (!file) {
@@ -120,11 +120,11 @@ const handleUpload: RequestHandler = async (req, res) => {
       res.status(400).json({ error: msg });
       return;
     }
-    sendError(res, err, 500, 'Import upload failed');
+    next(err instanceof Error ? err : new InternalError('Import upload failed'));
   }
 };
 
-const handleCommit: RequestHandler = async (req, res) => {
+const handleCommit: RequestHandler = async (req, res, next) => {
   try {
     const id = String(req.params.id ?? '');
     const body = (req.body || {}) as {
@@ -173,11 +173,11 @@ const handleCommit: RequestHandler = async (req, res) => {
       res.status(404).json({ error: msg });
       return;
     }
-    sendError(res, err, 500, 'Import commit failed');
+    next(err instanceof Error ? err : new InternalError('Import commit failed'));
   }
 };
 
-const handleResolveModel: RequestHandler = async (req, res) => {
+const handleResolveModel: RequestHandler = async (req, res, next) => {
   const id = String(req.params.id ?? '');
   const body = (req.body || {}) as { workflowIndex?: unknown; missingFileName?: unknown; url?: unknown };
   const workflowIndex = typeof body.workflowIndex === 'number'
@@ -206,7 +206,7 @@ const handleResolveModel: RequestHandler = async (req, res) => {
       return;
     }
     logger.warn('templates.import.resolve-model failed', { error: String(err) });
-    sendError(res, err, 500, 'Resolve failed');
+    next(err instanceof Error ? err : new InternalError('Resolve failed'));
   }
 };
 
@@ -245,7 +245,7 @@ function mapImportCivitaiError(err: unknown): { status: number; body: { error: s
   return { status: 500, body: { error: msg } };
 }
 
-const handleImportCivitaiByUrl: RequestHandler = async (req, res) => {
+const handleImportCivitaiByUrl: RequestHandler = async (req, res, next) => {
   try {
     const body = (req.body || {}) as { url?: unknown };
     const url = typeof body.url === 'string' ? body.url.trim() : '';
@@ -259,7 +259,7 @@ const handleImportCivitaiByUrl: RequestHandler = async (req, res) => {
     logger.warn('templates.import.civitai failed', { error: String(err) });
     const mapped = mapImportCivitaiError(err);
     if (mapped.status >= 500) {
-      sendError(res, err, mapped.status, 'Import from CivitAI failed');
+      next(err instanceof Error ? err : new InternalError('Import from CivitAI failed'));
       return;
     }
     res.status(mapped.status).json(mapped.body);
@@ -330,7 +330,7 @@ async function fetchModelExtras(
  * stages (JSON single-workflow via stageFromJson, ZIP multi via stageFromZip).
  * Always returns a staged manifest so the Explore card opens the review modal.
  */
-export async function handleImportCivitai(req: Request, res: Response): Promise<void> {
+export async function handleImportCivitai(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const b = (req.body || {}) as { workflowVersionId?: string | number };
     const versionId = b.workflowVersionId != null ? String(b.workflowVersionId) : '';
@@ -447,7 +447,7 @@ export async function handleImportCivitai(req: Request, res: Response): Promise<
       res.status(400).json({ error: msg });
       return;
     }
-    sendError(res, err, 502, 'Workflow import failed');
+    next(err instanceof Error ? err : new InternalError('Workflow import failed'));
   }
 }
 
@@ -513,7 +513,7 @@ function classifyStagingError(err: unknown): { status: number; error: string } {
   return { status: 500, error: msg };
 }
 
-const handleGithub: RequestHandler = async (req, res) => {
+const handleGithub: RequestHandler = async (req, res, next) => {
   try {
     const body = (req.body || {}) as { url?: unknown };
     const url = typeof body.url === 'string' ? body.url.trim() : '';
@@ -529,14 +529,14 @@ const handleGithub: RequestHandler = async (req, res) => {
     logger.warn('templates.import.github failed', { error: String(err) });
     const mapped = classifyStagingError(err);
     if (mapped.status >= 500) {
-      sendError(res, err, mapped.status, 'Import from GitHub failed');
+      next(err instanceof Error ? err : new InternalError('Import from GitHub failed'));
       return;
     }
     res.status(mapped.status).json({ error: mapped.error });
   }
 };
 
-const handlePaste: RequestHandler = async (req, res) => {
+const handlePaste: RequestHandler = async (req, res, next) => {
   try {
     const body = (req.body || {}) as { json?: unknown; title?: unknown };
     const json = typeof body.json === 'string' ? body.json : '';
@@ -548,7 +548,7 @@ const handlePaste: RequestHandler = async (req, res) => {
     logger.warn('templates.import.paste failed', { error: String(err) });
     const mapped = classifyStagingError(err);
     if (mapped.status >= 500) {
-      sendError(res, err, mapped.status, 'Import from paste failed');
+      next(err instanceof Error ? err : new InternalError('Import from paste failed'));
       return;
     }
     res.status(mapped.status).json({ error: mapped.error });

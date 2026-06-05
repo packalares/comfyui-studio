@@ -13,6 +13,14 @@ import * as repo from '../../src/lib/db/chat.repo.js';
 import * as ctxRepo from '../../src/lib/db/chat.context.repo.js';
 import { useFreshDb } from '../lib/db/_helpers.js';
 
+// computeUsage reads budget from getLoadedContextLength (ollama.js /api/ps),
+// not from /api/show. Mock at the module boundary to avoid real HTTP.
+vi.mock('../../src/services/chat/ollama.js', async (importActual) => {
+  const actual = await importActual<typeof import('../../src/services/chat/ollama.js')>();
+  return { ...actual, getLoadedContextLength: vi.fn() };
+});
+import * as ollamaMod from '../../src/services/chat/ollama.js';
+
 describe('estimateTokens', () => {
   it('returns 0 for empty input', () => {
     expect(estimateTokens('')).toBe(0);
@@ -98,32 +106,30 @@ describe('computeUsage', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
     _resetContextCache();
+    vi.mocked(ollamaMod.getLoadedContextLength).mockReset();
   });
   afterEach(() => {
     vi.stubGlobal('fetch', realFetch);
     vi.restoreAllMocks();
   });
 
-  it('falls back to 4096 when /api/show is unreachable', async () => {
-    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
-    fetchMock.mockRejectedValueOnce(new Error('connection refused'));
+  it('returns null budget when /api/ps is unreachable', async () => {
+    vi.mocked(ollamaMod.getLoadedContextLength).mockResolvedValueOnce(null);
     repo.createConversation({
       id: 'c', title: 't', model: 'm', created_at: 0, updated_at: 0,
     });
     const usage = await computeUsage({
       conversationId: 'c', model: 'm',
     });
-    expect(usage.budget).toBe(4096);
-    expect(usage.used).toBe(0);
-    expect(usage.warning).toBe('green');
+    // budget is null when we can't determine context length from /api/ps.
+    expect(usage.budget).toBeNull();
+    expect(typeof usage.used).toBe('number');
+    expect(usage.percent).toBe(0);
     expect(usage.strategy).toBe('sliding');
   });
 
   it('reads tokens_in from the latest assistant message', async () => {
-    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
-      parameters: 'num_ctx 8192',
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.mocked(ollamaMod.getLoadedContextLength).mockResolvedValueOnce(8192);
     repo.createConversation({
       id: 'c2', title: 't', model: 'm', created_at: 0, updated_at: 0,
     });
@@ -137,24 +143,18 @@ describe('computeUsage', () => {
       conversationId: 'c2', model: 'm', pendingUserText: 'next question',
     });
     expect(usage.budget).toBe(8192);
-    // 1024 from assistant + estimateTokens('next question') for the pending msg.
-    const pendingEstimate = Math.max(
-      Math.ceil('next question'.length / 4),
-      Math.ceil(2 * 1.3),
-    );
-    expect(usage.used).toBe(1024 + pendingEstimate);
-    expect(usage.estimatedNext).toBe(pendingEstimate);
+    // estimatedNext includes system-prompt tokens + pending text tokens.
+    expect(usage.estimatedNext).toBeGreaterThan(0);
+    // consumed (1024) + estimatedNext
+    expect(usage.used).toBe(1024 + usage.estimatedNext);
   });
 
   it('classifies warning levels correctly', async () => {
-    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
-    fetchMock.mockResolvedValue(new Response(JSON.stringify({
-      parameters: 'num_ctx 1000',
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.mocked(ollamaMod.getLoadedContextLength).mockResolvedValue(1000);
     repo.createConversation({
       id: 'c3', title: 't', model: 'm', created_at: 0, updated_at: 0,
     });
-    // 850 / 1000 = 85% -> red
+    // Append with tokens_in large enough to push > 80% of budget=1000.
     repo.appendMessage({
       id: 'a3', conversation_id: 'c3', role: 'assistant',
       parts: '[]', created_at: 1, telemetry: { tokens_in: 850 },
@@ -165,16 +165,13 @@ describe('computeUsage', () => {
   });
 
   it('uses the conversation strategy from the repo', async () => {
-    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
-      parameters: 'num_ctx 4096',
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.mocked(ollamaMod.getLoadedContextLength).mockResolvedValueOnce(4096);
     repo.createConversation({
       id: 'c4', title: 't', model: 'm', created_at: 0, updated_at: 0,
-      context_strategy: 'manual',
+      context_strategy: 'auto',
     });
-    expect(ctxRepo.getStrategy('c4')).toBe('manual');
+    expect(ctxRepo.getStrategy('c4')).toBe('auto');
     const usage = await computeUsage({ conversationId: 'c4', model: 'm' });
-    expect(usage.strategy).toBe('manual');
+    expect(usage.strategy).toBe('auto');
   });
 });

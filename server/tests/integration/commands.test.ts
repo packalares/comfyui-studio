@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { personalityRouter } from '../../src/routes/personality.routes.js';
+import { authedFetch } from '../helpers/authedFetch.js';
 
 // ---------- test app ----------
 
@@ -51,12 +52,12 @@ function makeFixture(): Fixture {
 // ---------- helpers ----------
 
 async function getJson<T>(url: string): Promise<{ status: number; body: T }> {
-  const res = await fetch(url);
+  const res = await authedFetch(url);
   return { status: res.status, body: await res.json() as T };
 }
 
 async function putJson<T>(url: string, payload: unknown): Promise<{ status: number; body: T }> {
-  const res = await fetch(url, {
+  const res = await authedFetch(url, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -65,7 +66,7 @@ async function putJson<T>(url: string, payload: unknown): Promise<{ status: numb
 }
 
 async function deleteReq<T>(url: string): Promise<{ status: number; body: T }> {
-  const res = await fetch(url, { method: 'DELETE' });
+  const res = await authedFetch(url, { method: 'DELETE' });
   return { status: res.status, body: await res.json() as T };
 }
 
@@ -80,11 +81,11 @@ describe('commands endpoints', () => {
   it('GET /api/commands returns bundled seeds', async () => {
     const app = await startApp(makeCommandsApp());
     try {
-      const { status, body } = await getJson<{ commands: Array<{ name: string }> }>(
+      const { status, body } = await getJson<{ data: { commands: Array<{ name: string }> } }>(
         `${app.url}/api/personality`,
       );
       expect(status).toBe(200);
-      const names = body.commands.map(c => c.name);
+      const names = body.data.commands.map(c => c.name);
       expect(names).toContain('improve-prompt');
       expect(names).toContain('dep-check');
     } finally { await app.close(); }
@@ -93,12 +94,12 @@ describe('commands endpoints', () => {
   it('GET /api/personality/command/:name returns body', async () => {
     const app = await startApp(makeCommandsApp());
     try {
-      const { status, body } = await getJson<{ name: string; body: string }>(
+      const { status, body } = await getJson<{ data: { name: string; body: string } }>(
         `${app.url}/api/personality/command/improve-prompt`,
       );
       expect(status).toBe(200);
-      expect(body.name).toBe('improve-prompt');
-      expect(body.body).toContain('$ARGUMENTS');
+      expect(body.data.name).toBe('improve-prompt');
+      expect(body.data.body).toContain('$ARGUMENTS');
     } finally { await app.close(); }
   });
 
@@ -106,18 +107,18 @@ describe('commands endpoints', () => {
     const app = await startApp(makeCommandsApp());
     try {
       const cmdBody = '---\nname: my-cmd\ndescription: My command.\nargument_hint: <text>\n---\nDo: $ARGUMENTS\n';
-      await putJson<{ ok: boolean }>(`${app.url}/api/personality/command/my-cmd`, { body: cmdBody });
+      await putJson<{ data: { ok: boolean } }>(`${app.url}/api/personality/command/my-cmd`, { body: cmdBody });
 
-      const { status, body } = await getJson<{ body: string }>(`${app.url}/api/personality/command/my-cmd`);
+      const { status, body } = await getJson<{ data: { body: string } }>(`${app.url}/api/personality/command/my-cmd`);
       expect(status).toBe(200);
-      expect(body.body).toContain('$ARGUMENTS');
+      expect(body.data.body).toContain('$ARGUMENTS');
     } finally { await app.close(); }
   });
 
   it('DELETE bundled-only command returns 404', async () => {
     const app = await startApp(makeCommandsApp());
     try {
-      const del = await deleteReq<{ error: string }>(`${app.url}/api/personality/command/improve-prompt`);
+      const del = await deleteReq<{ error: { code: string } }>(`${app.url}/api/personality/command/improve-prompt`);
       expect(del.status).toBe(404);
     } finally { await app.close(); }
   });
@@ -125,7 +126,7 @@ describe('commands endpoints', () => {
   it('PUT invalid name returns 400', async () => {
     const app = await startApp(makeCommandsApp());
     try {
-      const res = await putJson<{ error: string }>(`${app.url}/api/personality/command/BAD NAME`, { body: 'x' });
+      const res = await putJson<{ error: { code: string } }>(`${app.url}/api/personality/command/BAD NAME`, { body: 'x' });
       expect(res.status).toBe(400);
     } finally { await app.close(); }
   });

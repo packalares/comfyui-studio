@@ -29,11 +29,23 @@ import { errorHandler } from './middleware/errors.js';
 import { pickNotFoundMessage } from './lib/notFoundMessages.js';
 import { logger } from './lib/logger.js';
 import { warnRoutesMissingAuth } from './lib/defineRoute.js';
+import { getMasterKey, matchesMasterKey } from './lib/auth/masterKey.js';
+import {
+  classifySameOrigin,
+  readSessionCookieFromHeaders,
+} from './lib/auth/session.js';
+import { extractPrefix, verifyKey } from './lib/auth/keyGen.js';
+import { getApiKeyByPrefix, touchApiKey } from './lib/db/apiKeys.repo.js';
+import { scheduler } from './services/gpu/scheduler.js';
 
 // Phase-6 path consolidation: move runtime-written JSON out of the bundled
 // data dir and into `~/.config/comfyui-studio/runtime/` so it survives image
 // rebuilds. No-op once migrated.
 migrateLegacyPaths();
+
+// Load (or first-boot generate) the master key now so any later module that
+// reads it gets a warm cache. The key file lives under runtimeStateDir.
+getMasterKey();
 
 const app = express();
 const PORT = env.PORT;
@@ -78,18 +90,68 @@ app.use(errorHandler());
 
 const server = createServer(app);
 
-// WS origin guard. Unset WS_ORIGIN preserves the prior allow-all behavior for
-// pod-internal setups. When set (comma-separated list), reject upgrades whose
-// Origin header is missing or not on the list.
-const wsOrigins = env.WS_ORIGIN
+// WS upgrade auth — mirrors the HTTP auth middleware so /ws can't bypass it.
+//
+// Decision flow (same as middleware/auth.ts):
+//   1. Session cookie matches master + sec-site != cross-site → accept (UI)
+//   2. No (valid) cookie but same-origin signal strong/weak → accept (first-visit UI;
+//      the cookie itself lands on the next HTTP request via auth middleware)
+//   3. Authorization: Bearer sk_… with ws:connect (or admin:all) scope → accept
+//   4. otherwise → reject 401
+//
+// WS_ORIGIN env, if set, narrows what counts as 'same-origin' to an explicit
+// allow-list. Unset preserves the pod-internal behaviour.
+const wsOriginAllowlist = env.WS_ORIGIN
   ? new Set(env.WS_ORIGIN.split(',').map(s => s.trim()).filter(Boolean))
   : null;
+
+function wsVerify(
+  info: { origin: string; req: import('http').IncomingMessage },
+  cb: (ok: boolean, code?: number, message?: string) => void,
+): void {
+  const req = info.req;
+
+  if (wsOriginAllowlist && !wsOriginAllowlist.has(info.origin || '')) {
+    cb(false, 401, 'Unauthorized'); return;
+  }
+
+  const sig = classifySameOrigin(req.headers);
+  const cookie = readSessionCookieFromHeaders(req.headers);
+
+  if (matchesMasterKey(cookie)) {
+    if (sig === 'reject') { cb(false, 401, 'Unauthorized'); return; }
+    cb(true); return;
+  }
+  if (sig === 'strong' || sig === 'weak') {
+    cb(true); return;
+  }
+
+  const authHeader = req.headers['authorization'];
+  if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+    const plain = authHeader.slice('Bearer '.length).trim();
+    const prefix = extractPrefix(plain);
+    if (!prefix) { cb(false, 401, 'Unauthorized'); return; }
+    const row = getApiKeyByPrefix(prefix);
+    if (!row || row.revokedAt !== null) { cb(false, 401, 'Unauthorized'); return; }
+    if (row.expiresAt !== null && row.expiresAt < Date.now()) {
+      cb(false, 401, 'Unauthorized'); return;
+    }
+    if (!verifyKey(plain, row.hash)) { cb(false, 401, 'Unauthorized'); return; }
+    const scopes = new Set(row.scopes);
+    if (!scopes.has('admin:all') && !scopes.has('ws:connect')) {
+      cb(false, 403, 'Forbidden'); return;
+    }
+    touchApiKey(row.id);
+    cb(true); return;
+  }
+
+  cb(false, 401, 'Unauthorized');
+}
+
 const wss = new WebSocketServer({
   server,
   path: '/ws',
-  verifyClient: wsOrigins
-    ? (info: { origin: string }) => !!info.origin && wsOrigins.has(info.origin)
-    : undefined,
+  verifyClient: wsVerify,
 });
 
 // ---- Track connected clients for broadcast ----
@@ -296,6 +358,19 @@ async function start() {
   // ComfyUI broadcasts execution_* to every connected client.
   const { startComfyJobBridge } = await import('./services/videoboard/comfyJobBridge.js');
   startComfyJobBridge();
+
+  // Probe boot state: align GPU residency with what was already running.
+  const { bootRecovery } = await import('./services/gpu/bootRecovery.js');
+  await bootRecovery().catch((err) => {
+    logger.warn('bootRecovery: probe failed', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+
+  // ONE state-change listener at boot; broadcast gpu snapshot to all WS clients.
+  scheduler.onStateChange(() => {
+    broadcast({ type: 'gpu', data: scheduler.snapshot() });
+  });
 
   // Sweep leftover files in the uploads tmp dir (orphans from any prior
   // crash mid-upload). Safe because we only delete files older than 1h.

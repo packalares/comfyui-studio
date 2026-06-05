@@ -1,19 +1,15 @@
 // ComfyUI control routes — interrupt + cancel queued prompts.
 //
-// Thin proxies around the two upstream mutating endpoints ComfyUI exposes:
-//   POST /interrupt            — stops the currently-executing prompt.
-//   POST /queue                — body `{ delete: [promptId] }` removes a
-//                                pending entry from the queue.
-//
-// Successful upstream 2xx surfaces as `{ ok: true }`; non-2xx (or network
-// errors) fail with 502 so the UI can distinguish "the user's intent was
-// valid, ComfyUI misbehaved" from a client-side 4xx.
+// Proxies ComfyUI's two mutating endpoints:
+//   POST /interrupt    — stops the currently-executing prompt.
+//   POST /queue        — `{ delete: [promptId] }` removes a pending queue entry.
 
-import { Router, type Request, type Response, type RequestHandler } from 'express';
+import { Router } from 'express';
+import { z } from 'zod';
+import { defineRoute } from '../lib/defineRoute.js';
+import { UpstreamUnavailableError } from '../lib/errors.js';
 import { getComfyUIUrl } from '../services/comfyui/api.js';
 import { logger } from '../lib/logger.js';
-
-const router = Router();
 
 async function proxyMutation(
   comfyPath: string,
@@ -21,10 +17,7 @@ async function proxyMutation(
 ): Promise<{ ok: boolean; status: number; detail?: string }> {
   const url = `${getComfyUIUrl()}${comfyPath}`;
   try {
-    const init: RequestInit = {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    };
+    const init: RequestInit = { method: 'POST', headers: { 'Content-Type': 'application/json' } };
     if (body !== null) init.body = JSON.stringify(body);
     const res = await fetch(url, init);
     if (res.ok) return { ok: true, status: res.status };
@@ -32,53 +25,43 @@ async function proxyMutation(
     try { detail = (await res.text()).slice(0, 500); } catch { /* ignore */ }
     return { ok: false, status: res.status, detail };
   } catch (err) {
-    return {
-      ok: false,
-      status: 0,
-      detail: err instanceof Error ? err.message : String(err),
-    };
+    return { ok: false, status: 0, detail: err instanceof Error ? err.message : String(err) };
   }
 }
 
-const handleInterrupt: RequestHandler = async (_req, res) => {
+const OkResponseSchema = z.object({ ok: z.literal(true) });
+
+const interruptRoute = defineRoute({
+  method: 'POST',
+  path: '/comfyui/interrupt',
+  response: OkResponseSchema,
+  auth: { required: true, scopes: ['generate:write'] },
+  tags: ['comfyui'],
+  summary: 'Interrupt the currently-executing ComfyUI prompt',
+}, async ({ ok }) => {
   const r = await proxyMutation('/interrupt', null);
-  if (r.ok) {
-    res.json({ ok: true });
-    return;
-  }
-  logger.warn('comfyui interrupt: upstream failed', {
-    status: r.status, detail: r.detail,
-  });
-  res.status(502).json({
-    error: 'upstream_failed',
-    upstreamStatus: r.status,
-    detail: r.detail,
-  });
-};
+  if (r.ok) return ok({ ok: true as const });
+  logger.warn('comfyui interrupt: upstream failed', { status: r.status, detail: r.detail });
+  throw new UpstreamUnavailableError(`ComfyUI interrupt failed (${r.status})`, { detail: r.detail });
+});
 
-const handleQueueDelete: RequestHandler = async (req: Request, res: Response) => {
-  const body = (req.body ?? {}) as { promptId?: unknown };
-  const promptId = body.promptId;
-  if (typeof promptId !== 'string' || promptId.length === 0) {
-    res.status(400).json({ error: 'promptId required (non-empty string)' });
-    return;
-  }
-  const r = await proxyMutation('/queue', { delete: [promptId] });
-  if (r.ok) {
-    res.json({ ok: true });
-    return;
-  }
-  logger.warn('comfyui queue delete: upstream failed', {
-    status: r.status, detail: r.detail, promptId,
-  });
-  res.status(502).json({
-    error: 'upstream_failed',
-    upstreamStatus: r.status,
-    detail: r.detail,
-  });
-};
+const queueDeleteRoute = defineRoute({
+  method: 'POST',
+  path: '/comfyui/queue/delete',
+  body: z.object({ promptId: z.string().min(1) }),
+  response: OkResponseSchema,
+  auth: { required: true, scopes: ['generate:write'] },
+  tags: ['comfyui'],
+  summary: 'Remove a pending prompt from the ComfyUI queue',
+}, async ({ body, ok }) => {
+  const r = await proxyMutation('/queue', { delete: [body.promptId] });
+  if (r.ok) return ok({ ok: true as const });
+  logger.warn('comfyui queue delete: upstream failed', { status: r.status, detail: r.detail, promptId: body.promptId });
+  throw new UpstreamUnavailableError(`ComfyUI queue delete failed (${r.status})`, { detail: r.detail });
+});
 
-router.post('/comfyui/interrupt', handleInterrupt);
-router.post('/comfyui/queue/delete', handleQueueDelete);
+const router = Router();
+interruptRoute.register(router);
+queueDeleteRoute.register(router);
 
 export default router;

@@ -8,7 +8,7 @@
 #
 # Pick which to build with `--target prod` or `--target dev`.
 
-ARG BASE_IMAGE=docker.io/beclab/comfyui:v0.22.0
+ARG BASE_IMAGE=docker.io/beclab/comfyui:v0.24.0
 
 # ======================================================================
 # Stage: frontend-build — throwaway; we only need its dist/.
@@ -56,15 +56,90 @@ RUN zypper --non-interactive --no-refresh install -y \
       libportaudio2 \
   && zypper clean -a
 
-# Python deps the base image doesn't ship or ships too old:
-#   ml_dtypes==0.5.4   — required by PuLID-Flux2 (needs float4_e2m1fn attr)
-#   facenet-pytorch    — required by comfyui_pulid_flux_ll
-# PIP_USER is set later (line below), so this install lands in /usr/local
-# site-packages and gets baked into the image layer (not the ephemeral overlay).
+# PyTorch stack — cu128 wheels for Blackwell (RTX 50-series, sm_120).
+# The hardware is RTX 5090 Laptop (sm_120); torch <2.7 / cu<128 ships no
+# kernel binary for that arch and every kernel launch fails with "no kernel
+# image is available for execution on the device".
+# torch 2.8 + cu128 + Blackwell is the combo nunchaku and xformers both ship
+# matching prebuilt wheels for. numpy stays on 1.x ABI band for compat.
+RUN pip install --no-cache-dir --no-deps \
+      'torch==2.8.0+cu128' \
+      'torchvision==0.23.0+cu128' \
+      'torchaudio==2.8.0+cu128' \
+      --index-url https://download.pytorch.org/whl/cu128 \
+  && pip install --no-cache-dir 'numpy>=1.26,<2'
+
+# xformers built against the same torch ABI we just installed.
+# The previously-bundled xformers 2.5.7 expects torch's `rng_state/unused`
+# flash-attention return schema; modern torch returns `philox_seed/philox_offset`
+# and the mismatch breaks `xformers.ops` at import, which then explodes
+# every diffusers consumer (InvSR, InstantCharacter, nunchaku flux pipeline).
+RUN pip install --no-cache-dir --no-deps \
+      xformers \
+      --index-url https://download.pytorch.org/whl/cu128
+
+# flash_attn — needed by ComfyUI-layerdiffuse (`flash_attn.flash_attn_interface`).
+RUN pip install --no-cache-dir flash-attn --no-build-isolation
+
+# nunchaku — working build for torch 2.8 + cu12.8. SVDQuant Flux quantization.
+# The wheel for cu12.8torch2.8 matches our stack exactly; the broken 1.2.1+torch2.11
+# wheel we had on the pod was for a non-existent torch version.
+RUN pip install --no-cache-dir --no-deps \
+      https://github.com/nunchaku-tech/nunchaku/releases/download/v1.2.1/nunchaku-1.2.1+cu12.8torch2.8-cp312-cp312-linux_x86_64.whl
+
+# Python deps for custom_nodes whose Manager-time pip installs went to
+# /usr/local (ephemeral) and got wiped when this image was rebuilt:
+#   ml_dtypes==0.5.4         PuLID-Flux2 (needs float4_e2m1fn attr)
+#   facenet-pytorch          comfyui_pulid_flux_ll
+#   audio-separator          various audio nodes
+#   transformers==4.57.6     latest 4.x — has AutoProcessor + BertModel
+#                            + Qwen3VLForConditionalGeneration. 4.57.0-4.57.5
+#                            were broken (top-level reorg); 4.57.6 fixed it.
+#                            5.x = major breaking changes — DO NOT bump.
+#   torchcrepe               RVC Voice Conversion node
+#   comfyui-manager          required by `--enable-manager` runtime flag
+#   s3tokenizer              ChatterBox TTS engine node
+#   descript-audio-codec     Higgs Audio 2 engine node (provides `dac`)
+#   opencv-contrib-python    comfyui_layerstyle (needs cv2.ximgproc.guidedFilter)
+#   packaging                k_diffusion → comfyui_jags_audiotools
+#                            (setuptools 81 removed pkg_resources.packaging;
+#                             top-level `packaging` is the modern shim)
 RUN pip install --no-cache-dir \
       ml_dtypes==0.5.4 \
       facenet-pytorch \
-      audio-separator
+      audio-separator \
+      transformers==4.57.6 \
+      torchcrepe \
+      comfyui-manager \
+      s3tokenizer \
+      descript-audio-codec \
+      opencv-contrib-python \
+      packaging
+
+# torchao MUST NOT be installed. The base image used to pull it in
+# transitively; it has a buggy version check demanding `torch >= 2.11.0`
+# (which doesn't exist) and prints a noisy "Skipping cpp extensions"
+# warning every node-import. No real consumer in our stack.
+RUN pip uninstall -y torchao 2>/dev/null || true
+
+# Cosmetic-warning silencers (no functional change, just quieter logs):
+#   extra_help_file.yaml       ComfyUI's launcher logs "File not found"
+#                              if this optional YAML is missing. Empty stub
+#                              suppresses the line; the file is read for
+#                              custom hardware help text shown in the
+#                              About panel — empty means default.
+#   was_suite_config.json      WAS Node Suite logs a warning that
+#                              ffmpeg_bin_path is unset. Patch the JSON if
+#                              the node is present in the image, pointing
+#                              it at the system ffmpeg. No-op if the node
+#                              isn't installed (custom_nodes may live on a
+#                              persistent volume in the deployment).
+RUN install -d -m 755 /runner-config \
+  && : > /runner-config/extra_help_file.yaml
+RUN WAS_CFG=/root/ComfyUI/custom_nodes/was-node-suite-comfyui/was_suite_config.json; \
+    if [ -f "$WAS_CFG" ] && command -v python3 >/dev/null; then \
+      python3 -c "import json,sys; p=sys.argv[1]; d=json.load(open(p)); d['ffmpeg_bin_path']='/usr/bin/ffmpeg'; json.dump(d,open(p,'w'),indent=2)" "$WAS_CFG"; \
+    fi
 
 # Studio backend (port 3002)
 COPY --from=studio-server-build /build/studio-server/dist          /studio/server/dist
@@ -111,11 +186,45 @@ RUN zypper --non-interactive --no-refresh install -y \
 # Drop the baked-in launcher & old SPA.
 RUN rm -rf /app/server /app/dist/spa
 
+# Same pytorch stack as prod — see prod stage for rationale. cu128 + Blackwell.
+RUN pip install --no-cache-dir --no-deps \
+      'torch==2.8.0+cu128' \
+      'torchvision==0.23.0+cu128' \
+      'torchaudio==2.8.0+cu128' \
+      --index-url https://download.pytorch.org/whl/cu128 \
+  && pip install --no-cache-dir 'numpy>=1.26,<2'
+
+RUN pip install --no-cache-dir --no-deps \
+      xformers \
+      --index-url https://download.pytorch.org/whl/cu128
+
+RUN pip install --no-cache-dir flash-attn --no-build-isolation
+
+RUN pip install --no-cache-dir --no-deps \
+      https://github.com/nunchaku-tech/nunchaku/releases/download/v1.2.1/nunchaku-1.2.1+cu12.8torch2.8-cp312-cp312-linux_x86_64.whl
+
 # Same python deps as prod stage — keep dev and prod custom_nodes set in sync.
 RUN pip install --no-cache-dir \
       ml_dtypes==0.5.4 \
       facenet-pytorch \
-      audio-separator
+      audio-separator \
+      transformers==4.57.6 \
+      torchcrepe \
+      comfyui-manager \
+      s3tokenizer \
+      descript-audio-codec \
+      opencv-contrib-python \
+      packaging
+
+RUN pip uninstall -y torchao 2>/dev/null || true
+
+# Cosmetic-warning silencers — see prod stage for full rationale.
+RUN install -d -m 755 /runner-config \
+  && : > /runner-config/extra_help_file.yaml
+RUN WAS_CFG=/root/ComfyUI/custom_nodes/was-node-suite-comfyui/was_suite_config.json; \
+    if [ -f "$WAS_CFG" ] && command -v python3 >/dev/null; then \
+      python3 -c "import json,sys; p=sys.argv[1]; d=json.load(open(p)); d['ffmpeg_bin_path']='/usr/bin/ffmpeg'; json.dump(d,open(p,'w'),indent=2)" "$WAS_CFG"; \
+    fi
 
 # --- Studio frontend source + full deps (needed for vite dev + vite build) ---
 WORKDIR /studio/ui

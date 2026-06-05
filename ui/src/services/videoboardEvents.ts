@@ -14,6 +14,55 @@ import { useEffect, useRef } from 'react';
 import type { JobRecord, Shot, Analysis, Project } from '../api/videoboard';
 
 // ---------------------------------------------------------------------------
+// Per-job SSE stream (external-client alternative to the global WS bus)
+// ---------------------------------------------------------------------------
+
+export type JobSseEvent =
+  | { event: 'progress'; jobId: string; status: JobRecord['status']; progress: number; message?: string }
+  | { event: 'result';   jobId: string; status: 'done'; progress: number; outputUrl?: string; message?: string }
+  | { event: 'error';    jobId: string; status: 'error'; message: string }
+  | { event: 'done';     jobId: string };
+
+export interface JobSseHandlers {
+  onProgress?: (e: Extract<JobSseEvent, { event: 'progress' }>) => void;
+  onResult?: (e: Extract<JobSseEvent, { event: 'result' }>) => void;
+  onError?: (e: Extract<JobSseEvent, { event: 'error' }>) => void;
+  onDone?: () => void;
+}
+
+/**
+ * Open an SSE stream for a single job and return a close handle.
+ * Terminal events (`result`, `error`) close the stream automatically.
+ */
+export function openJobStream(jobId: string, handlers: JobSseHandlers): () => void {
+  const es = new EventSource(`/api/videoboard/jobs/${jobId}/stream`);
+  es.addEventListener('progress', (ev) => {
+    try {
+      const d = JSON.parse((ev as MessageEvent).data) as Extract<JobSseEvent, { event: 'progress' }>;
+      handlers.onProgress?.(d);
+    } catch { /* ignore malformed */ }
+  });
+  es.addEventListener('result', (ev) => {
+    try {
+      const d = JSON.parse((ev as MessageEvent).data) as Extract<JobSseEvent, { event: 'result' }>;
+      handlers.onResult?.(d);
+    } catch { /* ignore malformed */ }
+    handlers.onDone?.();
+    es.close();
+  });
+  es.addEventListener('error', (ev) => {
+    try {
+      const d = JSON.parse((ev as MessageEvent).data) as Extract<JobSseEvent, { event: 'error' }>;
+      handlers.onError?.(d);
+    } catch { /* ignore malformed */ }
+    handlers.onDone?.();
+    es.close();
+  });
+  es.addEventListener('done', () => { handlers.onDone?.(); es.close(); });
+  return () => es.close();
+}
+
+// ---------------------------------------------------------------------------
 // Event types
 // ---------------------------------------------------------------------------
 

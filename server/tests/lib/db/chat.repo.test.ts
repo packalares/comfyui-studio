@@ -32,7 +32,7 @@ describe('chat repo', () => {
       id: 'c', title: 't', model: 'm', created_at: 1, updated_at: 200,
     });
     const out = repo.listConversations();
-    expect(out.map(r => r.id)).toEqual(['b', 'c', 'a']);
+    expect(out.items.map(r => r.id)).toEqual(['b', 'c', 'a']);
   });
 
   it('appendMessage + listMessages retrieves in created_at order', () => {

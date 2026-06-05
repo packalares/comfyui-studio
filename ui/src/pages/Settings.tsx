@@ -65,6 +65,7 @@ import SoulsSection from '../components/settings/SoulsSection';
 import MemorySection from '../components/settings/MemorySection';
 import SkillsSection from '../components/settings/SkillsSection';
 import CommandsSection from '../components/settings/CommandsSection';
+import ApiKeysSection from './Settings/ApiKeys';
 
 /* ---------- types for launch options ---------- */
 
@@ -1675,13 +1676,14 @@ function StorageCard() {
    Page
    ================================================================= */
 
-type SettingsTab = 'general' | 'mcp' | 'comfy' | 'repertoire';
+type SettingsTab = 'general' | 'mcp' | 'comfy' | 'repertoire' | 'access';
 
 const TABS: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
   { id: 'general', label: 'General', icon: SettingsIcon },
   { id: 'mcp', label: 'MCP', icon: Plug },
   { id: 'comfy', label: 'Comfy', icon: CpuTabIcon },
   { id: 'repertoire', label: 'Repertoire', icon: Sparkles },
+  { id: 'access', label: 'Access', icon: Key },
 ];
 
 export default function Settings() {
@@ -1760,6 +1762,13 @@ export default function Settings() {
               <SoulsSection />
               <MemorySection />
             </div>
+          </div>
+        )}
+
+        {/* Access — API key management */}
+        {tab === 'access' && (
+          <div className="space-y-3">
+            <ApiKeysSection />
           </div>
         )}
       </div>

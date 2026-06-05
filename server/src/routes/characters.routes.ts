@@ -2,17 +2,23 @@
 
 import fs from 'fs';
 import path from 'path';
-import { Router, type Request, type Response } from 'express';
+import { Router } from 'express';
 import multer from 'multer';
 import { randomUUID } from 'node:crypto';
-import { sendError } from '../middleware/errors.js';
+import { z } from 'zod';
+import { defineRoute } from '../lib/defineRoute.js';
+import { NotFoundError } from '../lib/errors.js';
 import * as repo from '../lib/db/characters.repo.js';
 import * as jobTracker from '../services/videoboard/jobTracker.js';
 import * as storage from '../services/videoboard/storage.js';
 import { paths } from '../config/paths.js';
-import type { Character } from '../contracts/videoboard.js';
+import {
+  CharacterSchema,
+  OkSchema,
+  JobStartedSchema,
+} from '../contracts/videoboard.js';
 
-// ---- Multer setup -----------------------------------------------------------
+// ---- Multer ------------------------------------------------------------------
 
 const photoUpload = multer({
   storage: multer.diskStorage({
@@ -20,35 +26,100 @@ const photoUpload = multer({
     filename: (_req, _file, cb) =>
       cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
   }),
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB per photo
+  limits: { fileSize: 20 * 1024 * 1024 },
 });
+
+// ---- defineRoute-based routes -----------------------------------------------
+
+const IdParams = z.object({ id: z.string() });
+
+const listCharactersRoute = defineRoute({
+  method: 'GET',
+  path: '/videoboard/characters',
+  response: z.array(CharacterSchema),
+  auth: { required: true, scopes: ['videoboard:read'] },
+  tags: ['characters'],
+  summary: 'List characters',
+}, (ctx) => ctx.ok(repo.listCharacters()));
+
+const getCharacterRoute = defineRoute({
+  method: 'GET',
+  path: '/videoboard/characters/:id',
+  params: IdParams,
+  response: CharacterSchema,
+  auth: { required: true, scopes: ['videoboard:read'] },
+  tags: ['characters'],
+  summary: 'Get a character',
+}, (ctx) => {
+  const char = repo.getCharacter(ctx.params.id);
+  if (!char) throw new NotFoundError('Character not found');
+  return ctx.ok(char);
+});
+
+const deleteCharacterRoute = defineRoute({
+  method: 'DELETE',
+  path: '/videoboard/characters/:id',
+  params: IdParams,
+  response: OkSchema,
+  auth: { required: true, scopes: ['videoboard:write'] },
+  tags: ['characters'],
+  summary: 'Delete a character',
+}, (ctx) => {
+  const deleted = repo.deleteCharacter(ctx.params.id);
+  if (!deleted) throw new NotFoundError('Character not found');
+  return ctx.ok({ ok: true as const });
+});
+
+const trainLoraRoute = defineRoute({
+  method: 'POST',
+  path: '/videoboard/characters/:id/train-lora',
+  params: IdParams,
+  response: JobStartedSchema,
+  auth: { required: true, scopes: ['videoboard:render'] },
+  tags: ['characters'],
+  summary: 'Train LoRA for a character (async stub)',
+}, (ctx) => {
+  const { id } = ctx.params;
+  const char = repo.getCharacter(id);
+  if (!char) throw new NotFoundError('Character not found');
+
+  const job = jobTracker.createJob(id, 'train-lora');
+  // TODO: wire real LoRA training pipeline.
+  setTimeout(() => { jobTracker.updateJob(job.id, { status: 'running', progress: 0.3 }); }, 1000);
+  setTimeout(() => {
+    const loraPath = storage.characterDir(id) + '/lora.safetensors';
+    repo.updateCharacter(id, { loraPath });
+    jobTracker.updateJob(job.id, { status: 'done', progress: 1.0, outputUrl: loraPath });
+  }, 3000);
+
+  return ctx.ok({ jobId: job.id });
+});
+
+// ---- Router assembly --------------------------------------------------------
 
 const router = Router();
 
-// GET /api/videoboard/characters
-router.get('/videoboard/characters', (_req: Request, res: Response): void => {
-  try {
-    res.json(repo.listCharacters());
-  } catch (err) { sendError(res, err, 500, 'Failed to list characters'); }
-});
+listCharactersRoute.register(router);
+getCharacterRoute.register(router);
+deleteCharacterRoute.register(router);
+trainLoraRoute.register(router);
 
-// POST /api/videoboard/characters  (multipart: name + photos[])
+// POST /api/videoboard/characters — multipart; registered manually.
 router.post(
   '/videoboard/characters',
   photoUpload.array('photos'),
-  (req: Request, res: Response): void => {
+  (req, res, next): void => {
     try {
       const body = req.body as Record<string, unknown>;
       const name = String(body.name ?? 'Unnamed');
-      const kind = (body.kind as Character['kind'] | undefined) ?? 'pulid';
-      const baseModel = (body.baseModel as Character['baseModel'] | undefined) ?? 'flux1-dev';
+      const kind = (body.kind as import('../contracts/videoboard.js').Character['kind'] | undefined) ?? 'pulid';
+      const baseModel = (body.baseModel as import('../contracts/videoboard.js').Character['baseModel'] | undefined) ?? 'flux1-dev';
 
       const charId = randomUUID();
       storage.ensureCharacterDir(charId);
 
       const files = req.files as Express.Multer.File[] | undefined ?? [];
       const refPhotoUrls: string[] = [];
-
       files.forEach((file, i) => {
         const ext = path.extname(file.originalname).replace('.', '') || 'jpg';
         const dest = storage.characterRefPhotoPath(charId, i, ext);
@@ -56,61 +127,12 @@ router.post(
         refPhotoUrls.push(dest);
       });
 
-      const char = repo.createCharacter({
-        id: charId,
-        name,
-        kind,
-        baseModel,
-        refPhotoUrls,
-      });
-      res.status(201).json(char);
-    } catch (err) { sendError(res, err, 500, 'Failed to create character'); }
+      const char = repo.createCharacter({ id: charId, name, kind, baseModel, refPhotoUrls });
+      res.status(201).json({ data: char });
+    } catch (err) {
+      next(err instanceof Error ? err : new Error(String(err)));
+    }
   },
 );
-
-// GET /api/videoboard/characters/:id
-router.get('/videoboard/characters/:id', (req: Request, res: Response): void => {
-  try {
-    const char = repo.getCharacter(req.params.id as string);
-    if (!char) { res.status(404).json({ error: 'Character not found' }); return; }
-    res.json(char);
-  } catch (err) { sendError(res, err, 500, 'Failed to get character'); }
-});
-
-// DELETE /api/videoboard/characters/:id
-router.delete('/videoboard/characters/:id', (req: Request, res: Response): void => {
-  try {
-    const deleted = repo.deleteCharacter(req.params.id as string);
-    if (!deleted) { res.status(404).json({ error: 'Character not found' }); return; }
-    res.json({ ok: true });
-  } catch (err) { sendError(res, err, 500, 'Failed to delete character'); }
-});
-
-// POST /api/videoboard/characters/:id/train-lora
-router.post('/videoboard/characters/:id/train-lora', (req: Request, res: Response): void => {
-  try {
-    const id = req.params.id as string;
-    const char = repo.getCharacter(id);
-    if (!char) { res.status(404).json({ error: 'Character not found' }); return; }
-
-    // Use a dummy projectId matching the character id for job tracking.
-    const job = jobTracker.createJob(id, 'train-lora');
-
-    // TODO: wire real LoRA training pipeline.
-    //   unloadGpuOnUse pattern from gpuOrchestrator.ts should be applied
-    //   before dispatching the training job to free VRAM for the trainer.
-    setTimeout(() => {
-      jobTracker.updateJob(job.id, { status: 'running', progress: 0.3 });
-    }, 1000);
-
-    setTimeout(() => {
-      const loraPath = storage.characterDir(id) + '/lora.safetensors';
-      repo.updateCharacter(id, { loraPath });
-      jobTracker.updateJob(job.id, { status: 'done', progress: 1.0, outputUrl: loraPath });
-    }, 3000);
-
-    res.json({ jobId: job.id });
-  } catch (err) { sendError(res, err, 500, 'Train LoRA failed'); }
-});
 
 export default router;

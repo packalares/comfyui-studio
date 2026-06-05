@@ -120,8 +120,10 @@ function applyGalleryWaveFMigration(db: DB): void {
       .run('gallery_wave_f_reset', 'done');
   }
 
-  // v4 indexes: idempotent, run after the ALTERs so `durationMs` exists on
-  // legacy DBs by the time we try to index it.
+  // Idempotent indexes for columns added above; must run after ALTERs so the
+  // columns exist on legacy DBs. schema.ts skips these to avoid failing on
+  // old tables that pre-date the migration.
+  db.exec('CREATE INDEX IF NOT EXISTS idx_gallery_workflowHash ON gallery(workflowHash)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_gallery_durationMs ON gallery(durationMs)');
 
   // v4 backfill: for rows with workflowJson but no modelsJson, re-run the

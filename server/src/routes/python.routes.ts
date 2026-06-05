@@ -6,98 +6,149 @@
 //   POST /python/packages/uninstall
 //   GET  /python/plugins/dependencies
 //   POST /python/plugins/fix-dependencies
-//
-// All rate-limited write endpoints use the shared `rateLimit` middleware.
 
-import { Router, type RequestHandler } from 'express';
+import { Router } from 'express';
 import * as pipSource from '../services/python/pipSource.service.js';
 import * as packages from '../services/python/packages.service.js';
 import * as deps from '../services/python/dependencies.service.js';
-import { sendError } from '../middleware/errors.js';
 import { rateLimit } from '../middleware/rateLimit.js';
-
-const router = Router();
+import { defineRoute } from '../lib/defineRoute.js';
+import { ValidationError, HttpError } from '../lib/errors.js';
+import {
+  PipSourceBodySchema,
+  PackageInstallBodySchema,
+  FixDepsBodySchema,
+  PipSourceResponseSchema,
+  InstalledPackageSchema,
+  PackageOpResponseSchema,
+  PluginDependencyReportSchema,
+  FixDepsResponseSchema,
+} from '../contracts/python.contract.js';
+import { z } from 'zod';
 
 // Package install/uninstall invoke pip — 10/min is plenty for interactive use.
 const pkgLimiter = rateLimit({ windowMs: 60_000, max: 10 });
 
-// ---- Handlers ----
+// ---- Routes ----
 
-const handleGetPipSource: RequestHandler = async (_req, res) => {
-  try { res.send(pipSource.getPipSource()); }
-  catch (err) { sendError(res, err, 500, 'Failed to read pip source'); }
-};
+const getPipSourceRoute = defineRoute({
+  method: 'GET',
+  path: '/python/pip-source',
+  response: PipSourceResponseSchema,
+  auth: { required: true, scopes: ['settings:read'] },
+  tags: ['python'],
+  summary: 'Get configured pip index-url',
+}, (ctx) => {
+  return ctx.ok({ source: pipSource.getPipSource() });
+});
 
-const handleSetPipSource: RequestHandler = async (req, res) => {
-  const { source } = (req.body || {}) as { source?: string };
-  if (!source) { res.status(400).json({ error: 'Source URL cannot be empty' }); return; }
+const setPipSourceRoute = defineRoute({
+  method: 'POST',
+  path: '/python/pip-source',
+  body: PipSourceBodySchema,
+  response: PipSourceResponseSchema,
+  auth: { required: true, scopes: ['settings:write'] },
+  tags: ['python'],
+  summary: 'Set pip index-url',
+}, (ctx) => {
   try {
-    pipSource.setPipSource(source);
-    res.json({ success: true, message: 'pip source updated' });
+    pipSource.setPipSource(ctx.body.source);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.status(400).json({ error: msg });
+    throw new ValidationError(err instanceof Error ? err.message : String(err));
   }
-};
+  return ctx.ok({ source: ctx.body.source });
+});
 
-const handleListPackages: RequestHandler = async (_req, res) => {
-  try {
-    const list = await packages.listInstalledPackages();
-    res.json(list);
-  } catch (err) { sendError(res, err, 500, 'Failed to list packages'); }
-};
+const listPackagesRoute = defineRoute({
+  method: 'GET',
+  path: '/python/packages',
+  response: z.array(InstalledPackageSchema),
+  auth: { required: true, scopes: ['settings:read'] },
+  tags: ['python'],
+  summary: 'List installed pip packages',
+}, async (ctx) => {
+  const list = await packages.listInstalledPackages();
+  return ctx.ok(list);
+});
 
-const handleInstallPackage: RequestHandler = async (req, res) => {
-  const { package: spec } = (req.body || {}) as { package?: string };
-  if (!spec) { res.status(400).json({ error: 'Package name cannot be empty' }); return; }
+const installPackageRoute = defineRoute({
+  method: 'POST',
+  path: '/python/packages/install',
+  body: PackageInstallBodySchema,
+  response: PackageOpResponseSchema,
+  auth: { required: true, scopes: ['models:install'] },
+  tags: ['python'],
+  summary: 'Install a pip package',
+}, async (ctx) => {
   try {
-    const r = await packages.installPackage(spec);
-    res.json({ success: true, message: 'Install succeeded', output: r.output });
+    const r = await packages.installPackage(ctx.body.package);
+    return ctx.ok({ success: true, message: 'Install succeeded', output: r.output });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: `Install failed: ${msg}` });
+    throw new HttpError('internal_error', `Install failed: ${err instanceof Error ? err.message : String(err)}`);
   }
-};
+});
 
-const handleUninstallPackage: RequestHandler = async (req, res) => {
-  const { package: name } = (req.body || {}) as { package?: string };
-  if (!name) { res.status(400).json({ error: 'Package name cannot be empty' }); return; }
+const uninstallPackageRoute = defineRoute({
+  method: 'POST',
+  path: '/python/packages/uninstall',
+  body: PackageInstallBodySchema,
+  response: PackageOpResponseSchema,
+  auth: { required: true, scopes: ['models:install'] },
+  tags: ['python'],
+  summary: 'Uninstall a pip package',
+}, async (ctx) => {
   try {
-    const r = await packages.uninstallPackage(name);
-    res.json({ success: true, message: 'Uninstall succeeded', output: r.output });
+    const r = await packages.uninstallPackage(ctx.body.package);
+    return ctx.ok({ success: true, message: 'Uninstall succeeded', output: r.output });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: `Uninstall failed: ${msg}` });
+    throw new HttpError('internal_error', `Uninstall failed: ${err instanceof Error ? err.message : String(err)}`);
   }
-};
+});
 
-const handlePluginDeps: RequestHandler = async (_req, res) => {
-  try {
-    const r = await deps.analyzePluginDependencies();
-    res.json(r);
-  } catch (err) { sendError(res, err, 500, 'Failed to analyze plugin dependencies'); }
-};
+const pluginDepsRoute = defineRoute({
+  method: 'GET',
+  path: '/python/plugins/dependencies',
+  response: z.array(PluginDependencyReportSchema),
+  auth: { required: true, scopes: ['settings:read'] },
+  tags: ['python'],
+  summary: 'Per-plugin dependency report',
+}, async (ctx) => {
+  const r = await deps.analyzePluginDependencies();
+  return ctx.ok(r);
+});
 
-const handleFixDeps: RequestHandler = async (req, res) => {
-  const { plugin } = (req.body || {}) as { plugin?: string };
-  if (!plugin) { res.status(400).json({ error: 'Plugin name cannot be empty' }); return; }
+const fixDepsRoute = defineRoute({
+  method: 'POST',
+  path: '/python/plugins/fix-dependencies',
+  body: FixDepsBodySchema,
+  response: FixDepsResponseSchema,
+  auth: { required: true, scopes: ['models:install'] },
+  tags: ['python'],
+  summary: 'pip install -r requirements.txt for one plugin',
+}, async (ctx) => {
   try {
-    const r = await deps.fixPluginDependencies(plugin);
-    res.json({ success: true, message: 'Dependencies fixed', output: r.output });
+    const r = await deps.fixPluginDependencies(ctx.body.plugin);
+    return ctx.ok({ success: true, message: 'Dependencies fixed', output: r.output });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: `Dependency fix failed: ${msg}` });
+    throw new HttpError('internal_error', `Dependency fix failed: ${err instanceof Error ? err.message : String(err)}`);
   }
+});
+
+// ---- Mount ----
+const router = Router();
+
+[getPipSourceRoute, listPackagesRoute, pluginDepsRoute].forEach(r => r.register(router));
+
+// Write routes get rate-limiter injected.
+const writeLimited = (r: ReturnType<typeof defineRoute>) => {
+  const method = r.spec.method.toLowerCase() as 'post' | 'put' | 'patch' | 'delete';
+  router[method](r.spec.path, pkgLimiter, (req, res, next) => {
+    const mini = Router();
+    r.register(mini);
+    mini(req, res, next);
+  });
 };
 
-// ---- Mount canonical + legacy aliases ----
-
-router.get('/python/pip-source', handleGetPipSource);
-router.post('/python/pip-source', handleSetPipSource);
-router.get('/python/packages', handleListPackages);
-router.post('/python/packages/install', pkgLimiter, handleInstallPackage);
-router.post('/python/packages/uninstall', pkgLimiter, handleUninstallPackage);
-router.get('/python/plugins/dependencies', handlePluginDeps);
-router.post('/python/plugins/fix-dependencies', pkgLimiter, handleFixDeps);
+[setPipSourceRoute, installPackageRoute, uninstallPackageRoute, fixDepsRoute].forEach(writeLimited);
 
 export default router;

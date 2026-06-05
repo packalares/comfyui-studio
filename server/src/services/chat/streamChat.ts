@@ -30,7 +30,8 @@ import { runToolDispatch, type ToolPart } from './toolDispatch.js';
 import { extractAndPersistAttachments } from './attachments.js';
 import { ThinkParser } from './thinkParser.js';
 import { enforceContextStrategy } from './contextEnforce.js';
-import { beforeTool as gpuBeforeTool } from './gpuOrchestrator.js';
+import { isLikelyColocated } from './gpuOrchestrator.js';
+import { scheduler } from '../gpu/scheduler.js';
 import { expandLatestSlashCommand } from './commands.js';
 
 // `LOADING_HINT_MS` and `MAX_TOOL_STEPS` are now `settings.chatLoadingHintMs`
@@ -303,15 +304,19 @@ async function runStream(args: RunStreamArgs): Promise<void> {
       ),
       onBeforeTool: async (toolName) => {
         const studioTool = enabledTools[toolName];
-        if (!studioTool) return;
-        await gpuBeforeTool(studioTool, model, {
-          emitStatus: (code, message) => {
-            emitChatEvent({
-              type: 'chat:status',
-              data: { msgId, code, message },
-            });
-          },
-        });
+        if (!studioTool?.unloadGpuOnUse) return;
+        if (!isLikelyColocated()) return;
+        // Switch GPU residency to ComfyUI. The chat session keeps its logical
+        // context; only the underlying VRAM tenant changes.
+        emitChatEvent({ type: 'chat:status', data: { msgId, code: 'freeing_gpu', message: 'Freeing GPU for tool…' } });
+        await scheduler.switchTenant('comfy');
+      },
+      onAfterTool: async (toolName) => {
+        const studioTool = enabledTools[toolName];
+        if (!studioTool?.unloadGpuOnUse) return;
+        if (!isLikelyColocated()) return;
+        // Restore Ollama residency so the next LLM step doesn't fight ComfyUI.
+        await scheduler.switchTenant('ollama');
       },
       // Tools that opt into the GPU unload AND returned a successful queue
       // envelope (carries `promptId`) are skipped — asking Ollama for a

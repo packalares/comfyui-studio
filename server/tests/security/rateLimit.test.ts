@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { rateLimit } from '../../src/middleware/rateLimit.js';
+import { RateLimitError } from '../../src/lib/errors.js';
 import type { Request, Response, NextFunction } from 'express';
 
 interface CapturedResponse {
@@ -35,15 +36,18 @@ describe('rateLimit', () => {
 
   it('rejects the 4th request with 429 when max=3', () => {
     const limiter = rateLimit({ windowMs: 60_000, max: 3 });
-    const next: NextFunction = () => { /* accepted */ };
+    let caughtErr: unknown;
+    const next: NextFunction = (err?: unknown) => { if (err !== undefined) caughtErr = err; };
     for (let i = 0; i < 3; i++) {
       limiter(makeReq('2.2.2.2'), makeRes({ status: null, body: null, headers: {} }), next);
     }
     const captured: CapturedResponse = { status: null, body: null, headers: {} };
     limiter(makeReq('2.2.2.2'), makeRes(captured), next);
-    expect(captured.status).toBe(429);
-    expect(captured.body).toMatchObject({ error: 'rate_limit' });
+    // The middleware delegates to the error handler via next(err) rather than
+    // writing the response directly. Verify the error is a RateLimitError and
+    // that Retry-After was set on the response.
     expect(captured.headers['Retry-After']).toBeDefined();
+    expect(caughtErr).toBeInstanceOf(RateLimitError);
   });
 
   it('buckets per IP independently', () => {

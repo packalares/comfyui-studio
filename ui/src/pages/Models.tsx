@@ -277,8 +277,8 @@ export default function Models() {
       });
       return {
         items: res.items.map<PageRow>((model) => ({ kind: 'catalog', model })),
-        total: res.total,
-        hasMore: res.hasMore,
+        total: res.meta.total ?? 0,
+        hasMore: res.meta.hasMore ?? false,
       };
     },
     [source, civitaiFeed, debouncedSearch, types, installedParam],
@@ -527,7 +527,7 @@ export default function Models() {
   const confirmDelete = useCallback(async () => {
     if (!deleteTarget) return;
     try {
-      await api.deleteModel({ modelName: deleteTarget.name });
+      await api.deleteModel(deleteTarget.name);
       try { await api.scanModels(); } catch { /* ignore */ }
       // Mirror the post-install path: refresh the full catalog AND the
       // visible page so the deleted row drops out immediately instead of

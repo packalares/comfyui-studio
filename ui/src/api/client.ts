@@ -7,7 +7,7 @@
 // no auth header; external consumers wrap via `createApiClient({ apiKey })`.
 
 import { z } from 'zod';
-import type { RouteSpec } from '@server/lib/defineRoute.js';
+import type { RouteSpec } from '@server/lib/defineRoute';
 import {
   ApiErrorSchema,
   errorStatus,
@@ -15,7 +15,7 @@ import {
   successEnvelopeSchema,
   type ErrorCode,
   type PageMeta,
-} from '@server/contracts/envelope.contract.js';
+} from '@server/contracts/envelope.contract';
 import { ApiClientError } from './error.js';
 
 // Type-level: which fields a given spec declares. The defaults on `RouteSpec`

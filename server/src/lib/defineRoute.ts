@@ -21,12 +21,13 @@ import {
 import { HttpError } from './errors.js';
 import { logger } from './logger.js';
 import { isProduction } from '../config/env.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export interface AuthSpec {
   required: boolean;
-  scopes?: string[];
+  scopes?: readonly string[] | string[];
 }
 
 export interface RouteSpec<
@@ -42,8 +43,14 @@ export interface RouteSpec<
   body?: B;
   response: R;
   auth?: AuthSpec;
-  tags?: string[];
+  tags?: readonly string[];
   summary?: string;
+  /**
+   * Override the success response content-type and skip the `{ data, meta? }`
+   * envelope. Used by spec-only routes that stream raw bytes (e.g. NDJSON).
+   * Defaults to `application/json` with envelope wrapping.
+   */
+  responseContentType?: string;
 }
 
 export interface RouteContext<P, Q, B> {
@@ -72,6 +79,20 @@ const REGISTRY: RegisteredRoute[] = [];
 
 export function getRegisteredRoutes(): readonly RegisteredRoute[] {
   return REGISTRY;
+}
+
+/**
+ * Register spec-only metadata for routes that handle their own request/response
+ * pipeline (e.g., raw streaming) and cannot use `defineRoute`. The spec appears
+ * in the OpenAPI document; runtime auth gating is the caller's responsibility.
+ */
+export function registerSpecOnly(spec: RouteSpec): void {
+  REGISTRY.push({
+    spec,
+    register() {
+      // No-op: the real route is registered elsewhere (e.g., raw Express router).
+    },
+  });
 }
 
 /**
@@ -200,7 +221,11 @@ export function defineRoute<
     spec,
     register(router: Router) {
       const method = spec.method.toLowerCase() as Lowercase<HttpMethod>;
-      router[method](spec.path, requestHandler);
+      if (spec.auth?.required) {
+        router[method](spec.path, authMiddleware(spec.auth), requestHandler);
+      } else {
+        router[method](spec.path, requestHandler);
+      }
     },
   };
   REGISTRY.push(registered);

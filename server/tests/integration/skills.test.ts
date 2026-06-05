@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { personalityRouter } from '../../src/routes/personality.routes.js';
+import { authedFetch } from '../helpers/authedFetch.js';
 
 // ---------- test app ----------
 
@@ -51,12 +52,12 @@ function makeFixture(): Fixture {
 // ---------- helpers ----------
 
 async function getJson<T>(url: string): Promise<{ status: number; body: T }> {
-  const res = await fetch(url);
+  const res = await authedFetch(url);
   return { status: res.status, body: await res.json() as T };
 }
 
 async function putJson<T>(url: string, payload: unknown): Promise<{ status: number; body: T }> {
-  const res = await fetch(url, {
+  const res = await authedFetch(url, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -65,7 +66,7 @@ async function putJson<T>(url: string, payload: unknown): Promise<{ status: numb
 }
 
 async function deleteReq<T>(url: string): Promise<{ status: number; body: T }> {
-  const res = await fetch(url, { method: 'DELETE' });
+  const res = await authedFetch(url, { method: 'DELETE' });
   return { status: res.status, body: await res.json() as T };
 }
 
@@ -80,12 +81,12 @@ describe('skills endpoints', () => {
   it('GET /api/skills returns bundled seeds', async () => {
     const app = await startApp(makeSkillsApp());
     try {
-      const { status, body } = await getJson<{ skills: Array<{ name: string; description: string }> }>(
+      const { status, body } = await getJson<{ data: { skills: Array<{ name: string; description: string }> } }>(
         `${app.url}/api/personality`,
       );
       expect(status).toBe(200);
-      expect(Array.isArray(body.skills)).toBe(true);
-      const names = body.skills.map(s => s.name);
+      expect(Array.isArray(body.data.skills)).toBe(true);
+      const names = body.data.skills.map(s => s.name);
       expect(names).toContain('flux-prompting');
       expect(names).toContain('wan-video');
     } finally { await app.close(); }
@@ -94,13 +95,13 @@ describe('skills endpoints', () => {
   it('GET /api/personality/skill/:name returns skill body', async () => {
     const app = await startApp(makeSkillsApp());
     try {
-      const { status, body } = await getJson<{ name: string; body: string }>(
+      const { status, body } = await getJson<{ data: { name: string; body: string } }>(
         `${app.url}/api/personality/skill/flux-prompting`,
       );
       expect(status).toBe(200);
-      expect(body.name).toBe('flux-prompting');
-      expect(typeof body.body).toBe('string');
-      expect(body.body.length).toBeGreaterThan(0);
+      expect(body.data.name).toBe('flux-prompting');
+      expect(typeof body.data.body).toBe('string');
+      expect(body.data.body.length).toBeGreaterThan(0);
     } finally { await app.close(); }
   });
 
@@ -108,12 +109,12 @@ describe('skills endpoints', () => {
     const app = await startApp(makeSkillsApp());
     try {
       const skillBody = '---\nname: my-skill\ndescription: A custom skill.\n---\n\nCustom skill content.\n';
-      const put = await putJson<{ ok: boolean }>(`${app.url}/api/personality/skill/my-skill`, { body: skillBody });
+      const put = await putJson<{ data: { ok: boolean } }>(`${app.url}/api/personality/skill/my-skill`, { body: skillBody });
       expect(put.status).toBe(200);
-      expect(put.body.ok).toBe(true);
+      expect(put.body.data.ok).toBe(true);
 
-      const { body } = await getJson<{ skills: Array<{ name: string }> }>(`${app.url}/api/personality`);
-      expect(body.skills.map(s => s.name)).toContain('my-skill');
+      const { body } = await getJson<{ data: { skills: Array<{ name: string }> } }>(`${app.url}/api/personality`);
+      expect(body.data.skills.map(s => s.name)).toContain('my-skill');
     } finally { await app.close(); }
   });
 
@@ -123,8 +124,8 @@ describe('skills endpoints', () => {
       const userBody = '---\nname: flux-prompting\ndescription: Custom override.\n---\n\nOverridden content.\n';
       await putJson(`${app.url}/api/personality/skill/flux-prompting`, { body: userBody });
 
-      const { body } = await getJson<{ body: string }>(`${app.url}/api/personality/skill/flux-prompting`);
-      expect(body.body).toBe('Overridden content.\n');
+      const { body } = await getJson<{ data: { body: string } }>(`${app.url}/api/personality/skill/flux-prompting`);
+      expect(body.data.body).toBe('Overridden content.\n');
     } finally { await app.close(); }
   });
 
@@ -135,11 +136,11 @@ describe('skills endpoints', () => {
         body: '---\nname: flux-prompting\ndescription: Custom.\n---\nCustom.\n',
       });
 
-      const del = await deleteReq<{ ok: boolean }>(`${app.url}/api/personality/skill/flux-prompting`);
+      const del = await deleteReq<{ data: { ok: boolean } }>(`${app.url}/api/personality/skill/flux-prompting`);
       expect(del.status).toBe(200);
 
       // Bundled seed is back after user override is removed.
-      const { status } = await getJson<{ name: string }>(`${app.url}/api/personality/skill/flux-prompting`);
+      const { status } = await getJson<{ data: { name: string } }>(`${app.url}/api/personality/skill/flux-prompting`);
       expect(status).toBe(200);
     } finally { await app.close(); }
   });
@@ -147,16 +148,16 @@ describe('skills endpoints', () => {
   it('DELETE bundled-only skill returns 404', async () => {
     const app = await startApp(makeSkillsApp());
     try {
-      const del = await deleteReq<{ error: string }>(`${app.url}/api/personality/skill/flux-prompting`);
+      const del = await deleteReq<{ error: { code: string; message: string } }>(`${app.url}/api/personality/skill/flux-prompting`);
       expect(del.status).toBe(404);
-      expect(typeof del.body.error).toBe('string');
+      expect(typeof del.body.error.message).toBe('string');
     } finally { await app.close(); }
   });
 
   it('PUT with invalid name returns 400', async () => {
     const app = await startApp(makeSkillsApp());
     try {
-      const res = await putJson<{ error: string }>(`${app.url}/api/personality/skill/INVALID NAME`, { body: 'x' });
+      const res = await putJson<{ error: { code: string } }>(`${app.url}/api/personality/skill/INVALID NAME`, { body: 'x' });
       expect(res.status).toBe(400);
     } finally { await app.close(); }
   });
@@ -273,7 +274,7 @@ describe('runSkillScript', () => {
     const skillDir = join(fixture.dir, 'skills', 'test-skill');
     const scriptsDir = join(skillDir, 'scripts');
     mkdirSync(scriptsDir, { recursive: true });
-    writeFileSync(join(skillDir, 'SKILL.md'), '---\nname: test-skill\ndescription: Test.\n---\nTest.\n');
+    writeFileSync(join(skillDir, 'SKILL.md'), '---\nname: test-skill\ndescription: Test.\nscripts:\n  - echo.sh\n---\nTest.\n');
     writeFileSync(join(scriptsDir, 'echo.sh'), '#!/bin/bash\necho hello\n', { mode: 0o755 });
 
     const { runSkillScript } = await import('../../src/services/chat/skills.js');

@@ -1,14 +1,19 @@
-// `/system` is the dashboard aggregator: device stats, queue counters, and the
-// most recent gallery rows. Each source is fetched independently so a partial
-// outage still returns whatever is available.
+// GET /api/system — dashboard aggregator: device stats, queue, chat config,
+// personality summary, gallery snapshot, and network config in one round-trip.
+//
+// TODO Wave 4: split into /api/system/stats, /api/system/queue, /api/system/chat, etc.
+// Each source is settled independently so a partial ComfyUI outage still returns
+// the settings/gallery/personality slices.
 
-import { Router, type Request, type Response } from 'express';
+import { Router } from 'express';
+import { z } from 'zod';
+import { defineRoute } from '../lib/defineRoute.js';
+import { SystemResponseSchema } from '../contracts/system.contract.js';
 import * as comfyui from '../services/comfyui/api.js';
 import * as gallery from '../services/gallery/index.js';
 import * as catalog from '../services/catalog/index.js';
 import * as plugins from '../services/plugins/index.js';
 import * as settings from '../services/settings/index.js';
-import type { DashboardSummary } from '../contracts/system.contract.js';
 import * as toolsSettings from '../services/settings/tools.js';
 import { getStudioMcpStatus } from '../services/settings/mcp.js';
 import { getMcpToolListings } from '../services/mcp/server/toolRegistry.js';
@@ -19,15 +24,14 @@ import * as networkChecker from '../services/networkChecker.js';
 import { getPersonalitySummary } from '../services/chat/personality.js';
 import { env } from '../config/env.js';
 
-const router = Router();
-
-// Combined system info: device stats + queue + recent gallery.
-//
-// Gallery count + recent come from the persistent sqlite `gallery` table
-// (via gallery.service.listPaginated) — NOT from ComfyUI's in-RAM history
-// buffer. ComfyUI's history is volatile and session-scoped; the dashboard
-// needs the same authoritative count that the Gallery page shows.
-router.get('/system', async (_req: Request, res: Response) => {
+const systemRoute = defineRoute({
+  method: 'GET',
+  path: '/system',
+  response: SystemResponseSchema,
+  auth: { required: true, scopes: ['system:read'] },
+  tags: ['system'],
+  summary: 'Dashboard aggregate: stats, queue, chat config, personality, gallery',
+}, async (ctx) => {
   const [statsResult, queueResult, galleryResult, toolsResult, modelsResult] = await Promise.allSettled([
     comfyui.getSystemStats(),
     comfyui.getQueue(),
@@ -44,21 +48,14 @@ router.get('/system', async (_req: Request, res: Response) => {
   const availableTools = toolsResult.status === 'fulfilled' ? toolsResult.value : [];
   const mergedModels = modelsResult.status === 'fulfilled' ? modelsResult.value : null;
 
-  // Dashboard counts. The plugin reads hit in-memory caches; each is wrapped
-  // individually so a cold cache on one doesn't blank the others.
-  const modelsInstalled: number | null = mergedModels !== null
+  const modelsInstalled = mergedModels !== null
     ? mergedModels.filter((m) => m.installed).length
     : null;
   let pluginsInstalled: number | null = null;
   let pluginHistory: unknown[] = [];
   try { pluginsInstalled = plugins.cache.getAllPlugins(false).filter((p) => p.installed).length; } catch { /* cold cache */ }
   try { pluginHistory = plugins.history.getHistory(20); } catch { /* cold cache */ }
-  const summary: DashboardSummary = { modelsInstalled, pluginsInstalled, pluginHistory };
 
-  // Network config + cached reachability snapshot — used to live behind the
-  // standalone `GET /system/network-config` endpoint; folded in here so the
-  // dashboard does one trip. Kicks a background probe on first boot when the
-  // checker has never run, so subsequent calls surface real reachability.
   const lastReach = networkChecker.getLastResult();
   if (!lastReach) networkChecker.triggerCheck();
   const network = getNetworkConfig(
@@ -69,15 +66,6 @@ router.get('/system', async (_req: Request, res: Response) => {
       : null,
   );
 
-  // Always 200, even when ComfyUI is unreachable — gallery / secrets /
-  // uploadMaxBytes are independent of ComfyUI and useful on first paint
-  // (e.g. so the Navbar pill can flip to "Start ComfyUI" without waiting
-  // for the WS launcher-status event). `comfyuiConnected` lets the UI
-  // decide whether to trust the stats/queue fields below.
-  // Chat / tools settings folded in so the dashboard payload carries every
-  // user-facing config the Settings page needs. Mirrors the field lists from
-  // the former `GET /settings/chat` + `GET /settings/tools` handlers; tools
-  // sit under `chat.tools` since they're chat-LLM-only integrations.
   const chat = {
     ollamaUrl: settings.getOllamaUrl(),
     defaultModel: settings.getChatDefaultModel() ?? '',
@@ -99,23 +87,15 @@ router.get('/system', async (_req: Request, res: Response) => {
       enabledMcpTools: toolsSettings.getEnabledMcpTools(),
       mcpToolListings: getMcpToolListings(),
       studioMcp: getStudioMcpStatus(),
-      // Resolved tool list for the chat composer (replaces /api/chat/tools).
-      // Reflects which integrations are configured + ready (e.g., generate_image
-      // requires the dep-check to pass against the default template).
       availableTools,
     },
-    // Empty-state pills + contextual follow-ups, sourced from
-    // server/data/chat/default_prompts.md so the UI renders the same set
-    // every page mount without bundling a copy in its own file.
     suggestions: getChatSuggestions(),
   };
 
-  // Personality lists folded in so chat + Settings pages get souls / skills /
-  // commands / default soul / pending edits with the existing system fetch
-  // instead of separate round-trips on every mount.
   const personality = getPersonalitySummary();
 
-  res.json({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ctx.ok({
     ...(stats as object || {}),
     queue,
     comfyuiConnected: stats !== null || queue !== null,
@@ -126,14 +106,17 @@ router.get('/system', async (_req: Request, res: Response) => {
       total: galleryPage.total,
       recent: galleryPage.items,
     },
-    summary,
+    summary: { modelsInstalled, pluginsInstalled, pluginHistory },
     apiKeyConfigured: settings.isApiKeyConfigured(),
     hfTokenConfigured: settings.isHfTokenConfigured(),
     civitaiTokenConfigured: settings.isCivitaiTokenConfigured(),
     githubTokenConfigured: settings.isGithubTokenConfigured(),
     pexelsApiKeyConfigured: settings.isPexelsApiKeyConfigured(),
     uploadMaxBytes: env.UPLOAD_MAX_BYTES,
-  });
+  } as unknown as z.infer<typeof SystemResponseSchema>);
 });
+
+const router = Router();
+systemRoute.register(router);
 
 export default router;

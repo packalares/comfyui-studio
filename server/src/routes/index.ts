@@ -3,6 +3,7 @@
 
 import { Router } from 'express';
 import health from './health.routes.js';
+import authKeys from './auth.routes.js';
 import settings from './settings.routes.js';
 import catalog from './catalog.routes.js';
 import system from './system.routes.js';
@@ -32,10 +33,14 @@ import mcpServers from './mcpServers.routes.js';
 import { personalityRouter } from './personality.routes.js';
 import videoboard from './videoboard.routes.js';
 import characters from './characters.routes.js';
+import openapi from './openapi.routes.js';
+import gpu from './gpu.routes.js';
+import llm from './llm.routes.js';
 
 const router = Router();
 
 router.use(health);
+router.use(authKeys);
 router.use(settings);
 router.use(catalog);
 router.use(system);
@@ -65,5 +70,8 @@ router.use(mcpServers);            // /api/mcp/servers and /api/mcp/profiles
 router.use(personalityRouter);
 router.use(videoboard);
 router.use(characters);
+router.use(openapi);
+router.use(gpu);
+router.use(llm);
 
 export default router;

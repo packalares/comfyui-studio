@@ -9,6 +9,7 @@
 //   Retry-After header set to the window remainder in seconds.
 
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
+import { RateLimitError } from '../lib/errors.js';
 
 interface Bucket { count: number; resetAt: number }
 
@@ -52,7 +53,7 @@ export function rateLimit(opts: RateLimitOpts): RequestHandler {
     if (bucket.count > opts.max) {
       const retryAfterSec = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
       res.setHeader('Retry-After', String(retryAfterSec));
-      res.status(429).json({ error: 'rate_limit', detail: 'retry later' });
+      next(new RateLimitError('Rate limit exceeded'));
       return;
     }
     next();

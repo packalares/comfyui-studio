@@ -1,77 +1,87 @@
 // Canonical shapes for the model catalog. Services and routes import from
 // here; no other file should re-declare these interfaces.
 
-export type FileStatus = 'complete' | 'incomplete' | 'corrupt' | null;
+import { z } from 'zod';
 
-/** Host family for a catalog URL source. Lower priority value = preferred. */
+export type FileStatus = 'complete' | 'incomplete' | 'corrupt' | null;
 export type UrlHost = 'hf' | 'civitai' | 'github' | 'generic';
 
-/**
- * One declared download URL for a catalog row. Multiple sources accumulate as
- * different code paths discover URLs for the same filename — seed (model-list),
- * template imports, manual user resolution, etc. The list is dedup-merged and
- * sorted by host priority so the legacy `url` field always reflects the
- * highest-priority URL the catalog has seen.
- */
-export interface UrlSource {
-  url: string;
-  host: UrlHost;
+export const UrlHostSchema = z.enum(['hf', 'civitai', 'github', 'generic']);
+
+export const UrlSourceSchema = z.object({
+  url: z.string(),
+  host: UrlHostSchema,
   /** Discovery context: 'seed' | 'template:<name>' | 'user' | 'manual' | 'scan'. */
-  declaredBy: string;
-}
+  declaredBy: z.string(),
+});
+export type UrlSource = z.infer<typeof UrlSourceSchema>;
 
-/** A single catalog entry, keyed globally by `filename`. */
-export interface CatalogModel {
-  filename: string;
-  name: string;
-  type: string;
-  base?: string;
-  save_path: string;
-  description?: string;
-  reference?: string;
-  /**
-   * Legacy single-URL field — kept populated for backwards compatibility with
-   * every existing reader. Mirrors `urlSources[0].url` after sort.
-   */
-  url: string;
-  /**
-   * Append-only list of all discovered URLs for this filename, sorted by host
-   * priority (hf=0, civitai=1, github=2, generic=3). Migrations synthesize a
-   * single entry from legacy `url` when this field is absent.
-   */
-  urlSources?: UrlSource[];
-  size_pretty: string;
-  size_bytes: number;
-  size_fetched_at: string | null;
-  gated?: boolean;
-  gated_message?: string;
-  /** Where this entry was first discovered: 'comfyui' seed, 'template:<name>', 'user', or 'scan'. */
-  source: string;
-  /** Optional preview image URL (populated at download-start from card metadata). */
-  thumbnail?: string;
-  /** In-flight download marker. Set true at download-start; cleared on completion. */
-  downloading?: boolean;
-  /** Last download failure message. Cleared when a subsequent download starts. */
-  error?: string;
-  /**
-   * Optional HuggingFace repo id ("<owner>/<repo>") for multi-file models.
-   * When set, the install path uses `downloadHfRepo` (fetches the entire repo
-   * into `save_path`) instead of the single-file URL walker. The `filename`
-   * field is still used for install-status detection by checking whether
-   * `<save_path>/<filename>` exists on disk.
-   */
-  hfRepo?: string;
-  /** Set by canonicalize when the row's save_path references a folder that
-   *  isn't currently registered by any custom_node (folder kind = 'unregistered').
-   *  UI surfaces this as "waiting for custom_node X" rather than treating
-   *  the row as broken. Cleared on next canonicalize pass once the node is
-   *  installed and the folder appears in ComfyUI's API. */
-  pendingNodeInstall?: boolean;
-}
+export const CatalogModelSchema = z.object({
+  filename: z.string(),
+  name: z.string(),
+  type: z.string(),
+  base: z.string().optional(),
+  save_path: z.string(),
+  description: z.string().optional(),
+  reference: z.string().optional(),
+  url: z.string(),
+  urlSources: z.array(UrlSourceSchema).optional(),
+  size_pretty: z.string(),
+  size_bytes: z.number(),
+  size_fetched_at: z.string().nullable(),
+  gated: z.boolean().optional(),
+  gated_message: z.string().optional(),
+  source: z.string(),
+  thumbnail: z.string().optional(),
+  downloading: z.boolean().optional(),
+  error: z.string().optional(),
+  hfRepo: z.string().optional(),
+  pendingNodeInstall: z.boolean().optional(),
+});
+export type CatalogModel = z.infer<typeof CatalogModelSchema>;
 
-/** Catalog entry augmented with on-disk state from the launcher scan. */
-export interface MergedModel extends CatalogModel {
-  installed: boolean;
-  fileSize?: number;
-  fileStatus?: FileStatus;
-}
+export const MergedModelSchema = CatalogModelSchema.extend({
+  installed: z.boolean(),
+  fileSize: z.number().optional(),
+  fileStatus: z.enum(['complete', 'incomplete', 'corrupt']).nullable().optional(),
+});
+export type MergedModel = z.infer<typeof MergedModelSchema>;
+
+export const CatalogStatsSchema = z.object({
+  installedCount: z.number().int().nonnegative(),
+  available: z.number().int().nonnegative(),
+  totalDiskSize: z.number().int().nonnegative(),
+  types: z.array(z.string()),
+});
+export type CatalogStats = z.infer<typeof CatalogStatsSchema>;
+
+// Route specs — exported here (not from routes/) so the UI client can import
+// them without dragging Express/multer into the browser bundle.
+
+const CatalogListQuerySchema = z.object({
+  page: z.coerce.number().int().positive().optional(),
+  pageSize: z.coerce.number().int().positive().max(500).optional(),
+  q: z.string().optional(),
+  type: z.string().optional(),
+  installed: z.enum(['true', 'false']).optional(),
+});
+
+export const catalogRoutes = {
+  list: {
+    method: 'GET' as const,
+    path: '/models/catalog',
+    query: CatalogListQuerySchema,
+    response: z.array(MergedModelSchema),
+    auth: { required: true, scopes: ['catalog:read'] as const },
+    tags: ['catalog'],
+    summary: 'Merged catalog + disk scan view',
+  },
+  stats: {
+    method: 'GET' as const,
+    path: '/models/stats',
+    response: CatalogStatsSchema,
+    auth: { required: true, scopes: ['catalog:read'] as const },
+    tags: ['catalog'],
+    summary: 'Installed count, disk usage, and distinct types',
+  },
+} as const;

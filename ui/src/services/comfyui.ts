@@ -23,6 +23,10 @@ import type {
   CivitaiDirectResponse,
   InstallMissingPluginsResult,
 } from '../types';
+import { apiCall, apiCallPaginated, type ApiCallPaginatedOutput } from '../api/client';
+import { catalogRoutes } from '@server/contracts/catalog.contract';
+import { modelsRoutes } from '@server/contracts/models.contract';
+import { chatRoutes } from '@server/contracts/chat.contract';
 
 const BASE = '/api';
 
@@ -105,7 +109,20 @@ export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> 
       } catch { /* non-JSON body */ }
       throw new ApiError(res.status, msg, data);
     }
-    return res.json();
+    const body = await res.json();
+    // Auto-unwrap the canonical `{data, meta?}` envelope so legacy callers
+    // that pre-date defineRoute continue to receive the raw payload shape.
+    // For paginated responses the unwrap re-shapes `{data: items, meta}` into
+    // `{items, page, pageSize, total, hasMore}` — the legacy PageEnvelope.
+    if (body && typeof body === 'object' && 'data' in body) {
+      const d = (body as { data: unknown; meta?: unknown }).data;
+      const m = (body as { meta?: unknown }).meta;
+      if (m && typeof m === 'object' && Array.isArray(d)) {
+        return { items: d, ...(m as object) } as unknown as T;
+      }
+      return d as T;
+    }
+    return body as T;
   })();
   if (method === 'GET') {
     inflightGets.set(url, promise);
@@ -282,77 +299,77 @@ export interface PersonalityItemDetail {
 }
 
 export const api = {
-  // Unified settings writer. The `key` segment (`secret` | `chat` | `tools`)
-  // selects the body shape and the server-side dispatcher. Reads for chat +
-  // tools live on `GET /system`; secret values never leave the server.
-  updateSettings: <K extends keyof SettingsPatchByKey>(
+  // Unified settings writer. Routes return canonical { data: T } envelope.
+  updateSettings: async <K extends keyof SettingsPatchByKey>(
     key: K,
     patch: SettingsPatchByKey[K],
-  ) =>
-    fetchJson<SettingsResponseByKey[K]>(`/settings/${key}`, {
+  ) => {
+    type R = SettingsResponseByKey[K];
+    const envelope = await fetchJson<{ data?: R } | R>(`/settings/${key}`, {
       method: 'PUT',
       body: JSON.stringify(patch),
-    }),
+    });
+    return ((envelope as { data?: R }).data ?? envelope) as R;
+  },
 
-  // DELETE only supports `secret` today (other keys → 405). `name` selects
-  // which secret to clear; status flags refresh via the next `GET /system`.
-  deleteSetting: (key: 'secret', name: SecretName) =>
-    fetchJson<{ configured: boolean }>(
+  // DELETE /settings/secret?name= — clears a named secret.
+  deleteSetting: async (key: 'secret', name: SecretName) => {
+    const envelope = await fetchJson<{ data?: { configured: boolean } } | { configured: boolean }>(
       `/settings/${key}?name=${encodeURIComponent(name)}`,
       { method: 'DELETE' },
-    ),
+    );
+    return ((envelope as { data?: { configured: boolean } }).data ?? envelope) as { configured: boolean };
+  },
 
-  // Validate an Ollama or SearXNG URL without persisting it. Both probe
-  // shapes share `{ ok, count?, error? }` so the Settings cards can render
-  // the result with a single helper.
-  probe: (type: ProbeType, url: string) =>
-    fetchJson<ProbeResult>('/settings/probe', {
+  // Validate an Ollama or SearXNG URL without persisting it.
+  probe: async (type: ProbeType, url: string) => {
+    const envelope = await fetchJson<{ data?: ProbeResult } | ProbeResult>('/settings/probe', {
       method: 'POST',
       body: JSON.stringify({ type, url }),
-    }),
+    });
+    return ((envelope as { data?: ProbeResult }).data ?? envelope) as ProbeResult;
+  },
 
-  getSystemStats: () => fetchJson<SystemStats & {
-    queue?: QueueStatus | null;
-    comfyuiConnected?: boolean;
-    network?: NetworkConfigView | null;
-    chat?: ChatSettingsView;
-    personality?: PersonalitySummary;
-    gallery?: { total: number; recent: GalleryItem[] };
-    summary?: DashboardSummary;
-    apiKeyConfigured?: boolean;
-    hfTokenConfigured?: boolean;
-    civitaiTokenConfigured?: boolean;
-    githubTokenConfigured?: boolean;
-    pexelsApiKeyConfigured?: boolean;
-    uploadMaxBytes?: number;
-  }>('/system'),
+  getSystemStats: async () => {
+    type SystemPayload = SystemStats & {
+      queue?: QueueStatus | null;
+      comfyuiConnected?: boolean;
+      network?: NetworkConfigView | null;
+      chat?: ChatSettingsView;
+      personality?: PersonalitySummary;
+      gallery?: { total: number; recent: GalleryItem[] };
+      summary?: DashboardSummary;
+      apiKeyConfigured?: boolean;
+      hfTokenConfigured?: boolean;
+      civitaiTokenConfigured?: boolean;
+      githubTokenConfigured?: boolean;
+      pexelsApiKeyConfigured?: boolean;
+      uploadMaxBytes?: number;
+    };
+    // Server wraps in { data: {...} } — unwrap the canonical envelope.
+    const envelope = await fetchJson<{ data?: SystemPayload } | SystemPayload>('/system');
+    return ((envelope as { data?: SystemPayload }).data ?? envelope) as SystemPayload;
+  },
 
   /** @deprecated `/api/templates` is now always paginated. Use
    *  `getTemplatesList()` for the slim bootstrap, `getTemplatesPaged()` for
    *  the Explore grid, or `getTemplateBundle(name)` for one full template. */
   getTemplates: () => fetchJson<PageEnvelope<Template>>('/templates'),
 
-  /** Slim summaries — the AppContext bootstrap shape. Drops workflow JSON,
-   *  formInputs, io, models[]/plugins[], etc. The 8 fields it ships
-   *  (tags + category included) are enough for client-side aggregation in
-   *  Explore + the picker dropdowns. No separate stats endpoint needed. */
-  getTemplatesList: () => fetchJson<TemplateSummary[]>('/templates/list'),
+  /** Slim summaries — the AppContext bootstrap shape. */
+  getTemplatesList: async () => {
+    const env = await fetchJson<{ data?: TemplateSummary[] } | TemplateSummary[]>('/templates/list');
+    return ((env as { data?: TemplateSummary[] }).data ?? env) as TemplateSummary[];
+  },
 
   /** GET /templates?page=&pageSize=&category=&tags=&q=&source=&ready= — paginated templates. */
-  getTemplatesPaged: (
+  getTemplatesPaged: async (
     page: number,
     pageSize: number,
     opts: {
       q?: string;
       category?: string;
       tags?: string[];
-      /**
-       * `open`      – open-source ComfyUI templates only (openSource !== false).
-       * `api`       – API-node workflows requiring an external key.
-       * `user`      – user-imported workflows (category === 'User Workflows').
-       * `favorites` – only templates the user pinned (templates.favorite = 1).
-       * `all`       – no filter.
-       */
       source?: 'all' | 'open' | 'api' | 'user' | 'favorites';
       ready?: 'all' | 'yes' | 'no';
     } = {},
@@ -363,21 +380,33 @@ export const api = {
     if (opts.tags && opts.tags.length > 0) extra.tags = opts.tags.join(',');
     if (opts.source && opts.source !== 'all') extra.source = opts.source;
     if (opts.ready && opts.ready !== 'all') extra.ready = opts.ready;
-    return fetchJson<PageEnvelope<Template>>(`/templates?${buildPagedQuery({ page, pageSize, extra })}`);
+    const env = await fetchJson<{ data?: PageEnvelope<Template> } | PageEnvelope<Template>>(
+      `/templates?${buildPagedQuery({ page, pageSize, extra })}`,
+    );
+    return ((env as { data?: PageEnvelope<Template> }).data ?? env) as PageEnvelope<Template>;
   },
 
   /** PATCH /templates/:name/favorite — pin / unpin a template. */
-  setTemplateFavorite: (name: string, favorite: boolean) =>
-    fetchJson<{ name: string; favorite: boolean }>(
+  setTemplateFavorite: async (name: string, favorite: boolean) => {
+    type R = { name: string; favorite: boolean };
+    const env = await fetchJson<{ data?: R } | R>(
       `/templates/${encodeURIComponent(name)}/favorite`,
       { method: 'PATCH', body: JSON.stringify({ favorite }) },
-    ),
+    );
+    return ((env as { data?: R }).data ?? env) as R;
+  },
 
-  generate: (templateName: string, inputs: Record<string, unknown>, advancedSettings?: Record<string, { proxyIndex: number; value: unknown }>) =>
-    fetchJson<{ prompt_id: string }>('/generate', {
+  generate: async (templateName: string, inputs: Record<string, unknown>, advancedSettings?: Record<string, { proxyIndex: number; value: unknown }>) => {
+    // Server now wraps in { data: { promptId, ... } }. Unwrap and re-expose
+    // prompt_id for backward-compat with callers that read result.prompt_id.
+    const envelope = await fetchJson<{ data?: { promptId?: string } } | { promptId?: string; prompt_id?: string }>('/generate', {
       method: 'POST',
       body: JSON.stringify({ templateName, inputs, advancedSettings }),
-    }),
+    });
+    const inner = (envelope as { data?: Record<string, unknown> }).data ?? (envelope as Record<string, unknown>);
+    const promptId = (inner as { promptId?: string }).promptId ?? (inner as { prompt_id?: string }).prompt_id ?? '';
+    return { ...inner, promptId, prompt_id: promptId } as { prompt_id: string; promptId: string; [k: string]: unknown };
+  },
 
   getWorkflowSettings: (templateName: string) =>
     fetchJson<{ settings: AdvancedSetting[] }>(`/workflow-settings/${encodeURIComponent(templateName)}`),
@@ -539,79 +568,49 @@ export const api = {
       body: JSON.stringify({ templateName }),
     }),
 
-  /** New unified catalog merged with disk scan. Prefer this for the Models page. */
-  getModelsCatalog: () => fetchJson<CatalogModel[]>('/models/catalog'),
+  /** Merged catalog + disk scan. No `?page=` — returns full flat array. */
+  getModelsCatalog: () =>
+    apiCall(catalogRoutes.list, { query: {} }),
 
-  /** Sidebar aggregates — installed count, disk usage, distinct types. Drops
-   *  the need to fetch the full catalog client-side just for these numbers. */
-  getModelsStats: () => fetchJson<{
-    installedCount: number;
-    available: number;
-    totalDiskSize: number;
-    types: string[];
-  }>('/models/stats'),
+  /** Sidebar aggregates — installed count, disk usage, distinct types. */
+  getModelsStats: () =>
+    apiCall(catalogRoutes.stats, {}),
 
   /** GET /models/catalog?page=&pageSize=&q=&type=&installed= — paginated catalog. */
   getModelsCatalogPaged: (
     page: number,
     pageSize: number,
     opts: { q?: string; types?: string[]; installed?: boolean | null } = {},
-  ) => {
-    const extra: Record<string, string> = {};
-    if (opts.q) extra.q = opts.q;
-    if (opts.types && opts.types.length > 0) extra.type = opts.types.join(',');
-    if (opts.installed === true) extra.installed = 'true';
-    else if (opts.installed === false) extra.installed = 'false';
-    return fetchJson<PageEnvelope<CatalogModel>>(`/models/catalog?${buildPagedQuery({ page, pageSize, extra })}`);
+  ): Promise<ApiCallPaginatedOutput<typeof catalogRoutes.list>> => {
+    const query: { page: number; pageSize: number; q?: string; type?: string; installed?: 'true' | 'false' } = { page, pageSize };
+    if (opts.q) query.q = opts.q;
+    if (opts.types && opts.types.length > 0) query.type = opts.types.join(',');
+    if (opts.installed === true) query.installed = 'true';
+    else if (opts.installed === false) query.installed = 'false';
+    return apiCallPaginated(catalogRoutes.list, { query });
   },
 
   scanModels: () =>
-    fetchJson<{ success: boolean; count: number }>('/models/scan', { method: 'POST' }),
+    apiCall(modelsRoutes.scan, {}),
 
   rescanModelIndex: () =>
-    fetchJson<{ added: number; removed: number; total: number }>('/models/rescan', { method: 'POST' }),
+    apiCall(modelsRoutes.rescan, {}),
 
   getRegisteredFolders: () =>
-    fetchJson<string[]>('/models/folders'),
+    apiCall(modelsRoutes.folders, {}),
 
   installModel: (modelName: string) =>
-    fetchJson<{ success: boolean; taskId: string; message?: string }>(`/models/install/${encodeURIComponent(modelName)}`, {
-      method: 'POST',
-    }),
+    apiCall(modelsRoutes.install, { params: { modelName }, body: {} }),
 
   cancelDownload: (taskId: string) =>
-    fetchJson<void>('/models/cancel-download', {
-      method: 'POST',
-      body: JSON.stringify({ taskId }),
-    }),
+    apiCall(modelsRoutes.cancelDownload, { body: { taskId } }),
 
-  deleteModel: (body: Record<string, unknown>) =>
-    fetchJson<void>('/models/delete', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
+  deleteModel: (modelName: string) =>
+    apiCall(modelsRoutes.deleteModel, { body: { modelName } }),
 
-  /**
-   * Kick off a unified download. `opts.meta` is optional; when supplied it
-   * pre-populates the catalog so the Models page shows the row with rich
-   * metadata + a "Downloading" badge immediately, instead of waiting for
-   * the disk scan to pick up the file on completion.
-   */
-  /**
-   * Download a whole HuggingFace repo (used by custom-node entries whose
-   * weights are a multi-file package — IndexTTS2 etc.). Server shells out
-   * to `huggingface-cli download`. Hooks into the same task/progress WS
-   * system as single-file downloads, so the DependencyModal progress bar
-   * reuses the existing wire-up.
-   */
+  /** Download a whole HuggingFace repo snapshot. */
   downloadHfRepo: (hfRepo: string, directory: string, name?: string) =>
-    fetchJson<{ success: boolean; taskId: string; modelName: string }>(
-      '/models/download-hf-repo',
-      {
-        method: 'POST',
-        body: JSON.stringify({ hfRepo, directory, name }),
-      },
-    ),
+    apiCall(modelsRoutes.downloadHfRepo, { body: { hfRepo, directory, name } }),
 
   downloadCustomModel: (
     hfUrl: string,
@@ -630,71 +629,69 @@ export const api = {
       };
     },
   ) =>
-    fetchJson<{ success: boolean; taskId?: string; alreadyActive?: boolean; message?: string }>('/models/download-custom', {
-      method: 'POST',
-      body: JSON.stringify({
-        hfUrl,
-        modelDir,
-        modelName: opts?.modelName,
-        filename: opts?.filename,
-        meta: opts?.meta,
-      }),
+    apiCall(modelsRoutes.downloadCustom, {
+      body: { hfUrl, modelDir, modelName: opts?.modelName, filename: opts?.filename, meta: opts?.meta },
     }),
 
   /** GET /models/download-history?page=&pageSize= — paginated download history. */
-  getDownloadHistoryPaged: (page: number, pageSize: number) =>
-    fetchJson<PageEnvelope<Record<string, unknown>> & { success: boolean; count: number }>(
-      `/models/download-history?${buildPagedQuery({ page, pageSize })}`,
-    ),
+  getDownloadHistoryPaged: (page: number, pageSize: number): Promise<ApiCallPaginatedOutput<typeof modelsRoutes.downloadHistory>> =>
+    apiCallPaginated(modelsRoutes.downloadHistory, { query: { page, pageSize } }),
 
   clearDownloadHistory: () =>
-    fetchJson<Record<string, unknown>>('/models/download-history/clear', {
-      method: 'POST',
-    }),
+    apiCall(modelsRoutes.downloadHistoryClear, {}),
 
   deleteDownloadHistoryEntry: (id: string) =>
-    fetchJson<Record<string, unknown>>('/models/download-history/delete', {
-      method: 'POST',
-      body: JSON.stringify({ id }),
-    }),
+    apiCall(modelsRoutes.downloadHistoryDelete, { body: { id } }),
 
   // ---- Launcher process control ----
+  // All lifecycle routes use defineRoute and return { data: T } — unwrap inline.
 
-  startComfyUI: () => fetchJson<{ status: string }>('/start', { method: 'POST' }),
-
-  stopComfyUI: () => fetchJson<{ status: string }>('/stop', { method: 'POST' }),
-
-  restartComfyUI: () => fetchJson<{ status: string }>('/restart', { method: 'POST' }),
-
-  getComfyUILogs: () => fetchJson<{ logs: string }>('/comfyui/logs'),
-
-  /**
-   * POST /comfyui/interrupt — stop the currently-executing prompt. Proxies
-   * ComfyUI's `POST /interrupt`. Returns `{ ok: true }` on upstream 2xx;
-   * throws on non-ok so the caller can toast the failure.
-   */
-  interruptExecution: () =>
-    fetchJson<{ ok: true }>('/comfyui/interrupt', { method: 'POST' }),
-
-  /**
-   * POST /comfyui/queue/delete — remove a pending prompt from ComfyUI's
-   * queue by id. Body `{ promptId }`. Proxies ComfyUI's `POST /queue` with
-   * `{ delete: [promptId] }`.
-   */
-  cancelQueuedPrompt: (promptId: string) =>
-    fetchJson<{ ok: true }>('/comfyui/queue/delete', {
+  startComfyUI: async () => {
+    type R = { success: boolean; status?: string; message?: string };
+    const env = await fetchJson<{ data?: R } | R>('/start', { method: 'POST' });
+    return ((env as { data?: R }).data ?? env) as R;
+  },
+  stopComfyUI: async () => {
+    type R = { success: boolean; status?: string; message?: string };
+    const env = await fetchJson<{ data?: R } | R>('/stop', { method: 'POST' });
+    return ((env as { data?: R }).data ?? env) as R;
+  },
+  restartComfyUI: async () => {
+    type R = { success: boolean; status?: string; message?: string };
+    const env = await fetchJson<{ data?: R } | R>('/restart', { method: 'POST' });
+    return ((env as { data?: R }).data ?? env) as R;
+  },
+  getComfyUILogs: async () => {
+    type R = { logs: string[] };
+    const env = await fetchJson<{ data?: R } | R>('/comfyui/logs');
+    return ((env as { data?: R }).data ?? env) as R;
+  },
+  interruptExecution: async () => {
+    type R = { ok: true };
+    const env = await fetchJson<{ data?: R } | R>('/comfyui/interrupt', { method: 'POST' });
+    return ((env as { data?: R }).data ?? env) as R;
+  },
+  cancelQueuedPrompt: async (promptId: string) => {
+    type R = { ok: true };
+    const env = await fetchJson<{ data?: R } | R>('/comfyui/queue/delete', {
       method: 'POST',
       body: JSON.stringify({ promptId }),
-    }),
-
-  resetComfyUI: (mode: 'normal' | 'hard' = 'normal') =>
-    fetchJson<{ success: boolean; message: string; logs?: string[] }>('/comfyui/reset', {
+    });
+    return ((env as { data?: R }).data ?? env) as R;
+  },
+  resetComfyUI: async (mode: 'normal' | 'hard' = 'normal') => {
+    type R = { success: boolean; message: string; logs?: string[] };
+    const env = await fetchJson<{ data?: R } | R>('/comfyui/reset', {
       method: 'POST',
       body: JSON.stringify({ mode }),
-    }),
-
-  getResetLogs: () =>
-    fetchJson<{ logs: string[]; message?: string }>('/comfyui/reset-logs'),
+    });
+    return ((env as { data?: R }).data ?? env) as R;
+  },
+  getResetLogs: async () => {
+    type R = { logs: string[]; message?: string };
+    const env = await fetchJson<{ data?: R } | R>('/comfyui/reset-logs');
+    return ((env as { data?: R }).data ?? env) as R;
+  },
 
   // ---- Settings endpoints ----
 
@@ -715,8 +712,9 @@ export const api = {
   // Single dispatch helper for every network-config write. The server's
   // `POST /system/:key` route maps each key to a configurator setter; the
   // UI just ships `{ value }` and the type matches the matching setter.
+  // Response is now canonical { data: { success, message, data } }.
   setSystemConfig: (key: string, value: unknown) =>
-    fetchJson<{ code: number; message: string; data: unknown }>(
+    fetchJson<{ data: { success: boolean; message: string; data: unknown } }>(
       `/system/${encodeURIComponent(key)}`,
       { method: 'POST', body: JSON.stringify({ value }) },
     ),
@@ -1125,11 +1123,13 @@ export const api = {
    * plugin the template requires that isn't already on disk. Returns per-repo
    * task ids the UI can subscribe to via `/plugins/progress/:taskId`.
    */
-  installMissingPlugins: (templateName: string) =>
-    fetchJson<InstallMissingPluginsResult>(
+  installMissingPlugins: async (templateName: string) => {
+    const env = await fetchJson<{ data?: InstallMissingPluginsResult } | InstallMissingPluginsResult>(
       `/templates/${encodeURIComponent(templateName)}/install-missing-plugins`,
       { method: 'POST' },
-    ),
+    );
+    return ((env as { data?: InstallMissingPluginsResult }).data ?? env) as InstallMissingPluginsResult;
+  },
 
   /** GET /thumbnail/stats — thumbnail cache summary for the Storage settings row. */
   getThumbnailStats: () =>
@@ -1145,6 +1145,8 @@ export const api = {
     fetchJson<{ deleted: number }>('/thumbnail/cache', { method: 'DELETE' }),
 
   // ---- Chat / LLM (Ollama) ----
+  // CRUD endpoints use apiCall(chatRoutes.X, input) for typed envelopes.
+  // Model management (installModel, pullModel, etc.) stays on fetchJson.
 
   chat: {
     /** Kick off a streaming chat completion. Returns conversationId + msgId. */
@@ -1152,107 +1154,57 @@ export const api = {
       conversationId?: string;
       model?: string;
       messages: ChatUIMessage[];
-      /** Soul slug to bind the conversation to. Server resolves the system
-       *  prompt from this on every turn. Omit to use the default soul. */
       soulName?: string | null;
-      /** Optional allow-list of tool names (e.g. ['web_search']). Omit to use
-       *  every configured tool. Empty array disables tools for this turn. */
       enabledTools?: string[] | null;
-      /** Pre-chat overrides surfaced by the model + context-settings popovers.
-       *  Honored only when creating a fresh conversation; ignored when target-
-       *  ing an existing conversationId. Server falls back to global defaults
-       *  for any field left undefined here. */
       initialContextStrategy?: ChatContextStrategy;
       initialThinkMode?: 'on' | 'off' | null;
       initialNumCtx?: number | null;
       initialTemperature?: number | null;
       initialFormat?: 'json' | null;
     }) =>
-      fetchJson<{ conversationId: string; msgId: string }>('/chat/start', {
-        method: 'POST',
-        body: JSON.stringify(payload),
+      apiCall(chatRoutes.start, {
+        body: {
+          ...payload,
+          messages: payload.messages as unknown as { id: string; role: 'user' | 'assistant' | 'system'; parts: Record<string, unknown>[] }[],
+        },
       }),
 
     stop: (msgId: string) =>
-      fetchJson<{ aborted: boolean }>(
-        `/chat/stop/${encodeURIComponent(msgId)}`,
-        { method: 'POST' },
-      ),
+      apiCall(chatRoutes.stop, { params: { msgId } }),
 
-    listConversations: (opts?: { limit?: number; offset?: number; q?: string }) => {
-      const params = new URLSearchParams();
-      if (opts?.limit !== undefined) params.set('limit', String(opts.limit));
-      if (opts?.offset !== undefined) params.set('offset', String(opts.offset));
-      if (opts?.q) params.set('q', opts.q);
-      const qs = params.toString();
-      return fetchJson<{
-        items: ChatConversation[]; total: number; hasMore: boolean;
-      }>(`/chat/conversations${qs ? `?${qs}` : ''}`);
+    listConversations: (opts?: { page?: number; pageSize?: number; limit?: number; offset?: number; q?: string }) => {
+      const pageSize = opts?.pageSize ?? opts?.limit ?? 20;
+      const page = opts?.page ?? (opts?.offset !== undefined ? Math.floor(opts.offset / pageSize) + 1 : 1);
+      return apiCall(chatRoutes.listConversations, {
+        query: { page, pageSize, q: opts?.q },
+      }).then((items) => ({ items, total: items.length, hasMore: false }));
     },
 
-    /** Fetch one conv. Pass `model` to also receive `usage` computed against
-     *  that model — saves a separate /usage round-trip on hydrate. */
-    getConversation: (id: string, model?: string) => {
-      const qs = model ? `?model=${encodeURIComponent(model)}` : '';
-      return fetchJson<ChatConversation>(
-        `/chat/conversations/${encodeURIComponent(id)}${qs}`,
-      );
-    },
+    getConversation: (id: string, model?: string) =>
+      apiCall(chatRoutes.getConversation, { params: { id }, query: { model } }),
 
-    /** Cursor-paginated message fetch.
-     *  - `limit` clamps server-side to 1..200 (default 50 if omitted).
-     *  - `before` is a message id; the page returned is strictly older
-     *    than that id, ordered ASC. Items also come back ASC within a
-     *    page so callers can append/prepend by id directly.
-     *  - `oldestId` is the cursor for the next call; null when items=[].
-     */
-    getMessages: (
-      id: string,
-      opts?: { limit?: number; before?: string },
-    ) => {
-      const params = new URLSearchParams();
-      if (opts?.limit !== undefined) params.set('limit', String(opts.limit));
-      if (opts?.before) params.set('before', opts.before);
-      const qs = params.toString() ? `?${params.toString()}` : '';
-      return fetchJson<{
-        items: ChatMessage[];
-        hasMore: boolean;
-        oldestId: string | null;
-      }>(
-        `/chat/conversations/${encodeURIComponent(id)}/messages${qs}`,
-      );
-    },
+    getMessages: (id: string, opts?: { limit?: number; before?: string }) =>
+      apiCall(chatRoutes.getMessages, {
+        params: { id },
+        query: { limit: opts?.limit, before: opts?.before },
+      }).then((r) => ({ ...r, items: r.items as unknown as ChatMessage[] })),
 
     deleteConversation: (id: string) =>
-      fetchJson<{ deleted: boolean; id: string }>(
-        `/chat/conversations/${encodeURIComponent(id)}`,
-        { method: 'DELETE' },
-      ),
+      apiCall(chatRoutes.deleteConversation, { params: { id } }),
 
-    /** Wipe every conversation for the current user. */
-    deleteAllConversations: () =>
-      fetchJson<{ deleted: number }>(
-        '/chat/conversations',
-        { method: 'DELETE' },
-      ),
+    deleteAllConversations: () => apiCall(chatRoutes.deleteAllConversations, {}),
 
-    /** Drop a single message row. Used by the per-message Trash action in
-     *  the thread. Server validates the conversation/message pair so a stale
-     *  client can't delete from the wrong chat. */
     deleteMessage: (conversationId: string, msgId: string) =>
-      fetchJson<{ deleted: boolean; id: string; msgId: string }>(
-        `/chat/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(msgId)}`,
-        { method: 'DELETE' },
-      ),
+      apiCall(chatRoutes.deleteMessage, { params: { id: conversationId, msgId } }),
 
     renameConversation: (
       id: string,
-      patch: Partial<{ title: string; model: string; soul_name: string | null; pinned: boolean }>,
-    ) =>
-      fetchJson<ChatConversation>(
-        `/chat/conversations/${encodeURIComponent(id)}`,
-        { method: 'PATCH', body: JSON.stringify(patch) },
-      ),
+      patch: Partial<{
+        title: string; model: string; soul_name: string | null; pinned: boolean;
+        context_strategy: ChatContextStrategy; num_ctx: number | null;
+        think_mode: 'on' | 'off' | null; temperature: number | null; format: 'json' | null;
+      }>,
+    ) => apiCall(chatRoutes.patchConversation, { params: { id }, body: patch }),
 
     listInstalledModels: () =>
       fetchJson<{ models?: OllamaInstalledModel[] }>('/chat/models'),
@@ -1311,76 +1263,44 @@ export const api = {
         `/chat/models/search-hf?q=${encodeURIComponent(q)}`,
       ),
 
-    /** GET /chat/conversations/:id/usage — current context-window usage state. */
-    getUsage: (conversationId: string, model: string, pending = '') => {
-      const qs = new URLSearchParams();
-      if (model) qs.set('model', model);
-      if (pending) qs.set('pending', pending);
-      return fetchJson<ChatUsageState>(
-        `/chat/conversations/${encodeURIComponent(conversationId)}/usage?${qs.toString()}`,
-      );
-    },
+    getUsage: (conversationId: string, model: string, pending = '') =>
+      apiCall(chatRoutes.getUsage, {
+        params: { id: conversationId },
+        query: { model: model || undefined, pending: pending || undefined },
+      }),
 
-    /** POST /chat/conversations/:id/compact — manual summarization. */
     compactConversation: (conversationId: string) =>
-      fetchJson<{ ok: true; summary: string }>(
-        `/chat/conversations/${encodeURIComponent(conversationId)}/compact`,
-        { method: 'POST' },
-      ),
+      apiCall(chatRoutes.compact, { params: { id: conversationId } }),
 
-    /** PATCH /chat/conversations/:id with `{ context_strategy }` only. */
     setStrategy: (conversationId: string, strategy: ChatContextStrategy) =>
-      fetchJson<ChatConversation>(
-        `/chat/conversations/${encodeURIComponent(conversationId)}`,
-        {
-          method: 'PATCH',
-          body: JSON.stringify({ context_strategy: strategy }),
-        },
-      ),
+      apiCall(chatRoutes.patchConversation, {
+        params: { id: conversationId },
+        body: { context_strategy: strategy },
+      }),
 
-    /** PATCH /chat/conversations/:id with `{ num_ctx }`. Pass `null` to
-     *  clear the override and let Ollama use its built-in default. */
     setNumCtx: (conversationId: string, numCtx: number | null) =>
-      fetchJson<ChatConversation>(
-        `/chat/conversations/${encodeURIComponent(conversationId)}`,
-        {
-          method: 'PATCH',
-          body: JSON.stringify({ num_ctx: numCtx }),
-        },
-      ),
+      apiCall(chatRoutes.patchConversation, {
+        params: { id: conversationId },
+        body: { num_ctx: numCtx },
+      }),
 
-    /** PATCH /chat/conversations/:id with `{ think_mode }`. `null` = let
-     *  the model decide; `'on'` / `'off'` force chain-of-thought on/off. */
     setThinkMode: (conversationId: string, thinkMode: 'on' | 'off' | null) =>
-      fetchJson<ChatConversation>(
-        `/chat/conversations/${encodeURIComponent(conversationId)}`,
-        {
-          method: 'PATCH',
-          body: JSON.stringify({ think_mode: thinkMode }),
-        },
-      ),
+      apiCall(chatRoutes.patchConversation, {
+        params: { id: conversationId },
+        body: { think_mode: thinkMode },
+      }),
 
-    /** PATCH /chat/conversations/:id with `{ temperature }`. `null` =
-     *  Ollama default; numeric values clamped server-side to [0, 2]. */
     setTemperature: (conversationId: string, temperature: number | null) =>
-      fetchJson<ChatConversation>(
-        `/chat/conversations/${encodeURIComponent(conversationId)}`,
-        {
-          method: 'PATCH',
-          body: JSON.stringify({ temperature }),
-        },
-      ),
+      apiCall(chatRoutes.patchConversation, {
+        params: { id: conversationId },
+        body: { temperature },
+      }),
 
-    /** PATCH /chat/conversations/:id with `{ format }`. `null` = free
-     *  text; `'json'` forces Ollama to emit valid JSON. */
     setFormat: (conversationId: string, format: 'json' | null) =>
-      fetchJson<ChatConversation>(
-        `/chat/conversations/${encodeURIComponent(conversationId)}`,
-        {
-          method: 'PATCH',
-          body: JSON.stringify({ format }),
-        },
-      ),
+      apiCall(chatRoutes.patchConversation, {
+        params: { id: conversationId },
+        body: { format },
+      }),
   },
 
   // ---- Personality (souls, skills, commands, edits, memory) ----
@@ -1390,46 +1310,53 @@ export const api = {
   // are for direct refreshes (e.g. after a mutation) and for the small number
   // of consumers that need a single item's full body (not in the summary).
   personality: {
-    /** Read the full personality summary. Used as a manual refresh path; the
-     *  /api/system response carries the same shape under `personality`. */
-    getSummary: () => fetchJson<PersonalitySummary>('/personality'),
-
-    /** Read one item's full body + frontmatter. Type-specific extras
-     *  (`scripts`, `argumentHint`) come through on the same response. */
-    get: (type: PersonalityType, name: string) =>
-      fetchJson<PersonalityItemDetail>(
+    getSummary: async () => {
+      const env = await fetchJson<{ data?: PersonalitySummary } | PersonalitySummary>('/personality');
+      return ((env as { data?: PersonalitySummary }).data ?? env) as PersonalitySummary;
+    },
+    get: async (type: PersonalityType, name: string) => {
+      const env = await fetchJson<{ data?: PersonalityItemDetail } | PersonalityItemDetail>(
         `/personality/${type}/${encodeURIComponent(name)}`,
-      ),
-
-    /** Write body. Valid for soul | skill | command (PUT). */
-    put: (type: 'soul' | 'skill' | 'command', name: string, body: string) =>
-      fetchJson<{ ok: true }>(
+      );
+      return ((env as { data?: PersonalityItemDetail }).data ?? env) as PersonalityItemDetail;
+    },
+    put: async (type: 'soul' | 'skill' | 'command', name: string, body: string) => {
+      type R = { ok: true };
+      const env = await fetchJson<{ data?: R } | R>(
         `/personality/${type}/${encodeURIComponent(name)}`,
         { method: 'PUT', body: JSON.stringify({ body }) },
-      ),
-
-    /** Remove the user-dir override (or reject the pending edit when type='edit'). */
-    delete: (type: PersonalityType, name: string) =>
-      fetchJson<{ ok: true }>(
+      );
+      return ((env as { data?: R }).data ?? env) as R;
+    },
+    delete: async (type: PersonalityType, name: string) => {
+      type R = { ok: true };
+      const env = await fetchJson<{ data?: R } | R>(
         `/personality/${type}/${encodeURIComponent(name)}`,
         { method: 'DELETE' },
-      ),
-
-    /** Apply a pending soul edit. Returns ok=false if the currentSection no
-     *  longer matches the soul body (model proposed a stale diff). */
-    acceptEdit: (id: string) =>
-      fetchJson<{ ok: boolean; soulName?: string }>(
+      );
+      return ((env as { data?: R }).data ?? env) as R;
+    },
+    acceptEdit: async (id: string) => {
+      type R = { ok: boolean; soulName?: string };
+      const env = await fetchJson<{ data?: R } | R>(
         `/personality/edit/${encodeURIComponent(id)}`,
         { method: 'POST', body: JSON.stringify({ action: 'accept' }) },
-      ),
-
-    /** Memory — singleton file, no name dimension. */
-    getMemory: () => fetchJson<{ body: string }>('/personality/memory'),
-    putMemory: (body: string) =>
-      fetchJson<{ ok: true }>('/personality/memory', {
+      );
+      return ((env as { data?: R }).data ?? env) as R;
+    },
+    getMemory: async () => {
+      type R = { body: string };
+      const env = await fetchJson<{ data?: R } | R>('/personality/memory');
+      return ((env as { data?: R }).data ?? env) as R;
+    },
+    putMemory: async (body: string) => {
+      type R = { ok: true };
+      const env = await fetchJson<{ data?: R } | R>('/personality/memory', {
         method: 'PUT',
         body: JSON.stringify({ body }),
-      }),
+      });
+      return ((env as { data?: R }).data ?? env) as R;
+    },
   },
 };
 

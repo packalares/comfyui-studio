@@ -49,10 +49,24 @@ export function getDefaultFrontendVersion(): string {
   return m ? m[1] : 'Comfy-Org/ComfyUI_frontend@v1.42.2';
 }
 
-/** Runtime fallback for CLI_ARGS when env is empty. */
+/** Runtime fallback for CLI_ARGS when env is empty.
+ *  `--normalvram` was removed by ComfyUI mid-2025; normal VRAM is the default. */
 export const DEFAULT_CLI_ARGS_FALLBACK =
-  '--normalvram --disable-xformers --disable-smart-memory --disable-cuda-malloc '
+  '--disable-xformers --disable-smart-memory --disable-cuda-malloc '
   + '--front-end-version Comfy-Org/ComfyUI_frontend@v1.42.2';
+
+/** Flags removed from ComfyUI upstream; ignored if present in env CLI_ARGS
+ *  or in persisted user configs. Updating this set silently drops the flag. */
+const REMOVED_FLAGS = new Set(['--normalvram']);
+
+/** Strip removed flags from a CLI_ARGS-style string, preserving spacing. */
+export function stripRemovedFlags(cliArgs: string): string {
+  return cliArgs
+    .split(/\s+/)
+    .filter((tok) => !REMOVED_FLAGS.has(tok))
+    .join(' ')
+    .trim();
+}
 
 /** Args --listen and --port are fixed in the entrypoint; never emit via CLI. */
 export const FIXED_IN_ENTRYPOINT = new Set(['--listen', '--port']);
@@ -183,7 +197,6 @@ function vramItems(): LaunchOptionItem[] {
   return [
     { key: '--gpu-only', enabled: false, type: 'flag', description: 'Store and run everything on GPU (incl. CLIP)', category: 'vram', order: 100 },
     { key: '--highvram', enabled: false, type: 'flag', description: 'Keep models in GPU memory after use', category: 'vram', order: 101 },
-    { key: '--normalvram', enabled: false, type: 'flag', description: 'Force normal VRAM (overrides auto-lowvram)', category: 'vram', order: 102 },
     { key: '--lowvram', enabled: false, type: 'flag', description: 'Split UNET to lower VRAM usage', category: 'vram', order: 103 },
     { key: '--novram', enabled: false, type: 'flag', description: 'Use when lowvram still insufficient', category: 'vram', order: 104 },
     { key: '--cpu', enabled: false, type: 'flag', description: 'Run everything on CPU (slower)', category: 'vram', order: 105 },
@@ -328,7 +341,7 @@ function applyCliArgsToItems(cliArgs: string, baseItems: LaunchOptionItem[]): La
 }
 
 export function getDefaultConfig(): LaunchOptionsConfig {
-  const envCliArgs = (env.CLI_ARGS || DEFAULT_CLI_ARGS_FALLBACK).trim();
+  const envCliArgs = stripRemovedFlags((env.CLI_ARGS || DEFAULT_CLI_ARGS_FALLBACK).trim());
   const baseItems = buildDefaultItems();
   const seededItems = envCliArgs ? applyCliArgsToItems(envCliArgs, baseItems) : baseItems;
   return {
@@ -445,7 +458,8 @@ export function updateLaunchOptions(payload: Partial<LaunchOptionsConfig>): Laun
 }
 
 export function buildCliArgs(): string[] {
-  return buildExtraArgsArray(readConfig());
+  return buildExtraArgsArray(readConfig())
+    .filter((tok) => !REMOVED_FLAGS.has(tok));
 }
 
 export function buildCliArgsString(): string {

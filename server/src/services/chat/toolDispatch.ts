@@ -53,6 +53,9 @@ export interface ToolDispatchInput {
    *  tool that doesn't opt-in pays nothing — the hook short-circuits to a
    *  resolved Promise. */
   onBeforeTool?: (toolName: string) => Promise<void>;
+  /** GPU-orchestrator hook. Awaited AFTER each tool dispatch to restore Ollama
+   *  residency before the next LLM step. Skipped when async-deferred. */
+  onAfterTool?: (toolName: string) => Promise<void>;
   onToolPart: (part: ToolPart) => void;
   /** Predicate for "this tool's work happens asynchronously after the call
    *  returns and the result carries everything the user needs to see." For
@@ -148,8 +151,13 @@ export async function runToolDispatch(input: ToolDispatchInput): Promise<ToolDis
           content: toContentString(exec.output),
           tool_call_id: callId,
         });
-        if (input.isAsyncDeferred?.(call.function.name, exec.output)) {
+        const isDeferred = input.isAsyncDeferred?.(call.function.name, exec.output) ?? false;
+        if (isDeferred) {
           asyncDeferredHit = true;
+        } else if (input.onAfterTool) {
+          // Restore residency only when the tool returned synchronously — if
+          // async-deferred, ComfyUI still holds the GPU and we're returning early.
+          await input.onAfterTool(call.function.name);
         }
       } else {
         const part: ToolPart = {
@@ -169,6 +177,10 @@ export async function runToolDispatch(input: ToolDispatchInput): Promise<ToolDis
           content: renderPrompt('tool-error-reprompt', { errorMessage: exec.error }),
           tool_call_id: callId,
         });
+        // Restore residency even on tool error so the follow-up LLM step can load.
+        if (input.onAfterTool) {
+          await input.onAfterTool(call.function.name);
+        }
       }
     }
     // Async-deferred tool fired (e.g. `generate_image` queued to ComfyUI).

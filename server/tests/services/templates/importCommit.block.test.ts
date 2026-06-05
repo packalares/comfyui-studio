@@ -85,7 +85,9 @@ describe('validateCommitReady', () => {
     }
   });
 
-  it('blocks when a plugin has zero Manager matches', () => {
+  it('passes when a plugin has zero Manager matches (plugin validation removed)', () => {
+    // validateCommitReady no longer blocks on unresolved plugins — only models
+    // are checked. Unresolved plugins are silently ignored at commit time.
     const staged = stagedFixture([
       {
         entryName: 'a.json', title: 'a', nodeCount: 1,
@@ -94,14 +96,7 @@ describe('validateCommitReady', () => {
         mediaType: 'image', jsonBytes: 0, workflow: { nodes: [] },
       },
     ]);
-    try {
-      validateCommitReady(staged, [0]);
-      throw new Error('should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(CommitBlockedError);
-      const blocked = err as CommitBlockedError;
-      expect(blocked.unresolvedPlugins).toEqual(['UnknownNode']);
-    }
+    expect(() => validateCommitReady(staged, [0])).not.toThrow();
   });
 
   it('deselected unresolved workflow does not block', () => {

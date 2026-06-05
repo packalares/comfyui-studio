@@ -1,55 +1,76 @@
-// Gallery listing — flat array of every generated output the server knows
-// about, backed by the `gallery` sqlite table. Rows land exclusively on
-// `execution_complete` WS events (see `services/gallery.service.ts`) or
-// via the explicit "Import from ComfyUI history" endpoint below. Fails
-// open to an empty list so the dashboard still renders when ComfyUI is
-// unreachable.
-//
-// Delete endpoints:
-//   DELETE /api/gallery/:id           → single delete; 404 when the id is unknown.
-//   DELETE /api/gallery               → bulk delete; body `{ ids: string[] }`.
-// Import + regenerate endpoints (Wave F):
-//   POST /api/gallery/import-from-comfyui → one-shot pull from /api/history.
-//   POST /api/gallery/:id/regenerate      → re-submit the captured workflow.
-// Successful mutations trigger a `gallery` WS broadcast via
-// `setGalleryBroadcaster` in `services/gallery.service.ts`.
+// Gallery routes — list, detail, delete, favorite, import, regenerate.
+// Successful mutations trigger a WS `gallery` broadcast via the service.
 
-import { Router, type Request, type Response } from 'express';
+import { Router } from 'express';
+import { z } from 'zod';
 import * as gallery from '../services/gallery/index.js';
 import { submitPrompt } from '../services/comfyui/api.js';
 import { schedulePromptWatch } from '../services/gallery/sentry.js';
-import { parsePageQuery } from '../lib/pagination.js';
+import { parsePageQuery, splitPaginated, paginate } from '../lib/pagination.js';
 import { randomizeStoredSeeds, extractMetadata, type ApiPrompt } from '../services/gallery/extract.js';
 import type { WorkflowDetail } from '../contracts/generation.contract.js';
+import { defineRoute } from '../lib/defineRoute.js';
+import { NotFoundError, ValidationError, RateLimitError, HttpError } from '../lib/errors.js';
 import { logger } from '../lib/logger.js';
+import {
+  GalleryListItemSchema,
+  GalleryItemSchema,
+  GalleryPageResponseSchema,
+  GalleryByPromptIdsResponseSchema,
+  GalleryFavoriteResponseSchema,
+  GalleryDeleteResultSchema,
+  GalleryBulkDeleteResponseSchema,
+  GalleryImportResponseSchema,
+  GalleryRegenerateResponseSchema,
+  GalleryListQuerySchema,
+  GalleryByPromptIdsQuerySchema,
+  GalleryNeighborQuerySchema,
+  GalleryIdParamsSchema,
+  GalleryFavoritePatchSchema,
+  GalleryBulkDeleteSchema,
+  GalleryRegenerateBodySchema,
+} from '../contracts/gallery.contract.js';
 
-const router = Router();
+// Rate-limit gate for the import endpoint (single-process, non-cluster-safe).
+const IMPORT_COOLDOWN_MS = 10_000;
+let lastImportAt = 0;
 
-router.get('/gallery', async (req: Request, res: Response) => {
-  const pq = parsePageQuery(req, { defaultPageSize: 50, maxPageSize: 200 });
+// ---- Route definitions ----
+
+const listRoute = defineRoute({
+  method: 'GET',
+  path: '/gallery',
+  query: GalleryListQuerySchema,
+  response: GalleryPageResponseSchema,
+  auth: { required: true, scopes: ['gallery:read'] },
+  tags: ['gallery'],
+  summary: 'List gallery items (paginated)',
+}, async (ctx) => {
+  const pq = parsePageQuery(ctx.req, { defaultPageSize: 50, maxPageSize: 200 });
+  const media = ctx.query.mediaType ?? '';
+  const sort = ctx.query.sort === 'oldest' ? 'oldest' : 'newest';
+  const favorite = ctx.query.favorite === 'true' ? true : undefined;
 
   if (!pq.isPaginated) {
-    try { res.json(await gallery.list()); }
-    catch { res.json([]); }
-    return;
+    // Back-compat: no ?page= → return everything wrapped as page 1.
+    try {
+      const items = await gallery.list();
+      return ctx.ok({ items, page: 1, pageSize: items.length || 50, total: items.length, hasMore: false });
+    } catch {
+      return ctx.ok({ items: [], page: 1, pageSize: 50, total: 0, hasMore: false });
+    }
   }
-
-  // Optional media-type filter, applied globally before pagination so pages
-  // match the sidebar state. `sort=oldest` reverses the default ComfyUI order
-  // (which is newest-first). `favorite=true` restricts to server-favorited rows.
-  const media = typeof req.query.mediaType === 'string' ? req.query.mediaType : '';
-  const sort = typeof req.query.sort === 'string' && req.query.sort === 'oldest'
-    ? 'oldest' : 'newest';
-  const favorite = req.query.favorite === 'true' ? true : undefined;
 
   try {
     const { items, total } = await gallery.listPaginated(
       { mediaType: media, sort, favorite }, pq.page, pq.pageSize,
     );
+    const { meta } = splitPaginated(paginate(items, pq.page, pq.pageSize));
+    // listPaginated already slices correctly; trust its total but re-derive meta.
     const totalPages = total === 0 ? 1 : Math.ceil(total / pq.pageSize);
     const safePage = Math.min(Math.max(1, pq.page), totalPages);
     const start = (safePage - 1) * pq.pageSize;
-    res.json({
+    return ctx.ok({
       items,
       page: safePage,
       pageSize: pq.pageSize,
@@ -57,50 +78,43 @@ router.get('/gallery', async (req: Request, res: Response) => {
       hasMore: start + items.length < total,
     });
   } catch {
-    res.json({ items: [], page: 1, pageSize: pq.pageSize, total: 0, hasMore: false });
+    return ctx.ok({ items: [], page: 1, pageSize: pq.pageSize, total: 0, hasMore: false });
   }
 });
 
-/**
- * Wave P: single-row detail with fat generation metadata. Returns the full
- * row (`workflowJson`, `promptText`, KSampler params) so the detail modal
- * can render the metadata panel + drive the regenerate button. The list
- * endpoint above trimmed these fields from its rows to shrink the wire
- * payload — this route is the counterpart that restores them on demand.
- */
-/**
- * Bulk lookup by promptId — used by the chat thread on conversation reload
- * to rehydrate `<GeneratedImage>` cards. Accepts a comma-separated `ids`
- * query param; returns the slim list rows that match. Empty / missing
- * `ids` returns an empty list (avoids accidentally fetching everything).
- */
-router.get('/gallery/by-prompt-ids', (req: Request, res: Response) => {
-  const raw = typeof req.query.ids === 'string' ? req.query.ids : '';
+const byPromptIdsRoute = defineRoute({
+  method: 'GET',
+  path: '/gallery/by-prompt-ids',
+  query: GalleryByPromptIdsQuerySchema,
+  response: GalleryByPromptIdsResponseSchema,
+  auth: { required: true, scopes: ['gallery:read'] },
+  tags: ['gallery'],
+  summary: 'Bulk lookup by promptId (comma-separated ids)',
+}, (ctx) => {
+  const raw = ctx.query.ids ?? '';
   const ids = raw.split(',').map(s => s.trim()).filter(s => s.length > 0);
-  if (ids.length === 0) { res.json({ items: [] }); return; }
+  if (ids.length === 0) return ctx.ok({ items: [] });
   try {
-    res.json({ items: gallery.listByPromptIds(ids) });
+    return ctx.ok({ items: gallery.listByPromptIds(ids) });
   } catch {
-    res.json({ items: [] });
+    return ctx.ok({ items: [] });
   }
 });
 
-router.get('/gallery/:id', (req: Request, res: Response) => {
-  const id = req.params.id;
-  if (typeof id !== 'string' || id.length === 0) {
-    res.status(400).json({ error: 'id required' });
-    return;
-  }
+const getByIdRoute = defineRoute({
+  method: 'GET',
+  path: '/gallery/:id',
+  params: GalleryIdParamsSchema,
+  query: GalleryNeighborQuerySchema,
+  response: GalleryItemSchema,
+  auth: { required: true, scopes: ['gallery:read'] },
+  tags: ['gallery'],
+  summary: 'Full gallery row with workflow detail and neighbor ids',
+}, (ctx) => {
+  const { id } = ctx.params;
   const row = gallery.getByIdFull(id);
-  if (!row) {
-    res.status(404).json({ error: 'not_found', id });
-    return;
-  }
-  // Bundle the workflow-derived fields under a single `workflowDetail` key
-  // instead of scattering 14 nullable columns across the response. Null when
-  // no workflow was captured for this row (disk-sweep / pre-Wave-F imports).
-  // Strip raw storage fields (workflowJson, workflowHash) from the wire —
-  // they're internal-only after v21.
+  if (!row) throw new NotFoundError('Gallery item not found');
+
   const { workflowJson, workflowHash: _wfHash, ...rest } = row;
   let workflowDetail: WorkflowDetail | null = null;
   if (workflowJson) {
@@ -118,168 +132,149 @@ router.get('/gallery/:id', (req: Request, res: Response) => {
         steps:        extracted.steps        ?? null,
         cfg:          extracted.cfg          ?? null,
         denoise:      extracted.denoise      ?? null,
-        // `width` / `height` / `fps` are what the workflow declared. The
-        // rendered file's actual dimensions live on `mediaInfo` so the UI
-        // can choose which to display.
         width:        extracted.width        ?? null,
         height:       extracted.height       ?? null,
         lengthFrames: extracted.length       ?? null,
         fps:          extracted.fps          ?? null,
         batchSize:    extracted.batchSize    ?? null,
       };
-    } catch { /* malformed workflowJson — workflowDetail stays null */ }
+    } catch { /* malformed workflowJson */ }
   }
-  const mediaType = typeof req.query.mediaType === 'string' ? req.query.mediaType : '';
-  const sort = req.query.sort === 'oldest' ? 'oldest' : 'newest';
-  const favParam = req.query.favorite === 'true' ? true : undefined;
+
+  const mediaType = ctx.query.mediaType ?? '';
+  const sort = ctx.query.sort === 'oldest' ? 'oldest' : 'newest';
+  const favParam = ctx.query.favorite === 'true' ? true : undefined;
+  // NOTE(wave4): prevId/nextId are UI-hint fields that leak filter state into
+  // the API row. They should move to a dedicated /gallery/:id/neighbors endpoint
+  // in Wave 4 so the row schema is filter-independent.
   const { prevId, nextId } = gallery.findNeighborIds(id, { mediaType, sort, favorite: favParam });
-  res.json({ ...rest, workflowDetail, prevId, nextId });
+
+  return ctx.ok({ ...rest, workflowDetail, prevId, nextId });
 });
 
-// Pin / unpin a gallery item. Body: `{ favorite: boolean }`. Matches the same
-// PATCH + boolean-body shape used by PATCH /templates/:name/favorite.
-router.patch('/gallery/:id/favorite', (req: Request, res: Response): void => {
-  const id = req.params.id as string;
-  const body = (req.body ?? {}) as { favorite?: unknown };
-  if (typeof body.favorite !== 'boolean') {
-    res.status(400).json({ error: 'favorite must be boolean' });
-    return;
+const patchFavoriteRoute = defineRoute({
+  method: 'PATCH',
+  path: '/gallery/:id/favorite',
+  params: GalleryIdParamsSchema,
+  body: GalleryFavoritePatchSchema,
+  response: GalleryFavoriteResponseSchema,
+  auth: { required: true, scopes: ['gallery:write'] },
+  tags: ['gallery'],
+  summary: 'Pin / unpin a gallery item',
+}, (ctx) => {
+  const { id } = ctx.params;
+  if (!gallery.setFavorite(id, ctx.body.favorite)) {
+    throw new NotFoundError('Gallery item not found');
   }
-  if (!gallery.setFavorite(id, body.favorite)) {
-    res.status(404).json({ error: 'not_found' });
-    return;
-  }
-  res.json({ id, favorite: body.favorite });
+  return ctx.ok({ id, favorite: ctx.body.favorite });
 });
 
-// Bulk delete. Mounted BEFORE the `:id` route so Express matches the bare
-// collection path first. Body: `{ ids: string[] }`. Returns per-id results so
-// the client can show partial-success state.
-router.delete('/gallery', (req: Request, res: Response) => {
-  const raw = (req.body ?? {}) as { ids?: unknown };
-  if (!Array.isArray(raw.ids) || raw.ids.length === 0) {
-    res.status(400).json({ error: 'ids required (non-empty string[])' });
-    return;
-  }
-  const ids: string[] = [];
-  for (const v of raw.ids) {
-    if (typeof v !== 'string' || v.length === 0) {
-      res.status(400).json({ error: 'ids must be non-empty strings' });
-      return;
-    }
-    ids.push(v);
-  }
-  const results = gallery.removeItems(ids);
-  const deletedCount = results.filter(r => r.removed).length;
-  res.json({
-    deleted: deletedCount,
-    requested: ids.length,
+const bulkDeleteRoute = defineRoute({
+  method: 'DELETE',
+  path: '/gallery',
+  body: GalleryBulkDeleteSchema,
+  response: GalleryBulkDeleteResponseSchema,
+  auth: { required: true, scopes: ['gallery:delete'] },
+  tags: ['gallery'],
+  summary: 'Bulk delete gallery items',
+}, (ctx) => {
+  const results = gallery.removeItems(ctx.body.ids);
+  return ctx.ok({
+    deleted:   results.filter(r => r.removed).length,
+    requested: ctx.body.ids.length,
     results,
   });
 });
 
-router.delete('/gallery/:id', (req: Request, res: Response) => {
-  const id = req.params.id;
-  if (typeof id !== 'string' || id.length === 0) {
-    res.status(400).json({ error: 'id required' });
-    return;
-  }
-  const result = gallery.removeItem(id);
-  if (!result.removed) {
-    res.status(404).json({ deleted: false, id, error: result.error ?? 'not-found' });
-    return;
-  }
-  res.json({ deleted: true, id, fileDeleted: result.fileDeleted });
+const deleteByIdRoute = defineRoute({
+  method: 'DELETE',
+  path: '/gallery/:id',
+  params: GalleryIdParamsSchema,
+  response: GalleryDeleteResultSchema,
+  auth: { required: true, scopes: ['gallery:delete'] },
+  tags: ['gallery'],
+  summary: 'Delete a single gallery item',
+}, (ctx) => {
+  const result = gallery.removeItem(ctx.params.id);
+  if (!result.removed) throw new NotFoundError('Gallery item not found');
+  return ctx.ok({ deleted: true, id: ctx.params.id, fileDeleted: result.fileDeleted });
 });
 
-// ---------------------------------------------------------------------------
-// Wave F endpoints: explicit history import + regenerate.
+const importFromComfyUIRoute = defineRoute({
+  method: 'POST',
+  path: '/gallery/import-from-comfyui',
+  response: GalleryImportResponseSchema,
+  auth: { required: true, scopes: ['gallery:write'] },
+  tags: ['gallery'],
+  summary: 'One-shot import from ComfyUI history',
+}, async (ctx) => {
+  const now = Date.now();
+  const remaining = lastImportAt + IMPORT_COOLDOWN_MS - now;
+  if (remaining > 0) {
+    ctx.res.setHeader('Retry-After', String(Math.ceil(remaining / 1000)));
+    throw new RateLimitError('Import cooldown active');
+  }
+  lastImportAt = now;
+  try {
+    const result = await gallery.syncFromComfyUI();
+    return ctx.ok(result as unknown as z.infer<typeof GalleryImportResponseSchema>);
+  } catch (err) {
+    logger.warn('gallery import failed', { message: err instanceof Error ? err.message : String(err) });
+    throw new HttpError('upstream_unavailable', 'Import from ComfyUI failed');
+  }
+});
 
-// In-memory single-process rate-limit gate for the import endpoint. 10s
-// between successful kickoffs so users can't hammer /api/history. Not
-// cluster-safe — matches the rest of the in-memory limiters in this app.
-const IMPORT_COOLDOWN_MS = 10_000;
-let lastImportAt = 0;
+const regenerateRoute = defineRoute({
+  method: 'POST',
+  path: '/gallery/:id/regenerate',
+  params: GalleryIdParamsSchema,
+  body: GalleryRegenerateBodySchema,
+  response: GalleryRegenerateResponseSchema,
+  auth: { required: true, scopes: ['gallery:write'] },
+  tags: ['gallery'],
+  summary: 'Re-submit the stored workflow JSON for a gallery item',
+}, async (ctx) => {
+  const { id } = ctx.params;
+  const row = gallery.getById(id);
+  if (!row) throw new NotFoundError('Gallery item not found');
+  if (!row.workflowJson) {
+    throw new ValidationError(
+      'This item was imported before workflow capture was enabled. Re-import from ComfyUI history to enable regenerate.',
+    );
+  }
+  let workflow: ApiPrompt;
+  try {
+    workflow = JSON.parse(row.workflowJson) as ApiPrompt;
+  } catch {
+    throw new ValidationError('Stored workflow JSON could not be parsed.');
+  }
+  if (ctx.body.randomizeSeed === true) {
+    randomizeStoredSeeds(workflow);
+  }
+  try {
+    const result = await submitPrompt(workflow as Record<string, unknown>);
+    if (result.prompt_id) schedulePromptWatch(result.prompt_id);
+    return ctx.ok({ promptId: result.prompt_id });
+  } catch (err) {
+    logger.warn('gallery regenerate submit failed', {
+      id, message: err instanceof Error ? err.message : String(err),
+    });
+    throw new HttpError('upstream_unavailable', err instanceof Error ? err.message : 'Queue submission failed');
+  }
+});
 
-router.post(
-  '/gallery/import-from-comfyui',
-  async (_req: Request, res: Response) => {
-    const now = Date.now();
-    const remaining = lastImportAt + IMPORT_COOLDOWN_MS - now;
-    if (remaining > 0) {
-      res.setHeader('Retry-After', String(Math.ceil(remaining / 1000)));
-      res.status(429).json({
-        error: 'rate_limit',
-        detail: 'import cooldown active',
-      });
-      return;
-    }
-    lastImportAt = now;
-    try {
-      const result = await gallery.syncFromComfyUI();
-      res.json(result);
-    } catch (err) {
-      logger.warn('gallery import failed', {
-        message: err instanceof Error ? err.message : String(err),
-      });
-      res.status(502).json({ error: 'import_failed' });
-    }
-  },
-);
-
-router.post(
-  '/gallery/:id/regenerate',
-  async (req: Request, res: Response) => {
-    const id = req.params.id;
-    if (typeof id !== 'string' || id.length === 0) {
-      res.status(400).json({ error: 'id required' });
-      return;
-    }
-    const row = gallery.getById(id);
-    if (!row) {
-      res.status(404).json({ error: 'not_found', id });
-      return;
-    }
-    if (!row.workflowJson) {
-      res.status(422).json({
-        error: 'WORKFLOW_MISSING',
-        message:
-          'This item was imported before workflow capture was enabled. ' +
-          'Re-import from ComfyUI history to enable regenerate.',
-      });
-      return;
-    }
-    let workflow: ApiPrompt;
-    try {
-      workflow = JSON.parse(row.workflowJson) as ApiPrompt;
-    } catch {
-      res.status(422).json({
-        error: 'WORKFLOW_INVALID',
-        message: 'Stored workflow JSON could not be parsed.',
-      });
-      return;
-    }
-    const body = (req.body ?? {}) as { randomizeSeed?: unknown };
-    if (body.randomizeSeed === true) {
-      randomizeStoredSeeds(workflow);
-    }
-    try {
-      const result = await submitPrompt(workflow as Record<string, unknown>);
-      // Belt-and-suspenders: poll history in case the WS event path misses
-      // the completion while ComfyUI restarts mid-run.
-      if (result.prompt_id) schedulePromptWatch(result.prompt_id);
-      res.json({ promptId: result.prompt_id });
-    } catch (err) {
-      logger.warn('gallery regenerate submit failed', {
-        id,
-        message: err instanceof Error ? err.message : String(err),
-      });
-      res.status(502).json({
-        error: 'QUEUE_FAILED',
-        message: err instanceof Error ? err.message : 'Queue submission failed',
-      });
-    }
-  },
-);
+// ---- Mount ----
+// Static sub-paths before /:id so Express matches them first.
+const router = Router();
+[
+  listRoute,
+  byPromptIdsRoute,
+  importFromComfyUIRoute,
+  getByIdRoute,
+  patchFavoriteRoute,
+  bulkDeleteRoute,
+  deleteByIdRoute,
+  regenerateRoute,
+].forEach(r => r.register(router));
 
 export default router;

@@ -51,22 +51,6 @@ function displayName(entry: DownloadHistoryEntry): string {
   return entry.modelName || entry.id;
 }
 
-/** Extract the history array from the raw response regardless of wrapping shape. */
-function extractHistory(raw: unknown): DownloadHistoryEntry[] {
-  if (!raw) return [];
-  const r = raw as Record<string, unknown>;
-  // Shape: { items, page, pageSize, total, hasMore } (Phase 8 PageEnvelope)
-  if (Array.isArray(r.items)) return r.items as DownloadHistoryEntry[];
-  // Legacy shapes kept for back-compat with any lingering callers.
-  if (Array.isArray(r.data)) return r.data as DownloadHistoryEntry[];
-  if (Array.isArray(r.history)) return r.history as DownloadHistoryEntry[];
-  if (r.data && typeof r.data === 'object') {
-    const d = r.data as Record<string, unknown>;
-    if (Array.isArray(d.history)) return d.history as DownloadHistoryEntry[];
-  }
-  if (Array.isArray(raw)) return raw as DownloadHistoryEntry[];
-  return [];
-}
 
 function StatusBadge({ status }: { status: DownloadStatus }) {
   if (status === 'success') {
@@ -163,11 +147,9 @@ export default function DownloadsTab() {
   const fetcher = useCallback(
     async ({ page, pageSize }: { page: number; pageSize: number }) => {
       const raw = await api.getDownloadHistoryPaged(page, pageSize);
-      // The paginated envelope carries items[] at top level; back-compat
-      // extractor still runs so shape changes stay resilient.
-      const list = extractHistory(raw);
+      const list = raw.items as DownloadHistoryEntry[];
       list.sort((a, b) => (b.endTime ?? b.startTime ?? 0) - (a.endTime ?? a.startTime ?? 0));
-      return { items: list, total: raw.total ?? list.length, hasMore: raw.hasMore ?? false };
+      return { items: list, total: raw.meta.total ?? list.length, hasMore: raw.meta.hasMore ?? false };
     },
     [],
   );

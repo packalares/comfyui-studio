@@ -84,12 +84,9 @@ CREATE INDEX IF NOT EXISTS idx_gallery_createdAt ON gallery(createdAt DESC);
 CREATE INDEX IF NOT EXISTS idx_gallery_mediaType ON gallery(mediaType);
 CREATE INDEX IF NOT EXISTS idx_gallery_template  ON gallery(templateName);
 CREATE INDEX IF NOT EXISTS idx_gallery_prompt    ON gallery(promptId);
-CREATE INDEX IF NOT EXISTS idx_gallery_workflowHash ON gallery(workflowHash);
-CREATE INDEX IF NOT EXISTS idx_gallery_jobDurationMs ON gallery(jobDurationMs);
-CREATE INDEX IF NOT EXISTS idx_gallery_mediaDurationMs ON gallery(mediaDurationMs);
--- idx_gallery_favorite is created in connection.ts alongside the v22 ALTER
--- TABLE: on an existing DB the favorite column does not exist until the
--- migration adds it, so indexing it here would fail before the migration runs.
+-- workflowHash, jobDurationMs, mediaDurationMs, and favorite indexes are created
+-- in connection.ts migrations: on legacy DBs these columns do not exist until
+-- the migration adds them, so indexing them here would fail on first open.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_gallery_unique_promptid_path
   ON gallery(promptId, subfolder, filename)
   WHERE promptId IS NOT NULL AND promptId != '';

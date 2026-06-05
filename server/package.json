@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@ai-sdk/provider": "^3.0.10",
+    "@asteasolutions/zod-to-openapi": "^8.5.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "ai": "^6.0.174",
     "better-sqlite3": "^11.10.0",
@@ -21,6 +22,8 @@
     "jszip": "^3.10.1",
     "multer": "^2.1.1",
     "sharp": "^0.34.5",
+    "swagger-ui-dist": "^5.32.6",
+    "undici": "^7.27.1",
     "ws": "^8.18.0",
     "zod": "^4.4.2"
   },

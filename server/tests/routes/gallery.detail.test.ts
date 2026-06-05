@@ -8,6 +8,7 @@ import type { AddressInfo } from 'net';
 import galleryRouter from '../../src/routes/gallery.routes.js';
 import * as repo from '../../src/lib/db/gallery.repo.js';
 import { useFreshDb } from '../lib/db/_helpers.js';
+import { authedFetch } from '../helpers/authedFetch.js';
 
 function startApp(): Promise<{ url: string; close: () => Promise<void> }> {
   const app = express();
@@ -30,10 +31,10 @@ describe('GET /gallery/:id', () => {
   it('returns 404 on miss', async () => {
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/gallery/does-not-exist`);
+      const res = await authedFetch(`${app.url}/gallery/does-not-exist`);
       expect(res.status).toBe(404);
-      const body = await res.json() as { error: string };
-      expect(body.error).toBe('not_found');
+      const body = await res.json() as { error: { code: string } };
+      expect(body.error.code).toBe('not_found');
     } finally { await app.close(); }
   });
 
@@ -64,9 +65,10 @@ describe('GET /gallery/:id', () => {
     });
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/gallery/detail-1`);
+      const res = await authedFetch(`${app.url}/gallery/detail-1`);
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const env = await res.json() as { data: Record<string, unknown> };
+      const body = env.data;
       expect(body.id).toBe('detail-1');
       expect(body.filename).toBe('out.png');
       expect(body.templateName).toBe('FluxDev');
@@ -96,10 +98,10 @@ describe('GET /gallery/:id', () => {
     });
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/gallery/alias-1`);
+      const res = await authedFetch(`${app.url}/gallery/alias-1`);
       expect(res.status).toBe(200);
-      const body = await res.json() as { id: string };
-      expect(body.id).toBe('alias-1');
+      const body = await res.json() as { data: { id: string } };
+      expect(body.data.id).toBe('alias-1');
     } finally { await app.close(); }
   });
 
@@ -111,11 +113,11 @@ describe('GET /gallery/:id', () => {
     });
     const app = await startApp();
     try {
-      const res = await fetch(`${app.url}/gallery/solo-1`);
+      const res = await authedFetch(`${app.url}/gallery/solo-1`);
       expect(res.status).toBe(200);
-      const body = await res.json() as { prevId: unknown; nextId: unknown };
-      expect(body.prevId).toBeNull();
-      expect(body.nextId).toBeNull();
+      const body = await res.json() as { data: { prevId: unknown; nextId: unknown } };
+      expect(body.data.prevId).toBeNull();
+      expect(body.data.nextId).toBeNull();
     } finally { await app.close(); }
   });
 });

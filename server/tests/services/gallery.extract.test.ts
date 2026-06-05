@@ -14,7 +14,7 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import {
   extractMetadata,
-  randomizeSeeds,
+  randomizeStoredSeeds as randomizeSeeds,
   type ApiPrompt,
 } from '../../src/services/gallery/extract.js';
 

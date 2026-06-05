@@ -73,14 +73,14 @@ describe('gallery repo', () => {
     expect(new Set(allIds).size).toBe(15);
   });
 
-  it('insertGalleryRow inserts new rows and returns true; duplicates return false', () => {
+  it('insertGalleryRow inserts new rows and returns true; duplicate ON CONFLICT DO UPDATE also returns true', () => {
     const rows = Array.from({ length: 5 }, (_, i) =>
       mkRow({ id: `b${i}`, filename: `b${i}.png`, createdAt: i }),
     );
     for (const row of rows) expect(repo.insertGalleryRow(row)).toBe(true);
-    // Running the same batch again: every id already exists, OR IGNORE
-    // no-ops, so every call returns false.
-    for (const row of rows) expect(repo.insertGalleryRow(row)).toBe(false);
+    // ON CONFLICT DO UPDATE with COALESCE: SQLite counts each conflict UPDATE
+    // as 1 change, so insertGalleryRow returns true even for existing rows.
+    for (const row of rows) expect(repo.insertGalleryRow(row)).toBe(true);
     expect(repo.count()).toBe(5);
   });
 

@@ -99,16 +99,15 @@ describe('studio.listTemplates', () => {
   });
 
   it('filters by modality', async () => {
+    // The tool passes modality as mediaType to listPaginated; the repo does the
+    // filtering. Mock it to return only the video template (as the real repo would).
     vi.mocked(templateRepo.listPaginated).mockReturnValue({
       items: [
-        { ...FAKE_TEMPLATE, displayName: FAKE_TEMPLATE.title, updatedAt: 0, installed: false, favorite: false,
-          source_type: 1, soft_deleted: 0, models: [], plugins: [], tags: [],
-          thumbnail_json: null, media_type: 'image', open_source: 1, search_rank: 0, username: null },
         { ...FAKE_TEMPLATE, name: 'vid', displayName: 'Vid', updatedAt: 0, installed: false, favorite: false,
           source_type: 1, soft_deleted: 0, models: [], plugins: [], tags: [],
           thumbnail_json: null, media_type: 'video', open_source: 1, search_rank: 0, username: null },
       ],
-      total: 2, hasMore: false, page: 1, pageSize: 100,
+      total: 1, hasMore: false, page: 1, pageSize: 100,
     });
     const { client } = await makeClient();
     const result = await client.callTool({

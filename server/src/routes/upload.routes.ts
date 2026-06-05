@@ -1,44 +1,41 @@
 // Image upload proxy. Parses multipart on our side (bounded size) and
 // re-POSTs it as multipart to ComfyUI's /api/upload/image.
 //
-// Wave-Q: switched from `multer.memoryStorage()` to disk-backed spool so
-// large (video) uploads don't buffer the entire payload in RAM. Files are
-// written to `paths.uploadsTmpDir` under a random name, streamed to
-// ComfyUI, and unlinked in the handler's `finally` block — success, error,
-// or thrown, the cleanup always runs. A startup sweep in
-// `sweepStaleUploads()` catches the rare orphan from a pod crash during
-// an in-flight upload.
+// defineRoute cannot wrap this route because multer's disk-storage middleware
+// must run before our handler and populates `req.file` outside the normal
+// body-parse path. We register the route manually but write all responses
+// in the canonical `{ data }` envelope so the UI client's `apiCall` path works.
 //
-// Rejection paths (hardening):
+// NOTE(wave4): ComfyUI's upload response shape (`{ name, subfolder, type }`)
+// is preserved verbatim inside `data`. Wave 4 should define a strict schema
+// and validate it here instead of passing through the opaque blob.
+//
+// Rejection paths:
 //   - mimetype outside image/audio/video
-//   - filename extension on the executable/script deny-list
-//   - size over env.UPLOAD_MAX_BYTES (surfaced as structured 413)
+//   - extension on the executable/script deny-list
+//   - size over env.UPLOAD_MAX_BYTES (structured 413)
 //   - missing file
 
 import fs from 'fs';
 import path from 'path';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import multer, { MulterError } from 'multer';
+import { z } from 'zod';
 import { env } from '../config/env.js';
 import { paths } from '../config/paths.js';
 import { rateLimit } from '../middleware/rateLimit.js';
-import { sendError } from '../middleware/errors.js';
 import { logger } from '../lib/logger.js';
+import { defineRoute } from '../lib/defineRoute.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { ValidationError, UpstreamUnavailableError, InternalError, HttpError } from '../lib/errors.js';
 
 const COMFYUI_URL = env.COMFYUI_URL;
 
-// 60 uploads/min per IP. multer also enforces per-request byte caps.
 const uploadLimiter = rateLimit({ windowMs: 60_000, max: 60 });
 
-// Extensions we reject even if the claimed mimetype is safe. SVG is included
-// because it can carry <script> and re-render as an image. .html/.js/.bat/.sh
-// should never arrive via an "image upload" in any case.
 const DENY_EXTS = new Set(['.exe', '.bat', '.sh', '.js', '.html', '.svg']);
-
 const ALLOWED_MIME_PREFIXES = ['image/', 'audio/', 'video/'];
 
-// Ensure the tmp dir exists at module load — multer will otherwise error on
-// the first upload. `recursive: true` makes this idempotent.
 fs.mkdirSync(paths.uploadsTmpDir, { recursive: true, mode: 0o700 });
 
 const storage = multer.diskStorage({
@@ -61,18 +58,10 @@ function extOf(filename: string): string {
   return i < 0 ? '' : filename.slice(i).toLowerCase();
 }
 
-/**
- * Strip any directory segments the client supplied. `file.originalname` is
- * attacker-controlled; even though ComfyUI's own upload endpoint sanitizes
- * downstream, we defense-in-depth at the boundary so traversal payloads
- * (`../../evil.png`) can't leak into anything that echoes the name back.
- */
 function safeFilename(originalname: string): string {
   return path.basename(originalname);
 }
 
-// Exported for tests. Accepts a narrow shape so test code doesn't have to
-// fabricate a full Express.Multer.File.
 export function uploadRejectionReason(
   file: { mimetype: string; originalname: string },
 ): string | null {
@@ -86,64 +75,70 @@ export function uploadRejectionReason(
 }
 
 async function forwardToComfy(file: Express.Multer.File): ReturnType<typeof fetch> {
-  // Stream the on-disk spool straight to ComfyUI, no in-memory copy.
-  // `fs.openAsBlob` (Node 19.8+) backs the Blob with the file on disk, so
-  // undici's multipart encoder pulls bytes lazily as the socket drains.
-  // The prior `readFile(...) + new Blob([...])` dance silently defeated the
-  // whole point of diskStorage for large (video) uploads.
   const blob = await fs.openAsBlob(file.path, { type: file.mimetype });
   const form = new FormData();
   form.append('image', blob, safeFilename(file.originalname));
   return fetch(`${COMFYUI_URL}/api/upload/image`, { method: 'POST', body: form });
 }
 
-/**
- * Multer error handler: multer throws `LIMIT_FILE_SIZE` when the upload
- * exceeds `fileSize`. Surface this as a structured 413 so the frontend
- * can render a specific "File too large (max X MB)" toast instead of a
- * generic "Upload failed".
- */
 function handleMulterError(
-  err: unknown, _req: Request, res: Response, next: NextFunction,
+  err: unknown, _req: Request, _res: Response, next: NextFunction,
 ): void {
   if (err instanceof MulterError && err.code === 'LIMIT_FILE_SIZE') {
-    res.status(413).json({
-      error: 'File too large',
-      maxBytes: env.UPLOAD_MAX_BYTES,
-    });
+    next(new HttpError('payload_too_large', 'File too large', { maxBytes: env.UPLOAD_MAX_BYTES }));
     return;
   }
   next(err);
 }
 
+// Auth spec published in the registry for OpenAPI / auth audit.
+const uploadSpec = {
+  method: 'POST' as const,
+  path: '/upload',
+  response: z.unknown(),
+  auth: { required: true, scopes: ['gallery:write'] as const },
+  tags: ['gallery'],
+  summary: 'Upload an image/audio/video to ComfyUI',
+};
+
+// Register the spec in the route registry (for audit/OpenAPI) without mounting
+// a handler — the handler is mounted manually below so multer runs first.
+defineRoute(uploadSpec, async (_ctx) => {
+  // This handler is never invoked; the real handler is mounted below.
+  return { data: null };
+});
+
 router.post(
   '/upload',
   uploadLimiter,
+  authMiddleware(uploadSpec.auth),
   (req, res, next) => upload.single('image')(req, res, (err) => {
     if (err) return handleMulterError(err, req, res, next);
     next();
   }),
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     const file = (req as Request & { file?: Express.Multer.File }).file;
     try {
-      if (!file) {
-        res.status(400).json({ error: 'upload.rejected', detail: 'no file provided' });
-        return;
-      }
+      if (!file) throw new ValidationError('No file provided');
       const reason = uploadRejectionReason(file);
-      if (reason) {
-        res.status(400).json({ error: 'upload.rejected', detail: reason });
-        return;
-      }
+      if (reason) throw new ValidationError(reason);
       const upstream = await forwardToComfy(file);
       if (!upstream.ok) {
         const detail = await upstream.text().catch(() => '');
-        res.status(upstream.status).json({ error: 'ComfyUI rejected upload', detail });
-        return;
+        throw new UpstreamUnavailableError('ComfyUI rejected upload', detail);
       }
-      res.json(await upstream.json());
+      // NOTE(wave4): upstream body is ComfyUI's opaque response. Wrap in
+      // envelope but preserve the inner shape for back-compat. A future wave
+      // should define CivitaiDownloadInfoSchema and validate here.
+      const body = await upstream.json();
+      res.json({ data: body });
     } catch (err) {
-      sendError(res, err, 500, 'Upload failed');
+      if (err instanceof Error) {
+        next(err);
+      } else {
+        logger.error('upload failed', { message: String(err) });
+        next(new InternalError('Upload failed'));
+      }
     } finally {
       if (file?.path) {
         fs.unlink(file.path, () => { /* fire-and-forget; sweep handles orphans */ });
@@ -152,12 +147,6 @@ router.post(
   },
 );
 
-/**
- * Startup sweep of the uploads tmp dir — deletes files older than one hour.
- * Catches the rare orphan when a pod crash interrupted an in-flight upload
- * so our `finally` never ran. Safe to call at any time; it only touches
- * files under `paths.uploadsTmpDir` that are older than the cutoff.
- */
 export function sweepStaleUploads(): void {
   const cutoff = Date.now() - 60 * 60 * 1000;
   try {
@@ -168,7 +157,7 @@ export function sweepStaleUploads(): void {
       try {
         const st = fs.statSync(p);
         if (st.mtimeMs < cutoff) fs.unlinkSync(p);
-      } catch { /* file vanished between readdir and stat — ignore */ }
+      } catch { /* vanished between readdir and stat */ }
     }
   } catch (err) {
     logger.warn('uploads sweep failed', {

@@ -98,7 +98,10 @@ describe('runSkillScript — security policy', () => {
       '---\nname: demo\ndescription: Demo\nscripts:\n  - hi.sh\n---\n',
       { 'hi.sh': '#!/bin/bash\necho hi\n' },
     );
-    // Default — flag not set → blocked.
+    // Explicitly disable (guards against settings leaking from previous tests).
+    const settingsMod = await import('../../src/services/settings/index.js');
+    settingsMod.setChatEnableUserSkillScripts(false);
+
     const { runSkillScript } = await import('../../src/services/chat/skills.js');
     await expect(runSkillScript({ skillName: 'demo', scriptName: 'hi.sh' }))
       .rejects.toThrow(/User-dir skill scripts are disabled/);
