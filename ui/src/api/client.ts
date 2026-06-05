@@ -7,7 +7,7 @@
 // no auth header; external consumers wrap via `createApiClient({ apiKey })`.
 
 import { z } from 'zod';
-import type { RouteSpec } from '@server/lib/defineRoute';
+import type { RouteSpec } from '@server/contracts/routeSpec.contract';
 import {
   ApiErrorSchema,
   errorStatus,
@@ -210,7 +210,10 @@ async function parseEnvelope<S extends RouteSpec>(
     });
   }
 
-  const successSchema = successEnvelopeSchema(spec.response);
+  // spec.response is typed as `unknown` in the wide RouteSpec interface
+  // (so UI's zod and server's zod don't create version-mismatch errors), but
+  // all real route specs carry a ZodType at runtime — safe to narrow here.
+  const successSchema = successEnvelopeSchema(spec.response as z.ZodTypeAny);
   const parsed = successSchema.safeParse(rawBody);
   if (!parsed.success) {
     throw new ApiClientError({

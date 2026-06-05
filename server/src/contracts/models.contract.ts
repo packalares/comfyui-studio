@@ -221,7 +221,7 @@ export const DeleteBodySchema = z.object({ modelName: z.string().min(1) });
 export const CancelBodySchema = z.object({
   taskId: z.string().optional(),
   modelName: z.string().optional(),
-}).refine((b) => b.taskId !== undefined || b.modelName !== undefined, {
+}).refine((b: { taskId?: string; modelName?: string }) => b.taskId !== undefined || b.modelName !== undefined, {
   message: 'taskId or modelName required',
 });
 

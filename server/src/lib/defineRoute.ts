@@ -45,11 +45,6 @@ export interface RouteSpec<
   auth?: AuthSpec;
   tags?: readonly string[];
   summary?: string;
-  /**
-   * Override the success response content-type and skip the `{ data, meta? }`
-   * envelope. Used by spec-only routes that stream raw bytes (e.g. NDJSON).
-   * Defaults to `application/json` with envelope wrapping.
-   */
   responseContentType?: string;
 }
 
@@ -130,7 +125,7 @@ function sendError(
 }
 
 function formatZodIssues(err: z.ZodError): unknown {
-  return err.issues.map((i) => ({
+  return err.issues.map((i: z.ZodIssue) => ({
     path: i.path.join('.'),
     message: i.message,
     code: i.code,

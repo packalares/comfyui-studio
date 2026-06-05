@@ -8,7 +8,28 @@
 
 import { z } from 'zod';
 import { defineSseRouteSpec } from './sse.contract.js';
-import type { RouteSpec } from '../lib/defineRoute.js';
+
+// Minimal structural shape used only for the `satisfies RouteSpecShape`
+// assertions below. Mirrors the public fields of RouteSpec from
+// lib/defineRoute.ts without importing the server-internal module (which
+// pulls in express, better-sqlite3, auth middleware, etc.).
+// The real RouteSpec in lib/defineRoute.ts is still used by the route
+// handlers — this is purely an authorship-time structural check in the
+// contract file.
+type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+interface AuthSpec { required: boolean; scopes?: readonly string[] | string[] }
+interface RouteSpecShape {
+  method: HttpMethod;
+  path: string;
+  params?: z.ZodTypeAny;
+  query?: z.ZodTypeAny;
+  body?: z.ZodTypeAny;
+  response: z.ZodTypeAny;
+  auth?: AuthSpec;
+  tags?: readonly string[];
+  summary?: string;
+  responseContentType?: string;
+}
 
 // ---- Conversation ----
 
@@ -219,7 +240,7 @@ export const chatRoutes = {
     response: ChatStartOutputSchema,
     auth: { required: false },
     tags: ['chat'],
-  } satisfies RouteSpec,
+  } satisfies RouteSpecShape,
 
   stop: {
     method: 'POST',
@@ -228,7 +249,7 @@ export const chatRoutes = {
     response: StopStreamOutputSchema,
     auth: { required: false },
     tags: ['chat'],
-  } satisfies RouteSpec,
+  } satisfies RouteSpecShape,
 
   listConversations: {
     method: 'GET',
@@ -241,7 +262,7 @@ export const chatRoutes = {
     response: ListConversationsOutputSchema,
     auth: { required: false },
     tags: ['chat'],
-  } satisfies RouteSpec,
+  } satisfies RouteSpecShape,
 
   getConversation: {
     method: 'GET',
@@ -251,7 +272,7 @@ export const chatRoutes = {
     response: ConversationDetailSchema,
     auth: { required: false },
     tags: ['chat'],
-  } satisfies RouteSpec,
+  } satisfies RouteSpecShape,
 
   getMessages: {
     method: 'GET',
@@ -264,7 +285,7 @@ export const chatRoutes = {
     response: MessagesPageOutputSchema,
     auth: { required: false },
     tags: ['chat'],
-  } satisfies RouteSpec,
+  } satisfies RouteSpecShape,
 
   deleteConversation: {
     method: 'DELETE',
@@ -273,7 +294,7 @@ export const chatRoutes = {
     response: DeleteConversationOutputSchema,
     auth: { required: false },
     tags: ['chat'],
-  } satisfies RouteSpec,
+  } satisfies RouteSpecShape,
 
   deleteAllConversations: {
     method: 'DELETE',
@@ -281,7 +302,7 @@ export const chatRoutes = {
     response: DeleteAllConversationsOutputSchema,
     auth: { required: false },
     tags: ['chat'],
-  } satisfies RouteSpec,
+  } satisfies RouteSpecShape,
 
   deleteMessage: {
     method: 'DELETE',
@@ -290,7 +311,7 @@ export const chatRoutes = {
     response: DeleteMessageOutputSchema,
     auth: { required: false },
     tags: ['chat'],
-  } satisfies RouteSpec,
+  } satisfies RouteSpecShape,
 
   patchConversation: {
     method: 'PATCH',
@@ -300,7 +321,7 @@ export const chatRoutes = {
     response: ConversationDetailSchema,
     auth: { required: false },
     tags: ['chat'],
-  } satisfies RouteSpec,
+  } satisfies RouteSpecShape,
 
   getUsage: {
     method: 'GET',
@@ -313,7 +334,7 @@ export const chatRoutes = {
     response: ChatUsageStateSchema,
     auth: { required: false },
     tags: ['chat'],
-  } satisfies RouteSpec,
+  } satisfies RouteSpecShape,
 
   compact: {
     method: 'POST',
@@ -322,5 +343,5 @@ export const chatRoutes = {
     response: CompactOutputSchema,
     auth: { required: false },
     tags: ['chat'],
-  } satisfies RouteSpec,
+  } satisfies RouteSpecShape,
 } as const;

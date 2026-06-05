@@ -255,7 +255,7 @@ export default function GalleryDetailsModal({ item, onClose }: Props): JSX.Eleme
             <div className="rounded-lg border bg-card overflow-hidden mb-3 last:mb-0">
               <SectionHeader icon={Package} label="Models" />
               <div className="divide-y divide-border">
-                {modelList.map(m => (
+                {modelList.map((m: string) => (
                   <div key={m} className="px-3 py-2 text-xs font-mono text-foreground truncate">{m}</div>
                 ))}
               </div>

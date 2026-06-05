@@ -8,10 +8,14 @@
 //
 // We walk every array-valued key and infer mediaType from the file extension.
 
+// MediaType is defined in contracts/generation.contract.ts (the canonical
+// source) so UI-side tsc can resolve it without server-internal deps.
+// Re-exported here for back-compat — all server-side importers keep working.
+export type { MediaType } from '../contracts/generation.contract.js';
+import type { MediaType } from '../contracts/generation.contract.js';
+
 const VIDEO_EXTS = new Set(['mp4', 'webm', 'mov', 'mkv', 'avi', 'm4v']);
 const AUDIO_EXTS = new Set(['wav', 'mp3', 'ogg', 'flac', 'm4a', 'opus', 'aac']);
-
-export type MediaType = 'image' | 'video' | 'audio';
 
 export function detectMediaType(filename: string): MediaType {
   const ext = filename.slice(filename.lastIndexOf('.') + 1).toLowerCase();

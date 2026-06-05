@@ -12,7 +12,35 @@
 // epoch-ms integers — see `apiKeys.repo.ts` for the conversion.
 
 import { z } from 'zod';
-import { SCOPES, type Scope } from '../lib/auth/scopes.js';
+
+// Canonical scope registry. Moved here so UI-side tsc does not need to chase
+// the import chain into server-only modules (express, better-sqlite3, etc.).
+// server/src/lib/auth/scopes.ts re-exports from this file for back-compat.
+export const SCOPES = [
+  'catalog:read',
+  'catalog:write',
+  'models:read',
+  'models:write',
+  'models:install',
+  'chat:read',
+  'chat:write',
+  'videoboard:read',
+  'videoboard:write',
+  'videoboard:render',
+  'gallery:read',
+  'gallery:write',
+  'gallery:delete',
+  'generate:write',
+  'system:read',
+  'system:write',
+  'settings:read',
+  'settings:write',
+  'ws:connect',
+  'admin:keys',
+  'admin:all',
+] as const;
+
+export type Scope = typeof SCOPES[number];
 
 export const ScopeSchema: z.ZodType<Scope> = z.enum(SCOPES);
 

@@ -20,7 +20,13 @@ FROM ${BASE_IMAGE} AS frontend-build
 WORKDIR /build/studio/ui
 COPY ui/package.json ui/package-lock.json ./
 RUN npm ci --include=dev
-COPY server/src /build/studio/server/src
+# Symlink server/node_modules → ui/node_modules so tsc can resolve `zod`
+# (and any other shared dep) when it follows the @server/* path alias into
+# server/src/contracts/*.ts. Only the contracts leaf is copied; no
+# server-internal modules (express, better-sqlite3, etc.) are present.
+RUN mkdir -p /build/studio/server \
+  && ln -s /build/studio/ui/node_modules /build/studio/server/node_modules
+COPY server/src/contracts /build/studio/server/src/contracts
 COPY ui/ ./
 RUN npm run build
 

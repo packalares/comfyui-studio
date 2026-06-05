@@ -1,6 +1,12 @@
 // Canonical shapes for generation output and model dependency resolution.
 
-import type { MediaType } from '../lib/mediaType.js';
+/**
+ * Media type discriminator. Defined here so UI-side tsc does not need to
+ * follow the import chain into server-only lib/mediaType.ts. The runtime
+ * helpers (detectMediaType, collectNodeOutputFiles, VIDEO_EXTS, etc.) stay
+ * in lib/mediaType.ts, which re-exports this type for back-compat.
+ */
+export type MediaType = 'image' | 'video' | 'audio';
 
 /**
  * Slim row shape returned by the gallery list endpoints. Wave P split the
