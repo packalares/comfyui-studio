@@ -202,7 +202,8 @@ RUN pip install --no-cache-dir --no-deps \
       xformers \
       --index-url https://download.pytorch.org/whl/cu128
 
-RUN pip install --no-cache-dir flash-attn --no-build-isolation
+RUN pip install --no-cache-dir --no-deps \
+      https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp312-cp312-linux_x86_64.whl
 
 RUN pip install --no-cache-dir --no-deps \
       https://github.com/nunchaku-tech/nunchaku/releases/download/v1.2.1/nunchaku-1.2.1+cu12.8torch2.8-cp312-cp312-linux_x86_64.whl
