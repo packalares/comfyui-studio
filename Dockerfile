@@ -140,7 +140,7 @@ RUN pip install --no-cache-dir \
 # Isolated from the rest so pip's resolver only sees this small graph;
 # combining with audio-separator's transitive set (librosa/pooch/onnx)
 # exceeded the resolver depth limit.
-RUN pip install --no-cache-dir \
+RUN pip install --no-cache-dir --only-binary=onnx \
       s3tokenizer==0.0.2 \
       descript-audio-codec
 
@@ -244,7 +244,7 @@ RUN pip install --no-cache-dir \
       ml_dtypes==0.5.4 \
       facenet-pytorch \
       audio-separator
-RUN pip install --no-cache-dir \
+RUN pip install --no-cache-dir --only-binary=onnx \
       s3tokenizer==0.0.2 \
       descript-audio-codec
 
