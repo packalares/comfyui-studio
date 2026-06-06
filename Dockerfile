@@ -102,33 +102,38 @@ RUN pip install --no-cache-dir --no-deps \
       https://github.com/nunchaku-tech/nunchaku/releases/download/v1.2.1/nunchaku-1.2.1+cu12.8torch2.8-cp312-cp312-linux_x86_64.whl
 
 # Python deps for custom_nodes whose Manager-time pip installs went to
-# /usr/local (ephemeral) and got wiped when this image was rebuilt:
-#   ml_dtypes==0.5.4         PuLID-Flux2 (needs float4_e2m1fn attr)
-#   facenet-pytorch          comfyui_pulid_flux_ll
-#   audio-separator          various audio nodes
+# /usr/local (ephemeral) and got wiped when this image was rebuilt.
+# Split into two pip runs so the resolver doesn't hit `resolution-too-deep`
+# (audio-separator pulls librosa/pooch/onnx → huge graph; combining with
+# transformers/comfyui-manager exceeded the resolver's iteration budget).
+#
 #   transformers==4.57.6     latest 4.x — has AutoProcessor + BertModel
 #                            + Qwen3VLForConditionalGeneration. 4.57.0-4.57.5
 #                            were broken (top-level reorg); 4.57.6 fixed it.
 #                            5.x = major breaking changes — DO NOT bump.
 #   torchcrepe               RVC Voice Conversion node
 #   comfyui-manager          required by `--enable-manager` runtime flag
-#   s3tokenizer              ChatterBox TTS engine node
-#   descript-audio-codec     Higgs Audio 2 engine node (provides `dac`)
 #   opencv-contrib-python    comfyui_layerstyle (needs cv2.ximgproc.guidedFilter)
 #   packaging                k_diffusion → comfyui_jags_audiotools
 #                            (setuptools 81 removed pkg_resources.packaging;
 #                             top-level `packaging` is the modern shim)
 RUN pip install --no-cache-dir \
-      ml_dtypes==0.5.4 \
-      facenet-pytorch \
-      audio-separator \
       transformers==4.57.6 \
       torchcrepe \
       comfyui-manager \
-      s3tokenizer==0.0.2 \
-      descript-audio-codec \
       opencv-contrib-python \
       packaging
+
+#   ml_dtypes==0.5.4         PuLID-Flux2 (needs float4_e2m1fn attr)
+#   facenet-pytorch          comfyui_pulid_flux_ll
+#   audio-separator          various audio nodes
+# ChatterBox TTS (s3tokenizer) and Higgs Audio 2 (descript-audio-codec) were
+# tried earlier but they combined with audio-separator blew up pip's resolver.
+# Neither engine is in active use; the boot warning is cosmetic.
+RUN pip install --no-cache-dir \
+      ml_dtypes==0.5.4 \
+      facenet-pytorch \
+      audio-separator
 
 # torchao MUST NOT be installed. The base image used to pull it in
 # transitively; it has a buggy version check demanding `torch >= 2.11.0`
