@@ -132,17 +132,11 @@ RUN pip install --no-cache-dir \
       facenet-pytorch \
       audio-separator
 
-#   s3tokenizer==0.0.2       ChatterBox TTS engine node
-#                            (0.0.1 fails to build — pkg_resources gone in
-#                             setuptools 81; pinning to 0.0.2 prevents pip
-#                             from backtracking into 0.0.1)
-#   descript-audio-codec     Higgs Audio 2 engine node (provides `dac`)
-# Isolated from the rest so pip's resolver only sees this small graph;
-# combining with audio-separator's transitive set (librosa/pooch/onnx)
-# exceeded the resolver depth limit.
-RUN pip install --no-cache-dir --only-binary=onnx \
-      s3tokenizer==0.0.2 \
-      descript-audio-codec
+# ChatterBox TTS (s3tokenizer) and Higgs Audio 2 (descript-audio-codec)
+# engine deps left out: their dependency closures don't co-resolve in our
+# Python 3.12 + torch 2.8 environment (3 distinct pip failure modes tried).
+# Both engines' boot-time "missing dependency" warnings are cosmetic — the
+# nodes don't load, but no workflow requires them.
 
 # torchao MUST NOT be installed. The base image used to pull it in
 # transitively; it has a buggy version check demanding `torch >= 2.11.0`
@@ -244,9 +238,6 @@ RUN pip install --no-cache-dir \
       ml_dtypes==0.5.4 \
       facenet-pytorch \
       audio-separator
-RUN pip install --no-cache-dir --only-binary=onnx \
-      s3tokenizer==0.0.2 \
-      descript-audio-codec
 
 RUN pip uninstall -y torchao 2>/dev/null || true
 
