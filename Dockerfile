@@ -139,12 +139,6 @@ RUN pip install --no-cache-dir \
 # --no-deps installs the packages themselves and trusts the pre-installed
 # torch at runtime; pre-install their non-torch transitive deps first so
 # `import s3tokenizer` / `import dac` succeed at boot.
-RUN pip install --no-cache-dir --only-binary=onnx \
-      onnx \
-      einops \
-      argbind \
-      descript-audiotools \
-      julius
 RUN pip install --no-cache-dir --no-deps \
       s3tokenizer==0.0.2 \
       descript-audio-codec
@@ -252,12 +246,6 @@ RUN pip install --no-cache-dir \
 
 # Audio engines — see prod stage for rationale (--no-deps to avoid
 # pulling a conflicting torch wheel).
-RUN pip install --no-cache-dir --only-binary=onnx \
-      onnx \
-      einops \
-      argbind \
-      descript-audiotools \
-      julius
 RUN pip install --no-cache-dir --no-deps \
       s3tokenizer==0.0.2 \
       descript-audio-codec
