@@ -132,11 +132,22 @@ RUN pip install --no-cache-dir \
       facenet-pytorch \
       audio-separator
 
-# ChatterBox TTS (s3tokenizer) and Higgs Audio 2 (descript-audio-codec)
-# engine deps left out: their dependency closures don't co-resolve in our
-# Python 3.12 + torch 2.8 environment (3 distinct pip failure modes tried).
-# Both engines' boot-time "missing dependency" warnings are cosmetic — the
-# nodes don't load, but no workflow requires them.
+# ChatterBox TTS (s3tokenizer) and Higgs Audio 2 (descript-audio-codec):
+# These declare `torch` as a dep, pip would resolve it against the public
+# PyPI torch wheel (hard-pinned to nvidia-cuda-cupti-cu12==12.1.105 etc.),
+# which conflicts with our pre-installed torch 2.8.0+cu128 (cu128 libs).
+# --no-deps installs the packages themselves and trusts the pre-installed
+# torch at runtime; pre-install their non-torch transitive deps first so
+# `import s3tokenizer` / `import dac` succeed at boot.
+RUN pip install --no-cache-dir --only-binary=onnx \
+      onnx \
+      einops \
+      argbind \
+      descript-audiotools \
+      julius
+RUN pip install --no-cache-dir --no-deps \
+      s3tokenizer==0.0.2 \
+      descript-audio-codec
 
 # torchao MUST NOT be installed. The base image used to pull it in
 # transitively; it has a buggy version check demanding `torch >= 2.11.0`
