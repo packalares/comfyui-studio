@@ -223,18 +223,18 @@ RUN pip install --no-cache-dir --no-deps \
 RUN pip install --no-cache-dir --no-deps \
       https://github.com/nunchaku-tech/nunchaku/releases/download/v1.2.1/nunchaku-1.2.1+cu12.8torch2.8-cp312-cp312-linux_x86_64.whl
 
-# Same python deps as prod stage — keep dev and prod custom_nodes set in sync.
+# Same python deps as prod stage — split into two RUNs to keep pip's
+# resolver under the depth limit. See prod stage for full rationale.
 RUN pip install --no-cache-dir \
-      ml_dtypes==0.5.4 \
-      facenet-pytorch \
-      audio-separator \
       transformers==4.57.6 \
       torchcrepe \
       comfyui-manager \
-      s3tokenizer==0.0.2 \
-      descript-audio-codec \
       opencv-contrib-python \
       packaging
+RUN pip install --no-cache-dir \
+      ml_dtypes==0.5.4 \
+      facenet-pytorch \
+      audio-separator
 
 RUN pip uninstall -y torchao 2>/dev/null || true
 
