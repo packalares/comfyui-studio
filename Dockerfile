@@ -250,6 +250,18 @@ RUN pip install --no-cache-dir \
       facenet-pytorch \
       audio-separator
 
+# Audio engines — see prod stage for rationale (--no-deps to avoid
+# pulling a conflicting torch wheel).
+RUN pip install --no-cache-dir --only-binary=onnx \
+      onnx \
+      einops \
+      argbind \
+      descript-audiotools \
+      julius
+RUN pip install --no-cache-dir --no-deps \
+      s3tokenizer==0.0.2 \
+      descript-audio-codec
+
 RUN pip uninstall -y torchao 2>/dev/null || true
 
 # Cosmetic-warning silencers — see prod stage for full rationale.
