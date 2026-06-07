@@ -73,6 +73,19 @@ RUN zypper --non-interactive --no-refresh install -y \
 # hidden behind the mount. start.sh idempotently installs them on first
 # boot and skips on subsequent boots via a marker file.
 
+# Remove the base image's bundled xformers + flash_attn + cv2 so they
+# don't shadow our runtime-installed versions. xformers 0.0.35 in the base
+# image references torch.distributed.GroupName (removed in torch 2.8) and
+# breaks every diffusers consumer when left in place. cv2 lives across
+# three conflicting variants (-python, -python-headless, -contrib-python-
+# headless) that overwrite each other and leave ximgproc empty.
+RUN rm -rf /usr/local/lib64/python3.12/site-packages/xformers* \
+           /usr/local/lib64/python3.12/site-packages/flash_attn* \
+           /usr/local/lib64/python3.12/site-packages/cv2* \
+           /usr/local/lib/python3.12/site-packages/xformers* \
+           /usr/local/lib/python3.12/site-packages/flash_attn* \
+           /usr/local/lib/python3.12/site-packages/cv2* 2>/dev/null || true
+
 # extra_help_file.yaml: ComfyUI's launcher logs "File not found" if this
 # optional YAML is missing. Empty stub silences the line; lives at
 # /runner-config/ which is image-baked (no volume mount), so this survives.

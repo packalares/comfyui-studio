@@ -509,9 +509,15 @@ export class ProcessService {
       const line = data.toString('utf-8').trim();
       if (line) this.log.addLog(`[ComfyUI] ${line}`);
     });
+    // Python writes a lot of plain info to stderr (alembic, logging,
+    // SaveImage/MaskEditor messages, etc.). Tagging every stderr line as
+    // an error floods the UI with false positives. Detect real errors by
+    // markers; otherwise log as info.
     child.stderr?.on('data', (data: Buffer) => {
       const line = data.toString('utf-8').trim();
-      if (line) this.log.addLog(`[ComfyUI-Error] ${line}`, true);
+      if (!line) return;
+      const isError = /\b(error|traceback|exception|fatal|critical)\b/i.test(line);
+      this.log.addLog(`[ComfyUI${isError ? '-Error' : ''}] ${line}`, isError);
     });
   }
 
