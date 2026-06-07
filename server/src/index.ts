@@ -26,6 +26,7 @@ import { env } from './config/env.js';
 import { migrateLegacyPaths } from './config/migrateLegacyPaths.js';
 import { requestLogger } from './middleware/logging.js';
 import { errorHandler } from './middleware/errors.js';
+import { rateLimit } from './middleware/rateLimit.js';
 import { pickNotFoundMessage } from './lib/notFoundMessages.js';
 import { logger } from './lib/logger.js';
 import { warnRoutesMissingAuth } from './lib/defineRoute.js';
@@ -58,6 +59,12 @@ const corsOrigins = env.CORS_ORIGIN
 app.use(cors(corsOrigins ? { origin: corsOrigins } : undefined));
 app.use(express.json({ limit: '50mb' }));
 app.use(requestLogger());
+
+// Global rate limiter — every /api/* call gets the 'default' profile.
+// Trusted-UI requests (master cookie + same-origin) bypass entirely; only
+// external Bearer-key callers consume buckets. Per-route tighter profiles
+// (rateLimit('plugins:write') etc.) stack on top and bite first.
+app.use('/api', rateLimit('default'));
 
 app.use('/api', apiRouter);
 

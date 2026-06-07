@@ -27,7 +27,7 @@ import { GenerateBodySchema, GenerateResponseSchema } from '../contracts/generat
 import { submitGpuJob } from '../services/gpu/scheduler.js';
 import { buildJobUrls } from '../services/jobs/urls.js';
 
-const generateLimiter = rateLimit({ windowMs: 60_000, max: 60 });
+const generateLimiter = rateLimit('generate');
 
 interface NodeErrorRow { nodeId: string; classType?: string; message: string; details?: string; }
 

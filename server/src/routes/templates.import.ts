@@ -223,7 +223,7 @@ const handleAbort: RequestHandler = (req, res) => {
 // ---- CivitAI URL-based import ----
 
 // 10 req/min — matches GitHub endpoint pattern.
-const civitaiImportLimiter = rateLimit({ windowMs: 60_000, max: 10 });
+const civitaiImportLimiter = rateLimit('templates:import:civitai');
 
 function mapImportCivitaiError(err: unknown): { status: number; body: { error: string; code?: string } } {
   if (err instanceof ImportCivitaiError) {
@@ -495,9 +495,9 @@ export function handleDeleteTemplate(req: Request, res: Response): void {
 // ---- GitHub + paste-JSON ----
 
 // 10 req/min — GitHub touches upstream.
-const githubImportLimiter = rateLimit({ windowMs: 60_000, max: 10 });
+const githubImportLimiter = rateLimit('templates:import:github');
 // Paste is CPU-only locally; looser budget.
-const pasteImportLimiter = rateLimit({ windowMs: 60_000, max: 30 });
+const pasteImportLimiter = rateLimit('templates:import:paste');
 
 function classifyStagingError(err: unknown): { status: number; error: string } {
   const msg = err instanceof Error ? err.message : String(err);

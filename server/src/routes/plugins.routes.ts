@@ -33,7 +33,7 @@ import {
 import { z } from 'zod';
 
 // 10 writes/min/IP.
-const writeLimiter = rateLimit({ windowMs: 60_000, max: 10 });
+const writeLimiter = rateLimit('plugins:write');
 
 // ---- Routes ----
 

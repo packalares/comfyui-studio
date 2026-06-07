@@ -7,6 +7,10 @@ import { env } from '../../config/env.js';
 import { paths } from '../../config/paths.js';
 import { atomicWrite } from '../../lib/fs.js';
 import { logger } from '../../lib/logger.js';
+import {
+  readRequiredFrontendVersion,
+  readValidComfyFlags,
+} from './comfyIntrospect.js';
 
 // ---- Types ----
 
@@ -42,21 +46,34 @@ export interface LaunchCommandView {
 
 // ---- Defaults ----
 
-/** Default frontend version. Parse from env CLI_ARGS or use pinned constant. */
+/** Default frontend version pinned as a last-resort constant. */
+const HARDCODED_FRONTEND_VERSION = 'Comfy-Org/ComfyUI_frontend@v1.42.2';
+
+/**
+ * Resolve the effective frontend version with a three-tier fallback:
+ *  1. `readRequiredFrontendVersion()` — parsed from installed ComfyUI's requirements.txt
+ *  2. `env.CLI_ARGS` parse — if the operator already pinned it via CLI_ARGS env
+ *  3. Hardcoded constant — last resort
+ */
 export function getDefaultFrontendVersion(): string {
+  const fromInstall = readRequiredFrontendVersion();
+  if (fromInstall) return fromInstall;
   const cliArgs = env.CLI_ARGS || '';
   const m = cliArgs.match(/--front-end-version\s+(\S+)/);
-  return m ? m[1] : 'Comfy-Org/ComfyUI_frontend@v1.42.2';
+  return m ? m[1] : HARDCODED_FRONTEND_VERSION;
 }
 
-/** Runtime fallback for CLI_ARGS when env is empty.
- *  `--normalvram` was removed by ComfyUI mid-2025; normal VRAM is the default. */
-export const DEFAULT_CLI_ARGS_FALLBACK =
-  '--disable-xformers --disable-smart-memory --disable-cuda-malloc '
-  + '--front-end-version Comfy-Org/ComfyUI_frontend@v1.42.2';
+/** Runtime fallback for CLI_ARGS when env is empty. Uses the derived frontend version. */
+export function buildDefaultCliArgsFallback(): string {
+  const version = getDefaultFrontendVersion();
+  return `--disable-xformers --disable-smart-memory --disable-cuda-malloc --front-end-version ${version}`;
+}
 
-/** Flags removed from ComfyUI upstream; ignored if present in env CLI_ARGS
- *  or in persisted user configs. Updating this set silently drops the flag. */
+/**
+ * Static deny-list of flags removed from ComfyUI upstream.
+ * Used as fallback when `readValidComfyFlags()` returns null.
+ * Updating this set silently drops the flag from launch commands.
+ */
 const REMOVED_FLAGS = new Set(['--normalvram']);
 
 /** Strip removed flags from a CLI_ARGS-style string, preserving spacing. */
@@ -68,8 +85,55 @@ export function stripRemovedFlags(cliArgs: string): string {
     .trim();
 }
 
+/**
+ * Check whether a given CLI flag key is valid for the installed ComfyUI.
+ *
+ * When `readValidComfyFlags()` returned a live set, that set is the truth.
+ * When introspection failed (returns null), fall back to the static deny-list:
+ *   a flag is considered valid unless it appears in REMOVED_FLAGS.
+ */
+export function isValidComfyFlag(key: string): boolean {
+  const liveFlags = readValidComfyFlags();
+  if (liveFlags !== null) {
+    return liveFlags.some((f) => f.optionString === key);
+  }
+  // Fallback: allow everything not in the static deny-list
+  return !REMOVED_FLAGS.has(key);
+}
+
+/**
+ * Filter a CLI_ARGS-style array, removing flags that are no longer valid.
+ * Logs once per launch for any dropped keys.
+ * Replaces the former `stripRemovedFlags` function for launch-command building.
+ */
+export function filterInvalidFlags(tokens: string[]): string[] {
+  const dropped: string[] = [];
+  const out: string[] = [];
+  let i = 0;
+  while (i < tokens.length) {
+    const tok = tokens[i];
+    if (tok.startsWith('-')) {
+      if (!isValidComfyFlag(tok)) {
+        dropped.push(tok);
+        i++;
+        // Skip the associated value token if it follows
+        if (i < tokens.length && !tokens[i].startsWith('-')) i++;
+        continue;
+      }
+    }
+    out.push(tok);
+    i++;
+  }
+  if (dropped.length > 0) {
+    logger.warn('[launchOptions] dropping invalid/removed flags', { flags: dropped });
+  }
+  return out;
+}
+
 /** Args --listen and --port are fixed in the entrypoint; never emit via CLI. */
 export const FIXED_IN_ENTRYPOINT = new Set(['--listen', '--port']);
+
+// ---- Curated metadata items ----
 
 export function buildDefaultItems(): LaunchOptionItem[] {
   return [
@@ -85,6 +149,7 @@ export function buildDefaultItems(): LaunchOptionItem[] {
     ...vramItems(),
     ...debugItems(),
     ...frontendItems(),
+    ...discoveredItems(),
   ];
 }
 
@@ -240,6 +305,52 @@ function frontendItems(): LaunchOptionItem[] {
   ];
 }
 
+/**
+ * Build items for flags discovered in the installed ComfyUI that are NOT
+ * present in the curated metadata above. These appear at the bottom of the
+ * UI with category `'discovered'` and are disabled by default.
+ */
+function discoveredItems(): LaunchOptionItem[] {
+  const liveFlags = readValidComfyFlags();
+  if (!liveFlags) return [];
+
+  // Build a set of all curated keys so we can find the gaps
+  const curated = new Set<string>([
+    ...networkItems(),
+    ...pathItems(),
+    ...startupItems(),
+    ...deviceItems(),
+    ...precisionItems(),
+    ...previewItems(),
+    ...cacheItems(),
+    ...attentionItems(),
+    ...managerItems(),
+    ...vramItems(),
+    ...debugItems(),
+    ...frontendItems(),
+  ].map((i) => i.key));
+
+  const newFlags = liveFlags.filter((f) => !curated.has(f.optionString));
+
+  if (newFlags.length > 0) {
+    logger.info(
+      `[launchOptions] discovered ${newFlags.length} new ComfyUI flags not in curated metadata`,
+      { flags: newFlags.map((f) => f.optionString) },
+    );
+  }
+
+  return newFlags.map((f, idx): LaunchOptionItem => ({
+    key: f.optionString,
+    value: f.defaultValue !== undefined ? f.defaultValue : null,
+    enabled: false,
+    type: f.type,
+    description: f.help ?? '',
+    category: 'discovered',
+    order: 1000 + idx,
+    readOnly: false,
+  }));
+}
+
 // ---- CLI builder ----
 
 interface LaunchOptionsConfigLike {
@@ -341,7 +452,8 @@ function applyCliArgsToItems(cliArgs: string, baseItems: LaunchOptionItem[]): La
 }
 
 export function getDefaultConfig(): LaunchOptionsConfig {
-  const envCliArgs = stripRemovedFlags((env.CLI_ARGS || DEFAULT_CLI_ARGS_FALLBACK).trim());
+  const rawCliArgs = (env.CLI_ARGS || buildDefaultCliArgsFallback()).trim();
+  const envCliArgs = stripRemovedFlags(rawCliArgs);
   const baseItems = buildDefaultItems();
   const seededItems = envCliArgs ? applyCliArgsToItems(envCliArgs, baseItems) : baseItems;
   return {
@@ -371,6 +483,7 @@ function normalizeItem(
 ): LaunchOptionItem {
   const readOnly = def?.readOnly ?? item.readOnly ?? false;
   let value = item.value ?? def?.value ?? null;
+  // System-managed keys always use the derived value — JSON is ignored for these.
   if (readOnly && item.key === '--port') value = env.COMFYUI_PORT;
   if (readOnly && item.key === '--front-end-version') value = getDefaultFrontendVersion();
   return {
@@ -406,6 +519,42 @@ function mergeWithDefaults(rawItems: LaunchOptionItem[]): LaunchOptionItem[] {
   return merged.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 }
 
+/**
+ * Write back system-managed values to the JSON file if they differ from what
+ * is stored. This keeps the file readable for ops people inspecting it.
+ * Only system-managed (readOnly) keys are touched; user-editable fields are
+ * left as-is.
+ */
+function maybeWriteBackSystemValues(
+  cfg: LaunchOptionsConfig,
+  rawItems: LaunchOptionItem[],
+  filePath: string,
+): void {
+  const derivedFrontend = getDefaultFrontendVersion();
+  const derivedPort: string | number = env.COMFYUI_PORT;
+
+  // normalizeItem already coerced cfg.items[*].value to the derived value for
+  // readOnly system-managed keys, so comparing those would always look equal.
+  // Compare against the ORIGINAL on-disk values via rawItems to detect drift.
+  const rawByKey = new Map(rawItems.map((i) => [i.key, i]));
+  let dirty = false;
+  for (const key of ['--front-end-version', '--port'] as const) {
+    const raw = rawByKey.get(key);
+    if (!raw) continue;
+    const derived = key === '--front-end-version' ? derivedFrontend : derivedPort;
+    if (raw.value !== derived) { dirty = true; break; }
+  }
+  if (!dirty) return;
+
+  try {
+    atomicWrite(filePath, JSON.stringify(cfg, null, 2));
+  } catch (err) {
+    logger.warn('[launchOptions] failed to write back system-managed values', {
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 export function readConfig(): LaunchOptionsConfig {
   ensureConfigFile();
   const defaultConfig = getDefaultConfig();
@@ -417,7 +566,9 @@ export function readConfig(): LaunchOptionsConfig {
     const manualArgs = typeof raw.manualArgs === 'string'
       ? raw.manualArgs
       : defaultConfig.manualArgs || '';
-    return { mode, items: mergeWithDefaults(rawItems), manualArgs };
+    const result: LaunchOptionsConfig = { mode, items: mergeWithDefaults(rawItems), manualArgs };
+    maybeWriteBackSystemValues(result, rawItems, configFilePath());
+    return result;
   } catch (error) {
     logger.error('launch_options read failed', {
       message: error instanceof Error ? error.message : String(error),
@@ -458,8 +609,8 @@ export function updateLaunchOptions(payload: Partial<LaunchOptionsConfig>): Laun
 }
 
 export function buildCliArgs(): string[] {
-  return buildExtraArgsArray(readConfig())
-    .filter((tok) => !REMOVED_FLAGS.has(tok));
+  const rawArgs = buildExtraArgsArray(readConfig());
+  return filterInvalidFlags(rawArgs);
 }
 
 export function buildCliArgsString(): string {

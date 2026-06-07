@@ -27,7 +27,7 @@ import {
 import { z } from 'zod';
 
 // Package install/uninstall invoke pip — 10/min is plenty for interactive use.
-const pkgLimiter = rateLimit({ windowMs: 60_000, max: 10 });
+const pkgLimiter = rateLimit('python:pkg');
 
 // ---- Routes ----
 

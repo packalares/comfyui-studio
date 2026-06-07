@@ -31,7 +31,7 @@ import { ValidationError, UpstreamUnavailableError, InternalError, HttpError } f
 
 const COMFYUI_URL = env.COMFYUI_URL;
 
-const uploadLimiter = rateLimit({ windowMs: 60_000, max: 60 });
+const uploadLimiter = rateLimit('upload');
 
 const DENY_EXTS = new Set(['.exe', '.bat', '.sh', '.js', '.html', '.svg']);
 const ALLOWED_MIME_PREFIXES = ['image/', 'audio/', 'video/'];

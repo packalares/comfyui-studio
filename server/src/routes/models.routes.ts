@@ -37,7 +37,7 @@ import {
 } from '../contracts/models.contract.js';
 
 // 30 req/min per IP — download-custom triggers upstream HTTP fetches.
-const downloadCustomLimiter = rateLimit({ windowMs: 60_000, max: 30 });
+const downloadCustomLimiter = rateLimit('models:download-custom');
 
 // ---- /models/folders ----
 

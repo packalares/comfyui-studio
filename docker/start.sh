@@ -65,7 +65,11 @@ if [ ! -f "$STUDIO_DEPS_MARKER" ]; then
   pip3 install --no-cache-dir \
     transformers==4.57.6 torchcrepe comfyui-manager opencv-contrib-python packaging
   pip3 install --no-cache-dir \
-    ml_dtypes==0.5.4 facenet-pytorch audio-separator
+    ml_dtypes==0.5.4 audio-separator
+  # facenet-pytorch 2.6.0 hard-pins `torch<2.3.0`. With deps, pip resolves
+  # that by downgrading our cu128 torch to 2.2.2+cu121. --no-deps installs
+  # the package itself; it uses our existing torch at runtime.
+  pip3 install --no-cache-dir --no-deps facenet-pytorch
   # ChatterBox TTS / Higgs Audio 2 engine packages — declared `torch` dep
   # conflicts with our cu128 install if resolved normally; --no-deps installs
   # the package and trusts the existing torch.

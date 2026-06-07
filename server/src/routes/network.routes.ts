@@ -33,7 +33,7 @@ const SETTERS: Record<string, SetterFn> = {
   'pip-allow-private-ip': (v) => { if (typeof v !== 'boolean') return { success: false, message: 'value must be boolean', data: null }; return configurator.setAllowPrivateIpMirrorsConfig(v); },
 };
 
-const configLimiter = rateLimit({ windowMs: 60_000, max: 10 });
+const configLimiter = rateLimit('network:config');
 
 const setSystemConfigRoute = defineRoute({
   method: 'POST',

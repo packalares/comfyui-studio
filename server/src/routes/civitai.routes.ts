@@ -22,7 +22,7 @@ import {
 import type { CivitaiPageResponse } from '../contracts/civitai.contract.js';
 
 // Tighter budget on by-url: accepts an external URL and is the SSRF surface.
-const byUrlLimiter = rateLimit({ windowMs: 60_000, max: 30 });
+const byUrlLimiter = rateLimit('civitai:by-url');
 
 // ---- Helpers ----
 
