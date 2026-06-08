@@ -25,7 +25,7 @@ git config --global --add safe.directory '*' 2>/dev/null || true
 #
 # Marker file bumps every time the install list materially changes — bumping
 # forces re-run on the next pod start.
-STUDIO_DEPS_MARKER=/root/.local/.studio-deps-installed-v1
+STUDIO_DEPS_MARKER=/root/.local/.studio-deps-installed-v2
 if [ ! -f "$STUDIO_DEPS_MARKER" ]; then
   echo "[studio-deps] First-boot install starting…"
   mkdir -p /root/.local
@@ -44,22 +44,23 @@ if [ ! -f "$STUDIO_DEPS_MARKER" ]; then
          /usr/local/lib/python3.12/site-packages/xformers* \
          /usr/local/lib/python3.12/site-packages/flash_attn* \
          /usr/local/lib/python3.12/site-packages/cv2* 2>/dev/null || true
-  # k_diffusion (jags_audiotools) uses `from pkg_resources import packaging` —
-  # setuptools 81+ dropped that submodule.
-  pip3 install --no-cache-dir 'setuptools<81'
-
   # ---- Torch stack (cu128 for Blackwell sm_120) ---------------------------
   # WITH deps so the matching nvidia-cuda-runtime-cu12 12.8.x wheels come along
   # — torch loads its CUDA libs from those wheels, no host CUDA upgrade needed.
   pip3 install --no-cache-dir \
-    torch==2.8.0+cu128 torchvision==0.23.0+cu128 torchaudio==2.8.0+cu128 \
+    torch==2.10.0+cu128 torchvision==0.25.0+cu128 torchaudio==2.10.0+cu128 \
     --index-url https://download.pytorch.org/whl/cu128
 
-  # ---- Prebuilt extension wheels (must match torch 2.8 + cu12.8) ----------
+  # ---- Prebuilt extension wheels (must match torch 2.10 + cu12.8) ---------
   pip3 install --no-cache-dir --no-deps \
-    https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp312-cp312-linux_x86_64.whl
+    https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.1/flash_attn-2.8.1+cu12torch2.10cxx11abiTRUE-cp312-cp312-linux_x86_64.whl
   pip3 install --no-cache-dir --no-deps \
-    https://github.com/nunchaku-tech/nunchaku/releases/download/v1.2.1/nunchaku-1.2.1+cu12.8torch2.8-cp312-cp312-linux_x86_64.whl
+    https://github.com/nunchaku-tech/nunchaku/releases/download/v1.2.1/nunchaku-1.2.1+cu12.8torch2.10-cp312-cp312-linux_x86_64.whl
+  # xformers — abi3 wheel from PyTorch's cu128 index. 0.0.34 is the last
+  # version that uses cp39-abi3 (forward-compatible on cp312); 0.0.35 is
+  # py39-none and its CUDA kernels were built for cp310 → won't load here.
+  pip3 install --no-cache-dir xformers==0.0.34 \
+    --index-url https://download.pytorch.org/whl/cu128
 
   # ---- Custom-node deps (split runs to dodge pip resolver depth) ----------
   pip3 install --no-cache-dir \

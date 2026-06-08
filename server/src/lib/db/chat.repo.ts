@@ -605,3 +605,19 @@ export function listAllAttachments(
     Record<string, unknown>[];
   return rows.map(rowToAttachment);
 }
+
+/**
+ * Stream just (id, ext) for every attachment row, lazily. Caller is the
+ * bulk-delete path — it only needs the on-disk filename, never the full row.
+ * Using `.iterate()` keeps memory bounded to one row at a time even when the
+ * attachments table grows into the tens of thousands (whole-table SELECT *
+ * would otherwise materialize the lot just to read two fields).
+ */
+export function* iterateAttachmentFilenames(
+  db: Database.Database = getDb(),
+): IterableIterator<{ id: string; ext: string }> {
+  const stmt = db.prepare('SELECT id, ext FROM chat_attachments');
+  for (const row of stmt.iterate() as IterableIterator<{ id: string; ext: string }>) {
+    yield row;
+  }
+}

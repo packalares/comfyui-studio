@@ -4,11 +4,11 @@
 // The engine (controller.ts) drives bytes; this module tracks which downloads
 // are visible to the UI and queues excess requests when at capacity.
 
-import { env } from '../../config/env.js';
 import { matchesIdentity } from '../../lib/identity.js';
 import { getTaskProgress, setProgressListener } from './controller.js';
 import * as models from '../models/service.js';
 import * as settings from '../settings/index.js';
+import { RateLimitError } from '../../lib/errors.js';
 import type { DownloadState, DownloadIdentity } from '../../contracts/system.contract.js';
 
 export type { DownloadState, DownloadIdentity };
@@ -22,7 +22,9 @@ const active = new Map<string, Entry>();
 let broadcaster: ((message: object) => void) | null = null;
 
 // Concurrency cap for simultaneous downloads. Sourced from env (default 2).
-const MAX_CONCURRENT = env.MAX_CONCURRENT_DOWNLOADS;
+// Concurrency is now a user-tunable setting (settings.getDownloadsMaxConcurrent),
+// falling back to env.MAX_CONCURRENT_DOWNLOADS when unset. Read it at each
+// check so a Save in the UI takes effect immediately without restart.
 
 interface QueuedRequest {
   synthId: string;
@@ -121,15 +123,37 @@ export function stopTracking(taskId: string): void {
 }
 
 export function isAtCapacity(): boolean {
-  return active.size >= MAX_CONCURRENT;
+  return active.size >= settings.getDownloadsMaxConcurrent();
+}
+
+/**
+ * Re-evaluate the queue immediately. Used after the operator raises the
+ * concurrent-downloads cap via Settings: previously-waiting items become
+ * eligible for slots, and without this kick they'd sit until the next
+ * natural state change (a completion or a new enqueue).
+ */
+export function kickQueue(): void {
+  void tryDequeue();
 }
 
 export function findQueuedByIdentity(id: DownloadIdentity): QueuedRequest | undefined {
   return queue.find(q => matchesIdentity(q, id));
 }
 
-/** Enqueue a download request; returns the synthetic task id the UI will see. */
+/** Enqueue a download request; returns the synthetic task id the UI will see.
+ *
+ * Backpressure: when the wait queue is already at the user-configurable cap
+ * (`settings.getDownloadsMaxQueue()`), reject with a RateLimitError so the
+ * UI can surface a "queue full, try again later" toast instead of silently
+ * growing memory. Concurrency (MAX_CONCURRENT_DOWNLOADS) is enforced
+ * separately by `isAtCapacity()`. */
 export function enqueueDownload(req: Omit<QueuedRequest, 'synthId'>): string {
+  const cap = settings.getDownloadsMaxQueue();
+  if (queue.length >= cap) {
+    throw new RateLimitError(
+      `Download queue is full (${queue.length}/${cap}). Try again once some in-flight downloads finish.`,
+    );
+  }
   const synthId = 'queued_' + Math.random().toString(36).slice(2, 10);
   queue.push({ synthId, ...req });
   const state: DownloadState = {
@@ -151,7 +175,7 @@ export function enqueueDownload(req: Omit<QueuedRequest, 'synthId'>): string {
 
 /** Try to pull the next queued request and kick it off via the local service. */
 async function tryDequeue(): Promise<void> {
-  if (active.size >= MAX_CONCURRENT) return;
+  if (active.size >= settings.getDownloadsMaxConcurrent()) return;
   const next = queue.shift();
   if (!next) return;
   try {

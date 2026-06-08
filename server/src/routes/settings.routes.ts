@@ -12,10 +12,12 @@ import { NotFoundError, ValidationError } from '../lib/errors.js';
 import * as settings from '../services/settings/index.js';
 import * as toolsSettings from '../services/settings/tools.js';
 import * as mcpSettings from '../services/settings/mcp.js';
+import * as downloads from '../services/downloads/facade.js';
 import { stripTrailingSlash } from '../lib/url.js';
 import {
   SecretNameSchema, SecretPatchSchema,
   ChatPatchSchema, ToolsPatchSchema,
+  DownloadsPatchSchema,
   ProbeBodySchema, ProbeResultSchema,
   DeleteSecretQuerySchema,
 } from '../contracts/settings.contract.js';
@@ -46,6 +48,18 @@ const ToolsResponseSchema = z.object({
   defaultImageTemplate: z.string(),
   enabledMcpTools: z.record(z.string(), z.boolean()),
 });
+
+const DownloadsResponseSchema = z.object({
+  maxQueue: z.number().int().positive(),
+  maxConcurrent: z.number().int().positive(),
+});
+
+function downloadsSettingsResponse() {
+  return {
+    maxQueue: settings.getDownloadsMaxQueue(),
+    maxConcurrent: settings.getDownloadsMaxConcurrent(),
+  };
+}
 
 const DeleteSecretResponseSchema = z.object({ configured: z.literal(false) });
 
@@ -197,6 +211,27 @@ const putToolsRoute = defineRoute({
   return ok(toolsSettingsResponse());
 });
 
+const putDownloadsRoute = defineRoute({
+  method: 'PUT',
+  path: '/settings/downloads',
+  body: DownloadsPatchSchema,
+  response: DownloadsResponseSchema,
+  auth: { required: true, scopes: ['settings:write'] },
+  tags: ['settings'],
+  summary: 'Update download backpressure tunables',
+}, ({ body, ok }) => {
+  if (typeof body.maxQueue === 'number' && Number.isFinite(body.maxQueue) && body.maxQueue > 0) {
+    settings.setDownloadsMaxQueue(Math.floor(body.maxQueue));
+  }
+  if (typeof body.maxConcurrent === 'number' && Number.isFinite(body.maxConcurrent) && body.maxConcurrent > 0) {
+    settings.setDownloadsMaxConcurrent(Math.floor(body.maxConcurrent));
+    // Slot bumps may unlock waiting items; kick the scheduler so newly-allowed
+    // requests start immediately instead of waiting for the next state change.
+    void downloads.kickQueue();
+  }
+  return ok(downloadsSettingsResponse());
+});
+
 const PROBE_TIMEOUT_MS = 4000;
 const SUB_PATH: Record<'ollama' | 'searxng', string> = {
   ollama: '/api/tags',
@@ -290,6 +325,7 @@ putSecretRoute.register(router);
 deleteSecretRoute.register(router);
 putChatRoute.register(router);
 putToolsRoute.register(router);
+putDownloadsRoute.register(router);
 probeRoute.register(router);
 // Legacy catch-all after explicit routes
 putLegacyKeyRoute.register(router);

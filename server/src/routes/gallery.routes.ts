@@ -6,6 +6,7 @@ import { z } from 'zod';
 import * as gallery from '../services/gallery/index.js';
 import { submitPrompt } from '../services/comfyui/api.js';
 import { schedulePromptWatch } from '../services/gallery/sentry.js';
+import { insertSnapshot } from '../lib/db/promptSnapshots.repo.js';
 import { parsePageQuery, splitPaginated, paginate } from '../lib/pagination.js';
 import { randomizeStoredSeeds, extractMetadata, type ApiPrompt } from '../services/gallery/extract.js';
 import type { WorkflowDetail } from '../contracts/generation.contract.js';
@@ -253,7 +254,28 @@ const regenerateRoute = defineRoute({
   }
   try {
     const result = await submitPrompt(workflow as Record<string, unknown>);
-    if (result.prompt_id) schedulePromptWatch(result.prompt_id);
+    if (result.prompt_id) {
+      // Mirror generate.routes.ts: seed snapshot + meta so the gallery row that
+      // lands later carries templateName / triggered_by / fingerprints instead
+      // of nulling them out (the sentry → appendHistoryEntry path reads both).
+      try {
+        insertSnapshot({
+          promptId: result.prompt_id,
+          apiPromptJson: JSON.stringify(workflow),
+          templateName: row.templateName ?? undefined,
+          triggered_by: 'ui',
+          conversation_id: null,
+          message_id: null,
+        });
+      } catch { /* snapshot failure must not fail the submit */ }
+      schedulePromptWatch(result.prompt_id, {
+        triggeredBy: 'ui',
+        conversationId: null,
+        messageId: null,
+        modelFingerprint: row.modelFingerprint ?? null,
+        templateHash: row.templateHash ?? null,
+      });
+    }
     return ctx.ok({ promptId: result.prompt_id });
   } catch (err) {
     logger.warn('gallery regenerate submit failed', {

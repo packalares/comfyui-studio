@@ -1,4 +1,5 @@
 import { _loadInternal, _saveInternal, type SettingsInternal } from './store.js';
+import { env } from '../../config/env.js';
 import {
   DEFAULT_CHAT_HIGH_WATER_PERCENT,
   DEFAULT_CHAT_MAX_TOOL_STEPS,
@@ -8,6 +9,7 @@ import {
   DEFAULT_CHAT_SUMMARY_TIMEOUT_MS,
   DEFAULT_CHAT_SMART_SUGGESTIONS,
   DEFAULT_CHAT_DEFAULT_THINK_MODE,
+  DEFAULT_DOWNLOADS_MAX_QUEUE,
 } from './store.js';
 
 function readPercent(v: unknown, fallback: number): number {
@@ -104,4 +106,21 @@ export function setChatDefaultThinkMode(v: 'on' | 'off' | 'auto' | null | undefi
   }
   if (v !== 'on' && v !== 'off' && v !== 'auto') return;
   _saveInternal({ ...settings, chatDefaultThinkMode: v });
+}
+
+// ─── Downloads backpressure ─────────────────────────────────────────────────
+
+export function getDownloadsMaxQueue(): number {
+  return readPositiveInt(_loadInternal().downloadsMaxQueue, DEFAULT_DOWNLOADS_MAX_QUEUE);
+}
+export function setDownloadsMaxQueue(v: number | null | undefined): void {
+  setNumeric('downloadsMaxQueue', v);
+}
+export function getDownloadsMaxConcurrent(): number {
+  // Falls back to env so an operator who hasn't opened Settings keeps the
+  // env-driven default. Once the user persists a value, env is shadowed.
+  return readPositiveInt(_loadInternal().downloadsMaxConcurrent, env.MAX_CONCURRENT_DOWNLOADS);
+}
+export function setDownloadsMaxConcurrent(v: number | null | undefined): void {
+  setNumeric('downloadsMaxConcurrent', v);
 }

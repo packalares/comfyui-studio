@@ -160,9 +160,18 @@ export function insertGalleryRow(
   const updateSet = coalesceCols
     .map(c => `${c} = COALESCE(gallery.${c}, excluded.${c})`)
     .join(', ');
+  // Two writers race here: onNodeExecuted (WS `executed` event, first to fire,
+  // metadata-less) and appendHistoryEntry (sentry, runs after the prompt
+  // finishes with full snapshot/meta). They produce different random UUIDs
+  // for the same output, so the conflict never hits the id PK — it hits the
+  // `idx_gallery_unique_promptid_path` unique index. Targeting that index in
+  // the ON CONFLICT clause lets the second writer's COALESCE-upgrade
+  // backfill templateName/workflowJson/etc. onto the row the first writer
+  // inserted. Without it the second INSERT failed silently and the row
+  // stayed without prompt/source metadata in the gallery modal.
   const info = db.prepare(
     `INSERT INTO gallery (${GALLERY_COLUMNS}) VALUES (${GALLERY_VALUES_PLACEHOLDERS}) ` +
-    `ON CONFLICT(id) DO UPDATE SET ${updateSet}`,
+    `ON CONFLICT(promptId, subfolder, filename) DO UPDATE SET ${updateSet}`,
   ).run(...rowParams(item));
   return info.changes > 0;
 }
@@ -194,6 +203,18 @@ export function getById(id: string, db: Database.Database = getDb()): GalleryRow
 /** Alias kept for callers; identical to `getById`. */
 export function getByIdFull(id: string, db: Database.Database = getDb()): GalleryRowFull | null {
   return getById(id, db);
+}
+
+/**
+ * Indexed existence check for a promptId. Used by the sentry's boot-hydrate
+ * to skip prompts already gallery'd without loading the full table — the
+ * `idx_gallery_unique_promptid_path` partial unique index answers this in
+ * one lookup per call.
+ */
+export function existsByPromptId(promptId: string, db: Database.Database = getDb()): boolean {
+  if (!promptId) return false;
+  const r = db.prepare('SELECT 1 FROM gallery WHERE promptId = ? LIMIT 1').get(promptId);
+  return r != null;
 }
 
 export function count(db: Database.Database = getDb()): number {

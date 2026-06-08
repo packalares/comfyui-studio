@@ -45,6 +45,7 @@ import {
   Sparkles,
   BookOpen,
   SlashSquare,
+  Download as DownloadIcon,
   type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -835,6 +836,88 @@ function ChatAdvancedCard() {
       <CardFooter>
         <p className="text-xs text-muted-foreground">Changes are applied immediately to the chat backend.</p>
         <Button onClick={handleSave} disabled={busy || !advanced}>
+          {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
+          {saved ? 'Saved' : 'Save'}
+        </Button>
+      </CardFooter>
+    </Card>
+  );
+}
+
+/* =================================================================
+   1h. Downloads Card — backpressure cap on the model-download wait queue.
+       Concurrency (`MAX_CONCURRENT_DOWNLOADS`) stays env-driven; this is
+       just the size of the line stacked behind those in-flight slots.
+   ================================================================= */
+
+function DownloadsCard() {
+  const app = useApp();
+  const live = app.downloadsConfig;
+  const [maxQueue, setMaxQueue] = useState<string>('');
+  const [maxConcurrent, setMaxConcurrent] = useState<string>('');
+  const [busy, setBusy] = useState(false);
+  const [saved, markSaved] = useTransientFlag(2000);
+
+  useEffect(() => {
+    if (live?.maxQueue != null) setMaxQueue(String(live.maxQueue));
+    if (live?.maxConcurrent != null) setMaxConcurrent(String(live.maxConcurrent));
+  }, [live?.maxQueue, live?.maxConcurrent]);
+
+  const handleSave = async () => {
+    const q = Math.floor(Number(maxQueue));
+    const c = Math.floor(Number(maxConcurrent));
+    if (!Number.isFinite(q) || q <= 0 || !Number.isFinite(c) || c <= 0) {
+      toast.error('Invalid value', { description: 'Both fields must be positive integers.' });
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.updateSettings('downloads', { maxQueue: q, maxConcurrent: c });
+      await app.refreshSystem();
+      markSaved();
+    } catch (err) {
+      toast.error('Failed to save downloads settings', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <SectionHeader
+        icon={DownloadIcon}
+        title="Downloads"
+        description="Cap on concurrent in-flight downloads and the wait queue behind them. Excess requests get a structured rate-limit error instead of accumulating unbounded state. Raising concurrency unblocks waiting items immediately; lowering it lets running downloads finish first."
+      />
+      <CardContent>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <InputField
+            label="Concurrent in-flight"
+            tooltip="Slots for simultaneous downloads. Defaults to the MAX_CONCURRENT_DOWNLOADS env var until you save a value here. Raise for parallel bulk pulls; lower if bandwidth or disk I/O becomes a bottleneck."
+            type="number"
+            min={1}
+            value={maxConcurrent}
+            onChange={setMaxConcurrent}
+            disabled={!live}
+            leftIcon={<DownloadIcon />}
+          />
+          <InputField
+            label="Max queued downloads"
+            tooltip="Wait queue length when all in-flight slots are busy. 50 by default. Increase if you bulk-install many models at once; lower to reject runaway loops earlier."
+            type="number"
+            min={1}
+            value={maxQueue}
+            onChange={setMaxQueue}
+            disabled={!live}
+            leftIcon={<DownloadIcon />}
+          />
+        </div>
+      </CardContent>
+      <CardFooter>
+        <p className="text-xs text-muted-foreground">Applies immediately; in-flight downloads continue, the queue re-checks slots on save.</p>
+        <Button onClick={handleSave} disabled={busy || !live}>
           {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
           {saved ? 'Saved' : 'Save'}
         </Button>
@@ -1729,6 +1812,9 @@ export default function Settings() {
             <div className="grid gap-3 md:grid-cols-2">
               <StorageCard />
               <NetworkCard />
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <DownloadsCard />
             </div>
           </div>
         )}

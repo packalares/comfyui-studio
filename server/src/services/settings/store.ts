@@ -35,6 +35,14 @@ export interface SettingsInternal {
   chatDefaultThinkMode?: 'on' | 'off' | 'auto';
   // Allow `studio_run_skill_script` to run user-installed scripts. Off by default.
   chatEnableUserSkillScripts?: boolean;
+  /** Max length of the pending-download wait queue. Excess enqueue calls
+   *  surface as 429-style "queue full" errors. Defaults to
+   *  `DEFAULT_DOWNLOADS_MAX_QUEUE` when unset. */
+  downloadsMaxQueue?: number;
+  /** Max concurrent in-flight downloads. Above this, new enqueues wait in
+   *  the queue. Defaults to `env.MAX_CONCURRENT_DOWNLOADS` when unset, so
+   *  unchanged from the env-only behaviour until the user touches it. */
+  downloadsMaxConcurrent?: number;
 }
 
 // DEFAULT_OLLAMA_URL respects the OLLAMA_URL env var; persisted setting still wins.
@@ -49,6 +57,13 @@ export const DEFAULT_CHAT_TITLE_TIMEOUT_MS = 30_000;
 export const DEFAULT_CHAT_SUMMARY_TIMEOUT_MS = 60_000;
 export const DEFAULT_CHAT_SMART_SUGGESTIONS = true;
 export const DEFAULT_CHAT_DEFAULT_THINK_MODE: 'on' | 'off' | 'auto' = 'auto';
+
+// Backpressure cap for the download wait queue. With MAX_CONCURRENT_DOWNLOADS
+// in env governing in-flight slots, this caps how many requests can stack up
+// behind those slots before the facade rejects new ones. 50 is large enough
+// for normal bulk-install flows but stops runaway loops from accumulating
+// unbounded state.
+export const DEFAULT_DOWNLOADS_MAX_QUEUE = 50;
 
 let cache: SettingsInternal | null = null;
 

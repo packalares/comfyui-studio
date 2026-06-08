@@ -229,6 +229,7 @@ export interface SettingsPatchByKey {
     advanced: Partial<ChatAdvancedSettings>;
   }>;
   tools: ChatToolsSettingsInput;
+  downloads: Partial<{ maxQueue: number; maxConcurrent: number }>;
 }
 
 /** Per-key response shapes returned by the consolidated PUT. */
@@ -238,6 +239,7 @@ export interface SettingsResponseByKey {
    // via this endpoint) — the UI reads them from /api/system instead.
    chat: Omit<ChatSettingsView, 'tools' | 'suggestions'>;
   tools: ChatToolsSettings;
+  downloads: { maxQueue: number; maxConcurrent: number };
 }
 
 export type ProbeType = 'ollama' | 'searxng';
@@ -557,7 +559,10 @@ export const api = {
         : `Upload failed (${res.status})`;
       throw new ApiError(res.status, msg, body);
     }
-    return res.json();
+    // Wave 3 envelope: server returns `{ data: { name, subfolder, type } }`.
+    // Unwrap so callers read `.name` directly (matches the legacy contract).
+    const body = await res.json();
+    return (body && typeof body === 'object' && 'data' in body) ? body.data : body;
   },
 
   // ---- Launcher / dependency endpoints ----

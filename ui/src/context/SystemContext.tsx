@@ -18,6 +18,7 @@ export interface SystemContextType {
   githubTokenConfigured: boolean;
   pexelsApiKeyConfigured: boolean;
   uploadMaxBytes: number;
+  downloadsConfig: { maxQueue: number; maxConcurrent: number } | null;
   network: NetworkConfigView | null;
   chat: ChatSettingsView | null;
   personality: PersonalitySummary | null;
@@ -34,6 +35,7 @@ export interface SystemContextType {
   _setGithubTokenConfigured: React.Dispatch<React.SetStateAction<boolean>>;
   _setPexelsApiKeyConfigured: React.Dispatch<React.SetStateAction<boolean>>;
   _setUploadMaxBytes: React.Dispatch<React.SetStateAction<number>>;
+  _setDownloadsConfig: React.Dispatch<React.SetStateAction<{ maxQueue: number; maxConcurrent: number } | null>>;
   _setNetwork: React.Dispatch<React.SetStateAction<NetworkConfigView | null>>;
   _setChat: React.Dispatch<React.SetStateAction<ChatSettingsView | null>>;
   _setPersonality: React.Dispatch<React.SetStateAction<PersonalitySummary | null>>;
@@ -56,6 +58,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
   const [pexelsApiKeyConfigured, setPexelsApiKeyConfigured] = useState(false);
   // Fallback matches the server's default until `/api/system` arrives.
   const [uploadMaxBytes, setUploadMaxBytes] = useState(500 * 1024 * 1024);
+  const [downloadsConfig, setDownloadsConfig] = useState<{ maxQueue: number; maxConcurrent: number } | null>(null);
   const [network, setNetwork] = useState<NetworkConfigView | null>(null);
   const [chat, setChat] = useState<ChatSettingsView | null>(null);
   const [personality, setPersonality] = useState<PersonalitySummary | null>(null);
@@ -76,6 +79,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
         githubTokenConfigured,
         pexelsApiKeyConfigured,
         uploadMaxBytes,
+        downloadsConfig,
         network,
         chat,
         personality,
@@ -91,6 +95,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
         _setGithubTokenConfigured: setGithubTokenConfigured,
         _setPexelsApiKeyConfigured: setPexelsApiKeyConfigured,
         _setUploadMaxBytes: setUploadMaxBytes,
+        _setDownloadsConfig: setDownloadsConfig,
         _setNetwork: setNetwork,
         _setChat: setChat,
         _setPersonality: setPersonality,

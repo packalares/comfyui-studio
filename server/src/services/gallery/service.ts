@@ -158,6 +158,18 @@ export async function onNodeExecuted(
   const hasOutputFiles = Object.values(output).some(looksLikeFiles);
   if (!hasOutputFiles) return 0;
   try {
+    // Pull provenance + apiPrompt up front so the row written here already
+    // carries templateName / fingerprints / triggered_by. Without this the
+    // COALESCE upgrade from appendHistoryEntry has to land later — and when
+    // the second writer's INSERT collapses to a no-op (changes=0) the
+    // emitGalleryUpdate / deleteSnapshot / clearPromptMeta calls there never
+    // run, leaving stale entries until the 1h orphan sweep.
+    const meta = getPromptMeta(promptId);
+    const snap = getSnapshot(promptId);
+    let apiPrompt: ApiPrompt | null = null;
+    if (snap) {
+      try { apiPrompt = JSON.parse(snap.apiPromptJson) as ApiPrompt; } catch { /* malformed */ }
+    }
     // Feed the event payload through the same row-builder the history path uses.
     // `outputs` is keyed by node id in history, but for single-node events we
     // just need one synthetic bucket; the row id still combines promptId +
@@ -165,8 +177,14 @@ export async function onNodeExecuted(
     const rows = await buildRowsFromExecution({
       promptId,
       outputs: { node: output as Record<string, unknown> },
-      apiPrompt: null,
+      apiPrompt,
       createdAt: Date.now(),
+      templateName:     snap?.templateName    ?? meta?.templateName    ?? null,
+      triggeredBy:      snap?.triggered_by    ?? meta?.triggeredBy     ?? null,
+      conversationId:   snap?.conversation_id ?? meta?.conversationId  ?? null,
+      messageId:        snap?.message_id      ?? meta?.messageId       ?? null,
+      modelFingerprint: meta?.modelFingerprint,
+      templateHash:     meta?.templateHash,
     });
     let inserted = 0;
     for (const row of rows) {

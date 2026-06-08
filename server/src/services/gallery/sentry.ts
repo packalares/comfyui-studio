@@ -41,9 +41,13 @@ export async function onQueueStatus(activeIds: Set<string>): Promise<void> {
     if (!activeIds.has(pid)) finished.push(pid);
   }
   if (finished.length === 0) return;
+  // Drop the watch entry immediately so we don't re-fire on the next status
+  // tick, but KEEP promptMeta — appendHistoryEntry below reads it to populate
+  // templateName / modelFingerprint / templateHash on the gallery row.
+  // appendHistoryEntry clears meta itself on success (service.ts:217); the
+  // 1-hour orphan sweep handles the case where it never succeeds.
   for (const pid of finished) {
     watched.delete(pid);
-    clearPromptMeta(pid);
   }
   for (const pid of finished) {
     try {
@@ -112,8 +116,7 @@ export async function hydrateFromQueue(): Promise<void> {
 
 async function hasRowForPrompt(promptId: string): Promise<boolean> {
   try {
-    const all = repo.listAll({ sort: 'newest' });
-    return all.some(r => r.promptId === promptId);
+    return repo.existsByPromptId(promptId);
   } catch {
     return false;
   }

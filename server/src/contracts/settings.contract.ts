@@ -57,7 +57,12 @@ export const ProbeResultSchema = z.discriminatedUnion('ok', [
   z.object({ ok: z.literal(false), error: z.string() }),
 ]);
 
-export const SettingsKeySchema = z.enum(['secret', 'chat', 'tools']);
+export const DownloadsPatchSchema = z.object({
+  maxQueue: z.number().int().positive().optional(),
+  maxConcurrent: z.number().int().positive().optional(),
+}).partial();
+
+export const SettingsKeySchema = z.enum(['secret', 'chat', 'tools', 'downloads']);
 export type SettingsKey = z.infer<typeof SettingsKeySchema>;
 
 export const DeleteSecretQuerySchema = z.object({ name: SecretNameSchema });

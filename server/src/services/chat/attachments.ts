@@ -11,7 +11,7 @@ import { paths } from '../../config/paths.js';
 import { logger } from '../../lib/logger.js';
 import {
   appendAttachment, listAttachmentsForMessage, listAttachmentsForConversation,
-  listAllAttachments, type AttachmentRow, type AttachmentSource,
+  listAllAttachments, iterateAttachmentFilenames, type AttachmentRow, type AttachmentSource,
 } from '../../lib/db/chat.repo.js';
 
 const ATTACH_SUBDIR = 'chat-attachments';
@@ -193,5 +193,10 @@ export function deleteConversationAttachmentFiles(conversationId: string): void 
 }
 
 export function deleteAllAttachmentFiles(): void {
-  for (const row of listAllAttachments()) unlinkAttachmentFile(row);
+  // Stream (id, ext) one row at a time instead of materializing the full
+  // attachments table — heavy-use installs can accumulate tens of thousands
+  // of attachments and we only need the on-disk filename to unlink.
+  for (const { id, ext } of iterateAttachmentFilenames()) {
+    unlinkAttachmentFile({ id, ext } as AttachmentRow);
+  }
 }

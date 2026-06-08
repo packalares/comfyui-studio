@@ -46,9 +46,26 @@ const storage = multer.diskStorage({
   },
 });
 
+// Reject by MIME / extension BEFORE multer writes anything to disk. Without
+// this filter, denied files (wrong mimetype, executable extension) are
+// streamed to /tmp first and only deleted in the handler's `finally` block —
+// if the process is killed mid-handler (OOM, SIGKILL) the file stays until
+// the 1-hour sweep. The filter runs before storage so disk is never touched
+// for a rejection.
 const upload = multer({
   storage,
   limits: { fileSize: env.UPLOAD_MAX_BYTES },
+  fileFilter: (_req, file, cb) => {
+    const reason = uploadRejectionReason(file);
+    if (reason) {
+      // multer treats a falsy second arg as "skip this file"; surfacing a
+      // ValidationError here lets the existing error middleware turn it into
+      // the structured 400 the UI already handles.
+      cb(new ValidationError(reason));
+      return;
+    }
+    cb(null, true);
+  },
 });
 
 const router = Router();

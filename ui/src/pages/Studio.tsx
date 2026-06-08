@@ -383,11 +383,20 @@ export default function Studio() {
   }, [primitiveFormFields]);
 
   // When category changes, prefer the user's last template for that category; fall back to
-  // the first template in the list. Skipped when the current template already belongs to the
-  // active category (e.g. user just landed from Explore with a specific templateName URL).
+  // the first template in the list. Skipped when the currently selected template already
+  // belongs to the active category (e.g. user just landed from Explore / a gallery link
+  // with a specific templateName URL).
+  //
+  // Membership check is against `categoryTemplates` directly (not derived `template`)
+  // because during the multi-effect commit triggered by a URL change, the closure here
+  // can read a stale `activeCategory` while `selectedTemplate` is already the new value.
+  // The previous `template && getCategoryForTemplate(template) === activeCategory` form
+  // would then mis-skip the early return and spuriously navigate to the remembered
+  // template — an infinite ping-pong when the deps array also omits `selectedTemplate`
+  // and `lastTemplateByCategory`.
   useEffect(() => {
-    if (template && getCategoryForTemplate(template) === activeCategory) return;
     if (categoryTemplates.length === 0) return;
+    if (selectedTemplate && categoryTemplates.some(t => t.name === selectedTemplate)) return;
     const remembered = lastTemplateByCategory[activeCategory];
     const rememberedTemplate = remembered && categoryTemplates.find(t => t.name === remembered);
     const target = rememberedTemplate ? rememberedTemplate.name : categoryTemplates[0].name;
@@ -395,7 +404,7 @@ export default function Studio() {
       setSelectedTemplate(target);
       navigate(`/studio/${target}`, { replace: true });
     }
-  }, [activeCategory, categoryTemplates]);
+  }, [activeCategory, categoryTemplates, selectedTemplate, lastTemplateByCategory, navigate]);
 
   // Whenever a template is selected, remember it as the last-used one for its category.
   // Also remember the category itself so a bare `/studio` URL can restore the last tab.

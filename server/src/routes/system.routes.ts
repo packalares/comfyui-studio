@@ -113,6 +113,10 @@ const systemRoute = defineRoute({
     githubTokenConfigured: settings.isGithubTokenConfigured(),
     pexelsApiKeyConfigured: settings.isPexelsApiKeyConfigured(),
     uploadMaxBytes: env.UPLOAD_MAX_BYTES,
+    downloads: {
+      maxQueue: settings.getDownloadsMaxQueue(),
+      maxConcurrent: settings.getDownloadsMaxConcurrent(),
+    },
   } as unknown as z.infer<typeof SystemResponseSchema>);
 });
 

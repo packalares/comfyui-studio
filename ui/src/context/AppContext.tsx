@@ -57,6 +57,7 @@ interface AppContextType {
   githubTokenConfigured: boolean;
   pexelsApiKeyConfigured: boolean;
   uploadMaxBytes: number;
+  downloadsConfig: { maxQueue: number; maxConcurrent: number } | null;
   network: NetworkConfigView | null;
   chat: ChatSettingsView | null;
   dashboardSummary: DashboardSummary | null;
@@ -105,6 +106,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setGithubTokenConfigured,
     _setPexelsApiKeyConfigured,
     _setUploadMaxBytes,
+    _setDownloadsConfig,
     _setNetwork,
     _setChat,
     _setPersonality,
@@ -139,6 +141,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
         githubTokenConfigured,
         pexelsApiKeyConfigured,
         uploadMaxBytes,
+        downloads,
         ...stats
       } = data;
       // When ComfyUI is unreachable the server omits the stats spread, so
@@ -163,6 +166,13 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       if (typeof uploadMaxBytes === 'number' && Number.isFinite(uploadMaxBytes)) {
         _setUploadMaxBytes(uploadMaxBytes);
       }
+      if (downloads
+        && typeof downloads === 'object'
+        && typeof (downloads as { maxQueue?: unknown }).maxQueue === 'number'
+        && typeof (downloads as { maxConcurrent?: unknown }).maxConcurrent === 'number'
+      ) {
+        _setDownloadsConfig(downloads as { maxQueue: number; maxConcurrent: number });
+      }
       if (network) _setNetwork(network);
       if (chat) _setChat(chat);
       if (personality) _setPersonality(personality);
@@ -184,6 +194,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setGithubTokenConfigured,
     _setPexelsApiKeyConfigured,
     _setUploadMaxBytes,
+    _setDownloadsConfig,
     _setNetwork,
     _setChat,
     _setPersonality,
@@ -589,6 +600,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       githubTokenConfigured: system.githubTokenConfigured,
       pexelsApiKeyConfigured: system.pexelsApiKeyConfigured,
       uploadMaxBytes: system.uploadMaxBytes,
+      downloadsConfig: system.downloadsConfig,
       network: system.network,
       chat: system.chat,
       dashboardSummary: system.dashboardSummary,
@@ -622,6 +634,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       system.githubTokenConfigured,
       system.pexelsApiKeyConfigured,
       system.uploadMaxBytes,
+      system.downloadsConfig,
       system.network,
       system.chat,
       system.dashboardSummary,

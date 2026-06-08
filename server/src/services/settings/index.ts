@@ -63,6 +63,10 @@ export {
   setChatDefaultThinkMode,
   getChatEnableUserSkillScripts,
   setChatEnableUserSkillScripts,
+  getDownloadsMaxQueue,
+  setDownloadsMaxQueue,
+  getDownloadsMaxConcurrent,
+  setDownloadsMaxConcurrent,
 } from './tunables.js';
 export {
   getSearxngUrl,
