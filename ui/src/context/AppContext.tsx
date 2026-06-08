@@ -130,6 +130,11 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
   const refreshSystem = useCallback(async () => {
     try {
       const data = await api.getSystemStats();
+      // `downloads` is a recent server-side addition; the OpenAPI-derived
+      // SystemPayload type doesn't include it yet. Widen via an unknown
+      // pull and validate at the use site below. Drop this cast next time
+      // `gen:api` runs against a live server.
+      const downloads = (data as { downloads?: unknown }).downloads;
       const {
         queue, gallery: galleryInfo,
         comfyuiConnected,
@@ -141,7 +146,6 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
         githubTokenConfigured,
         pexelsApiKeyConfigured,
         uploadMaxBytes,
-        downloads,
         ...stats
       } = data;
       // When ComfyUI is unreachable the server omits the stats spread, so
