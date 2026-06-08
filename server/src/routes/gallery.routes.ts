@@ -268,12 +268,16 @@ const regenerateRoute = defineRoute({
           message_id: null,
         });
       } catch { /* snapshot failure must not fail the submit */ }
+      // modelFingerprint / templateHash aren't exposed on GalleryRowFull
+      // (they're DB columns but not re-mapped in rowToFull). Leave them off
+      // the watch options — the regenerated row will land with null
+      // fingerprints, which is fine: workflowDetail derived from
+      // workflowJson still drives the modal, and the fingerprints are only
+      // used downstream for cache-hit dedup, which gracefully no-ops on null.
       schedulePromptWatch(result.prompt_id, {
         triggeredBy: 'ui',
         conversationId: null,
         messageId: null,
-        modelFingerprint: row.modelFingerprint ?? null,
-        templateHash: row.templateHash ?? null,
       });
     }
     return ctx.ok({ promptId: result.prompt_id });
