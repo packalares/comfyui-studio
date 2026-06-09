@@ -130,6 +130,26 @@ const generateRoute = defineRoute({
     throw err;
   }
 
+  // Reject the submission if ComfyUI flagged any node_errors, even though it
+  // accepted the prompt (HTTP 200 with prompt_id). ComfyUI's rule is "queue
+  // if any output chain is valid" — a tolerant secondary output (e.g. a
+  // Director text node) can make the prompt validate while the actual
+  // SaveImage/SaveVideo chain is broken. Our UX contract is stricter: any
+  // node_error = user-fixable problem = no submission. Cancel the queued
+  // prompt so it doesn't burn a GPU slot on partial execution.
+  const nodeErrorsMap = (result as { node_errors?: Record<string, unknown> } | null)?.node_errors;
+  if (nodeErrorsMap && Object.keys(nodeErrorsMap).length > 0) {
+    if (result?.prompt_id) {
+      await comfyui.deleteQueuedPrompts([result.prompt_id]).catch(() => {
+        /* best-effort cancel — surfacing a delete failure would mask the real validation error */
+      });
+    }
+    const parsed = parseComfyValidation(JSON.stringify({ node_errors: nodeErrorsMap }));
+    throw new ValidationError(parsed?.summary ?? 'Workflow validation failed', {
+      nodeErrors: parsed?.nodeErrors ?? [],
+    });
+  }
+
   if (result?.prompt_id) {
     try {
       insertSnapshot({

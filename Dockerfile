@@ -8,7 +8,7 @@
 #
 # Pick which to build with `--target prod` or `--target dev`.
 
-ARG BASE_IMAGE=docker.io/beclab/comfyui:v0.22.0
+ARG BASE_IMAGE=docker.io/beclab/comfyui:v0.24.0-build106
 
 # ======================================================================
 # Stage: frontend-build — throwaway; we only need its dist/.
