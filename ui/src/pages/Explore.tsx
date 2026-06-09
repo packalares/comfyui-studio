@@ -331,7 +331,7 @@ export default function Explore() {
   return (
     <>
       <PageSubbar
-        title="Explore"
+        title="Templates"
         description={`${templates.length} workflows available`}
         right={
           <div className="flex items-center gap-2">

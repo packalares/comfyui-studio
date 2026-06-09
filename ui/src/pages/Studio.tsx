@@ -29,6 +29,7 @@ import { AudioPlayer } from '../components/ui/audio-player';
 import type { StudioCategory, TemplateSummary, DependencyCheck, AdvancedSetting, FormInput, WorkflowGroup } from '../types';
 
 const WorkflowGraph = lazy(() => import('../components/studio/WorkflowGraph'));
+const VideoBuilder = lazy(() => import('./VideoBuilder'));
 
 const categories: { id: StudioCategory; label: string; icon: React.ElementType }[] = [
   { id: 'image', label: 'IMAGE', icon: ImageIcon },
@@ -45,6 +46,21 @@ const categoryTitles: Record<StudioCategory, string> = {
   '3d': '3D Generator',
   tools: 'AI-Tools Generator',
 };
+
+// Top-level builder tab for the Studio page. The legacy Category dropdown
+// was replaced by this strip: Image / Video / Audio host curated "easy"
+// UIs (model-driven, mode auto-inferred from inputs); Advanced renders the
+// full template picker without any category filter and remembers the last
+// template the user opened (single global, not per-category).
+type StudioTab = 'image' | 'video' | 'audio' | 'advanced';
+const STUDIO_TABS: { id: StudioTab; label: string; Icon: React.ElementType }[] = [
+  { id: 'image',    label: 'Image',    Icon: ImageIcon },
+  { id: 'video',    label: 'Video',    Icon: Film },
+  { id: 'audio',    label: 'Audio',    Icon: Music },
+  { id: 'advanced', label: 'Advanced', Icon: Settings2 },
+];
+const STUDIO_TAB_STORAGE_KEY = 'studio:tab';
+const STUDIO_LAST_TEMPLATE_GLOBAL_KEY = 'studio:lastTemplateGlobal';
 
 function getCategoryForTemplate(t: TemplateSummary): StudioCategory {
   if (t.studioCategory) return t.studioCategory;
@@ -101,6 +117,25 @@ export default function Studio() {
     return 'image';
   };
   const [activeCategory, setActiveCategory] = useState<StudioCategory>(resolveInitialCategory);
+  // Top-level builder tab: Image / Video / Audio / Advanced. URL query
+  // (`?tab=video`) wins on first paint so deep links land on the right
+  // pane; localStorage falls back otherwise.
+  const resolveInitialStudioTab = (): StudioTab => {
+    const urlTab = searchParams.get('tab') as StudioTab | null;
+    if (urlTab && STUDIO_TABS.some((t) => t.id === urlTab)) return urlTab;
+    try {
+      const saved = localStorage.getItem(STUDIO_TAB_STORAGE_KEY) as StudioTab | null;
+      if (saved && STUDIO_TABS.some((t) => t.id === saved)) return saved;
+    } catch { /* localStorage unavailable */ }
+    return 'advanced';
+  };
+  const [studioTab, setStudioTabState] = useState<StudioTab>(resolveInitialStudioTab);
+  const setStudioTab = useCallback((next: StudioTab) => {
+    setStudioTabState(next);
+    try { localStorage.setItem(STUDIO_TAB_STORAGE_KEY, next); } catch { /* ignore */ }
+    // We don't mutate the URL here — useNavigate + search params would
+    // bounce the active template path. Tab choice is sticky via localStorage.
+  }, []);
   const [selectedTemplate, setSelectedTemplate] = useState<string>(templateName || '');
   const [formValues, setFormValues] = useState<Record<string, unknown>>({});
   const [mode, setMode] = useState<'form' | 'json'>('form');
@@ -174,10 +209,15 @@ export default function Studio() {
 
   // ComfyUI logs drawer
 
-  // Filter templates by active category
+  // Template pool for the ModelDropdown.
+  // - Advanced tab: no category filter — pick from the entire catalog.
+  // - Image/Video/Audio tabs: scoped to that category (for now this is a
+  //   safety net; those tabs render a placeholder until Phase 2 ships the
+  //   curated builder UI).
   const categoryTemplates = useMemo(() => {
-    return templates.filter(t => getCategoryForTemplate(t) === activeCategory);
-  }, [templates, activeCategory]);
+    if (studioTab === 'advanced') return templates;
+    return templates.filter(t => getCategoryForTemplate(t) === studioTab);
+  }, [templates, studioTab, activeCategory]); // activeCategory kept in deps to satisfy legacy effects below
 
   // Current template object
   const template = useMemo(
@@ -647,35 +687,71 @@ export default function Studio() {
                 </div>
               )}
 
-              {/* CATEGORY section */}
+              {/* MODE section — top-level builder tab strip.
+                  Replaces the legacy Category dropdown. Image/Video/Audio
+                  drive curated UIs (Phase 2+); Advanced renders the full
+                  template picker without a category filter. */}
               <div>
-                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Category</p>
-                <SelectField
-                  value={activeCategory}
-                  onValueChange={(v) => handleCategoryChange(v as StudioCategory)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {categories.map(cat => {
-                      const Icon = cat.icon;
-                      return (
-                        <SelectItem key={cat.id} value={cat.id}>
-                          <span className="inline-flex items-center gap-1.5">
-                            <Icon className="w-3.5 h-3.5 shrink-0" />
-                            {cat.label}
-                          </span>
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </SelectField>
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Mode</p>
+                <div role="tablist" aria-label="Studio mode" className="flex flex-wrap gap-1 rounded-lg bg-card ring-1 ring-inset ring-border p-1">
+                  {STUDIO_TABS.map(({ id, label, Icon }) => {
+                    const active = studioTab === id;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => setStudioTab(id)}
+                        className={
+                          'flex-1 inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ' +
+                          (active
+                            ? 'bg-brand text-brand-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-muted/50')
+                        }
+                      >
+                        <Icon className="w-3.5 h-3.5 shrink-0" />
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
-              {/* MODEL / DEPENDENCIES section — the eyebrow reads "Dependencies"
-                  because the status icon next to it covers model files AND custom-node
-                  plugins, not just models. */}
+              {/* Video tab — curated Easy-mode UI. The component owns its
+                  own prompt/resolution/duration form and submits via the
+                  existing /api/generate endpoint (server reads the active
+                  template's modes metadata and mutes inactive nodes). */}
+              {studioTab === 'video' && (
+                <Suspense fallback={<div className="p-6 text-center"><Spinner /></div>}>
+                  <VideoBuilder />
+                </Suspense>
+              )}
+
+              {/* Image / Audio — still placeholders until their builders ship. */}
+              {(studioTab === 'image' || studioTab === 'audio') && (
+                <div className="rounded-lg border border-dashed border-border/70 bg-card/40 p-6 text-center">
+                  <p className="text-sm font-medium text-foreground mb-1">
+                    {studioTab === 'image' ? 'Image' : 'Audio'} generation
+                  </p>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    The curated builder is coming soon. Use Advanced to drive any template directly.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setStudioTab('advanced')}
+                    className="text-xs text-brand underline hover:text-brand/80"
+                  >
+                    Switch to Advanced
+                  </button>
+                </div>
+              )}
+
+              {/* MODEL / DEPENDENCIES section — Advanced tab only.
+                  Image/Video/Audio render the placeholder above; their
+                  curated UIs (Phase 2) will provide their own model picker
+                  + dependency surface. */}
+              {studioTab === 'advanced' && (
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Dependencies</p>
@@ -711,8 +787,10 @@ export default function Studio() {
                   onSelect={handleSelectTemplate}
                 />
               </div>
+              )}
 
-              {/* PARAMETERS section */}
+              {/* PARAMETERS section — Advanced tab only. */}
+              {studioTab === 'advanced' && (
               <div>
                 <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Parameters</p>
 
@@ -746,6 +824,7 @@ export default function Studio() {
                   />
                 )}
               </div>
+              )}
             </div>
 
             {/* Footer: Reset/Generate */}

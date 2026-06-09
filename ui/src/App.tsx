@@ -33,7 +33,11 @@ function App() {
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/explore" element={<Explore />} />
+          {/* Templates (formerly "Explore") — the page that browses every
+              available workflow. Old `/explore` URLs and `?source=civitai`
+              deep-links keep working via a 1:1 redirect. */}
+          <Route path="/templates" element={<Explore />} />
+          <Route path="/explore" element={<Navigate to="/templates" replace />} />
           <Route path="/studio" element={<Studio />} />
           <Route path="/studio/:templateName" element={<Studio />} />
           <Route path="/gallery" element={<Gallery />} />
@@ -57,7 +61,7 @@ function App() {
             {/* Legacy /plugins/civitai/* URLs — CivitAI is now a Source filter
                 on the Models + Explore pages. Send stragglers to Models. */}
             <Route path="civitai/models" element={<Navigate to="/models?source=civitai" replace />} />
-            <Route path="civitai/workflows" element={<Navigate to="/explore?source=civitai" replace />} />
+            <Route path="civitai/workflows" element={<Navigate to="/templates?source=civitai" replace />} />
             <Route path="civitai/*" element={<Navigate to="/plugins/installed" replace />} />
           </Route>
           <Route path="/settings" element={<Settings />} />

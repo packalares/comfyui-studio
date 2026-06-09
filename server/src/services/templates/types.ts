@@ -145,6 +145,65 @@ export interface TemplateData {
    * brittle `category === 'User Workflows'` string match.
    */
   source_type?: number;
+
+  // ---- Studio Easy-mode metadata (optional; populated on per-template
+  // basis for templates that drive the curated builder UIs). The legacy
+  // catalog import does NOT set these; they live in the on-disk TemplateData
+  // JSON and a user adds them by editing the file after import.
+  //
+  // The Easy-mode UI queries /api/templates for entries whose
+  // `studioBuilder === <tab>`; the selected template is fetched in full via
+  // /api/template-bundle/:name, which now carries `modes` + `promptEnhancer`.
+
+  /**
+   * Tags this template as a curated builder for one of the Easy-mode tabs.
+   * Templates without this field never appear in the Easy-mode UIs and
+   * stay reachable through the Advanced tab only.
+   */
+  studioBuilder?: 'image' | 'video' | 'audio';
+
+  /**
+   * Human-facing model name used as the dropdown label in the Easy-mode
+   * UI (e.g. "LTX 2.3"). Falls back to `title` when missing.
+   */
+  modelDisplayName?: string;
+
+  /**
+   * Per-mode mute + switch configuration. The Easy-mode UI infers the
+   * active mode from which inputs the user provided (see `requires`),
+   * and the submit handler applies `mute` (sets `node.mode = 4` on every
+   * listed id) plus optionally the switch widget value before forwarding
+   * to ComfyUI.
+   *
+   * - `requires` — input keys that must be set for this mode to be
+   *   selected (e.g. `['image', 'audio']` for a `ia2v` mode). Empty means
+   *   "no extra inputs needed beyond a prompt".
+   * - `mute` — node IDs to silence (`node.mode = 4`). These are the IDs
+   *   of subgraph instances + unused LoadImage/LoadAudio nodes in OTHER
+   *   modes. Validation skips muted nodes entirely.
+   * - `switchNodeId` / `switchSlot` — when present, the submit handler
+   *   writes `switchSlot` into the named node's first widget value
+   *   (typically an ImpactSwitch `select` widget routing the active
+   *   subgraph's output to the final SaveVideo / SaveImage node).
+   */
+  modes?: Record<string, {
+    requires?: string[];
+    mute?: number[];
+    switchNodeId?: number;
+    switchSlot?: number;
+  }>;
+
+  /**
+   * Per-template prompt-enhance config consumed by the Easy-mode UI.
+   * When set, the "Enhance" button calls the existing /api/llm/generate
+   * endpoint with this `systemPrompt` wrapping the user's raw prompt.
+   * The preferred Ollama model (e.g. `qwen2.5:7b`) is suggested but the
+   * UI falls back to whatever the user has set as the global default.
+   */
+  promptEnhancer?: {
+    systemPrompt: string;
+    preferredModel?: string;
+  };
 }
 
 export interface RawTemplate {

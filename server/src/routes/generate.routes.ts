@@ -61,7 +61,7 @@ const generateRoute = defineRoute({
   tags: ['generate'],
   summary: 'Submit a workflow prompt to ComfyUI',
 }, async ({ body, ok }) => {
-  const { templateName, inputs: userInputs, advancedSettings } = body;
+  const { templateName, inputs: userInputs, advancedSettings, mode } = body;
 
   const workflow = templates.getUserWorkflowJson(templateName);
   if (!workflow) throw new NotFoundError('Workflow file missing or unreadable');
@@ -88,6 +88,52 @@ const generateRoute = defineRoute({
   const mergedFormInputs = generateFormInputs(rawForBindings, workflow, objectInfo);
   const apiPrompt = await workflowToApiPrompt(workflow, userInputs, mergedFormInputs);
   applyNodeOverrides(apiPrompt, nodeOverrides);
+
+  // ---- Easy-mode mute pass ----
+  // When the UI sent a `mode` hint and the template declares matching
+  // `modes` metadata, mute the inactive subgraph + input nodes and set the
+  // switch widget value. ComfyUI's validator skips muted nodes entirely,
+  // so the LoadImage/LoadAudio defaults in the inactive branches never
+  // get checked for existence — solves the "placeholder file missing"
+  // class of validation failures without changing the workflow JSON on
+  // disk.
+  const modeConfig = mode && template?.modes ? template.modes[mode] : undefined;
+  if (modeConfig) {
+    if (Array.isArray(modeConfig.mute)) {
+      for (const nodeId of modeConfig.mute) {
+        // `apiPrompt` is the API-shape submitted to ComfyUI: a dict keyed by
+        // string node id. Some templates have compound ids ("340:285"); we
+        // mute the top-level instance only — its subgraph follows by virtue
+        // of being unreached. The flattener echoes top-level ids verbatim.
+        const key = String(nodeId);
+        const node = (apiPrompt as Record<string, unknown>)[key] as
+          | { _meta?: { mode?: number }; mode?: number }
+          | undefined;
+        if (node) {
+          (node as { mode?: number }).mode = 4;
+          // Some ComfyUI versions/types also read mode from `_meta.mode`.
+          if (!node._meta) (node as { _meta?: Record<string, unknown> })._meta = {};
+          (node._meta as { mode?: number }).mode = 4;
+        }
+      }
+    }
+    if (
+      modeConfig.switchNodeId !== undefined &&
+      modeConfig.switchSlot !== undefined
+    ) {
+      const swKey = String(modeConfig.switchNodeId);
+      const swNode = (apiPrompt as Record<string, unknown>)[swKey] as
+        | { inputs?: Record<string, unknown> }
+        | undefined;
+      // ImpactSwitch's `select` input is widget-backed; in API-shape, widget
+      // values land inside `inputs`. Set the slot index (1-based per
+      // ImpactSwitch convention) so the active subgraph's output reaches
+      // the final SaveVideo / SaveImage node.
+      if (swNode && swNode.inputs) {
+        (swNode.inputs as Record<string, unknown>).select = modeConfig.switchSlot;
+      }
+    }
+  }
 
   const attachApiKey = template?.openSource === false;
 

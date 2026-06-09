@@ -72,6 +72,7 @@ interface AppContextType {
     templateName: string,
     inputs: Record<string, unknown>,
     advancedSettings?: Record<string, { proxyIndex: number; value: unknown }>,
+    mode?: string,
   ) => Promise<void>;
   cancelRunning: () => Promise<void>;
   cancelPending: (promptId: string) => Promise<void>;

@@ -134,6 +134,7 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
       templateName: string,
       inputs: Record<string, unknown>,
       advancedSettings?: Record<string, { proxyIndex: number; value: unknown }>,
+      mode?: string,
     ) => {
       outputFetchedRef.current = false;
       setErrorNodeIds([]);
@@ -148,7 +149,7 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
       };
       setCurrentJob(job);
       try {
-        const result = await api.generate(templateName, inputs, advancedSettings);
+        const result = await api.generate(templateName, inputs, advancedSettings, mode);
         const promptId = result.prompt_id || job.id;
         activePromptIdRef.current = promptId;
         setActivePromptId(promptId);

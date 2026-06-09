@@ -115,7 +115,20 @@ export async function buildTemplateBundle(templateName: string) {
   const apiPrompt = await buildStableApiPrompt(workflow);
   const groups = computeWorkflowGroups(workflow, apiPrompt);
   const primitiveFormFields = disambiguateFieldLabels(plan.fields, groups);
-  return { settings, widgets, primitiveFormFields, apiPrompt, groups };
+  // Forward Easy-mode metadata so the VideoBuilder UI (and the same code
+  // path for future Image/Audio builders) has everything it needs in one
+  // round-trip: which modes are declared, their input requirements, the
+  // mute/switch config, and the prompt-enhance system prompt.
+  const tpl = templates.getUserTemplate(templateName);
+  const builderMeta = tpl
+    ? {
+        studioBuilder: tpl.studioBuilder,
+        modelDisplayName: tpl.modelDisplayName,
+        modes: tpl.modes,
+        promptEnhancer: tpl.promptEnhancer,
+      }
+    : undefined;
+  return { settings, widgets, primitiveFormFields, apiPrompt, groups, builderMeta };
 }
 
 router.get('/workflow-settings/:templateName', async (req: Request, res: Response, next: NextFunction) => {

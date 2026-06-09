@@ -45,7 +45,7 @@ const linkSections: { label: string; items: NavLinkItem[] }[] = [
     label: 'Overview',
     items: [
       { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-      { to: '/explore', label: 'Explore', icon: Compass },
+      { to: '/templates', label: 'Templates', icon: Compass },
     ],
   },
   {

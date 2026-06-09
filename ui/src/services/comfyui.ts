@@ -398,12 +398,19 @@ export const api = {
     return ((env as { data?: R }).data ?? env) as R;
   },
 
-  generate: async (templateName: string, inputs: Record<string, unknown>, advancedSettings?: Record<string, { proxyIndex: number; value: unknown }>) => {
+  generate: async (
+    templateName: string,
+    inputs: Record<string, unknown>,
+    advancedSettings?: Record<string, { proxyIndex: number; value: unknown }>,
+    mode?: string,
+  ) => {
     // Server now wraps in { data: { promptId, ... } }. Unwrap and re-expose
     // prompt_id for backward-compat with callers that read result.prompt_id.
+    // `mode` is forwarded for Easy-mode templates (the server reads
+    // template.modes[mode] and mutes inactive nodes before submitting).
     const envelope = await fetchJson<{ data?: { promptId?: string } } | { promptId?: string; prompt_id?: string }>('/generate', {
       method: 'POST',
-      body: JSON.stringify({ templateName, inputs, advancedSettings }),
+      body: JSON.stringify({ templateName, inputs, advancedSettings, mode }),
     });
     const inner = (envelope as { data?: Record<string, unknown> }).data ?? (envelope as Record<string, unknown>);
     const promptId = (inner as { promptId?: string }).promptId ?? (inner as { prompt_id?: string }).prompt_id ?? '';
@@ -420,7 +427,11 @@ export const api = {
 
   /** Single-trip equivalent of `getWorkflowSettings` + `getTemplateWidgets`.
    *  Backend computes the workflow plan once and returns all payloads together,
-   *  including the stable api-prompt and group assignments. */
+   *  including the stable api-prompt and group assignments.
+   *
+   *  `builderMeta` is the Easy-mode metadata copied off the TemplateData JSON
+   *  for templates that drive the curated Image/Video/Audio builders. It's
+   *  optional — most templates won't carry it. */
   getTemplateBundle: (templateName: string) =>
     fetchJson<{
       settings: AdvancedSetting[];
@@ -428,6 +439,20 @@ export const api = {
       primitiveFormFields?: FormInput[];
       apiPrompt: Record<string, unknown>;
       groups: WorkflowGroup[];
+      builderMeta?: {
+        studioBuilder?: 'image' | 'video' | 'audio';
+        modelDisplayName?: string;
+        modes?: Record<string, {
+          requires?: string[];
+          mute?: number[];
+          switchNodeId?: number;
+          switchSlot?: number;
+        }>;
+        promptEnhancer?: {
+          systemPrompt: string;
+          preferredModel?: string;
+        };
+      };
     }>(`/template-bundle/${encodeURIComponent(templateName)}`),
 
   /** Debug/compare: return the /api/prompt payload our converter would produce. */
