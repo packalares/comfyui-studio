@@ -160,18 +160,9 @@ export function insertGalleryRow(
   const updateSet = coalesceCols
     .map(c => `${c} = COALESCE(gallery.${c}, excluded.${c})`)
     .join(', ');
-  // Two writers race here: onNodeExecuted (WS `executed` event, first to fire,
-  // metadata-less) and appendHistoryEntry (sentry, runs after the prompt
-  // finishes with full snapshot/meta). They produce different random UUIDs
-  // for the same output, so the conflict never hits the id PK — it hits the
-  // `idx_gallery_unique_promptid_path` unique index. Targeting that index in
-  // the ON CONFLICT clause lets the second writer's COALESCE-upgrade
-  // backfill templateName/workflowJson/etc. onto the row the first writer
-  // inserted. Without it the second INSERT failed silently and the row
-  // stayed without prompt/source metadata in the gallery modal.
   const info = db.prepare(
     `INSERT INTO gallery (${GALLERY_COLUMNS}) VALUES (${GALLERY_VALUES_PLACEHOLDERS}) ` +
-    `ON CONFLICT(promptId, subfolder, filename) DO UPDATE SET ${updateSet}`,
+    `ON CONFLICT(id) DO UPDATE SET ${updateSet}`,
   ).run(...rowParams(item));
   return info.changes > 0;
 }
