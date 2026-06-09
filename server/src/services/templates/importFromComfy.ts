@@ -19,6 +19,7 @@ import { logger } from '../../lib/logger.js';
 import * as templateRepo from '../../lib/db/templates.repo.js';
 import { generateFormInputs } from './templates.formInputs.js';
 import { deriveStudioCategory } from './categoryMap.js';
+import { extractDeps } from './depExtract.js';
 import type { TemplateData, RawCategory } from './types.js';
 
 export interface ImportProgress {
@@ -211,6 +212,12 @@ export async function runImportFromComfy(
       // 6. Upsert DB row with source_type=1 (comfy-catalog). Preserve
       //    existing favorite and soft_deleted by NOT overwriting them in
       //    writeRow's ON CONFLICT clause (those columns are intentionally omitted).
+      //    `template_models` join key is the actual filename loaders reference
+      //    at runtime (so `findTemplatesRequiringModel(downloadedFilename)`
+      //    matches). Run the workflow walker — NOT the catalog's `raw.models`
+      //    list, which carries display labels like "LTX-2.3" / "Lightricks"
+      //    and would never match a real `.safetensors` install event.
+      const realDeps = extractDeps(workflow);
       const prior = templateRepo.getTemplate(safeName);
       const isNew = !prior;
       templateRepo.upsertTemplate(
@@ -229,7 +236,7 @@ export async function runImportFromComfy(
           search_rank: typeof templateData.searchRank === 'number' ? templateData.searchRank : 0,
           username: templateData.username ?? null,
         },
-        { models: templateData.models ?? [], plugins: [] },
+        { models: realDeps.models, plugins: realDeps.plugins },
       );
 
       if (isNew) {

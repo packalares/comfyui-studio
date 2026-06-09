@@ -124,6 +124,36 @@ export async function deleteQueuedPrompts(promptIds: string[]): Promise<void> {
   }
 }
 
+// Cancel a prompt that ComfyUI just accepted (HTTP 200 with prompt_id) but
+// that we now want to discard — e.g. validation guard fired because the
+// response carried node_errors. Two steps: drop from pending queue, and if
+// the worker already picked it up, interrupt. Safe for our single-slot GPU
+// scheduler — only ever one running prompt, so interrupt can only hit ours.
+// All upstream errors are swallowed; this is best-effort cleanup.
+export async function cancelAcceptedPrompt(promptId: string): Promise<void> {
+  if (!promptId) return;
+  try {
+    await fetch(`${COMFYUI_URL}/api/queue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ delete: [promptId] }),
+    });
+  } catch { /* best-effort */ }
+  try {
+    const res = await fetch(`${COMFYUI_URL}/api/queue`);
+    if (res.ok) {
+      const body = (await res.json()) as { queue_running?: unknown };
+      const running = Array.isArray(body.queue_running) ? body.queue_running : [];
+      const isRunning = running.some(entry =>
+        Array.isArray(entry) && entry[1] === promptId,
+      );
+      if (isRunning) {
+        await fetch(`${COMFYUI_URL}/api/interrupt`, { method: 'POST' });
+      }
+    }
+  } catch { /* best-effort */ }
+}
+
 // Swallows errors — the gallery row + file are already gone, so a failed
 // upstream delete is non-fatal.
 export async function deleteHistoryPrompts(promptIds: string[]): Promise<void> {

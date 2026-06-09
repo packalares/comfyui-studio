@@ -119,6 +119,23 @@ export async function checkTemplateDependencies(
   const result = await computeTemplateDependencies(templateName);
   pruneExpiredMemo(now);
   memo.set(templateName, { result, expiresAt: now + MEMO_TTL_MS });
+  // Fallback writeback: the persistent `templates.installed` column is
+  // normally updated by event-bus subscribers (model:installed, plugin:
+  // installed). Those events can miss — download completes via a different
+  // path, custom-node enable doesn't emit, etc. — leaving Explore's badge
+  // stuck at "not ready" even though everything is in place. Write back
+  // only when the cached flag disagrees with the live truth so we don't
+  // bump `updatedAt` on every hit.
+  try {
+    const cachedFlag = templateRepo.getInstalledFlag(templateName);
+    if (cachedFlag !== null && cachedFlag !== result.ready) {
+      templateRepo.setInstalledForTemplates([templateName], result.ready);
+    }
+  } catch (err) {
+    logger.warn('checkTemplateDependencies: cache writeback failed', {
+      templateName, error: err instanceof Error ? err.message : String(err),
+    });
+  }
   return result;
 }
 

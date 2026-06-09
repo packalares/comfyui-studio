@@ -140,7 +140,10 @@ const generateRoute = defineRoute({
   const nodeErrorsMap = (result as { node_errors?: Record<string, unknown> } | null)?.node_errors;
   if (nodeErrorsMap && Object.keys(nodeErrorsMap).length > 0) {
     if (result?.prompt_id) {
-      await comfyui.deleteQueuedPrompts([result.prompt_id]).catch(() => {
+      // deleteQueuedPrompts only removes from PENDING. If the worker already
+      // picked it up (common — workers grab prompts within ms of submit),
+      // we also need to /interrupt. cancelAcceptedPrompt does both.
+      await comfyui.cancelAcceptedPrompt(result.prompt_id).catch(() => {
         /* best-effort cancel — surfacing a delete failure would mask the real validation error */
       });
     }

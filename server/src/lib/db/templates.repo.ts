@@ -204,6 +204,23 @@ export function deleteTemplate(
   db.prepare('DELETE FROM templates WHERE name = ?').run(name);
 }
 
+/**
+ * Returns the cached `installed` flag (true/false) for a template, or null
+ * when the template row doesn't exist. Used by `checkTemplateDependencies`
+ * as a cheap pre-check so we only UPDATE when the live readiness disagrees
+ * with the persisted column — avoids bumping `updatedAt` on every hit.
+ */
+export function getInstalledFlag(
+  name: string,
+  db: Database.Database = getDb(),
+): boolean | null {
+  const row = db.prepare('SELECT installed FROM templates WHERE name = ?').get(name) as
+    | { installed: number }
+    | undefined;
+  if (!row) return null;
+  return row.installed === 1;
+}
+
 export function setInstalledForTemplates(
   names: string[],
   installed: boolean,
