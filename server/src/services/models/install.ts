@@ -78,11 +78,20 @@ function findMatch(
   byFilename: Map<string, Array<{ pathKey: string; info: ScanInfo }>>,
   claimed: Set<string>,
 ): { pathKey: string; info: ScanInfo } | null {
-  // 1) Exact save_path + filename match.
+  // 1) Exact save_path + filename match. `scanInstalledModels` stores the
+  // key with a leading `models/` prefix (see install.ts:151), while catalog
+  // rows hold the bare folder name (`loras`, `checkpoints`, ...) — so we
+  // try BOTH forms. Without this, every catalog row missed its scan entry,
+  // the scan entry became a phantom "Locally discovered" duplicate, and
+  // the Models UI rendered each model twice.
   if (model.filename && model.save_path) {
-    const candidate = path.posix.join(model.save_path, model.filename);
-    const info = installed.get(candidate);
-    if (info && !claimed.has(candidate)) return { pathKey: candidate, info };
+    const norm = model.save_path.replace(/^models\//, '');
+    const stripped = path.posix.join(norm, model.filename);
+    const withModels = path.posix.join('models', stripped);
+    for (const candidate of [withModels, stripped]) {
+      const info = installed.get(candidate);
+      if (info && !claimed.has(candidate)) return { pathKey: candidate, info };
+    }
     // Catalog declares a save_path: a same-named file in a different folder
     // is a DIFFERENT model. Don't fall through to the bare-filename match.
     return null;
@@ -199,11 +208,16 @@ function gatherUnknownModels(
   const unknown: CatalogModelEntry[] = [];
   for (const [pathKey, info] of installed.entries()) {
     if (claimed.has(pathKey)) continue;
+    // `pathKey` is `models/<dir>/<filename>` — extract just the bare folder
+    // name so the wire shape matches the rest of the catalog (`loras`,
+    // `checkpoints`, ...). Emitting the full path-with-filename as save_path
+    // breaks the merge key in getMergedModels and rendered phantom dupes.
+    const parentDir = path.posix.dirname(pathKey).replace(/^models\//, '');
     unknown.push({
       name: info.filename || path.basename(pathKey),
       type: info.type || inferModelTypeFromPath(pathKey),
       base_url: '',
-      save_path: pathKey,
+      save_path: parentDir,
       description: 'Locally discovered model, not in official list',
       filename: info.filename || path.basename(pathKey),
       installed: true,

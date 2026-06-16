@@ -1,54 +1,69 @@
 // VideoBuilder — Studio's Easy-mode UI for video generation.
 //
-// Renders when Studio's top-level tab strip selects "Video". Drives any
-// template tagged `studioBuilder: 'video'` in its TemplateData JSON via a
-// minimal model dropdown + opinionated form (prompt, resolution preset,
-// duration in seconds, optional image/audio/last-frame).
+// Renders inside the Studio left pane when the top-level tab strip is on
+// "Video". Owns prompt/resolution/duration form state, exposes its submit
+// + reset + validation to Studio via the `registerAction` prop so the
+// single shared bottom Generate / Reset buttons drive it (no duplicate
+// CTA in the form body).
 //
-// All heavy lifting (workflow muting, switch-widget update, dependency
-// check) happens server-side via the existing `/api/generate` endpoint
-// extended with a `mode?: string` field — see generate.routes.ts. Prompt
-// enhancement goes through the existing `/api/llm/generate` endpoint with
-// the template's `promptEnhancer.systemPrompt`.
+// Heavy lifting lives server-side: workflow muting, switch-widget update
+// and dependency check go through the existing `/api/generate` and
+// `/api/check-deps` endpoints. Prompt enhancement uses `/api/llm/generate`
+// with the template's `promptEnhancer.systemPrompt`.
 
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
-import { Wand2, Sparkles, Image as ImageIcon, Music, Film, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import {
+  Wand2, Image as ImageIcon, Music, Film,
+  AlertTriangle, CheckCircle2, X as XIcon, ArrowRight,
+  Clock, Eraser, Gauge, Info,
+  Play as PlayIcon, Pause as PauseIcon,
+} from 'lucide-react';
+import { Popover, PopoverContent, PopoverAnchor } from '../components/ui/popover';
+import {
+  ChipSelect, FORMAT_OPTIONS, dimsFor, viewUrlFor, blobToBase64,
+  inferMode, nearestModeHints, AddMediaPill, RefSlot,
+  TogglesRow, resolveToggles, runEnhancePrompt,
+  type EasyBuilderAction, type BuilderTemplateBundle,
+} from './builder.shared';
+
+// Re-export so existing `import { type EasyBuilderAction } from './VideoBuilder'`
+// callers (Studio.tsx) keep working without an extra refactor.
+export type { EasyBuilderAction };
 import { useApp } from '../context/AppContext';
 import { api, ApiError } from '../services/comfyui';
 import { Button } from '../components/ui/button';
+import { Tooltip, TooltipTrigger, TooltipContent } from '../components/ui/tooltip';
+import MediaLibraryModal from '../components/modals/MediaLibraryModal';
+import type { MediaLibraryItem } from '../services/comfyui';
+import { Input } from '../components/ui/input';
+import { Textarea } from '../components/ui/textarea';
 import { Spinner } from '../components/ui/spinner';
 import { SelectField, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/forms/SelectField';
+import { Slider } from '../components/ui/slider';
 import type { TemplateSummary } from '../types';
 
-/** Resolution presets exposed in the Easy UI. Tied to common LTX/Wan
- *  capabilities. Adding a new preset = one line. */
-const RESOLUTION_PRESETS = [
-  { id: 'landscape-1080p', label: '1080p Landscape (16:9)',   width: 1920, height: 1080 },
-  { id: 'landscape-720p',  label: '720p Landscape (16:9)',    width: 1280, height: 720 },
-  { id: 'landscape-540p',  label: '540p Landscape (16:9)',    width: 960,  height: 540 },
-  { id: 'portrait-1080p',  label: '1080p Portrait (9:16)',    width: 1080, height: 1920 },
-  { id: 'portrait-720p',   label: '720p Portrait (9:16)',     width: 720,  height: 1280 },
-  { id: 'square-768',      label: 'Square 768 (1:1)',         width: 768,  height: 768 },
-  { id: 'square-1024',     label: 'Square 1024 (1:1)',        width: 1024, height: 1024 },
-] as const;
+/** Duration presets — value is the duration in seconds; label is a friendly
+ *  sense-of-length name shown to the right of the value in the dropdown. */
+const DURATION_OPTIONS: Array<{ value: number; label: string }> = [
+  { value: 3,  label: 'Quick' },
+  { value: 6,  label: 'Short' },
+  { value: 10, label: 'Medium' },
+  { value: 15, label: 'Long' },
+  { value: 20, label: 'Extended' },
+];
 
-/** Wider TemplateData fetched via /api/template-bundle/:name. Carries the
- *  Easy-mode metadata (modes + promptEnhancer) the server route uses too. */
-interface BuilderTemplateBundle {
-  name: string;
-  title?: string;
-  modelDisplayName?: string;
-  modes?: Record<string, {
-    requires?: string[];
-    mute?: number[];
-    switchNodeId?: number;
-    switchSlot?: number;
-  }>;
-  promptEnhancer?: {
-    systemPrompt: string;
-    preferredModel?: string;
-  };
+/** Quality = the short-side resolution in pixels. Combined with the active
+ *  format's ratio to compute the final width × height. */
+const QUALITY_OPTIONS: Array<{ id: string; base: number; label: string }> = [
+  { id: '540',  base: 540,  label: 'Draft' },
+  { id: '720',  base: 720,  label: 'Standard' },
+  { id: '1080', base: 1080, label: 'HD' },
+];
+
+interface Props {
+  registerAction: (a: EasyBuilderAction | null) => void;
+  onSwitchToAdvanced?: () => void;
 }
 
 const STORAGE_KEY = 'studio:video:lastForm';
@@ -56,13 +71,13 @@ const STORAGE_KEY = 'studio:video:lastForm';
 interface PersistedForm {
   templateName: string;
   prompt: string;
-  resolutionId: string;
+  formatId: string;
+  qualityId: string;
   duration: number;
-  seed: number;
+  durationMode: 'preset' | 'custom';
+  toggles: Record<string, boolean>;
 }
 
-/** Read the last form values from localStorage so re-entering the tab
- *  doesn't lose state. We persist after every Generate. */
 function loadPersistedForm(): PersistedForm | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -70,57 +85,33 @@ function loadPersistedForm(): PersistedForm | null {
   } catch { return null; }
 }
 
-/** Match the inputs the user has filled against the template's per-mode
- *  `requires` array. Returns the mode whose required set is exactly the
- *  filled set; falls back to the smallest requires that's a subset. */
-function inferMode(
-  filled: Set<string>,
-  modes: BuilderTemplateBundle['modes'],
-): string | null {
-  if (!modes) return null;
-  // First pass: exact match
-  for (const [name, cfg] of Object.entries(modes)) {
-    const req = new Set(cfg.requires ?? []);
-    if (req.size === filled.size && [...req].every((k) => filled.has(k))) {
-      return name;
-    }
-  }
-  // Second pass: best subset (smallest requires that's contained in filled)
-  let best: { name: string; size: number } | null = null;
-  for (const [name, cfg] of Object.entries(modes)) {
-    const req = cfg.requires ?? [];
-    if (req.every((k) => filled.has(k))) {
-      const size = req.length;
-      if (!best || size > best.size) best = { name, size };
-    }
-  }
-  return best?.name ?? null;
-}
+// Internal input keys → labels matching the UI slots / pill, so validation
+// hints read like the form does. Passed to nearestModeHints from the shared
+// module; unknown keys fall back to the raw key.
+const INPUT_LABELS: Record<string, string> = {
+  image: 'Start image',
+  lastFrame: 'End image',
+  audio: 'Audio',
+};
 
-export default function VideoBuilder() {
+export default function VideoBuilder({ registerAction, onSwitchToAdvanced }: Props) {
   const { templates, submitGeneration, connected, uploadMaxBytes } = useApp();
 
   // ---- Pool of video-builder templates ----
-  // The templates list endpoint doesn't (yet) surface the `studioBuilder`
-  // field from the on-disk TemplateData JSON, so we filter by mediaType
-  // first and then per-selection verify the template actually carries
-  // Easy-mode metadata (modes + promptEnhancer) via getTemplateBundle.
-  // Templates without that metadata still appear in the dropdown but the
-  // mode-aware bits stay hidden until you pick one that has them.
+  // Strict: must declare `studioBuilder: "video"` in its metadata. The
+  // earlier mediaType fallback let every catalog template with
+  // `mediaType: "video"` (e.g. WAN i2v / FLF2V / starter examples) slip
+  // into the dropdown — only templates the author intentionally wires for
+  // the Easy-mode UI belong here.
   const builderTemplates = useMemo(
     () => templates.filter((t) => {
       const tx = t as TemplateSummary & { studioBuilder?: string };
-      // Prefer explicit studioBuilder tag when present (future-proof for
-      // when the list endpoint surfaces it).
-      if (tx.studioBuilder) return tx.studioBuilder === 'video';
-      // Fallback: any video-category template can drive the UI in MVP.
-      const mt = (t.mediaType || '').toLowerCase();
-      return mt === 'video';
+      return tx.studioBuilder === 'video';
     }),
     [templates],
   );
 
-  // ---- Selected template + its full bundle (modes + promptEnhancer) ----
+  // ---- Selected template + bundle ----
   const persisted = useMemo(() => loadPersistedForm(), []);
   const [selectedName, setSelectedName] = useState<string>(() => {
     if (persisted?.templateName && builderTemplates.some((t) => t.name === persisted.templateName)) {
@@ -129,13 +120,26 @@ export default function VideoBuilder() {
     return builderTemplates[0]?.name ?? '';
   });
 
-  // If templates load after first paint and we still have no selection,
-  // pick the first one.
   useEffect(() => {
     if (!selectedName && builderTemplates.length > 0) {
       setSelectedName(builderTemplates[0].name);
     }
   }, [selectedName, builderTemplates]);
+
+  // Per-model dependency check.
+  const [depCheck, setDepCheck] = useState<{ ready: boolean; missing: Array<{ kind?: string; name?: string; filename?: string }> } | null>(null);
+  const [depLoading, setDepLoading] = useState(false);
+  useEffect(() => {
+    if (!selectedName) { setDepCheck(null); return; }
+    let cancelled = false;
+    setDepLoading(true);
+    setDepCheck(null);
+    api.checkDependencies(selectedName)
+      .then((res) => { if (!cancelled) setDepCheck(res); })
+      .catch(() => { if (!cancelled) setDepCheck({ ready: true, missing: [] }); })
+      .finally(() => { if (!cancelled) setDepLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedName]);
 
   const [bundle, setBundle] = useState<BuilderTemplateBundle | null>(null);
   const [bundleLoading, setBundleLoading] = useState(false);
@@ -146,16 +150,13 @@ export default function VideoBuilder() {
     api.getTemplateBundle(selectedName)
       .then((res) => {
         if (cancelled) return;
-        // `builderMeta` is populated on the server side from the TemplateData
-        // JSON (see templateWidgets.routes.ts). Templates without Easy-mode
-        // metadata still resolve — `meta` will be undefined and we hide the
-        // mode-driven UI bits.
         const meta = res.builderMeta;
         setBundle(meta ? {
           name: selectedName,
-          modelDisplayName: meta.modelDisplayName,
-          modes: meta.modes,
+          title: meta.title,
+          studioModes: meta.studioModes,
           promptEnhancer: meta.promptEnhancer,
+          prompt_toggles: meta.prompt_toggles,
         } : null);
       })
       .catch(() => { if (!cancelled) setBundle(null); })
@@ -165,15 +166,24 @@ export default function VideoBuilder() {
 
   // ---- Form state ----
   const [prompt, setPrompt] = useState<string>(persisted?.prompt ?? '');
-  const [resolutionId, setResolutionId] = useState<string>(persisted?.resolutionId ?? 'landscape-720p');
-  const [duration, setDuration] = useState<number>(persisted?.duration ?? 5);
-  const [seed, setSeed] = useState<number>(persisted?.seed ?? Math.floor(Math.random() * 1000000));
+  const [formatId, setFormatId] = useState<string>(persisted?.formatId ?? '16:9');
+  const [qualityId, setQualityId] = useState<string>(persisted?.qualityId ?? '720');
+  const [duration, setDuration] = useState<number>(persisted?.duration ?? 6);
+  const [durationMode, setDurationMode] = useState<'preset' | 'custom'>(persisted?.durationMode ?? 'preset');
+  const [audioStart, setAudioStart] = useState<number>(0);
+  // Toggle for the workflow's built-in LLM prompt enhancer (PrimitiveBoolean
+  // wired into the Inputs subgraph's switch). Distinct from the one-shot
+  // wand button which rewrites the textarea via /api/llm/generate.
+  const [toggles, setToggles] = useState<Record<string, boolean>>(persisted?.toggles ?? {});
 
-  // Optional inputs (files). The form auto-detects what the chosen mode
-  // requires from the bundle's `modes[*].requires` array.
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [audioFile, setAudioFile] = useState<File | null>(null);
-  const [lastFrameFile, setLastFrameFile] = useState<File | null>(null);
+  // Media inputs are now references to pre-uploaded library items, not raw
+  // File handles. Selection happens in MediaLibraryModal; submit just passes
+  // the `<subfolder>/<filename>` ref through — no per-submit upload step.
+  const [imageRef, setImageRef] = useState<MediaLibraryItem | null>(null);
+  const [audioRef, setAudioRef] = useState<MediaLibraryItem | null>(null);
+  const [lastFrameRef, setLastFrameRef] = useState<MediaLibraryItem | null>(null);
+  const [pickerKind, setPickerKind] = useState<'image' | 'audio' | 'video' | null>(null);
+  const [pickerOnSelect, setPickerOnSelect] = useState<((item: MediaLibraryItem) => void) | null>(null);
 
   const [enhancing, setEnhancing] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -181,88 +191,107 @@ export default function VideoBuilder() {
   // ---- Mode inference ----
   const filledInputs = useMemo(() => {
     const s = new Set<string>();
-    if (imageFile) s.add('image');
-    if (audioFile) s.add('audio');
-    if (lastFrameFile) s.add('lastFrame');
+    if (imageRef) s.add('image');
+    if (audioRef) s.add('audio');
+    if (lastFrameRef) s.add('lastFrame');
     return s;
-  }, [imageFile, audioFile, lastFrameFile]);
+  }, [imageRef, audioRef, lastFrameRef]);
+
+  // Open the library modal for a given kind, with a callback that stores the
+  // pick into the right slot's state.
+  const openPicker = useCallback((kind: 'image' | 'audio' | 'video', setter: (item: MediaLibraryItem | null) => void) => {
+    setPickerKind(kind);
+    setPickerOnSelect(() => (item: MediaLibraryItem) => setter(item));
+  }, []);
+  const closePicker = useCallback(() => {
+    setPickerKind(null);
+    setPickerOnSelect(null);
+  }, []);
 
   const inferredMode = useMemo(
-    () => inferMode(filledInputs, bundle?.modes),
-    [filledInputs, bundle?.modes],
+    () => inferMode(filledInputs, bundle?.studioModes),
+    [filledInputs, bundle?.studioModes],
   );
 
+  const quality = useMemo(
+    () => QUALITY_OPTIONS.find((q) => q.id === qualityId) ?? QUALITY_OPTIONS[1],
+    [qualityId],
+  );
   const resolution = useMemo(
-    () => RESOLUTION_PRESETS.find((p) => p.id === resolutionId) ?? RESOLUTION_PRESETS[1],
-    [resolutionId],
+    () => dimsFor(formatId, quality.base),
+    [formatId, quality.base],
   );
 
   // ---- Client-side validation ----
-  // Runs BEFORE submit so ComfyUI never sees a guaranteed-invalid request.
   const validationError = useMemo<string | null>(() => {
     if (!selectedName) return 'Pick a model';
+    if (depCheck && !depCheck.ready && depCheck.missing.length > 0) {
+      return `Model is missing ${depCheck.missing.length} dependency/dependencies — install them first`;
+    }
     if (!bundle) return null; // still loading metadata; let the button spin
-    if (!prompt.trim()) return 'Write a prompt';
+    // Empty prompt does NOT raise a visible error — the textarea placeholder
+    // is the cue. It's enforced silently via the disabled state below.
     if (!inferredMode) {
-      const allowed = Object.entries(bundle.modes ?? {})
-        .map(([m, c]) => `${m} (${(c.requires ?? []).join('+') || 'no inputs'})`)
-        .join(' · ');
-      return allowed
-        ? `Input combo doesn't match any mode. Try one of: ${allowed}`
-        : 'Template has no modes declared';
+      const hints = nearestModeHints(filledInputs, bundle.studioModes, INPUT_LABELS);
+      return hints.length
+        ? `Your inputs don't match any mode. ${hints.join(' · ')}`
+        : 'Template has no studioModes declared';
     }
     if (duration <= 0 || duration > 60) return 'Duration must be between 1 and 60 seconds';
     if (resolution.width <= 0 || resolution.height <= 0) return 'Invalid resolution';
     return null;
-  }, [selectedName, bundle, prompt, inferredMode, duration, resolution]);
+  }, [selectedName, bundle, depCheck, prompt, inferredMode, duration, resolution]);
 
-  // ---- Prompt enhance via existing /api/llm/generate ----
+  // ---- Prompt enhance via /api/llm/chat ----
+  //
+  // Switched from /api/llm/generate to /api/llm/chat because chat is the
+  // endpoint that carries `images[]` on user messages — generate is
+  // text-only. Per-mode we attach whichever frames the active flow uses
+  // (first frame for i2v/ia2v, first+last for flf2v, none for t2v). Audio
+  // is intentionally NOT sent — Ollama's chat API has no audio field yet
+  // and our template's audio influences the diffusion pass directly, not
+  // the LLM. If the user picks a non-vision model and attaches images,
+  // newer Ollama returns a "model does not support image input" error
+  // that surfaces as the toast below.
   const handleEnhance = useCallback(async () => {
-    if (!prompt.trim()) {
-      toast.warning('Write a prompt first');
-      return;
-    }
+    if (!prompt.trim()) return; // button is disabled in this state; no toast
     if (!bundle?.promptEnhancer?.systemPrompt) {
       toast.error('This model has no prompt enhancer configured');
       return;
     }
     setEnhancing(true);
     try {
-      // Compose: system prompt + user prompt → Ollama generate. We use the
-      // non-streaming form by parsing the NDJSON ourselves and concatenating
-      // the `response` fields. Simpler than wiring a streaming hook for now.
-      const model = bundle.promptEnhancer.preferredModel ?? 'qwen2.5:7b';
-      const system = bundle.promptEnhancer.systemPrompt;
-      const res = await fetch('/api/llm/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          model,
-          system,
-          prompt: prompt.trim(),
-          stream: false,
+      // Pick images based on the active mode. ia2v/i2v send the first frame;
+      // flf2v additionally sends the last frame so the LLM sees both
+      // endpoints. t2v sends nothing — Ollama happily processes the text-only
+      // chat against the same model.
+      const imageItems: MediaLibraryItem[] = [];
+      if (inferredMode === 'i2v' || inferredMode === 'ia2v' || inferredMode === 'flf2v') {
+        if (imageRef) imageItems.push(imageRef);
+      }
+      if (inferredMode === 'flf2v' && lastFrameRef) imageItems.push(lastFrameRef);
+      const images: string[] = await Promise.all(
+        imageItems.map(async (it) => {
+          const r = await fetch(viewUrlFor(it), { credentials: 'include' });
+          if (!r.ok) throw new Error(`Failed to fetch ${it.filename} (${r.status})`);
+          const blob = await r.blob();
+          return await blobToBase64(blob);
         }),
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        throw new Error(text || `LLM generate failed (${res.status})`);
-      }
-      const data = await res.json() as { response?: string };
-      const enhanced = (data.response ?? '').trim();
-      if (enhanced) {
-        setPrompt(enhanced);
-        toast.success('Prompt enhanced');
-      } else {
-        toast.warning('LLM returned an empty response');
-      }
+      );
+
+      const result = await runEnhancePrompt({ prompt: prompt.trim(), images, bundle });
+      if (result.prompt) { setPrompt(result.prompt); toast.success('Prompt enhanced'); }
+      else if (result.sawThinking) {
+        toast.warning('Model never finalized — try a higher num_predict or disable thinking on the template');
+      } else { toast.warning('LLM returned an empty response'); }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Enhance failed';
       toast.error('Prompt enhance failed', { description: msg });
     } finally {
       setEnhancing(false);
     }
-  }, [prompt, bundle]);
+  }, [prompt, bundle, inferredMode, imageRef, lastFrameRef]);
+
 
   // ---- Submit ----
   const handleGenerate = useCallback(async () => {
@@ -272,44 +301,30 @@ export default function VideoBuilder() {
     }
     setGenerating(true);
     try {
-      // Build the inputs map that maps to the workflow's form-field keys.
-      // The combined workflow uses well-known widget node titles like
-      // "Width (px)", "Height (px)", "Duration (seconds)", "Seed", "Text
-      // Multiline" (the prompt). The server's formInput resolver maps
-      // these to the right proxy slots on the active subgraph.
       const inputs: Record<string, unknown> = {
-        // Text prompt — the combined workflow exposes a Text Multiline widget.
         text: prompt.trim(),
-        // Numeric widgets (PrimitiveInt / PrimitiveFloat). Names match the
-        // titles we wrote into ltx_combined.json's PrimitiveInt nodes.
         width: resolution.width,
         height: resolution.height,
         duration,
-        seed,
+        // Seed is always random per-submit — no UI exposure. Users who
+        // need a fixed seed can drive the template through Advanced.
+        seed: Math.floor(Math.random() * 1_000_000),
       };
+      // Dynamic toggles declared by the template's `prompt_toggles`. Each
+      // key is sent verbatim — the server routes via studioInputMap or the
+      // title-search fallback (case-insensitive switch title match).
+      for (const [k, v] of Object.entries(toggles)) inputs[k] = v;
+      // Media refs are already on disk in ComfyUI's input/ — no upload step.
+      // Just pass the `<subfolder>/<filename>` ref through; ComfyUI's
+      // LoadImage / LoadAudio nodes resolve it against the recursive scan.
+      if (imageRef) inputs.image = imageRef.ref;
+      if (audioRef) inputs.audio = audioRef.ref;
+      if (inferredMode === 'ia2v') inputs.audioStart = audioStart;
+      if (lastFrameRef) inputs.lastFrame = lastFrameRef.ref;
 
-      // Upload files; the server reads file names from inputs.image etc.
-      // and the LoadImage/LoadAudio nodes pick them up.
-      const uploads: Array<{ key: string; file: File }> = [];
-      if (imageFile) uploads.push({ key: 'image', file: imageFile });
-      if (audioFile) uploads.push({ key: 'audio', file: audioFile });
-      if (lastFrameFile) uploads.push({ key: 'lastFrame', file: lastFrameFile });
-
-      const maxBytes = uploadMaxBytes ?? 50 * 1024 * 1024;
-      for (const u of uploads) {
-        if (u.file.size > maxBytes) {
-          const sizeMb = (u.file.size / (1024 * 1024)).toFixed(1);
-          const maxMb = Math.round(maxBytes / (1024 * 1024));
-          throw new ApiError(`"${u.file.name}" is ${sizeMb} MB; max upload ${maxMb} MB`, 413, null);
-        }
-        const result = await api.uploadImage(u.file);
-        inputs[u.key] = result.name;
-      }
-
-      // Persist form for re-entry.
       try {
         const blob: PersistedForm = {
-          templateName: selectedName, prompt, resolutionId, duration, seed,
+          templateName: selectedName, prompt, formatId, qualityId, duration, durationMode, toggles,
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(blob));
       } catch { /* ignore */ }
@@ -323,266 +338,539 @@ export default function VideoBuilder() {
       setGenerating(false);
     }
   }, [
-    validationError, inferredMode, prompt, resolution, duration, seed,
-    imageFile, audioFile, lastFrameFile, uploadMaxBytes, selectedName, submitGeneration,
-    resolutionId,
+    validationError, inferredMode, prompt, resolution, duration,
+    imageRef, audioRef, lastFrameRef, selectedName,
+    submitGeneration, formatId, qualityId, toggles, audioStart,
   ]);
+
+  // Debounced persist of the editable form blob. Covers Clear-prompt,
+  // manual prompt edits, Enhance overwrites, format/quality/duration changes
+  // — anything that mutates a persisted field is captured here, not only on
+  // submit. 300ms debounce avoids hammering localStorage on every keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        const blob: PersistedForm = {
+          templateName: selectedName, prompt, formatId, qualityId,
+          duration, durationMode, toggles,
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(blob));
+      } catch { /* ignore */ }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [selectedName, prompt, formatId, qualityId, duration, durationMode, toggles]);
+
+  // ---- Reset: clear the form to first-run defaults ----
+  const handleReset = useCallback(() => {
+    setPrompt('');
+    setFormatId('16:9');
+    setQualityId('720');
+    setDuration(6);
+    setToggles({});
+    setImageRef(null);
+    setAudioRef(null);
+    setLastFrameRef(null);
+    try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+  }, []);
+
+  // ---- Publish to Studio so the shared bottom Reset/Generate drive us ----
+  useEffect(() => {
+    registerAction({
+      onSubmit: handleGenerate,
+      onReset: handleReset,
+      // Empty-prompt gating is silent (no validation message) — the
+      // disabled button is the only signal.
+      disabled: !!validationError || !prompt.trim() || generating || !connected,
+      label: generating ? 'Submitting…' : 'Generate',
+    });
+    return () => registerAction(null);
+  }, [registerAction, handleGenerate, handleReset, validationError, prompt, generating, connected]);
 
   // ---- Empty state ----
   if (builderTemplates.length === 0) {
     return (
-      <div className="flex flex-1 items-center justify-center p-12">
-        <div className="text-center max-w-md">
-          <Film className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-          <h2 className="text-lg font-semibold mb-1.5">No video models installed</h2>
-          <p className="text-sm text-muted-foreground">
-            Import a video workflow (e.g. <code>ltx_combined</code>) through Templates and add{' '}
-            <code>studioBuilder: "video"</code> + a <code>modes</code> block to its TemplateData
-            JSON. It'll appear in this dropdown.
+      <div className="min-h-[55vh] flex items-center justify-center">
+        <div className="flex flex-col items-center text-center rounded-xl border border-dashed border-border/70 bg-card/40 px-6 py-10 max-w-sm">
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+            <Film className="h-6 w-6 text-muted-foreground" />
+          </div>
+          <p className="text-sm font-semibold text-foreground mb-1">
+            Video easy mode isn't ready
           </p>
+          <p className="text-xs text-muted-foreground max-w-xs mb-4">
+            No curated video workflow is set up yet. You can still drive any compatible template from the Advanced tab.
+          </p>
+          {onSwitchToAdvanced && (
+            <Button variant="outline" size="sm" onClick={onSwitchToAdvanced}>
+              Switch to Advanced
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Button>
+          )}
         </div>
       </div>
     );
   }
 
-  // ---- Render ----
   return (
-    <div className="flex flex-col gap-5 p-5 max-w-2xl w-full mx-auto">
+    <div className="space-y-5">
 
       {/* MODEL */}
       <div>
-        <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 block">
-          Model
-        </label>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <label className="field-label">Model</label>
+          {/* Inline dependency status — sits to the right of the label,
+              above the select. Detailed missing list still expands below. */}
+          {depLoading && (
+            <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+              <Spinner size="xs" /> Checking…
+            </span>
+          )}
+          {!depLoading && depCheck?.ready && (
+            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-success">
+              <CheckCircle2 className="w-3.5 h-3.5" /> Model ready
+            </span>
+          )}
+          {!depLoading && depCheck && !depCheck.ready && depCheck.missing.length > 0 && (
+            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-warning">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              Not ready · {depCheck.missing.length} missing
+            </span>
+          )}
+        </div>
         <SelectField value={selectedName} onValueChange={setSelectedName}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
+          <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
-            {builderTemplates.map((t) => {
-              const t2 = t as TemplateSummary & { modelDisplayName?: string };
-              return (
-                <SelectItem key={t.name} value={t.name}>
-                  {t2.modelDisplayName || t.title || t.name}
-                </SelectItem>
-              );
-            })}
+            {builderTemplates.map((t) => (
+              <SelectItem key={t.name} value={t.name}>
+                {t.title || t.name}
+              </SelectItem>
+            ))}
           </SelectContent>
         </SelectField>
         {bundleLoading && (
-          <p className="mt-1.5 text-[11px] text-muted-foreground flex items-center gap-1">
+          <p className="field-helper mt-1.5 flex items-center gap-1">
             <Spinner size="xs" /> Loading model metadata…
           </p>
         )}
-      </div>
 
-      {/* PROMPT + ENHANCE */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-            Prompt
-          </label>
-          {bundle?.promptEnhancer && (
-            <button
-              type="button"
-              onClick={handleEnhance}
-              disabled={enhancing || !prompt.trim()}
-              className="text-[11px] inline-flex items-center gap-1 text-brand hover:text-brand/80 disabled:opacity-50 disabled:cursor-not-allowed"
-              title={`Rewrite your prompt for ${bundle.modelDisplayName || 'this model'} using ${bundle.promptEnhancer.preferredModel ?? 'Ollama'}`}
-            >
-              {enhancing ? <Spinner size="xs" /> : <Sparkles className="w-3.5 h-3.5" />}
-              {enhancing ? 'Enhancing…' : 'Enhance with AI'}
-            </button>
-          )}
-        </div>
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Describe what you want the video to show…"
-          rows={5}
-          className="field-input w-full resize-vertical min-h-[7rem]"
-        />
-      </div>
-
-      {/* RESOLUTION + DURATION */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 block">
-            Resolution
-          </label>
-          <SelectField value={resolutionId} onValueChange={setResolutionId}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {RESOLUTION_PRESETS.map((p) => (
-                <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </SelectField>
-          <p className="mt-1 text-[10px] text-muted-foreground">
-            {resolution.width} × {resolution.height} px
-          </p>
-        </div>
-        <div>
-          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 block">
-            Duration
-          </label>
-          <div className="flex items-center gap-2">
-            <input
-              type="range"
-              min={1}
-              max={20}
-              step={1}
-              value={duration}
-              onChange={(e) => setDuration(Number(e.target.value))}
-              className="flex-1"
-            />
-            <span className="text-sm font-mono text-foreground min-w-[3.5rem] text-right">
-              {duration} sec
-            </span>
+        {/* Detailed missing-dependency list — only renders when something is
+            actually missing. The inline badge above is the compact summary. */}
+        {!depLoading && depCheck && !depCheck.ready && depCheck.missing.length > 0 && (
+          <div className="info-box mt-2 border border-warning/40 bg-warning/10 ring-0">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-3.5 h-3.5 text-warning shrink-0 mt-px" />
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-warning">
+                  Missing {depCheck.missing.length}{' '}
+                  {depCheck.missing.length === 1 ? 'dependency' : 'dependencies'} for this model
+                </p>
+                <ul className="mt-1 space-y-0.5">
+                  {depCheck.missing.slice(0, 6).map((m, i) => (
+                    <li key={i} className="truncate">
+                      <span className="opacity-70">{m.kind ?? '?'}:</span>{' '}
+                      <code className="font-mono">{m.filename ?? m.name ?? '(unnamed)'}</code>
+                    </li>
+                  ))}
+                  {depCheck.missing.length > 6 && (
+                    <li className="opacity-70">+ {depCheck.missing.length - 6} more</li>
+                  )}
+                </ul>
+              </div>
+            </div>
           </div>
-          <p className="mt-1 text-[10px] text-muted-foreground">
-            Longer clips take more VRAM and time.
-          </p>
-        </div>
-      </div>
-
-      {/* OPTIONAL INPUTS — image / audio / last-frame.
-          Visible always; the user adds whichever they want and the mode
-          gets inferred from the combination. */}
-      <div>
-        <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 block">
-          Optional inputs <span className="font-normal normal-case text-muted-foreground">— add any combination; mode is auto-detected</span>
-        </label>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <FileSlot
-            icon={ImageIcon}
-            label="Reference image"
-            accept="image/*"
-            file={imageFile}
-            onPick={setImageFile}
-          />
-          <FileSlot
-            icon={Music}
-            label="Audio"
-            accept="audio/*"
-            file={audioFile}
-            onPick={setAudioFile}
-          />
-          <FileSlot
-            icon={ImageIcon}
-            label="Last frame"
-            accept="image/*"
-            file={lastFrameFile}
-            onPick={setLastFrameFile}
-          />
-        </div>
-      </div>
-
-      {/* SEED */}
-      <div>
-        <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 block">
-          Seed
-        </label>
-        <div className="flex items-center gap-2">
-          <input
-            type="number"
-            value={seed}
-            onChange={(e) => setSeed(Number(e.target.value))}
-            className="field-input w-40 font-mono"
-          />
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => setSeed(Math.floor(Math.random() * 1000000))}
-            title="Randomize"
-          >
-            <Wand2 className="w-3.5 h-3.5" />
-            Random
-          </Button>
-        </div>
-      </div>
-
-      {/* MODE PREVIEW + VALIDATION + GENERATE */}
-      <div className="border-t pt-4 space-y-3">
-        <div className="flex items-center gap-2 text-xs">
-          {inferredMode && !validationError ? (
-            <>
-              <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
-              <span className="text-foreground">
-                Mode: <strong className="font-mono">{inferredMode}</strong>
-              </span>
-            </>
-          ) : (
-            <>
-              <AlertTriangle className="w-4 h-4 text-warning shrink-0" />
-              <span className="text-muted-foreground">
-                {validationError ?? 'Add inputs to pick a mode'}
-              </span>
-            </>
-          )}
-        </div>
-        <Button
-          type="button"
-          onClick={handleGenerate}
-          disabled={!!validationError || generating || !connected}
-          className="w-full justify-center"
-        >
-          {generating ? <Spinner size="xs" /> : <Film className="w-3.5 h-3.5" />}
-          {generating ? 'Submitting…' : 'Generate'}
-        </Button>
-        {!connected && (
-          <p className="text-[11px] text-warning text-center">
-            ComfyUI is not connected. Open Settings to configure.
-          </p>
         )}
       </div>
-    </div>
-  );
-}
 
-/** Compact file picker — clickable label that opens the OS picker, shows
- *  the chosen filename, lets the user clear. Mirrors the look of the
- *  Studio "Reference image" inputs without dragging in the full Dropzone
- *  component (which expects a parent grid we don't have here). */
-function FileSlot({
-  icon: Icon, label, accept, file, onPick,
-}: {
-  icon: React.ElementType;
-  label: string;
-  accept: string;
-  file: File | null;
-  onPick: (f: File | null) => void;
-}) {
-  return (
-    <div className="rounded-lg border border-border bg-card/40 p-3 text-center">
-      <Icon className="w-5 h-5 mx-auto mb-1 text-muted-foreground" />
-      <p className="text-[11px] font-medium text-foreground mb-1.5">{label}</p>
-      {file ? (
-        <div className="space-y-1">
-          <p className="text-[10px] text-muted-foreground truncate" title={file.name}>
-            {file.name}
-          </p>
-          <button
-            type="button"
-            onClick={() => onPick(null)}
-            className="text-[10px] text-muted-foreground hover:text-foreground underline"
-          >
-            Clear
-          </button>
+      {/* REFERENCES — labeled image slots + an "Add media" pill for the
+          rest. Clicking any slot opens the MediaLibraryModal scoped to the
+          slot's kind. Files are already on disk in ComfyUI's input/ — we
+          just store the picked ref and pass it through at submit time. */}
+      <div>
+        <p className="eyebrow mb-2">References</p>
+        <div className="grid grid-cols-2 gap-2.5">
+          <RefSlot icon={ImageIcon} label="Start image"
+                   item={imageRef}
+                   onOpen={() => openPicker('image', setImageRef)}
+                   onClear={() => setImageRef(null)} />
+          <RefSlot icon={ImageIcon} label="End image"
+                   item={lastFrameRef}
+                   onOpen={() => openPicker('image', setLastFrameRef)}
+                   onClear={() => setLastFrameRef(null)} />
         </div>
-      ) : (
-        <label className="block">
-          <span className="text-[11px] text-brand hover:text-brand/80 cursor-pointer">Choose…</span>
-          <input
-            type="file"
-            accept={accept}
-            className="hidden"
-            onChange={(e) => onPick(e.target.files?.[0] ?? null)}
+        <AddMediaPill slots={[
+          { kind: 'image',     disabled: true, tooltip: 'Image (coming soon)' },
+          { kind: 'video',     disabled: true, tooltip: 'Video (coming soon)' },
+          { kind: 'audio',     active: !!audioRef,
+            tooltip: audioRef ? `Replace audio (${audioRef.filename})` : 'Add audio',
+            onClick: () => openPicker('audio', setAudioRef) },
+          { kind: 'character', disabled: true, tooltip: 'Character (coming soon)' },
+          { kind: 'effect',    disabled: true, tooltip: 'Effect (coming soon)' },
+        ]} />
+        {audioRef && (
+          <div className="mt-2.5">
+            <AudioThumbWithSliderChip
+              item={audioRef}
+              tag="@aud1"
+              value={audioStart}
+              onChange={setAudioStart}
+              onRemove={() => setAudioRef(null)}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* PROMPT — textarea in a card, with inline Enhance + Clear icon
+          buttons in the footer (no big external button). While enhancing,
+          the textarea + footer are blurred and a centered spinner overlays
+          the whole card. */}
+      <div>
+        <p className="eyebrow mb-2">Prompt</p>
+        <div className="relative rounded-xl border bg-card">
+          <div className={enhancing ? 'pointer-events-none blur-[1px] opacity-60 transition' : 'transition'}>
+            <Textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Describe what you want the video to show…"
+              rows={4}
+              className="border-0 bg-transparent shadow-none focus-visible:ring-0 resize-none max-h-72 overflow-y-auto"
+              readOnly={enhancing}
+            />
+            <div className="flex justify-end gap-1 px-2 pb-2">
+              {bundle?.promptEnhancer && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={handleEnhance}
+                      disabled={enhancing || !prompt.trim()}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+                    >
+                      <Wand2 className="w-3.5 h-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Enhance with AI ({bundle.promptEnhancer.preferredModel ?? 'Ollama'})
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            <TogglesRow
+              toggles={resolveToggles(bundle?.prompt_toggles, inferredMode)}
+              values={toggles}
+              onChange={setToggles}
+            />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => setPrompt('')}
+                  disabled={!prompt}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+                >
+                  <Eraser className="w-3.5 h-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Clear prompt</TooltipContent>
+            </Tooltip>
+          </div>
+          </div>
+          {enhancing && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <Spinner size="lg" className="text-brand" />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* DURATION · FORMAT · RESOLUTION chip row.
+          - Custom duration replaces the duration chip with an inline slider
+            chip that takes the leftover space (`flex-1`); Format stays tight,
+            Resolution stays tight and is pushed to the right (`ml-auto`).
+          - The pixel dimensions (`1280×720`) are folded into the Resolution
+            chip's value rather than living as a separate trailing label —
+            keeps the row aligned and the dimensions visible at a glance. */}
+      <div className="flex items-center gap-2 flex-nowrap min-w-0">
+        {durationMode === 'preset' ? (
+          <ChipSelect
+            icon={Clock}
+            value={`${duration}s`}
+            options={[
+              ...DURATION_OPTIONS.map((d) => ({ id: String(d.value), left: `${d.value}s`, right: d.label })),
+              { id: '__custom__', left: 'Custom…', right: '' },
+            ]}
+            selectedId={String(duration)}
+            onChange={(id) => {
+              if (id === '__custom__') { setDurationMode('custom'); }
+              else { setDuration(Number(id)); }
+            }}
           />
-        </label>
+        ) : (
+          <div className="flex items-center gap-2 rounded-md bg-muted px-3 h-8 flex-1 min-w-0">
+            <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <Slider
+              min={1}
+              max={60}
+              step={1}
+              value={[duration]}
+              onValueChange={([v]) => setDuration(v)}
+              className="flex-1 h-1"
+            />
+            <span className="text-xs tabular-nums font-medium text-foreground w-8 text-right shrink-0">{duration}s</span>
+            <button
+              type="button"
+              onClick={() => setDurationMode('preset')}
+              className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2 whitespace-nowrap shrink-0"
+            >
+              Presets
+            </button>
+          </div>
+        )}
+        <ChipSelect
+          icon={(FORMAT_OPTIONS.find((f) => f.id === formatId) ?? FORMAT_OPTIONS[1]).Icon}
+          value={formatId}
+          options={FORMAT_OPTIONS.map((f) => ({ id: f.id, left: f.id, right: f.label, Icon: f.Icon }))}
+          selectedId={formatId}
+          onChange={setFormatId}
+        />
+        <div className="ml-auto shrink-0">
+          <ChipSelect
+            icon={Gauge}
+            value={durationMode === 'custom'
+              ? quality.label
+              : `${quality.label} · ${resolution.width}×${resolution.height}`}
+            options={QUALITY_OPTIONS.map((q) => ({ id: q.id, left: `${q.base}p`, right: q.label }))}
+            selectedId={qualityId}
+            onChange={setQualityId}
+            trailing={durationMode === 'custom' ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className="inline-flex h-4 w-4 items-center justify-center text-muted-foreground hover:text-foreground cursor-help"
+                    aria-label="Show resolution"
+                  >
+                    <Info className="h-3.5 w-3.5" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {resolution.width} × {resolution.height}
+                </TooltipContent>
+              </Tooltip>
+            ) : undefined}
+          />
+        </div>
+      </div>
+
+      {/* Validation hint — only renders on error. Success state stays
+          silent; the active mode is implicit in the inputs the user filled. */}
+      {(!inferredMode || validationError) && (
+        <div className="info-box flex items-center gap-2">
+          <AlertTriangle className="w-3.5 h-3.5 text-warning shrink-0" />
+          <span>{validationError ?? 'Add inputs to pick a mode'}</span>
+        </div>
+      )}
+
+      {/* Library picker — same modal serves all three media slots; the
+          `kind` + `onSelect` are swapped when openPicker is called. */}
+      {pickerKind && pickerOnSelect && (
+        <MediaLibraryModal
+          open
+          kind={pickerKind}
+          onClose={closePicker}
+          onSelect={(item) => { pickerOnSelect(item); closePicker(); }}
+        />
       )}
     </div>
   );
 }
+
+// Small picked-media thumbnail with an @tag overlay. Images show the preview
+// from /api/view; audio/video fall back to a kind icon. Audio items get an
+// inline play/pause button overlay.
+function MediaThumb({
+  item, tag, onRemove,
+}: {
+  item: MediaLibraryItem;
+  tag: string;
+  onRemove: () => void;
+}) {
+  const Icon = item.kind === 'audio' ? Music : item.kind === 'video' ? Film : ImageIcon;
+  const isImage = item.kind === 'image';
+  const [thumbPlaying, setThumbPlaying] = useState(false);
+  const thumbAudioRef = useRef<HTMLAudioElement>(null);
+  return (
+    <div className="group relative h-20 w-20 overflow-hidden rounded-xl border bg-card shadow-sm">
+      {isImage ? (
+        <img src={viewUrlFor(item)} alt={item.filename} className="h-full w-full object-cover" />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center bg-muted/40 text-muted-foreground">
+          <Icon className="h-6 w-6" />
+        </div>
+      )}
+      {item.kind === 'audio' && (
+        <>
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+              e.stopPropagation();
+              const el = thumbAudioRef.current;
+              if (!el) return;
+              if (el.paused) void el.play(); else el.pause();
+            }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const el = thumbAudioRef.current; if (!el) return; if (el.paused) void el.play(); else el.pause(); } }}
+            className="absolute inset-0 z-10 flex items-center justify-center cursor-pointer"
+            aria-label={thumbPlaying ? 'Pause' : 'Play'}
+          >
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm ring-1 ring-border hover:scale-105 transition-transform">
+              {thumbPlaying ? <PauseIcon className="h-3.5 w-3.5" /> : <PlayIcon className="h-3.5 w-3.5 translate-x-[1px]" />}
+            </span>
+          </span>
+          <audio
+            ref={thumbAudioRef}
+            src={viewUrlFor(item)}
+            preload="none"
+            onPlay={() => setThumbPlaying(true)}
+            onPause={() => setThumbPlaying(false)}
+            onEnded={() => setThumbPlaying(false)}
+            className="hidden"
+          />
+        </>
+      )}
+      <button
+        type="button"
+        onClick={onRemove}
+        className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-background/80 text-foreground shadow ring-1 ring-border opacity-0 transition-opacity group-hover:opacity-100 z-20"
+        aria-label={`Remove ${item.filename}`}
+      >
+        <XIcon className="h-3 w-3" />
+      </button>
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-foreground/70 to-transparent px-1.5 py-0.5">
+        <p className="truncate text-[10px] font-medium text-background">{tag}</p>
+      </div>
+    </div>
+  );
+}
+
+// AudioThumbWithSliderChip — the audio chip with its play button wired
+// to open an A-style floating Popover (anchored bottom-start) containing
+// just a slider. Pause closes the popover. The slider both updates the
+// parent `value` AND seeks the audio. Probes audio duration internally
+// via `<audio preload="metadata">` (falls back to 600s until ready).
+function AudioThumbWithSliderChip({
+  item, tag, value, onChange, onRemove,
+}: {
+  item: MediaLibraryItem;
+  tag: string;
+  value: number;
+  onChange: (v: number) => void;
+  onRemove: () => void;
+}) {
+  const audioElRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [duration, setDuration] = useState<number | null>(null);
+  const max = duration ?? 600;
+
+  // Clamp + round to 1-decimal granularity (LTX wants float; user gets
+  // sub-second precision for matching beats or syllables).
+  const setStart = useCallback((next: number) => {
+    const clamped = Math.max(0, Math.min(max, Math.round(next * 10) / 10));
+    onChange(clamped);
+    const el = audioElRef.current;
+    if (el) { try { el.currentTime = clamped; } catch { /* ignore */ } }
+  }, [max, onChange]);
+
+  const togglePlay = useCallback(() => {
+    const el = audioElRef.current;
+    if (!el) return;
+    if (el.paused) {
+      try { el.currentTime = value; } catch { /* ignore */ }
+      if (activeAudioEl && activeAudioEl !== el) activeAudioEl.pause();
+      activeAudioEl = el;
+      void el.play();
+    } else {
+      el.pause();
+    }
+  }, [value]);
+
+  useEffect(() => () => {
+    const el = audioElRef.current;
+    if (el && activeAudioEl === el) { el.pause(); activeAudioEl = null; }
+  }, []);
+
+  return (
+    <Popover
+      open={playing}
+      onOpenChange={(open) => {
+        if (!open) {
+          const el = audioElRef.current;
+          if (el && !el.paused) el.pause();
+        }
+      }}
+    >
+      <PopoverAnchor asChild>
+        <div className="group relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border bg-card shadow-sm inline-block">
+          <div className="flex h-full w-full items-center justify-center bg-muted/40 text-muted-foreground">
+            <Music className="h-6 w-6" />
+          </div>
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => { e.stopPropagation(); togglePlay(); }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); togglePlay(); } }}
+            className="absolute inset-0 z-10 flex items-center justify-center cursor-pointer"
+            aria-label={playing ? 'Pause' : 'Play'}
+          >
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm ring-1 ring-border hover:scale-105 transition-transform">
+              {playing ? <PauseIcon className="h-3.5 w-3.5" /> : <PlayIcon className="h-3.5 w-3.5 translate-x-[1px]" />}
+            </span>
+          </span>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onRemove(); }}
+            className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-background/80 text-foreground shadow ring-1 ring-border opacity-0 transition-opacity group-hover:opacity-100 z-20"
+            aria-label={`Remove ${item.filename}`}
+          >
+            <XIcon className="h-3 w-3" />
+          </button>
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-foreground/70 to-transparent px-1.5 py-0.5">
+            <p className="truncate text-[10px] font-medium text-background">{tag}</p>
+          </div>
+          <audio
+            ref={audioElRef}
+            src={viewUrlFor(item)}
+            preload="metadata"
+            className="hidden"
+            onPlay={() => setPlaying(true)}
+            onPause={() => setPlaying(false)}
+            onEnded={() => setPlaying(false)}
+            onLoadedMetadata={(e) => {
+              const d = (e.currentTarget as HTMLAudioElement).duration;
+              if (Number.isFinite(d) && d > 0) {
+                setDuration(d);
+                if (value > d) onChange(0);
+              }
+            }}
+          />
+        </div>
+      </PopoverAnchor>
+      {/* Floating popover, exactly like Design A's — default bottom-start.
+          Body is slider-only (no numeric input). */}
+      <PopoverContent className="w-64 p-3" align="start">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Start offset</span>
+          <span className="text-xs font-mono tabular-nums">{value.toFixed(1)}s / {max.toFixed(1)}s</span>
+        </div>
+        <Slider
+          min={0} max={max} step={0.1}
+          value={[value]}
+          onValueChange={([v]) => setStart(v)}
+          className="h-1"
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// Module-level singleton: only one audio element plays at a time across
+// every AudioThumbWithSliderChip instance on the page.
+let activeAudioEl: HTMLAudioElement | null = null;
+

@@ -90,7 +90,10 @@ export interface EnumeratedWidget {
 export interface FormInputBinding {
   id: string;
   type: string;
-  nodeId?: number;
+  /** Plain numeric for top-level loaders; compound flat id (`"424:269"`)
+   * when the loader lives inside a subgraph instance. The submit-time writer
+   * does `String(nodeId)` so both shapes index `prompt[…]` correctly. */
+  nodeId?: number | string;
   nodeType?: string;
   mediaType?: string;
   /**

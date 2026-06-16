@@ -116,7 +116,22 @@ const getByIdRoute = defineRoute({
   const row = gallery.getByIdFull(id);
   if (!row) throw new NotFoundError('Gallery item not found');
 
-  const { workflowJson, workflowHash: _wfHash, ...rest } = row;
+  const { workflowJson, workflowHash: _wfHash, enhancedPromptsJson, ...rest } = row;
+  // Parse the stored JSON map once so both the workflowJson and the
+  // no-workflow fallback branches can attach the same shape.
+  let enhancedPrompts: Record<string, string> | null = null;
+  if (enhancedPromptsJson) {
+    try {
+      const parsed = JSON.parse(enhancedPromptsJson) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const out: Record<string, string> = {};
+        for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+          if (typeof v === 'string' && v.length > 0) out[k] = v;
+        }
+        if (Object.keys(out).length > 0) enhancedPrompts = out;
+      }
+    } catch { /* malformed enhancedPromptsJson — drop */ }
+  }
   let workflowDetail: WorkflowDetail | null = null;
   if (workflowJson) {
     try {
@@ -125,6 +140,9 @@ const getByIdRoute = defineRoute({
       workflowDetail = {
         promptText:   extracted.promptText   ?? null,
         negativeText: extracted.negativeText ?? null,
+        // Enhancer outputs are captured at execution time and persisted to
+        // their own column; pass the parsed record through.
+        enhancedPrompts,
         seed:         extracted.seed         ?? null,
         model:        extracted.model        ?? null,
         models:       extracted.models       ?? [],
@@ -140,6 +158,16 @@ const getByIdRoute = defineRoute({
         batchSize:    extracted.batchSize    ?? null,
       };
     } catch { /* malformed workflowJson */ }
+  } else if (enhancedPrompts) {
+    // Edge case: no workflowJson (disk-sweep row) but we somehow have an
+    // enhancer line. Surface it alone so the UI doesn't drop the field.
+    workflowDetail = {
+      promptText: null, negativeText: null, enhancedPrompts,
+      seed: null, model: null, models: [],
+      sampler: null, scheduler: null, steps: null,
+      cfg: null, denoise: null,
+      width: null, height: null, lengthFrames: null, fps: null, batchSize: null,
+    };
   }
 
   const mediaType = ctx.query.mediaType ?? '';

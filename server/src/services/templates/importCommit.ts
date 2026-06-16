@@ -215,6 +215,30 @@ export async function commitStaging(id: string, selection: CommitSelection): Pro
     }
     const pluginEntries: TemplatePluginEntry[] = Array.from(pluginByCanonical.values());
     const pluginRepoKeys = resolutionsToRepoKeys(wf.plugins);
+    // Easy-mode metadata (studioBuilder / studioModes / promptEnhancer) is
+    // harvested by `extractLitegraph` from the outer TemplateData wrapper at
+    // upload time and rides on the StagedWorkflowEntry. We just forward it
+    // here — no parallel pluck against the inner workflow.
+    type BuilderMeta = Pick<
+      Parameters<typeof saveUserWorkflow>[0],
+      'studioBuilder' | 'studioModes' | 'studioInputMap' | 'promptEnhancer' | 'prompt_toggles'
+    >;
+    const builderMeta: BuilderMeta = {};
+    if (wf.studioBuilder !== undefined) {
+      builderMeta.studioBuilder = wf.studioBuilder as BuilderMeta['studioBuilder'];
+    }
+    if (wf.studioModes !== undefined) {
+      builderMeta.studioModes = wf.studioModes as BuilderMeta['studioModes'];
+    }
+    if (wf.studioInputMap !== undefined) {
+      builderMeta.studioInputMap = wf.studioInputMap;
+    }
+    if (wf.promptEnhancer !== undefined) {
+      builderMeta.promptEnhancer = wf.promptEnhancer as BuilderMeta['promptEnhancer'];
+    }
+    if (wf.prompt_toggles !== undefined) {
+      builderMeta.prompt_toggles = wf.prompt_toggles as BuilderMeta['prompt_toggles'];
+    }
     const saved = saveUserWorkflow({
       name: effectiveTitle,
       title: effectiveTitle,
@@ -229,6 +253,7 @@ export async function commitStaging(id: string, selection: CommitSelection): Pro
       plugins: pluginEntries,
       thumbnail: thumbnails,
       civitaiMeta: staged.civitaiMeta,
+      ...builderMeta,
     });
     imported.push(saved.name);
     // Persist template_plugins edges so readiness + install-missing-plugins

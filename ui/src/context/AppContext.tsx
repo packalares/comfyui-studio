@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useCallback, useMemo, useState } from 'react';
 import type {
   TemplateSummary,
   SystemStats,
@@ -37,6 +37,21 @@ export { useSystem } from './SystemContext';
 export { useCatalog } from './CatalogContext';
 export { useJobs } from './JobsContext';
 export { useSettings } from './SettingsContext';
+
+// Mirrors server's SchedulerSnapshotSchema (gpu.contract.ts). Held in
+// AppContext rather than a dedicated provider because it's pushed over the
+// same WS that backs everything else here.
+export interface GpuSnapshot {
+  residency: 'comfy' | 'ollama' | 'none';
+  active: { jobId: string; taskType: string; tenant: string; startedAt: number } | null;
+  queue: Array<{ jobId: string; taskType: string; tenant: string; priority: number; enqueuedAt: number }>;
+  comfy: {
+    connected: boolean;
+    queueRemaining: number | null;
+    executing: string[];
+    studioTracked: number;
+  };
+}
 
 interface AppContextType {
   templates: TemplateSummary[];
@@ -77,6 +92,10 @@ interface AppContextType {
   cancelRunning: () => Promise<void>;
   cancelPending: (promptId: string) => Promise<void>;
   setCurrentJob: React.Dispatch<React.SetStateAction<GenerationJob | null>>;
+  /** Live GPU scheduler snapshot. Pushed over WS as {type:'gpu', data}
+   *  on every state change + bridge status event. null until the first
+   *  frame arrives (typically within ~1s of page mount). */
+  gpuSnapshot: GpuSnapshot | null;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -115,6 +134,9 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _systemStatsRef,
   } = system;
   const { _setGalleryTotal, _setRecentGallery } = catalog;
+  // GPU scheduler snapshot pushed over WS; replaces the old /api/gpu
+  // setInterval poll in SchedulerQueueCard.
+  const [gpuSnapshot, setGpuSnapshot] = useState<GpuSnapshot | null>(null);
   const {
     _setQueueStatus,
     _setDownloads,
@@ -391,6 +413,8 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
             if (status.running && !_systemStatsRef.current) {
               refreshSystem();
             }
+          } else if (msg.type === 'gpu') {
+            setGpuSnapshot(msg.data as GpuSnapshot);
           } else if (msg.type === 'queue') {
             const q = msg.data as QueueStatus;
             _setQueueStatus(q);
@@ -620,6 +644,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       cancelRunning: jobs.cancelRunning,
       cancelPending: jobs.cancelPending,
       setCurrentJob: jobs.setCurrentJob,
+      gpuSnapshot,
     }),
     [
       catalog.templates,
@@ -655,6 +680,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       settings.settings,
       settings.updateSettings,
       refreshSystem,
+      gpuSnapshot,
     ],
   );
 

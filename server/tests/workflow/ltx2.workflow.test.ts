@@ -67,7 +67,13 @@ describe('LTX2 i2v workflow → API prompt fidelity', () => {
     const out = await workflowToApiPrompt(wf, { prompt: '' });
 
     // Node-set parity: same compound IDs produced, nothing extra, nothing missing.
-    expect(Object.keys(out).sort()).toEqual(Object.keys(target).sort());
+    // Strip Studio-injected enhancer probes — they're a post-execution capture
+    // hook (PreviewAny downstream of TextGenerate*), not part of the user's
+    // workflow shape. The fixture pre-dates this pass.
+    const outIds = Object.keys(out)
+      .filter(k => !k.startsWith('__studio_enhanced_'))
+      .sort();
+    expect(outIds).toEqual(Object.keys(target).sort());
 
     // Class types per node match.
     for (const id of Object.keys(target)) {
@@ -77,7 +83,12 @@ describe('LTX2 i2v workflow → API prompt fidelity', () => {
     }
 
     // Inputs parity — byte-equivalence after normalising volatile + UI-only fields.
-    expect(normalise(out as Parameters<typeof normalise>[0]))
+    // Probe nodes are stripped for the same reason as the id-set check above.
+    const outForCompare: typeof out = {};
+    for (const [k, v] of Object.entries(out)) {
+      if (!k.startsWith('__studio_enhanced_')) outForCompare[k] = v;
+    }
+    expect(normalise(outForCompare as Parameters<typeof normalise>[0]))
       .toEqual(normalise(target as Parameters<typeof normalise>[0]));
   });
 });

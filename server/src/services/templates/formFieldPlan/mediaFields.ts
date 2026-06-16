@@ -32,14 +32,20 @@ function cleanFileName(file: string): string {
  */
 function loaderFeedsOptionalInput(
   workflow: Record<string, unknown> | undefined,
-  loaderNodeId: number,
+  loaderNodeId: number | string,
 ): boolean | null {
   if (!workflow) return null;
+  // Optional-socket detection walks the top-level links array, which only
+  // references top-level numeric ids. Compound flat ids (`"424:269"`) for
+  // loaders nested inside a subgraph never match here, so the field defaults
+  // to required — wider optional-detection through nested scopes is a future
+  // enhancement.
   const links = (workflow.links as unknown[] | undefined) ?? [];
   const nodes = (workflow.nodes as Array<Record<string, unknown>> | undefined) ?? [];
+  const wantStr = String(loaderNodeId);
   for (const raw of links) {
     if (!Array.isArray(raw) || raw.length < 5) continue;
-    if (raw[1] !== loaderNodeId) continue;
+    if (String(raw[1]) !== wantStr) continue;
     const targetNodeId = raw[3] as number;
     const targetSlot = raw[4] as number;
     const target = nodes.find((n) => (n.id as number) === targetNodeId);
@@ -58,7 +64,7 @@ interface FlatData {
 function mediaCandidate(
   mediaType: 'image' | 'audio' | 'video',
   index: number,
-  input: { nodeId: number; nodeType: string; file?: string; mediaType: string },
+  input: { nodeId: number | string; nodeType: string; file?: string; mediaType: string },
   workflow?: Record<string, unknown>,
   flatData?: FlatData,
 ): FormFieldCandidate {

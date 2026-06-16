@@ -7,6 +7,11 @@ import { z } from 'zod';
 export const WorkflowDetailSchema = z.object({
   promptText:   z.string().nullable(),
   negativeText: z.string().nullable(),
+  // v30 — output of every `__studio_enhanced_*` PreviewAny probe injected
+  // downstream of `TextGenerate*` nodes, keyed by source compound node id.
+  // The Details modal iterates the entries so each enhancer surfaces as
+  // its own row. Distinct from `promptText` (the user-typed input).
+  enhancedPrompts: z.record(z.string(), z.string()).nullable().optional(),
   seed:         z.number().nullable(),
   model:        z.string().nullable(),
   models:       z.array(z.string()),

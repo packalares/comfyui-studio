@@ -12,9 +12,16 @@
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { logger } from '../../lib/logger.js';
-import { ensureResident, forceSetTenant, getCurrentTenant } from './residency.js';
+import { ensureResident, forceSetTenant, getCurrentTenant, unloadOllama } from './residency.js';
 import type { GpuTenant, TaskType } from './taskTypes.js';
 import { TASK_TYPES } from './taskTypes.js';
+
+// How long the scheduler stays idle on a tenant before unloading it.
+// Currently only applies to `ollama` — comfy is already evicted on tenant
+// switch via the queue-idle guard in unloadComfy(), and the warm-cache
+// benefit isn't symmetric (ollama reload ~30-50s; comfy cold-start much
+// heavier, so we keep it warm until something explicitly needs the slot).
+const OLLAMA_IDLE_EVICT_MS = 60 * 1000;
 
 // ---- Public types ----
 
@@ -78,6 +85,15 @@ class GpuScheduler {
   private readonly emitter = new EventEmitter();
   private slot: ActiveJob | null = null;
   private readonly queue: PendingJob[] = [];
+  // Watchdog timer for the current slot. Force-releases when fired.
+  private slotWatchdog: NodeJS.Timeout | null = null;
+  // Callback that release()s the active job. Wired in runJob() so
+  // forceReleaseActive() can trigger it from outside the runJob closure.
+  private slotReleaser: (() => void) | null = null;
+  // Idle-evict timer. When the scheduler goes idle on `ollama`, start a
+  // timer; if no new job arrives by OLLAMA_IDLE_EVICT_MS, unload Ollama so
+  // VRAM is recovered. Reset on every drain / submit.
+  private ollamaIdleEvictTimer: NodeJS.Timeout | null = null;
 
   onStateChange(listener: () => void): void {
     this.emitter.on('state', listener);
@@ -157,6 +173,25 @@ class GpuScheduler {
   }
 
   /**
+   * Force-release the currently active slot. Used as an escape hatch when a
+   * run() handler hangs (e.g. an upstream that never closes, a missed
+   * terminal event). Returns true if a slot was released, false if idle.
+   * The underlying run() Promise is NOT cancelled — it continues to its own
+   * fate — but the scheduler will accept and drain the next queued job.
+   */
+  forceReleaseActive(): boolean {
+    if (!this.slotReleaser) return false;
+    logger.warn('[scheduler] forceReleaseActive — releasing held slot', {
+      jobId: this.slot?.jobId,
+      taskType: this.slot?.taskType,
+    });
+    const r = this.slotReleaser;
+    this.slotReleaser = null;
+    r();
+    return true;
+  }
+
+  /**
    * Cancel a queued (not running) job. Returns 'cancelled' on success,
    * 'not_found' when no such id exists, 'running' when the job is the active slot.
    */
@@ -186,9 +221,54 @@ class GpuScheduler {
     this.emit();
   }
 
-  private drain(): void {
+  private cancelIdleEvict(): void {
+    if (this.ollamaIdleEvictTimer) {
+      clearTimeout(this.ollamaIdleEvictTimer);
+      this.ollamaIdleEvictTimer = null;
+    }
+  }
+
+  // Arm the idle-evict timer when (and only when) the scheduler is fully
+  // idle AND the current tenant is `ollama`. Re-armed by drain() / release().
+  private armOllamaIdleEvictIfNeeded(): void {
+    this.cancelIdleEvict();
     if (this.slot !== null) return;
-    if (this.queue.length === 0) return;
+    if (this.queue.length > 0) return;
+    if (getCurrentTenant() !== 'ollama') return;
+    this.ollamaIdleEvictTimer = setTimeout(() => {
+      this.ollamaIdleEvictTimer = null;
+      // Re-check just-in-time: a job could have arrived between the timer
+      // firing and the macrotask running.
+      if (this.slot !== null) return;
+      if (this.queue.length > 0) return;
+      if (getCurrentTenant() !== 'ollama') return;
+      logger.info('[scheduler] ollama idle for OLLAMA_IDLE_EVICT_MS, unloading', {
+        idleMs: OLLAMA_IDLE_EVICT_MS,
+      });
+      void (async () => {
+        try {
+          await unloadOllama();
+          forceSetTenant('none');
+          this.emit();
+        } catch (err) {
+          logger.warn('[scheduler] idle-evict unloadOllama failed', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      })();
+    }, OLLAMA_IDLE_EVICT_MS);
+    this.ollamaIdleEvictTimer.unref?.();
+  }
+
+  private drain(): void {
+    // A drain step either pops a job (cancels idle-evict) or stays idle
+    // (re-arms it). Either way, recompute.
+    this.cancelIdleEvict();
+    if (this.slot !== null) return;
+    if (this.queue.length === 0) {
+      this.armOllamaIdleEvictIfNeeded();
+      return;
+    }
 
     const job = this.queue.shift()!;
 
@@ -215,10 +295,35 @@ class GpuScheduler {
     const release = () => {
       if (released) return;
       released = true;
+      if (this.slotWatchdog) {
+        clearTimeout(this.slotWatchdog);
+        this.slotWatchdog = null;
+      }
+      this.slotReleaser = null;
       this.slot = null;
       this.emit();
       this.drain();
     };
+    this.slotReleaser = release;
+
+    // Per-task watchdog: if the run() handler stays held past the cap (e.g.
+    // a hanging upstream that doesn't honour AbortSignal), force-release so
+    // the queue keeps moving. The run() Promise is left to its own fate.
+    const def = TASK_TYPES[job.taskType as TaskType];
+    const maxMs = def?.maxRuntimeMs;
+    if (typeof maxMs === 'number' && maxMs > 0) {
+      this.slotWatchdog = setTimeout(() => {
+        if (released) return;
+        logger.warn('[scheduler] watchdog fired — slot held past maxRuntimeMs', {
+          jobId: job.jobId,
+          taskType: job.taskType,
+          maxMs,
+        });
+        release();
+      }, maxMs);
+      // Unref so a long-running studio doesn't keep the event loop alive on shutdown.
+      this.slotWatchdog.unref?.();
+    }
 
     try {
       // Ensure the GPU is resident for this tenant before calling run().

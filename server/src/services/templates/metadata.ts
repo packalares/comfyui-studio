@@ -12,12 +12,11 @@
 // Pure: no I/O. Used by the staging commit path so user imports carry the
 // same non-wire metadata (and therefore the same form inputs) as upstream.
 
-import { collectAllWorkflowNodes } from '../workflow/collect.js';
-import type { WorkflowNode } from '../../contracts/workflow.contract.js';
+import { flattenWorkflow } from '../workflow/flatten/index.js';
 
 export interface WorkflowIo {
-  inputs: Array<{ nodeId: number; nodeType: string; file?: string; mediaType: string }>;
-  outputs: Array<{ nodeId: number; nodeType: string; file: string; mediaType: string }>;
+  inputs: Array<{ nodeId: string; nodeType: string; file?: string; mediaType: string }>;
+  outputs: Array<{ nodeId: string; nodeType: string; file: string; mediaType: string }>;
 }
 
 export type MediaType = 'image' | 'video' | 'audio';
@@ -33,24 +32,9 @@ const OUTPUT_TYPES: Array<{ match: (t: string) => boolean; mediaType: MediaType 
   { match: (t) => /SaveAudio/i.test(t), mediaType: 'audio' },
 ];
 
-function nodeType(node: WorkflowNode): string {
-  const t = (node.type as string | undefined) ?? (node.class_type as string | undefined);
-  return typeof t === 'string' ? t : '';
-}
-
-function nodeId(node: WorkflowNode): number {
-  const id = (node as { id?: unknown }).id;
-  if (typeof id === 'number' && Number.isFinite(id)) return id;
-  if (typeof id === 'string') {
-    const n = parseInt(id, 10);
-    if (Number.isFinite(n)) return n;
-  }
-  return 0;
-}
-
-function firstWidgetString(node: WorkflowNode): string | undefined {
-  if (!Array.isArray(node.widgets_values)) return undefined;
-  for (const v of node.widgets_values) {
+function firstWidgetString(widgetsValues: unknown): string | undefined {
+  if (!Array.isArray(widgetsValues)) return undefined;
+  for (const v of widgetsValues) {
     if (typeof v === 'string' && v.length > 0) return v;
   }
   return undefined;
@@ -70,23 +54,31 @@ function classifyOutput(t: string): MediaType | null {
 
 /**
  * Walk every node in the workflow (including nested subgraphs) and classify
- * inputs/outputs. `file` on inputs is the first widget string (ComfyUI stores
- * the selected upload filename there); on outputs it's the filename prefix
- * widget.
+ * inputs/outputs. Uses the flattener so loaders/savers nested inside
+ * subgraph instances surface with their flat compound id (e.g. `"424:269"`)
+ * — top-level nodes still come out as their plain stringified id (`"269"`),
+ * so old templates round-trip unchanged. `file` on inputs is the first
+ * widget string (ComfyUI stores the selected upload filename there); on
+ * outputs it's the filename prefix widget.
  */
 export function extractWorkflowIo(workflow: unknown): WorkflowIo {
   const out: WorkflowIo = { inputs: [], outputs: [] };
   if (!workflow || typeof workflow !== 'object') return out;
-  const nodes = collectAllWorkflowNodes(workflow as Record<string, unknown>);
-  for (const node of nodes) {
-    const t = nodeType(node);
+  let flat;
+  try {
+    flat = flattenWorkflow(workflow as Record<string, unknown>);
+  } catch {
+    return out;
+  }
+  for (const [flatId, node] of flat.nodes) {
+    const t = node.type || '';
     if (!t) continue;
     const inKind = classifyInput(t);
     if (inKind) {
       out.inputs.push({
-        nodeId: nodeId(node),
+        nodeId: flatId,
         nodeType: t,
-        file: firstWidgetString(node),
+        file: firstWidgetString(node.widgets_values),
         mediaType: inKind,
       });
       continue;
@@ -94,9 +86,9 @@ export function extractWorkflowIo(workflow: unknown): WorkflowIo {
     const outKind = classifyOutput(t);
     if (outKind) {
       out.outputs.push({
-        nodeId: nodeId(node),
+        nodeId: flatId,
         nodeType: t,
-        file: firstWidgetString(node) ?? '',
+        file: firstWidgetString(node.widgets_values) ?? '',
         mediaType: outKind,
       });
     }

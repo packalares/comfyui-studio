@@ -203,6 +203,19 @@ export default function GalleryDetailsModal({ item, onClose }: Props): JSX.Eleme
   // --- Prompt section ---
   const promptRows: Row[] = [];
   if (wd?.promptText) promptRows.push({ label: 'Prompt', value: wd.promptText, wide: true, copyable: true });
+  // Enhanced prompts sit between Prompt and Negative prompt — visually
+  // adjacent to the user's typed input. One row per source node so
+  // multi-enhancer templates remain distinguishable. Single-enhancer
+  // templates collapse the source-id suffix into a plain "Enhanced prompt"
+  // label so the common case stays uncluttered.
+  if (wd?.enhancedPrompts) {
+    const entries = Object.entries(wd.enhancedPrompts);
+    const showSource = entries.length > 1;
+    for (const [sourceId, text] of entries) {
+      const label = showSource ? `Enhanced prompt · ${sourceId}` : 'Enhanced prompt';
+      promptRows.push({ label, value: text, wide: true, copyable: true });
+    }
+  }
   if (wd?.negativeText) promptRows.push({ label: 'Negative prompt', value: wd.negativeText, wide: true, copyable: true });
 
   // --- Models section ---

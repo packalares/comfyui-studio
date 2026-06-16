@@ -211,7 +211,14 @@ export function convertEssentialModelsToEntries(
 }
 
 function essentialToEntry(model: EssentialModel): CatalogModelEntry {
-  const savePath = `models/${model.dir}/${model.out}`;
+  // save_path is a DIRECTORY relative to ComfyUI's models/ tree — never a
+  // path that includes the filename, and never carrying the literal `models/`
+  // prefix. The old form `models/${dir}/${out}` produced a string ending in
+  // the filename, which made the merge key in getMergedModels diverge from
+  // the catalog row (whose save_path is just `dir`), rendered as a phantom
+  // duplicate, and then forced matchInstalled to fail because the would-be
+  // disk key landed under `models/<dir>/<filename>/<filename>`.
+  const savePath = model.dir;
   const modelsRoot = path.join(env.COMFYUI_PATH, 'models');
   const resolved = resolveModelFilePath(modelsRoot, model.dir, model.out);
   let fileSize = 0;

@@ -59,6 +59,15 @@ export interface GalleryListItem {
 export interface WorkflowDetail {
   promptText: string | null;
   negativeText: string | null;
+  /**
+   * Map of `<sourceNodeId> → expandedText` for every `__studio_enhanced_*`
+   * probe that fired for this prompt. The source-node id is the flat
+   * compound id of the `TextGenerate*` node whose output the probe
+   * captured (e.g. `"424:444"`). The UI renders one row per entry so
+   * multi-enhancer templates remain distinguishable. Null when no enhancer
+   * ran (toggle off, or template has no TextGenerate-class node).
+   */
+  enhancedPrompts?: Record<string, string> | null;
   seed: number | null;
   model: string | null;
   models: string[];
@@ -110,6 +119,10 @@ export interface GalleryItem extends GalleryListItem {
 export interface GalleryRowFull extends GalleryItem {
   workflowJson?: string | null;
   workflowHash?: string | null;
+  /** Storage-side JSON string mirror of WorkflowDetail.enhancedPrompts so
+   *  routes that build `workflowDetail` can parse it once and attach the
+   *  resulting record without an extra DB hop. */
+  enhancedPromptsJson?: string | null;
 }
 
 /** One output row returned from `GET /api/history/:promptId`. */

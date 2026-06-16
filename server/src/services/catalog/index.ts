@@ -7,6 +7,7 @@ export {
   markDownloadFailed,
   getAllModels,
   getModel,
+  getModelByPair,
   upsertModel,
   isSizeStale,
   refreshSize,

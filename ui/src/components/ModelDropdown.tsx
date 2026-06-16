@@ -2,6 +2,37 @@ import { useState, useMemo } from 'react';
 import { ChevronDown } from 'lucide-react';
 import type { TemplateSummary } from '../types';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+
+// Per-template avatar: tries to load the saved thumbnail from
+// `/api/thumbnail/template/<name>-1.webp` and falls back to the initial-
+// letter circle when the image errors (no thumbnail saved on disk yet).
+// Local state per instance so a failed load on one row doesn't suppress
+// another row's image.
+function TemplateAvatar({
+  template, isSelected, size = 7,
+}: { template: TemplateSummary; isSelected: boolean; size?: 7 | 8 }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const palette = isSelected ? 'bg-brand/10 text-brand' : 'bg-muted text-muted-foreground';
+  const dim = size === 7 ? 'w-7 h-7' : 'w-8 h-8';
+  // 64 px wide is enough for the dropdown row at 1× and 2× DPI; the cache
+  // service downscales from the on-disk asset.
+  const src = `/api/thumbnail/template/${encodeURIComponent(template.name)}-1.webp?w=64`;
+  if (imgFailed) {
+    return (
+      <span className={`flex-shrink-0 ${dim} rounded-full flex items-center justify-center text-xs font-bold ${palette}`}>
+        {template.title.charAt(0).toUpperCase()}
+      </span>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt=""
+      className={`flex-shrink-0 ${dim} rounded-full object-cover bg-muted`}
+      onError={() => setImgFailed(true)}
+    />
+  );
+}
 import {
   Command,
   CommandEmpty,
@@ -17,20 +48,9 @@ interface Props {
   onSelect: (templateName: string) => void;
 }
 
-function getInitial(name: string): string {
-  return name.charAt(0).toUpperCase();
-}
-
 function getSubtitle(template: TemplateSummary): string {
   if (template.tags && template.tags.length > 0) return template.tags[0];
   return template.mediaType;
-}
-
-// Avatar palette collapsed to neutral chrome: the model NAME differentiates
-// rows; the avatar tile is just a recognizable initial. Selected row gets
-// the brand accent so the active state still pops.
-function getAvatarClass(isSelected: boolean): string {
-  return isSelected ? 'bg-brand/10 text-brand' : 'bg-muted text-muted-foreground';
 }
 
 /**
@@ -48,11 +68,6 @@ export default function ModelDropdown({ templates, selected, onSelect }: Props) 
     [templates, selected],
   );
 
-  const selectedInitialColor = useMemo(
-    () => (selectedTemplate ? getAvatarClass(true) : ''),
-    [selectedTemplate],
-  );
-
   const handleSelect = (templateName: string) => {
     onSelect(templateName);
     setOpen(false);
@@ -67,9 +82,7 @@ export default function ModelDropdown({ templates, selected, onSelect }: Props) 
         >
           {selectedTemplate ? (
             <>
-              <span className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${selectedInitialColor}`}>
-                {getInitial(selectedTemplate.title)}
-              </span>
+              <TemplateAvatar template={selectedTemplate} isSelected />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-foreground truncate">{selectedTemplate.title}</p>
                 <p className="text-[11px] text-muted-foreground truncate">{getSubtitle(selectedTemplate)}</p>
@@ -109,7 +122,10 @@ export default function ModelDropdown({ templates, selected, onSelect }: Props) 
                 const models = t.models ?? [];
                 const searchCorpus = `${t.title} ${models.join(' ')}`;
                 const isSelected = t.name === selected;
-                const color = getAvatarClass(isSelected);
+                // Model filename badge removed — it crowded the row and
+                // made the template title hard to read. The model name is
+                // still part of `searchCorpus`, so users can still filter
+                // by checkpoint filename in the search box.
                 return (
                   <CommandItem
                     key={t.name}
@@ -117,18 +133,11 @@ export default function ModelDropdown({ templates, selected, onSelect }: Props) 
                     onSelect={() => handleSelect(t.name)}
                     className={`flex items-center gap-2.5 px-3 py-2.5 ${isSelected ? 'bg-brand/10' : ''}`}
                   >
-                    <span className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${color}`}>
-                      {getInitial(t.title)}
-                    </span>
+                    <TemplateAvatar template={t} isSelected={isSelected} />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-foreground truncate">{t.title}</p>
                       <p className="text-[11px] text-muted-foreground truncate">{getSubtitle(t)}</p>
                     </div>
-                    {models.length > 0 && (
-                      <span className="ml-auto text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">
-                        {models[0]}
-                      </span>
-                    )}
                   </CommandItem>
                 );
               })}

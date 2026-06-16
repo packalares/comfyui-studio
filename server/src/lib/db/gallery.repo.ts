@@ -28,6 +28,11 @@ export interface GalleryRow extends GalleryRowFull {
   mediaInfoJson?: string | null;
   // v22 user-state field: whether the user has starred this item.
   favorite?: boolean;
+  // v30 — JSON map `{<sourceNodeId>: <expandedText>}` from every
+  // `__studio_enhanced_*` probe that fired for this prompt. Null when no
+  // enhancer ran (manual prompt path, enhance toggle off, template has no
+  // `TextGenerate*` node).
+  enhancedPromptsJson?: string | null;
 }
 
 /** Repo-side slim row: list shape + guaranteed `createdAt`. */
@@ -99,6 +104,7 @@ function rowToFull(r: Record<string, unknown>): GalleryRowFull {
     mediaInfo: parseMediaInfo(r.mediaInfoJson),
     workflowJson: nullableString(r.workflowJson),
     workflowHash: nullableString(r.workflowHash),
+    enhancedPromptsJson: nullableString(r.enhancedPromptsJson),
   };
 }
 
@@ -117,9 +123,9 @@ const GALLERY_COLUMNS =
   'promptId, sizeBytes, url, type, workflowJson, workflowHash, modelsJson, ' +
   'jobDurationMs, mediaDurationMs, mediaInfoJson, ' +
   'triggered_by, conversation_id, message_id, model_fingerprint, template_hash, ' +
-  'favorite';
+  'favorite, enhancedPromptsJson';
 
-const GALLERY_VALUES_PLACEHOLDERS = new Array(22).fill('?').join(', ');
+const GALLERY_VALUES_PLACEHOLDERS = new Array(23).fill('?').join(', ');
 
 function rowParams(item: GalleryRow): unknown[] {
   return [
@@ -133,6 +139,7 @@ function rowParams(item: GalleryRow): unknown[] {
     item.modelFingerprint ?? null, item.templateHash ?? null,
     // favorite is user state — new rows default to 0 (unfavorited).
     (item.favorite ? 1 : 0),
+    item.enhancedPromptsJson ?? null,
   ];
 }
 
@@ -156,6 +163,7 @@ export function insertGalleryRow(
     'jobDurationMs', 'mediaDurationMs', 'mediaInfoJson',
     'triggered_by', 'conversation_id', 'message_id',
     'model_fingerprint', 'template_hash',
+    'enhancedPromptsJson',
   ];
   const updateSet = coalesceCols
     .map(c => `${c} = COALESCE(gallery.${c}, excluded.${c})`)

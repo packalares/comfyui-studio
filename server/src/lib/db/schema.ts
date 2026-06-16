@@ -49,7 +49,15 @@
 // candidate on every request) and a `hash` of the full plain secret. The plain
 // secret is returned exactly once at creation and is never persisted. See
 // `lib/auth/keyGen.ts` for the prefix / plain / hash format.
-export const SCHEMA_VERSION = 29;
+// Schema v30 adds `gallery.enhancedPromptsJson` (TEXT, nullable). Holds a
+// JSON map `{<sourceNodeId>: <expandedText>}` populated by the gallery row
+// builder when one or more `__studio_enhanced_*` PreviewAny probes (injected
+// downstream of every `TextGenerate*` node) fire in ComfyUI's `executed` WS
+// event or surface in `/history.outputs`. Multi-enhancer templates record
+// one entry per source. The migration also drops the v30-original singleton
+// `enhancedPromptText` column on rolling upgrades — no data was captured to
+// it before this reshape landed.
+export const SCHEMA_VERSION = 30;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -78,7 +86,8 @@ CREATE TABLE IF NOT EXISTS gallery (
   jobDurationMs  INTEGER,
   mediaDurationMs INTEGER,
   mediaInfoJson  TEXT,
-  favorite       INTEGER NOT NULL DEFAULT 0
+  favorite       INTEGER NOT NULL DEFAULT 0,
+  enhancedPromptsJson TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_gallery_createdAt ON gallery(createdAt DESC);
 CREATE INDEX IF NOT EXISTS idx_gallery_mediaType ON gallery(mediaType);

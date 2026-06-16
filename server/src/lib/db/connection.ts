@@ -521,6 +521,27 @@ function applyGalleryFavoriteV22Migration(db: DB): void {
 }
 
 /**
+ * Schema v30 adds `enhancedPromptsJson` to `gallery` — a JSON map keyed by
+ * source node id, holding every `__studio_enhanced_*` PreviewAny probe
+ * output for a given prompt. Idempotent.
+ *
+ * Rolling-upgrade safety: an earlier shape of v30 added the singleton
+ * `enhancedPromptText` column. No data was captured to it before this
+ * reshape landed, so the drop here is non-destructive — the column is
+ * removed and the JSON-map column takes its place.
+ */
+function applyGalleryEnhancedPromptV30Migration(db: DB): void {
+  const cols = db.prepare('PRAGMA table_info(gallery)').all() as Array<{ name: string }>;
+  const names = new Set(cols.map(c => c.name));
+  if (names.has('enhancedPromptText')) {
+    db.exec('ALTER TABLE gallery DROP COLUMN enhancedPromptText');
+  }
+  if (!names.has('enhancedPromptsJson')) {
+    db.exec('ALTER TABLE gallery ADD COLUMN enhancedPromptsJson TEXT');
+  }
+}
+
+/**
  * Schema v23 adds `source_type` and `soft_deleted` to `templates`.
  *
  * source_type (INTEGER NOT NULL DEFAULT 0):
@@ -815,6 +836,7 @@ function openAndInit(dbPath: string): DB {
   applyDiskSweepIdMigration(db);
   applyGallerySchemaV21Migration(db);
   applyGalleryFavoriteV22Migration(db);
+  applyGalleryEnhancedPromptV30Migration(db);
   applyTemplatesV23Migration(db);
   applyTemplatesV24Migration(db);
   applyVideoboardV25Migration(db);

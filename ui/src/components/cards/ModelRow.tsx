@@ -69,8 +69,13 @@ function CatalogRow({
   onShowInfo?: (item: ModelRowItem) => void;
 }) {
   // Info button is suppressed when the model carries nothing useful to show —
-  // avoids dead buttons on minimal catalog entries.
-  const hasInfo = !!(model.description || model.reference || model.base);
+  // avoids dead buttons on minimal catalog entries. A URL/urlSources counts
+  // as "useful info" because the Details modal renders the download sources
+  // section even without a freeform description.
+  const hasInfo = !!(
+    model.description || model.reference || model.base
+    || model.url || (model.urlSources && model.urlSources.length > 0)
+  );
   // Show the in-flight state when either a live WS download arrived OR the
   // catalog row carries `downloading: true` (pre-populated at download-start).
   const isDownloading = !!download || !!model.downloading;

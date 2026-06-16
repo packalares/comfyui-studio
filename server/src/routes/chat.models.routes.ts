@@ -84,10 +84,14 @@ router.post('/chat/models/pull/cancel', (req: Request, res: Response) => {
   res.json({ cancelled: cancelPull(body.name.trim()) });
 });
 
-router.delete('/chat/models/:name', async (req: Request, res: Response) => {
+// Shared handler so both the body-based route (used by the UI to survive
+// nginx-ingress's %2F-in-path rejection for HF-style model names like
+// `hf.co/owner/repo:tag`) AND the legacy path-param route resolve through
+// the same code path.
+async function deleteOllamaModel(name: string, res: Response): Promise<void> {
+  if (!name) { res.status(400).json({ error: 'name required' }); return; }
+  const baseUrl = settings.getOllamaUrl();
   try {
-    const name = typeof req.params.name === 'string' ? req.params.name : '';
-    const baseUrl = settings.getOllamaUrl();
     const r = await fetch(`${baseUrl}/api/delete`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
@@ -98,6 +102,22 @@ router.delete('/chat/models/:name', async (req: Request, res: Response) => {
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
   }
+}
+
+// New canonical shape: model name in the JSON body. The UI uses this.
+router.delete('/chat/models', async (req: Request, res: Response) => {
+  const name = typeof (req.body as { name?: unknown } | undefined)?.name === 'string'
+    ? (req.body as { name: string }).name
+    : '';
+  await deleteOllamaModel(name, res);
+});
+
+// Legacy path-param shape — kept for direct curl users / scripts. Works
+// when the name has no characters that ingress proxies reject, otherwise
+// callers should prefer the body-based variant above.
+router.delete('/chat/models/:name', async (req: Request, res: Response) => {
+  const name = typeof req.params.name === 'string' ? req.params.name : '';
+  await deleteOllamaModel(name, res);
 });
 
 router.get('/chat/models/library', async (req: Request, res: Response) => {

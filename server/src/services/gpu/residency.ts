@@ -78,7 +78,50 @@ export async function unloadOllama(): Promise<void> {
   }
 }
 
+/**
+ * Poll ComfyUI's `/queue` and resolve only when both `queue_running` and
+ * `queue_pending` are empty. Catches the case where someone hits ComfyUI
+ * directly (port 8188, its own editor or curl) and Studio's scheduler
+ * doesn't see the job — we still must not yank the model out from under
+ * an in-flight execution.
+ *
+ * Best-effort: a fetch error counts as "queue unknown, assume not idle"
+ * and we keep polling until the timeout. The caller's tenant switch is
+ * blocked behind this.
+ */
+export async function waitForComfyIdle(timeoutMs = 30 * 60 * 1000): Promise<void> {
+  const baseUrl = getComfyUIUrl();
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${baseUrl}/queue`, { signal: AbortSignal.timeout(5000) });
+      if (res.ok) {
+        const body = await res.json() as {
+          queue_running?: unknown[];
+          queue_pending?: unknown[];
+        };
+        const running = Array.isArray(body.queue_running) ? body.queue_running.length : 0;
+        const pending = Array.isArray(body.queue_pending) ? body.queue_pending.length : 0;
+        if (running === 0 && pending === 0) return;
+      }
+    } catch {
+      // /queue unreachable — treat as "still busy, retry"
+    }
+    // 1s poll cadence keeps responsiveness without hammering ComfyUI.
+    await new Promise<void>((r) => setTimeout(r, 1000));
+  }
+  logger.warn('[residency] waitForComfyIdle timed out, proceeding anyway', {
+    timeoutMs,
+  });
+}
+
 export async function unloadComfy(): Promise<void> {
+  // Hold off the /free until ComfyUI's queue is fully empty. This covers
+  // BOTH studio-managed jobs (in flight via /api/generate) and direct
+  // submissions hitting ComfyUI's own port. Without this guard the call
+  // to /free below would unload the model mid-execution of whatever job
+  // ComfyUI is currently running and break it.
+  await waitForComfyIdle();
   const baseUrl = getComfyUIUrl();
   try {
     const res = await fetch(`${baseUrl}/free`, {

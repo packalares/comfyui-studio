@@ -107,30 +107,50 @@ async function proxyToOllama(
   if (isStream) {
     res.setHeader('Content-Type', 'application/x-ndjson');
     res.setHeader('Transfer-Encoding', 'chunked');
+    // Tell nginx (and any reverse proxy honouring the convention) to NOT
+    // buffer this response. With default `proxy_buffering on`, nginx-ingress
+    // holds our `\n` heartbeats until it has accumulated a buffer's worth,
+    // which means the client doesn't see them at all during Ollama's cold
+    // load and the connection looks idle to the proxy's own watchdog →
+    // 504 Gateway Timeout even though Studio is correctly waiting upstream.
+    res.setHeader('X-Accel-Buffering', 'no');
+    // Cache-Control: no-transform additionally hints to intermediaries
+    // (CDNs, compression layers) not to gzip or rebuffer.
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.status(200);
     res.flushHeaders();
     queueHeartbeat = setInterval(() => {
       if (!res.writableEnded) res.write('\n');
-    }, 30_000);
+    }, 15_000);
   }
 
+  const traceId = Math.random().toString(36).slice(2, 8);
+  logger.info(`[llm:${traceId}] submit task=${taskType} stream=${isStream}`);
   try {
     await submitGpuJob(taskType, async (release) => {
-      if (queueHeartbeat) { clearInterval(queueHeartbeat); queueHeartbeat = null; }
+      logger.info(`[llm:${traceId}] slot granted, dispatching to ${upstream}${targetPath}`);
       const ac = new AbortController();
-
-      // Abort upstream when the client disconnects.
       const onClose = () => { ac.abort(); };
       req.on('close', onClose);
 
       try {
+        const t0 = Date.now();
+        // NOTE: we used to pass `dispatcher: ollamaAgent` (shared keep-alive
+        // pool) for connection reuse, but that surfaced a heisenbug where
+        // streaming chat responses would have headers arrive promptly yet
+        // `response.body`'s async iterator would never yield a chunk. The
+        // connection was a stale half-open keep-alive socket from a prior
+        // streamed request that never cleaned up. Falling back to the
+        // global dispatcher (fresh socket per request) eliminates the
+        // hang at the cost of one TCP handshake per call (~ms inside the
+        // cluster — well below the streaming budget).
         const response = await undiciRequest(`${upstream}${targetPath}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
-          dispatcher: ollamaAgent,
           signal: ac.signal,
         });
+        logger.info(`[llm:${traceId}] upstream headers in ${Date.now() - t0}ms status=${response.statusCode}`);
 
         if (response.statusCode < 200 || response.statusCode >= 300) {
           const errText = await response.body.text().catch(() => '');
@@ -153,22 +173,46 @@ async function proxyToOllama(
         }
 
         if (isStream) {
-          res.setHeader('Content-Type', 'application/x-ndjson');
-          res.setHeader('Transfer-Encoding', 'chunked');
-          for (const [k, v] of Object.entries(fwdHeaders)) {
-            if (k.toLowerCase() !== 'content-type') res.setHeader(k, v);
-          }
-          if (!res.headersSent) res.status(200);
-
-          // BodyReadable extends Readable; pipeline handles backpressure + cleanup.
-          await pipeline(response.body, res).catch((err) => {
-            // Client disconnect causes ERR_STREAM_PREMATURE_CLOSE — expected.
-            if ((err as NodeJS.ErrnoException).code !== 'ERR_STREAM_PREMATURE_CLOSE') {
-              logger.warn('[llm proxy] pipeline error', {
+          // Manual chunk loop instead of stream.pipeline so we log every
+          // chunk Ollama sends — surfaces whether response.body is actually
+          // producing bytes (vs the pipeline silently swallowing them).
+          let chunks = 0;
+          let bytes = 0;
+          try {
+            for await (const chunk of response.body) {
+              chunks += 1;
+              bytes += chunk.length;
+              if (res.writableEnded || res.destroyed) break;
+              const ok = res.write(chunk);
+              if (!ok) {
+                // Backpressure: wait for drain BUT also bail on socket close /
+                // error. If the client refreshed, the socket is gone and
+                // `drain` will NEVER fire — without racing close/error here,
+                // the loop hangs forever, `finally` never runs, the scheduler
+                // slot stays held until the watchdog rescues it minutes later.
+                await new Promise<void>((resolve) => {
+                  const cleanup = (): void => {
+                    res.off('drain', resolve);
+                    res.off('close', resolve);
+                    res.off('error', resolve);
+                  };
+                  res.once('drain', () => { cleanup(); resolve(); });
+                  res.once('close', () => { cleanup(); resolve(); });
+                  res.once('error', () => { cleanup(); resolve(); });
+                });
+                if (res.writableEnded || res.destroyed) break;
+              }
+            }
+            logger.info(`[llm:${traceId}] pipeline done chunks=${chunks} bytes=${bytes}`);
+          } catch (err) {
+            const code = (err as NodeJS.ErrnoException).code;
+            if (code !== 'ERR_STREAM_PREMATURE_CLOSE') {
+              logger.warn(`[llm:${traceId}] pipeline error after ${chunks} chunks/${bytes} bytes`, {
                 error: err instanceof Error ? err.message : String(err),
               });
             }
-          });
+          }
+          if (!res.writableEnded) res.end();
         } else {
           const json = await response.body.json();
           for (const [k, v] of Object.entries(fwdHeaders)) res.setHeader(k, v);

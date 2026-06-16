@@ -40,6 +40,18 @@ export function buildDownloadUrl(item: { filename: string; subfolder: string; ty
 }
 
 /** Standard paginated-list response envelope returned by `?page=N` endpoints. */
+/** One entry returned by the media-library list endpoint. `ref` is the
+ *  `<subfolder>/<filename>` form (or just `<filename>` for legacy root
+ *  files) — exactly what ComfyUI's LoadImage / LoadAudio combo expect. */
+export interface MediaLibraryItem {
+  filename: string;
+  subfolder: string;
+  ref: string;
+  sizeBytes: number;
+  mtimeMs: number;
+  kind: 'image' | 'audio' | 'video';
+}
+
 export interface PageEnvelope<T> {
   items: T[];
   page: number;
@@ -407,7 +419,7 @@ export const api = {
     // Server now wraps in { data: { promptId, ... } }. Unwrap and re-expose
     // prompt_id for backward-compat with callers that read result.prompt_id.
     // `mode` is forwarded for Easy-mode templates (the server reads
-    // template.modes[mode] and mutes inactive nodes before submitting).
+    // template.studioModes[mode] and mutes inactive nodes before submitting).
     const envelope = await fetchJson<{ data?: { promptId?: string } } | { promptId?: string; prompt_id?: string }>('/generate', {
       method: 'POST',
       body: JSON.stringify({ templateName, inputs, advancedSettings, mode }),
@@ -441,8 +453,8 @@ export const api = {
       groups: WorkflowGroup[];
       builderMeta?: {
         studioBuilder?: 'image' | 'video' | 'audio';
-        modelDisplayName?: string;
-        modes?: Record<string, {
+        title?: string;
+        studioModes?: Record<string, {
           requires?: string[];
           mute?: number[];
           switchNodeId?: number;
@@ -588,6 +600,37 @@ export const api = {
     // Unwrap so callers read `.name` directly (matches the legacy contract).
     const body = await res.json();
     return (body && typeof body === 'object' && 'data' in body) ? body.data : body;
+  },
+
+  // ---- Media library (input/ contents, used by the Easy-mode media modal) ----
+  listMediaLibrary: async (kind: 'image' | 'audio' | 'video'): Promise<MediaLibraryItem[]> => {
+    const res = await fetch(`${BASE}/media-library?kind=${kind}`);
+    if (!res.ok) throw new ApiError(res.status, `List media failed (${res.status})`, null);
+    const body = await res.json();
+    const data = (body && typeof body === 'object' && 'data' in body) ? body.data : body;
+    return (data?.items ?? []) as MediaLibraryItem[];
+  },
+  uploadMediaLibrary: async (
+    file: File, kind: 'image' | 'audio' | 'video',
+  ): Promise<MediaLibraryItem> => {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch(`${BASE}/media-library?kind=${kind}`, { method: 'POST', body: form });
+    if (!res.ok) {
+      let body: unknown = null;
+      try { body = await res.json(); } catch { /* non-JSON */ }
+      const msg = (body && typeof body === 'object' && 'error' in (body as Record<string, unknown>))
+        ? String((body as { error: unknown }).error)
+        : `Upload failed (${res.status})`;
+      throw new ApiError(res.status, msg, body);
+    }
+    const body = await res.json();
+    return ((body && typeof body === 'object' && 'data' in body) ? body.data : body) as MediaLibraryItem;
+  },
+  deleteMediaLibrary: async (filename: string, subfolder: string): Promise<void> => {
+    const qs = new URLSearchParams({ filename, subfolder });
+    const res = await fetch(`${BASE}/media-library?${qs.toString()}`, { method: 'DELETE' });
+    if (!res.ok) throw new ApiError(res.status, `Delete failed (${res.status})`, null);
   },
 
   // ---- Launcher / dependency endpoints ----
@@ -1256,10 +1299,15 @@ export const api = {
         { method: 'POST', body: JSON.stringify({ name }) },
       ),
 
+    // Body-based shape: HF-style names contain `/` (e.g.
+    // `hf.co/owner/repo:tag`), which encodeURIComponent turns into `%2F`.
+    // nginx-ingress rejects URLs with encoded slashes in the path with a
+    // 400 before they reach Studio. Sending the name in the JSON body
+    // sidesteps the path-encoding rule entirely.
     deleteModel: (name: string) =>
       fetchJson<{ deleted: boolean }>(
-        `/chat/models/${encodeURIComponent(name)}`,
-        { method: 'DELETE' },
+        '/chat/models',
+        { method: 'DELETE', body: JSON.stringify({ name }) },
       ),
 
     listLibrary: (opts?: { q?: string; page?: number; pageSize?: number }) => {

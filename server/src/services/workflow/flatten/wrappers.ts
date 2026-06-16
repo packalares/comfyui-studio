@@ -182,6 +182,60 @@ function recordWrapperOutputs(
 }
 
 /**
+ * Bypassed-wrapper pass-through. When a subgraph instance is marked
+ * mode=4 (bypassed) in the LiteGraph workflow, ComfyUI's native execution
+ * engine treats the wrapper as a transparent shunt: each output port is
+ * rewired to read from a same-type input port of the wrapper, in input
+ * declaration order. Downstream consumers continue to receive data
+ * without the bypassed subgraph's nodes executing.
+ *
+ * Studio's flattener previously SKIPPED bypassed wrappers entirely,
+ * leaving `state.wrapperOutputs[<wrapper>]` empty. That dropped every
+ * outer-link whose origin was the bypassed wrapper, leaving non-bypassed
+ * downstream consumers with missing inputs (the API-prompt validator
+ * rejects with "Required input is missing"). This shim records the
+ * type-matched pass-through targets so resolveOrigin / link emission
+ * walk past the bypassed wrapper transparently.
+ *
+ * Type-matching rule mirrors ComfyUI: output[i] takes the first input
+ * whose `type` string equals `output[i].type`. Unmatched outputs (no
+ * same-type input, or the matched input is unconnected) get no entry —
+ * the downstream link still drops, same as the pre-fix behaviour for
+ * matched-bypass patterns (e.g. OneReward's outpaint branch).
+ */
+export function recordBypassedWrapperPassthrough(
+  state: FlattenState,
+  wrapper: Record<string, unknown>,
+  wrapperGlobalId: string,
+  outerToGlobal: (id: number) => string,
+  outerNodes: Array<Record<string, unknown>>,
+  outerLinks: RawLink[],
+  outerInputSubs: InputSubs,
+): void {
+  const wrapperInputs = (wrapper.inputs || []) as Array<Record<string, unknown>>;
+  const wrapperOutputs = (wrapper.outputs || []) as Array<Record<string, unknown>>;
+  const myOutputs = new Map<number, { nodeId: string; slot: number }>();
+  for (let outIdx = 0; outIdx < wrapperOutputs.length; outIdx++) {
+    const outType = wrapperOutputs[outIdx].type as string | undefined;
+    if (!outType) continue;
+    const matchingInput = wrapperInputs.find(inp =>
+      (inp.type as string | undefined) === outType,
+    );
+    if (!matchingInput) continue;
+    const linkId = matchingInput.link as number | null | undefined;
+    if (linkId == null) continue;
+    const link = outerLinks.find(l => l.id === linkId);
+    if (!link) continue;
+    const origin = resolveOrigin(
+      state, link.origin_id, link.origin_slot,
+      outerToGlobal, outerInputSubs, outerNodes,
+    );
+    if (origin) myOutputs.set(outIdx, origin);
+  }
+  if (myOutputs.size > 0) state.wrapperOutputs.set(wrapperGlobalId, myOutputs);
+}
+
+/**
  * Expand a single wrapper instance into the flat graph: build inner
  * input / output subs + proxy overrides, recurse into the subgraph body,
  * then record this wrapper's outputs for the parent scope.

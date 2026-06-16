@@ -31,7 +31,24 @@ export function getAllModels(): CatalogModel[] {
  *  bytes earlier. Callers needing disambiguation should pass save_path via
  *  `findRowFromStore({filename, save_path})` directly. */
 export function getModel(filename: string): CatalogModel | undefined {
-  return findRowFromStore({ filename });
+  // Windows-authored workflows export widget values with backslash separators
+  // (`flux1\ae.safetensors`). Catalog rows are stored canonical (forward
+  // slash). Normalize on the way in so the lookup key matches.
+  return findRowFromStore({ filename: filename.replace(/\\/g, '/') });
+}
+
+/** Strict (filename, save_path) lookup — symmetric with `upsertModel`'s
+ *  storage key. The catalog canonicalizes both fields on write (subfolder
+ *  prefix moves into save_path); callers that look up by the original
+ *  workflow-declared path-prefixed name should canonicalize their args the
+ *  same way before calling this. */
+export function getModelByPair(
+  filename: string, save_path: string,
+): CatalogModel | undefined {
+  return findRowFromStore({
+    filename: filename.replace(/\\/g, '/'),
+    save_path: save_path.replace(/\\/g, '/'),
+  });
 }
 
 /** Merge or append a single entry. Existing entries keep their size + only missing fields are filled. */

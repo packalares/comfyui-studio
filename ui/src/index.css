@@ -105,6 +105,17 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* Tailwind preflight sets all buttons to `cursor: default`; restore the
+     pointer cursor on every interactive button (native + role=button).
+     Disabled CTAs read as `not-allowed` so the affordance matches state. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+  button:disabled,
+  [role="button"][aria-disabled="true"] {
+    cursor: not-allowed;
+  }
 }
 
 @layer components {

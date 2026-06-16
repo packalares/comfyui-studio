@@ -20,6 +20,7 @@ import { cn } from '../../lib/utils';
 import NavComfyControl from './NavComfyControl';
 import RunningTaskCard from '../cards/RunningTaskCard';
 import GpuStatusCard from '../cards/GpuStatusCard';
+import SchedulerQueueCard from '../cards/SchedulerQueueCard';
 
 interface SubLink {
   to: string;
@@ -171,6 +172,7 @@ export default function AppSidebar() {
           into the nav above. */}
       <SidebarFooter className="border-t border-sidebar-border/60">
         <GpuStatusCard />
+        <SchedulerQueueCard />
         <RunningTaskCard />
         <NavComfyControl />
       </SidebarFooter>

@@ -123,9 +123,13 @@ export async function buildTemplateBundle(templateName: string) {
   const builderMeta = tpl
     ? {
         studioBuilder: tpl.studioBuilder,
-        modelDisplayName: tpl.modelDisplayName,
-        modes: tpl.modes,
+        title: tpl.title,
+        studioModes: tpl.studioModes,
         promptEnhancer: tpl.promptEnhancer,
+        // Per-mode UI toggles. UI merges the `:` shared entry with the
+        // active mode's entry to decide which buttons to render in the
+        // prompt card. Server-side resolution lives in generate.routes.ts.
+        prompt_toggles: tpl.prompt_toggles,
       }
     : undefined;
   return { settings, widgets, primitiveFormFields, apiPrompt, groups, builderMeta };

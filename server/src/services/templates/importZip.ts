@@ -47,11 +47,22 @@ function mimeFor(name: string): string {
 }
 
 // `defaults` carries wrapper-extracted overrides — when the zip entry was a
-// TemplateData wrapper, the author's explicit title/description beats the
-// filename-derived fallback the staged row would otherwise use.
+// TemplateData wrapper, the author's explicit metadata (title, description,
+// Easy-mode tags) beats the filename-derived fallback the staged row would
+// otherwise use. Mirrors `ExtractedLitegraphDefaults` shape; pass it through
+// from `extractLitegraph` to avoid duplicate pluck sites downstream.
+interface EntryDefaults {
+  defaultTitle?: string;
+  defaultDescription?: string;
+  defaultStudioBuilder?: string;
+  defaultStudioModes?: Record<string, unknown>;
+  defaultStudioInputMap?: Record<string, string>;
+  defaultPromptEnhancer?: Record<string, unknown>;
+  defaultPromptToggles?: Record<string, Record<string, string>>;
+}
 async function entryToWorkflow(
   name: string, workflow: Record<string, unknown>, size: number,
-  defaults?: { defaultTitle?: string; defaultDescription?: string },
+  defaults?: EntryDefaults,
 ): Promise<StagedWorkflowEntry> {
   // Manager resolution is async — we fan out per workflow in `stageFromZip`
   // via `Promise.all` below. ComfyUI-offline degrades gracefully: the
@@ -71,6 +82,11 @@ async function entryToWorkflow(
     mediaType: deriveMediaType(io),
     jsonBytes: size,
     workflow,
+    studioBuilder: defaults?.defaultStudioBuilder,
+    studioModes: defaults?.defaultStudioModes,
+    studioInputMap: defaults?.defaultStudioInputMap,
+    promptEnhancer: defaults?.defaultPromptEnhancer,
+    prompt_toggles: defaults?.defaultPromptToggles,
   };
 }
 
@@ -149,6 +165,11 @@ export interface StageFromJsonOptions {
   defaultDescription?: string;
   defaultTags?: string[];
   defaultThumbnail?: string;
+  defaultStudioBuilder?: string;
+  defaultStudioModes?: Record<string, unknown>;
+  defaultStudioInputMap?: Record<string, string>;
+  defaultPromptEnhancer?: Record<string, unknown>;
+  defaultPromptToggles?: Record<string, Record<string, string>>;
 }
 
 /** Stage a single JSON workflow (single-file upload or paste). */
@@ -161,9 +182,15 @@ export async function stageFromJson(
   }
   const entryName = opts.entryName ?? 'workflow.json';
   const serialized = JSON.stringify(workflow);
-  const entry = await entryToWorkflow(entryName, workflow, serialized.length);
-  if (opts.defaultTitle) entry.title = opts.defaultTitle;
-  if (opts.defaultDescription) entry.description = opts.defaultDescription;
+  const entry = await entryToWorkflow(entryName, workflow, serialized.length, {
+    defaultTitle: opts.defaultTitle,
+    defaultDescription: opts.defaultDescription,
+    defaultStudioBuilder: opts.defaultStudioBuilder,
+    defaultStudioModes: opts.defaultStudioModes,
+    defaultStudioInputMap: opts.defaultStudioInputMap,
+    defaultPromptEnhancer: opts.defaultPromptEnhancer,
+    defaultPromptToggles: opts.defaultPromptToggles,
+  });
 
   const staged = newStagedImport(opts.source, opts.sourceUrl);
   staged.workflows = [entry];

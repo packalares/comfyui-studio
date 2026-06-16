@@ -1,0 +1,48 @@
+{
+  "camera": [
+    { "id": "standard", "label": "Standard" },
+    { "id": "clean_cinema_pro", "label": "Clean Cinema Pro" },
+    { "id": "large_format_cinema", "label": "Large-format cinema" },
+    { "id": "super35_cinema", "label": "Super35 cinema body" },
+    { "id": "cinema_70mm_film", "label": "Cinema 70mm Film" },
+    { "id": "full_frame_cinema", "label": "Full-frame cinema body" },
+    { "id": "hi_res_digital_cinema", "label": "Hi-res digital cinema" },
+    { "id": "lo_fi_tiny_camera", "label": "Lo-Fi Tiny Camera" },
+    { "id": "camcorder", "label": "Camcorder" },
+    { "id": "smartphone", "label": "Smartphone" },
+    { "id": "polaroid", "label": "Polaroid instant" }
+  ],
+  "lens": [
+    { "id": "standard", "label": "Standard" },
+    { "id": "anamorphic_classic", "label": "Anamorphic Classic" },
+    { "id": "prime_lens_classic", "label": "Prime Lens Classic" },
+    { "id": "classic_s_series_35mm", "label": "Classic S-series 35mm" },
+    { "id": "anamorphic", "label": "Anamorphic" },
+    { "id": "master_spherical_prime", "label": "Master spherical prime" },
+    { "id": "vintage_aspherical_lens", "label": "Vintage aspherical lens" },
+    { "id": "high_speed_compact", "label": "High-speed compact" },
+    { "id": "tilt_shift", "label": "Tilt-shift" },
+    { "id": "macro_prime", "label": "Macro prime" }
+  ],
+  "focalLength": [
+    { "id": "standard", "label": "Standard" },
+    { "id": "14mm",  "label": "14mm" },
+    { "id": "24mm",  "label": "24mm" },
+    { "id": "35mm",  "label": "35mm" },
+    { "id": "50mm",  "label": "50mm" },
+    { "id": "85mm",  "label": "85mm" },
+    { "id": "135mm", "label": "135mm" },
+    { "id": "200mm", "label": "200mm" }
+  ],
+  "aperture": [
+    { "id": "f1_2",  "label": "f/1.2" },
+    { "id": "f1_4",  "label": "f/1.4" },
+    { "id": "f2",    "label": "f/2" },
+    { "id": "f2_8",  "label": "f/2.8" },
+    { "id": "f4",    "label": "f/4" },
+    { "id": "f5_6",  "label": "f/5.6" },
+    { "id": "f8",    "label": "f/8" },
+    { "id": "f11",   "label": "f/11" },
+    { "id": "f16",   "label": "f/16" }
+  ]
+}

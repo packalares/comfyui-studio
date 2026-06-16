@@ -4,7 +4,7 @@ import {
   Image as ImageIcon, Film, Music, Box, Wrench,
   Download, AlertTriangle, CheckCircle2,
   SlidersHorizontal, Braces, Wand2, Sparkles, RotateCcw,
-  Settings2, Workflow, X as XIcon,
+  Settings2, Workflow, X as XIcon, ArrowRight,
 } from 'lucide-react';
 import { useApp, useJobs } from '../context/AppContext';
 import { Spinner } from '../components/ui/spinner';
@@ -29,7 +29,11 @@ import { AudioPlayer } from '../components/ui/audio-player';
 import type { StudioCategory, TemplateSummary, DependencyCheck, AdvancedSetting, FormInput, WorkflowGroup } from '../types';
 
 const WorkflowGraph = lazy(() => import('../components/studio/WorkflowGraph'));
-const VideoBuilder = lazy(() => import('./VideoBuilder'));
+// VideoBuilder is small and shows on tab click — eagerly imported so the
+// first Video-tab click doesn't trigger a Suspense flash. WorkflowGraph
+// stays lazy because it pulls a heavier canvas/graph dep tree.
+import VideoBuilder, { type EasyBuilderAction } from './VideoBuilder';
+import ImageBuilder from './ImageBuilder';
 
 const categories: { id: StudioCategory; label: string; icon: React.ElementType }[] = [
   { id: 'image', label: 'IMAGE', icon: ImageIcon },
@@ -78,8 +82,33 @@ function getCategoryForTemplate(t: TemplateSummary): StudioCategory {
   return 'image';
 }
 
+function readSavedStudioTab(): StudioTab {
+  try {
+    const saved = localStorage.getItem(STUDIO_TAB_STORAGE_KEY) as StudioTab | null;
+    if (saved === 'image' || saved === 'video' || saved === 'audio' || saved === 'advanced') return saved;
+  } catch { /* localStorage unavailable */ }
+  return 'image'; // first-ever visit: land on the first tab, not Advanced
+}
+
 export default function Studio() {
-  const { templateName } = useParams();
+  // App.tsx mounts Studio under a single wildcard route `/studio/*` so the
+  // component instance is reused across `/studio`, `/studio/easy/<tab>`, and
+  // `/studio/<templateName>` — no Suspense flash on tab clicks. Parse the
+  // splat here to recover the original `templateName` / `easyTab` semantics.
+  const params = useParams();
+  const splatPath = params['*'] ?? '';
+  const { templateName, easyTab } = useMemo(() => {
+    const segs = splatPath.split('/').map(s => {
+      try { return decodeURIComponent(s); } catch { return s; }
+    }).filter(Boolean);
+    if (segs[0] === 'easy') {
+      return { templateName: undefined as string | undefined, easyTab: (segs[1] || undefined) as string | undefined };
+    }
+    if (segs[0]) {
+      return { templateName: segs[0] as string | undefined, easyTab: undefined as string | undefined };
+    }
+    return { templateName: undefined as string | undefined, easyTab: undefined as string | undefined };
+  }, [splatPath]);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { templates, currentJob, submitGeneration, connected, refreshTemplates, uploadMaxBytes, queueStatus } = useApp();
@@ -117,25 +146,47 @@ export default function Studio() {
     return 'image';
   };
   const [activeCategory, setActiveCategory] = useState<StudioCategory>(resolveInitialCategory);
-  // Top-level builder tab: Image / Video / Audio / Advanced. URL query
-  // (`?tab=video`) wins on first paint so deep links land on the right
-  // pane; localStorage falls back otherwise.
-  const resolveInitialStudioTab = (): StudioTab => {
-    const urlTab = searchParams.get('tab') as StudioTab | null;
-    if (urlTab && STUDIO_TABS.some((t) => t.id === urlTab)) return urlTab;
-    try {
-      const saved = localStorage.getItem(STUDIO_TAB_STORAGE_KEY) as StudioTab | null;
-      if (saved && STUDIO_TABS.some((t) => t.id === saved)) return saved;
-    } catch { /* localStorage unavailable */ }
-    return 'advanced';
-  };
-  const [studioTab, setStudioTabState] = useState<StudioTab>(resolveInitialStudioTab);
+  // Top-level builder tab: Image / Video / Audio / Advanced. The URL is
+  // the single source of truth:
+  //   /studio                       → Advanced (no template)
+  //   /studio/:templateName         → Advanced (with template)
+  //   /studio/easy/video            → Video Easy mode
+  //   /studio/easy/image            → Image Easy mode
+  //   /studio/easy/audio            → Audio Easy mode
+  // Clicking a tab calls navigate(...) to swap routes, so the URL,
+  // template name, page title, and dep state all stay in sync.
+  const urlEasyTab = (easyTab as StudioTab | undefined);
+  const studioTab: StudioTab = (urlEasyTab && (urlEasyTab === 'image' || urlEasyTab === 'video' || urlEasyTab === 'audio'))
+    ? urlEasyTab
+    : 'advanced';
   const setStudioTab = useCallback((next: StudioTab) => {
-    setStudioTabState(next);
-    try { localStorage.setItem(STUDIO_TAB_STORAGE_KEY, next); } catch { /* ignore */ }
-    // We don't mutate the URL here — useNavigate + search params would
-    // bounce the active template path. Tab choice is sticky via localStorage.
+    if (next === 'advanced') navigate('/studio');
+    else navigate(`/studio/easy/${next}`);
+  }, [navigate]);
+
+  // Snapshot the saved tab at mount time — the persist effect below
+  // overwrites localStorage on first commit with the current `studioTab`
+  // (which is 'advanced' on a bare `/studio`), so the redirect effect
+  // can't read the stored value from localStorage anymore. Capturing into
+  // useState's lazy initializer freezes it before any effect runs.
+  const [initialSavedTab] = useState<StudioTab>(readSavedStudioTab);
+  // Bare `/studio` (no template, no easyTab) — pick up where the user
+  // left off. Runs ONCE on mount. The Advanced-tab auto-pick effect below
+  // is also gated on the same condition so the two don't race and
+  // overwrite each other's navigate() in the same commit.
+  useEffect(() => {
+    if (templateName || easyTab) return;
+    if (initialSavedTab !== 'advanced') {
+      navigate(`/studio/easy/${initialSavedTab}`, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Persist the active tab so a bare `/studio` click in the sidebar can
+  // restore it on next visit. Saving `advanced` is intentional — if the
+  // user was last on Advanced, next bare /studio stays on /studio.
+  useEffect(() => {
+    try { localStorage.setItem(STUDIO_TAB_STORAGE_KEY, studioTab); } catch { /* ignore */ }
+  }, [studioTab]);
   const [selectedTemplate, setSelectedTemplate] = useState<string>(templateName || '');
   const [formValues, setFormValues] = useState<Record<string, unknown>>({});
   const [mode, setMode] = useState<'form' | 'json'>('form');
@@ -350,10 +401,23 @@ export default function Studio() {
     return () => { cancelled = true; };
   }, [selectedTemplate]);
 
-  // Run dependency check when template changes
+  // Drop stale dep state whenever we leave Advanced, so the auto-modal
+  // can't surface for whatever template was last loaded on a different tab.
   useEffect(() => {
-    if (!selectedTemplate) {
+    if (studioTab !== 'advanced') {
       setDepCheck(null);
+      setShowDepModal(false);
+    }
+  }, [studioTab]);
+
+  // Run dependency check when template changes — Advanced tab only.
+  // Image / Video / Audio builders run their own per-model dep checks
+  // inside their components (VideoBuilder.tsx etc.), so this effect
+  // never fires for the wrong template when the user is on those tabs.
+  useEffect(() => {
+    if (!selectedTemplate || studioTab !== 'advanced') {
+      setDepCheck(null);
+      setShowDepModal(false);
       return;
     }
     let cancelled = false;
@@ -435,6 +499,18 @@ export default function Studio() {
   // template — an infinite ping-pong when the deps array also omits `selectedTemplate`
   // and `lastTemplateByCategory`.
   useEffect(() => {
+    // Skip auto-pick on Image / Video / Audio routes — those tabs are
+    // model-driven via their own builder UIs and should NEVER pull the
+    // user back into Advanced by guessing a template from history.
+    if (studioTab !== 'advanced') return;
+    // Bare `/studio` with a non-advanced saved tab: the redirect effect
+    // above is about to navigate us to /studio/easy/<saved>. Skip the
+    // auto-pick so it doesn't race and yank us to /studio/:lastTemplate
+    // in the same commit. Use the captured `initialSavedTab` (NOT
+    // localStorage) — the persist effect already overwrote localStorage
+    // with the current `studioTab` ('advanced' on bare /studio) during
+    // this same commit, so a fresh read would always show 'advanced'.
+    if (!templateName && !easyTab && initialSavedTab !== 'advanced') return;
     if (categoryTemplates.length === 0) return;
     if (selectedTemplate && categoryTemplates.some(t => t.name === selectedTemplate)) return;
     const remembered = lastTemplateByCategory[activeCategory];
@@ -444,7 +520,16 @@ export default function Studio() {
       setSelectedTemplate(target);
       navigate(`/studio/${target}`, { replace: true });
     }
-  }, [activeCategory, categoryTemplates, selectedTemplate, lastTemplateByCategory, navigate]);
+  }, [studioTab, activeCategory, categoryTemplates, selectedTemplate, lastTemplateByCategory, navigate, templateName, easyTab]);
+
+  // When switching to a non-Advanced tab, drop the stale selectedTemplate
+  // so derived state (template title, dep check, formValues) doesn't bleed
+  // into the Easy-mode UIs.
+  useEffect(() => {
+    if (studioTab !== 'advanced') {
+      setSelectedTemplate('');
+    }
+  }, [studioTab]);
 
   // Whenever a template is selected, remember it as the last-used one for its category.
   // Also remember the category itself so a bare `/studio` URL can restore the last tab.
@@ -553,6 +638,30 @@ export default function Studio() {
   // runs queues the new prompt behind it (ComfyUI supports a queue). The button label
   // flips to "Add to queue" when the ComfyUI queue is non-empty.
   const generateDisabled = !selectedTemplate || !connected || hasMissingDeps;
+
+  // Easy-mode builders (Video, future Image/Audio) publish their submit +
+  // reset + disabled state through this slot. The shared bottom Reset /
+  // Generate buttons dispatch to it when the active tab is Easy mode — so
+  // there's always exactly one CTA, regardless of which tab is open.
+  const [easyAction, setEasyAction] = useState<EasyBuilderAction | null>(null);
+  const isEasyTab = studioTab === 'image' || studioTab === 'video' || studioTab === 'audio';
+  const footerGenerateDisabled = isEasyTab
+    ? (!easyAction || easyAction.disabled)
+    : generateDisabled;
+  const footerGenerateLabel = isEasyTab
+    ? (easyAction?.label ?? 'Generate')
+    : 'Generate';
+  const handleFooterGenerate = useCallback(() => {
+    if (isEasyTab) {
+      easyAction?.onSubmit();
+    } else {
+      handleGenerate();
+    }
+  }, [isEasyTab, easyAction, handleGenerate]);
+  const handleFooterReset = useCallback(() => {
+    if (isEasyTab) easyAction?.onReset();
+    else handleReset();
+  }, [isEasyTab, easyAction, handleReset]);
   const showAddToQueue = isRunning
     || (queueStatus.queue_running ?? 0) > 0
     || (queueStatus.queue_pending ?? 0) > 0;
@@ -616,7 +725,7 @@ export default function Studio() {
         />
       )}
       {/* Dependency Modal */}
-      {showDepModal && depCheck && depCheck.missing.length > 0 && (
+      {studioTab === 'advanced' && showDepModal && depCheck && depCheck.missing.length > 0 && (
         <DependencyModal
           missing={depCheck.missing}
           templateName={selectedTemplate ?? undefined}
@@ -641,32 +750,29 @@ export default function Studio() {
             wider 420px Studio needs for two-column form fields. `open`
             stays true so mobile stacks the form above the result. */}
         <PageAside open className="lg:w-[420px]">
-            <div className="border-b px-4 py-3 flex items-center justify-between">
-              <div className="min-w-0">
-                <h2 className="text-sm font-semibold text-foreground">{categoryTitles[activeCategory]}</h2>
-                {template?.title && (
-                  <p className="mt-0.5 text-[11px] text-muted-foreground truncate">{template.title}</p>
-                )}
-              </div>
-              <div role="tablist" aria-label="Input mode" className="tab-strip shrink-0">
-                <button
-                  role="tab"
-                  aria-selected={mode === 'form'}
-                  onClick={() => setMode('form')}
-                  className={`tab-strip-item ${mode === 'form' ? 'is-active' : ''}`}
-                >
-                  <SlidersHorizontal className="w-3.5 h-3.5" />
-                  Form
-                </button>
-                <button
-                  role="tab"
-                  aria-selected={mode === 'json'}
-                  onClick={() => setMode('json')}
-                  className={`tab-strip-item ${mode === 'json' ? 'is-active' : ''}`}
-                >
-                  <Braces className="w-3.5 h-3.5" />
-                  JSON
-                </button>
+            <div>
+              <div role="tablist" aria-label="Studio mode" className="flex flex-wrap gap-1 bg-card p-2 border-b ">
+                {STUDIO_TABS.map(({ id, label, Icon }) => {
+                  const active = studioTab === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => setStudioTab(id)}
+                      className={
+                        'flex-1 inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ' +
+                        (active
+                          ? 'bg-brand text-brand-foreground shadow-sm'
+                          : 'bg-muted text-muted-foreground hover:text-foreground hover:bg-muted/50')
+                      }
+                    >
+                      <Icon className="w-3.5 h-3.5 shrink-0" />
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -687,63 +793,79 @@ export default function Studio() {
                 </div>
               )}
 
-              {/* MODE section — top-level builder tab strip.
-                  Replaces the legacy Category dropdown. Image/Video/Audio
-                  drive curated UIs (Phase 2+); Advanced renders the full
-                  template picker without a category filter. */}
-              <div>
-                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Mode</p>
-                <div role="tablist" aria-label="Studio mode" className="flex flex-wrap gap-1 rounded-lg bg-card ring-1 ring-inset ring-border p-1">
-                  {STUDIO_TABS.map(({ id, label, Icon }) => {
-                    const active = studioTab === id;
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        role="tab"
-                        aria-selected={active}
-                        onClick={() => setStudioTab(id)}
-                        className={
-                          'flex-1 inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ' +
-                          (active
-                            ? 'bg-brand text-brand-foreground shadow-sm'
-                            : 'text-muted-foreground hover:text-foreground hover:bg-muted/50')
-                        }
-                      >
-                        <Icon className="w-3.5 h-3.5 shrink-0" />
-                        {label}
-                      </button>
-                    );
-                  })}
+              {studioTab === 'advanced' && selectedTemplate && (
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="text-sm font-semibold text-foreground">{categoryTitles[activeCategory]}</h2>
+                    {template?.title && (
+                      <p className="mt-0.5 text-[11px] text-muted-foreground truncate">{template.title}</p>
+                    )}
+                  </div>
+                  <div role="tablist" aria-label="Input mode" className="tab-strip shrink-0">
+                    <button
+                      role="tab"
+                      aria-selected={mode === 'form'}
+                      onClick={() => setMode('form')}
+                      className={`tab-strip-item ${mode === 'form' ? 'is-active' : ''}`}
+                    >
+                      <SlidersHorizontal className="w-3.5 h-3.5" />
+                      Form
+                    </button>
+                    <button
+                      role="tab"
+                      aria-selected={mode === 'json'}
+                      onClick={() => setMode('json')}
+                      className={`tab-strip-item ${mode === 'json' ? 'is-active' : ''}`}
+                    >
+                      <Braces className="w-3.5 h-3.5" />
+                      JSON
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Video tab — curated Easy-mode UI. The component owns its
                   own prompt/resolution/duration form and submits via the
                   existing /api/generate endpoint (server reads the active
                   template's modes metadata and mutes inactive nodes). */}
               {studioTab === 'video' && (
-                <Suspense fallback={<div className="p-6 text-center"><Spinner /></div>}>
-                  <VideoBuilder />
-                </Suspense>
+                <VideoBuilder
+                  registerAction={setEasyAction}
+                  onSwitchToAdvanced={() => setStudioTab('advanced')}
+                />
               )}
 
-              {/* Image / Audio — still placeholders until their builders ship. */}
-              {(studioTab === 'image' || studioTab === 'audio') && (
-                <div className="rounded-lg border border-dashed border-border/70 bg-card/40 p-6 text-center">
-                  <p className="text-sm font-medium text-foreground mb-1">
-                    {studioTab === 'image' ? 'Image' : 'Audio'} generation
-                  </p>
-                  <p className="text-xs text-muted-foreground mb-3">
-                    The curated builder is coming soon. Use Advanced to drive any template directly.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setStudioTab('advanced')}
-                    className="text-xs text-brand underline hover:text-brand/80"
-                  >
-                    Switch to Advanced
-                  </button>
+              {/* Image tab — same chrome as VideoBuilder (model select +
+                  prompt card + chip row) plus image-specific bits (camera
+                  chip, multi-reference grid). Drives the shared bottom
+                  Generate / Reset via the same registerAction contract. */}
+              {studioTab === 'image' && (
+                <ImageBuilder
+                  registerAction={setEasyAction}
+                  onSwitchToAdvanced={() => setStudioTab('advanced')}
+                />
+              )}
+
+              {/* Audio — still a placeholder until its builder ships. Same
+                  visual shape as VideoBuilder's empty state so the two read
+                  consistently when nothing is wired up. */}
+              {studioTab === 'audio' && (
+                <div className="min-h-[55vh] flex items-center justify-center">
+                  <div className="flex flex-col items-center text-center rounded-xl border border-dashed border-border/70 bg-card/40 px-6 py-10 max-w-sm">
+                    <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                      <Music className="h-6 w-6 text-muted-foreground" />
+                    </div>
+                    <p className="text-sm font-semibold text-foreground mb-1">
+                      Audio easy mode isn't ready
+                    </p>
+                    <p className="text-xs text-muted-foreground max-w-xs mb-4">
+                      No curated audio workflow is set up yet. You can still drive any compatible template from the Advanced tab.
+                    </p>
+                    <Button variant="outline" onClick={() => setStudioTab('advanced')}>
+                      Switch to Advanced
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </div>
               )}
 
@@ -754,7 +876,7 @@ export default function Studio() {
               {studioTab === 'advanced' && (
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Dependencies</p>
+                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Template</p>
                   {depLoading && (
                     <Spinner size="xs" className="text-muted-foreground" />
                   )}
@@ -767,7 +889,6 @@ export default function Studio() {
                       className="flex items-center gap-1 text-[10px] text-warning hover:text-warning/80"
                     >
                       <AlertTriangle className="w-3.5 h-3.5" />
-                      {depCheck?.missing.length} missing {depCheck?.missing.length === 1 ? 'dependency' : 'dependencies'}
                     </button>
                   )}
                   {hasEditableWidgets && (
@@ -831,7 +952,7 @@ export default function Studio() {
             <div className="border-t bg-muted px-4 py-3 flex flex-col items-stretch gap-3">
               <div className="flex items-center gap-2">
                 <button
-                  onClick={handleReset}
+                  onClick={handleFooterReset}
                   className="inline-flex items-center gap-1.5 rounded-md border border-destructive/30 bg-card px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/10 hover:border-destructive transition-colors"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
@@ -839,13 +960,13 @@ export default function Studio() {
                 </button>
                 <div className="flex-1 relative group">
                   <button
-                    onClick={handleGenerate}
-                    disabled={generateDisabled}
+                    onClick={handleFooterGenerate}
+                    disabled={footerGenerateDisabled}
                     className="relative w-full overflow-hidden inline-flex items-center justify-center gap-2 rounded-md bg-gradient-to-r from-teal-500 to-success text-brand-foreground py-2 text-sm font-semibold shadow-sm hover:shadow-md hover:from-teal-600 hover:to-success/90 focus:outline-none focus:ring-2 focus:ring-brand/40 focus:ring-offset-1 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:from-muted-foreground disabled:to-muted-foreground disabled:shadow-none"
                   >
                     {/* Shimmer sweep. Hidden when the queue is busy — avoids
                         the button flashing during active generation. */}
-                    {!showAddToQueue && !generateDisabled && (
+                    {!showAddToQueue && !footerGenerateDisabled && (
                       <span
                         aria-hidden="true"
                         className="pointer-events-none absolute inset-y-0 left-0 w-1/2 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer"
@@ -859,12 +980,12 @@ export default function Studio() {
                     ) : (
                       <>
                         <Wand2 className="w-4 h-4 relative" />
-                        <span className="relative">Generate</span>
+                        <span className="relative">{footerGenerateLabel}</span>
                         <Sparkles className="w-3 h-3 relative opacity-80" />
                       </>
                     )}
                   </button>
-                  {hasMissingDeps && (
+                  {!isEasyTab && hasMissingDeps && (
                     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-popover text-popover-foreground border text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
                       Missing dependencies
                     </div>

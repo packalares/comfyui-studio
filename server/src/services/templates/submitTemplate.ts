@@ -16,6 +16,7 @@ import {
 } from '../workflow/index.js';
 import type { EnumeratedWidget } from '../../contracts/workflow.contract.js';
 import { applyNodeOverrides, applyProxyOverrides, splitAdvancedSettings } from './advancedSettings.js';
+import { injectEnhancerProbes } from '../workflow/prompt/enhancerProbe.js';
 import { applyPadOverrides } from './padOverrides.js';
 import { detectModeFields } from './formFieldPlan/modeDetect.js';
 import * as comfyui from '../comfyui/api.js';
@@ -199,6 +200,10 @@ export async function submitTemplate(
 
   const apiPrompt = await workflowToApiPrompt(workflow, userInputs, formInputs);
   applyNodeOverrides(apiPrompt, nodeOverrides);
+  // Inject PreviewAny probes here, AFTER every override has settled the
+  // gating-boolean values. See enhancerProbe.ts + the matching note in
+  // generate.routes.ts for why this can't live inside workflowToApiPrompt.
+  injectEnhancerProbes(apiPrompt);
 
   const attachApiKey = template.openSource === false;
   const result = await comfyui.submitPrompt(apiPrompt, {

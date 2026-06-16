@@ -125,10 +125,13 @@ function streamAvStripped(
       '-c', 'copy',
       '-map_metadata', '-1',   // drop all container-level metadata
     ];
-    // faststart moves the moov atom to the front of MP4 so browsers can
-    // begin playback before the full file is downloaded.
+    // MP4 muxer doesn't support non-seekable output by default — without
+    // movflags it fails with "muxer does not support non seekable output"
+    // and writes zero bytes to stdout (the empty-file bug). Fragmented
+    // MP4 (frag_keyframe + empty_moov + default_base_moof) IS streamable
+    // and produces a valid file that browsers and players read fine.
     if (e === '.mp4') {
-      args.push('-movflags', '+faststart');
+      args.push('-movflags', '+frag_keyframe+empty_moov+default_base_moof');
     }
     args.push('-f', format, 'pipe:1');
 

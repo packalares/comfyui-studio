@@ -35,7 +35,7 @@ import * as eventBus from '../jobs/eventBus.js';
 interface BridgeEvents {
   raw: [json: string];
   status: [];
-  executed: [promptId: string, output: Record<string, unknown>];
+  executed: [promptId: string, output: Record<string, unknown>, nodeId?: string];
   executionComplete: [promptId: string];
 }
 
@@ -86,9 +86,14 @@ export function onStatus(handler: () => void): () => void {
   return () => emitter.off('status', handler);
 }
 
-/** Subscribe to ComfyUI `executed` events (node finished, has output). */
+/** Subscribe to ComfyUI `executed` events (node finished, has output).
+ *
+ * Handler signature was `(promptId, output)` before the enhancer-probe
+ * landing — `nodeId` is appended as an optional third arg so existing
+ * subscribers stay compatible while new ones can recognise probe events
+ * by node id prefix. */
 export function onExecuted(
-  handler: (promptId: string, output: Record<string, unknown>) => void,
+  handler: (promptId: string, output: Record<string, unknown>, nodeId?: string) => void,
 ): () => void {
   emitter.on('executed', handler);
   return () => emitter.off('executed', handler);
@@ -114,6 +119,41 @@ interface Resolver {
 }
 
 const tracked = new Map<string, Resolver>();
+
+// ---------------------------------------------------------------------------
+// ComfyUI-side state mirror — derived from WS events the bridge already
+// receives. Exposed via getComfyState() so /api/gpu can surface external
+// (comfy-direct) activity that Studio's scheduler doesn't see.
+// ---------------------------------------------------------------------------
+
+// queue_remaining from the last `status` event. null until the first arrives.
+let lastQueueRemaining: number | null = null;
+// prompt_ids currently mid-execution. Added on execution_start, cleared on
+// any terminal event (success / error / interrupted / cached).
+const currentlyExecuting = new Set<string>();
+
+export interface ComfyBridgeState {
+  /** WS to ComfyUI is open. False means snapshot is stale. */
+  connected: boolean;
+  /** ComfyUI's own `exec_info.queue_remaining` (running + pending). */
+  queueRemaining: number | null;
+  /** Prompt-ids currently executing on ComfyUI, per WS events. */
+  executing: string[];
+  /** How many of those `executing` ids are tracked by Studio. */
+  studioTracked: number;
+}
+
+export function getComfyState(): ComfyBridgeState {
+  const executing = Array.from(currentlyExecuting);
+  let studioTracked = 0;
+  for (const id of executing) if (tracked.has(id)) studioTracked += 1;
+  return {
+    connected: ws !== null && ws.readyState === WebSocket.OPEN,
+    queueRemaining: lastQueueRemaining,
+    executing,
+    studioTracked,
+  };
+}
 
 function clearResolver(promptId: string): Resolver | undefined {
   const r = tracked.get(promptId);
@@ -267,6 +307,12 @@ interface ComfyExecutionEvent {
     node?: string;
     value?: number;
     max?: number;
+    // status event fields — ComfyUI nests this as data.status.exec_info.queue_remaining
+    status?: {
+      exec_info?: {
+        queue_remaining?: number;
+      };
+    };
   };
 }
 
@@ -293,20 +339,44 @@ function handleComfyMessage(raw: string): void {
 
   // `status` messages carry queue state but may omit prompt_id; fire before
   // the prompt_id guard so the queue-broadcast subscriber always fires.
+  // Also mirror queue_remaining into the state snapshot exposed by getComfyState().
   if (msg.type === 'status') {
+    const qr = msg.data?.status?.exec_info?.queue_remaining;
+    if (typeof qr === 'number') lastQueueRemaining = qr;
     emitter.emit('status');
   }
 
   const promptId = msg.data?.prompt_id;
   if (typeof promptId !== 'string') return;
 
+  // Mirror execution lifecycle for state snapshot — runs for EVERY prompt
+  // (Studio-tracked + comfy-direct), so external activity is visible.
+  if (msg.type === 'execution_start' || msg.type === 'executing') {
+    currentlyExecuting.add(promptId);
+  } else if (
+    msg.type === 'execution_success' ||
+    msg.type === 'execution_complete' ||
+    msg.type === 'execution_error' ||
+    msg.type === 'execution_interrupted' ||
+    msg.type === 'execution_cancelled' ||
+    msg.type === 'execution_cached'
+  ) {
+    currentlyExecuting.delete(promptId);
+  }
+
   // Fire typed subscription events for prompt-scoped message types.
   if (msg.type === 'executed') {
-    const output = (msg.data as Record<string, unknown> | undefined)?.['output'];
+    const data = msg.data as Record<string, unknown> | undefined;
+    const output = data?.['output'];
+    const nodeRaw = data?.['node'];
+    const nodeId = typeof nodeRaw === 'string' ? nodeRaw
+      : typeof nodeRaw === 'number' ? String(nodeRaw)
+      : undefined;
     emitter.emit(
       'executed',
       promptId,
       (output !== null && typeof output === 'object' ? output : {}) as Record<string, unknown>,
+      nodeId,
     );
   } else if (msg.type === 'execution_success' || msg.type === 'execution_complete') {
     emitter.emit('executionComplete', promptId);
@@ -444,6 +514,28 @@ function scheduleQueuePoll(): void {
   }, QUEUE_POLL_INTERVAL_MS);
 }
 
+/**
+ * On WS reconnect, ComfyUI may have already emitted the terminal event(s)
+ * for tracked prompts while we were disconnected. Sweep /history once for
+ * every tracked id so we recover quickly without waiting on the 10s
+ * queue-presence backstop poll.
+ */
+async function sweepHistoryForTracked(): Promise<void> {
+  if (tracked.size === 0) return;
+  const ids = Array.from(tracked.keys());
+  logger.info?.(`[comfyJobBridge] reconnect sweep: checking history for ${ids.length} tracked prompts`);
+  for (const promptId of ids) {
+    try {
+      const hist = await getHistoryForPrompt(promptId);
+      if (hist !== null) {
+        resolveTracked(promptId, 'reconnect-sweep: found in history');
+      }
+    } catch {
+      // /history fetch failed — skip; the periodic poll will catch it.
+    }
+  }
+}
+
 function openWs(): void {
   if (retryTimer) {
     clearTimeout(retryTimer);
@@ -459,6 +551,9 @@ function openWs(): void {
     ws = sock;
     sock.on('open', () => {
       logger.info?.(`[comfyJobBridge] connected ${url}`);
+      // Catch up on terminal events ComfyUI may have emitted while we were
+      // disconnected. Best-effort; never throws to the WS layer.
+      void sweepHistoryForTracked().catch(() => { /* logged inside */ });
     });
     sock.on('message', (data) => {
       handleComfyMessage(data.toString());

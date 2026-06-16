@@ -98,6 +98,16 @@ export interface StagedWorkflowEntry {
    * "covered" when deciding whether the Commit button is enabled.
    */
   autoResolvedModels?: Record<string, AutoResolvedModel>;
+  // Easy-mode metadata harvested by `extractLitegraph` from the outer
+  // TemplateData wrapper. Stored per-workflow so a multi-entry zip with
+  // distinct builder tags works. Forwarded verbatim by importCommit to
+  // saveUserWorkflow. Opaque shapes here — saveUserWorkflow enforces the
+  // strict types via its `SaveWorkflowInput` interface.
+  studioBuilder?: string;
+  studioModes?: Record<string, unknown>;
+  studioInputMap?: Record<string, string>;
+  promptEnhancer?: Record<string, unknown>;
+  prompt_toggles?: Record<string, Record<string, string>>;
 }
 
 export interface StagedImageEntry {

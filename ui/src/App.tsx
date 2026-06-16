@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Spinner } from './components/ui/spinner';
 import Layout from './components/layout/Layout';
@@ -19,9 +19,19 @@ const Videoboard = lazy(() => import('./pages/Videoboard'));
 const VideoboardProject = lazy(() => import('./pages/VideoboardProject'));
 const Characters = lazy(() => import('./pages/Characters'));
 
+// Route-level Suspense fallback. Cached lazy chunks resolve in <50ms; flashing
+// a spinner for them looks like a bug. Delay the reveal so only genuinely slow
+// loads ever paint, and fill the route area so the spinner is centered in the
+// viewport (not pinned to the top-left).
 function RouteFallback() {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setShow(true), 250);
+    return () => clearTimeout(t);
+  }, []);
+  if (!show) return null;
   return (
-    <div className="flex items-center justify-center h-64">
+    <div className="flex items-center justify-center min-h-[60vh] w-full">
       <Spinner size="xl" className="text-muted-foreground" />
     </div>
   );
@@ -38,8 +48,11 @@ function App() {
               deep-links keep working via a 1:1 redirect. */}
           <Route path="/templates" element={<Explore />} />
           <Route path="/explore" element={<Navigate to="/templates" replace />} />
-          <Route path="/studio" element={<Studio />} />
-          <Route path="/studio/:templateName" element={<Studio />} />
+          {/* Single wildcard route so navigating between bare /studio,
+              /studio/easy/<tab>, and /studio/<templateName> keeps the same
+              Studio instance mounted — no Suspense flash on tab clicks.
+              Studio parses the splat itself (see useParams("*")). */}
+          <Route path="/studio/*" element={<Studio />} />
           <Route path="/gallery" element={<Gallery />} />
           <Route path="/models" element={<Models />} />
           <Route path="/chat" element={<Chat />} />

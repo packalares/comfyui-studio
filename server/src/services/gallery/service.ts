@@ -15,6 +15,14 @@ import { getSnapshot, deleteSnapshot } from '../../lib/db/promptSnapshots.repo.j
 import { sweepOrphansFromDisk } from './diskSweep.js';
 import { inspectFile } from './fileInspect.js';
 import { resolveViewPath } from '../../lib/viewPath.js';
+import { sourceIdFromProbeKey } from '../workflow/prompt/enhancerProbe.js';
+import {
+  recordEnhancement,
+  peekAllEnhancements,
+  clearEnhancement,
+  enhancementsFromHistoryOutputs,
+  mergeEnhancements,
+} from './enhancerCapture.js';
 
 // Optional broadcaster for gallery-mutation WS notifications.
 let broadcaster: ((message: object) => void) | null = null;
@@ -81,6 +89,10 @@ export interface RowBuildInput {
   /** Fingerprints computed at submit time. */
   modelFingerprint?: string | null;
   templateHash?: string | null;
+  /** Map of `<sourceNodeId> → resolvedText` for every `__studio_enhanced_*`
+   *  probe that fired for this prompt. Captured from WS events and/or
+   *  walked out of `history.outputs`. Null when no probe fired. */
+  enhancedPrompts?: Record<string, string> | null;
 }
 
 /**
@@ -133,6 +145,9 @@ export async function buildRowsFromExecution(input: RowBuildInput): Promise<repo
         modelFingerprint: input.modelFingerprint ?? null,
         templateHash: input.templateHash ?? null,
         sizeBytes: inspection?.sizeBytes ?? null,
+        enhancedPromptsJson: input.enhancedPrompts
+          ? JSON.stringify(input.enhancedPrompts)
+          : null,
       };
       if (inspection?.mediaDurationMs != null) row.mediaDurationMs = inspection.mediaDurationMs;
       if (inspection?.mediaInfo != null) row.mediaInfoJson = JSON.stringify(inspection.mediaInfo);
@@ -145,12 +160,38 @@ export async function buildRowsFromExecution(input: RowBuildInput): Promise<repo
 
 // ─── Service operations ───────────────────────────────────────────────────────
 
+/**
+ * Pull the first non-empty string out of a PreviewAny `executed` payload.
+ * PreviewAny returns `{ ui: { text: [<value>] }, result: ... }`. ComfyUI
+ * serialises that into the WS event's `output` as `{ text: [<value>], ... }`.
+ */
+function extractProbeText(output: Record<string, unknown>): string | null {
+  const text = output?.text;
+  if (!Array.isArray(text)) return null;
+  for (const v of text) {
+    if (typeof v === 'string' && v !== '') return v;
+  }
+  return null;
+}
+
 /** Per-node append from ComfyUI's `executed` event (inline output payload). */
 export async function onNodeExecuted(
   promptId: string,
   output: Record<string, unknown>,
+  /** The node id ComfyUI reports the event for. Optional for back-compat;
+   *  required to recognise `__studio_enhanced_*` probe events. */
+  nodeId?: string,
 ): Promise<number> {
   if (!promptId) return 0;
+  // Studio-injected PreviewAny probes fire `executed` with their own node id
+  // and an `output.text` payload. Capture the text into the enhancer buffer;
+  // do NOT build a row (the probe produces no file).
+  if (nodeId && sourceIdFromProbeKey(nodeId) !== null) {
+    const text = extractProbeText(output);
+    const src = sourceIdFromProbeKey(nodeId);
+    if (text && src) recordEnhancement(promptId, src, text);
+    return 0;
+  }
   const looksLikeFiles = (v: unknown): boolean => {
     if (!Array.isArray(v)) return false;
     return v.some((f) => f && typeof f === 'object' && typeof (f as { filename?: unknown }).filename === 'string');
@@ -185,6 +226,7 @@ export async function onNodeExecuted(
       messageId:        snap?.message_id      ?? meta?.messageId       ?? null,
       modelFingerprint: meta?.modelFingerprint,
       templateHash:     meta?.templateHash,
+      enhancedPrompts: peekAllEnhancements(promptId),
     });
     let inserted = 0;
     for (const row of rows) {
@@ -222,6 +264,10 @@ export async function appendHistoryEntry(promptId: string): Promise<number> {
     const triggeredBy   = snap?.triggered_by   ?? meta?.triggeredBy   ?? null;
     const conversationId = snap?.conversation_id ?? meta?.conversationId ?? null;
     const messageId     = snap?.message_id      ?? meta?.messageId      ?? null;
+    const enhancedPrompts = mergeEnhancements(
+      peekAllEnhancements(promptId),
+      enhancementsFromHistoryOutputs(entry.outputs),
+    );
     const rows = await buildRowsFromExecution({
       promptId, outputs: entry.outputs, apiPrompt,
       createdAt: Date.now(), statusMessages: entry.status?.messages,
@@ -229,10 +275,14 @@ export async function appendHistoryEntry(promptId: string): Promise<number> {
       messageId, modelFingerprint: meta?.modelFingerprint,
       templateHash: meta?.templateHash,
       templateName: snap?.templateName ?? meta?.templateName ?? null,
+      enhancedPrompts,
     });
     let inserted = 0;
     for (const row of rows) { if (repo.insertGalleryRow(row)) inserted += 1; }
-    if (inserted > 0) { emitGalleryUpdate(); deleteSnapshot(promptId); clearPromptMeta(promptId); }
+    if (inserted > 0) {
+      emitGalleryUpdate(); deleteSnapshot(promptId); clearPromptMeta(promptId);
+      clearEnhancement(promptId);
+    }
     return inserted;
   } catch (err) {
     logger.warn('gallery appendHistoryEntry failed', { promptId, message: err instanceof Error ? err.message : String(err) });

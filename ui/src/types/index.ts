@@ -161,8 +161,6 @@ export interface TemplateSummary {
   /** Tags this template as a curated builder for the Image/Video/Audio
    *  Easy-mode UIs in Studio. Set in the TemplateData JSON. */
   studioBuilder?: 'image' | 'video' | 'audio';
-  /** Display label for the model dropdown in the Easy-mode UI. */
-  modelDisplayName?: string;
 }
 
 export interface Template {

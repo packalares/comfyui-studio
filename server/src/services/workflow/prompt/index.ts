@@ -98,5 +98,14 @@ export async function workflowToApiPrompt(
   // Phase 5 — randomise seeds.
   randomizeSeeds(prompt);
 
+  // NOTE: enhancer-probe injection is done by the caller, NOT here. The
+  // gating boolean that decides whether the probe fires (e.g. `enhance: false`
+  // mapped through studioInputMap onto a PrimitiveBoolean) is written by
+  // `/api/generate`'s directRe pass AFTER this function returns. Injecting
+  // here would make the decision against the workflow's baked-in default and
+  // produce a probe even when the user opted out. Callers call
+  // `injectEnhancerProbes(apiPrompt)` from `./enhancerProbe.js` once every
+  // downstream override / mute has settled.
+
   return prompt;
 }

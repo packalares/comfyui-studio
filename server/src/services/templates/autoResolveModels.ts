@@ -20,6 +20,8 @@
 // `newSearchCaches()` — don't reuse across stagings.
 
 import * as catalog from '../catalog/index.js';
+import { canonicalizeSync } from '../catalog/canonicalize.js';
+import { folderForLoaderClass } from '../workflow/loaderFolders.js';
 import { logger } from '../../lib/logger.js';
 import { env, autoResolveSearchEnabled } from '../../config/env.js';
 import { resolveHuggingfaceUrl, type ResolvedModel } from '../models/resolvers.js';
@@ -69,8 +71,37 @@ function urlBasename(raw: string): string | null {
 // ---------------------------------------------------------------------------
 // Step 1 — catalog.
 
-function stepCatalog(filename: string): AutoResolvedModel | null {
-  const row = catalog.getModel(filename);
+function stepCatalog(filename: string, loaderClass?: string): AutoResolvedModel | null {
+  // Workflows exported from Windows ComfyUI installs embed widget values like
+  // `flux1\ae.safetensors` (backslash separator). Normalize before any path
+  // inspection so the `.includes('/')` branch below and the bare-filename
+  // fallback both see a canonical forward-slash form.
+  filename = filename.replace(/\\/g, '/');
+  // Symmetric lookup: upsertModel canonicalizes the entry on write, splitting
+  // `Flux1Dev/super-realism.safetensors` into `(filename: super-realism.safetensors,
+  // save_path: loras/Flux1Dev)`. If we look up by the workflow's declared path-
+  // prefixed name (`getModel("Flux1Dev/super-realism.safetensors")`), the strict
+  // string match misses the canonicalized row → "Unresolved" even though we
+  // just upserted the URL on the previous import. Canonicalize the lookup args
+  // the same way and pair-match — handles flux1/ vs flux2/ correctly via the
+  // save_path differentiation.
+  const baseFolder = folderForLoaderClass(loaderClass);
+  let row: ReturnType<typeof catalog.getModel> | undefined;
+  if (filename.includes('/') && baseFolder) {
+    const canon = canonicalizeSync({ filename, save_path: baseFolder });
+    if (
+      !canon.unrecoverable
+      && canon.entry.filename
+      && canon.entry.save_path
+    ) {
+      row = catalog.getModelByPair(canon.entry.filename, canon.entry.save_path);
+    }
+  }
+  // Fallback: bare-filename lookup. Catches rows whose filename was never
+  // path-prefixed in the first place (the common case) and legacy rows
+  // without save_path. Same ambiguity rules as before — undefined when
+  // 2+ rows share the bare filename without a disambiguating save_path.
+  if (!row) row = catalog.getModel(filename);
   if (row && row.url) {
     const out: AutoResolvedModel = {
       source: 'catalog', downloadUrl: row.url, confidence: 'high',
@@ -210,7 +241,7 @@ async function resolveOne(
     { upsertCatalogFromAuto, toAutoResolved }, tooltipFolder,
   );
   if (s0b) return s0b;
-  const s1 = stepCatalog(filename);
+  const s1 = stepCatalog(filename, loaderClass);
   if (s1) return s1;
   const s2 = await stepMarkdown(filename, wf.modelUrls || [], loaderClass, tooltipFolder);
   if (s2) return s2;

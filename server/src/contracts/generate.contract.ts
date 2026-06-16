@@ -13,7 +13,7 @@ export const GenerateBodySchema = z.object({
   advancedSettings: z.record(z.string(), AdvancedSettingValueSchema).optional(),
   /**
    * Optional Easy-mode hint. When provided, the submit handler looks up
-   * `template.modes[mode]` in the TemplateData metadata: mutes the listed
+   * `template.studioModes[mode]` in the TemplateData metadata: mutes the listed
    * inactive nodes (sets node.mode = 4) and writes the switch widget
    * value if present. Templates without a `modes` block ignore this.
    */

@@ -20,7 +20,28 @@ import { TemplateParamsSchema, FavoritePatchSchema, TemplateFavoriteResponseSche
 
 // ---- Row mapper ----
 
-function rowToTemplate(t: TemplateListRow): Record<string, unknown> {
+/**
+ * Build a {name → studioBuilder} lookup from the on-disk user-template files.
+ * `studioBuilder` lives in the TemplateData JSON, not in the templates DB row,
+ * so we read it here and splice it into the response — without this, the
+ * VideoBuilder / ImageBuilder filters that key off `studioBuilder` see undefined
+ * for every entry and either show nothing (strict filter) or show the entire
+ * catalog (permissive fallback). Cheap: one fs scan per list request.
+ */
+function userStudioBuilderMap(): Map<string, 'image' | 'video' | 'audio'> {
+  const map = new Map<string, 'image' | 'video' | 'audio'>();
+  try {
+    for (const t of templates.listUserWorkflows()) {
+      if (t.studioBuilder) map.set(t.name, t.studioBuilder);
+    }
+  } catch { /* ignore — empty map is a safe default */ }
+  return map;
+}
+
+function rowToTemplate(
+  t: TemplateListRow,
+  studioBuilderByName?: Map<string, 'image' | 'video' | 'audio'>,
+): Record<string, unknown> {
   let thumbnail: string[] = [];
   if (t.thumbnail_json) {
     try {
@@ -46,6 +67,7 @@ function rowToTemplate(t: TemplateListRow): Record<string, unknown> {
     favorite: t.favorite === true || (t.favorite as unknown) === 1,
     ready: t.installed === true || (t.installed as unknown) === 1,
     source_type: t.source_type ?? 0,
+    studioBuilder: studioBuilderByName?.get(t.name),
   };
 }
 
@@ -71,7 +93,8 @@ const listRoute = defineRoute({
   const hasApiKey = settings.isApiKeyConfigured();
   const filter: TemplateListFilter = hasApiKey ? {} : { source: 'visible' };
   const result = templateRepo.listPaginated(filter, 1, 100_000);
-  return ok(result.items.map(rowToTemplate));
+  const studioBuilderByName = userStudioBuilderMap();
+  return ok(result.items.map((row) => rowToTemplate(row, studioBuilderByName)));
 });
 
 const pagedRoute = defineRoute({
@@ -110,8 +133,9 @@ const pagedRoute = defineRoute({
   };
 
   const result = templateRepo.listPaginated(filter, pq.page, pq.pageSize);
+  const studioBuilderByName = userStudioBuilderMap();
   return ok({
-    items: result.items.map(rowToTemplate),
+    items: result.items.map((row) => rowToTemplate(row, studioBuilderByName)),
     total: result.total,
     page: result.page,
     pageSize: result.pageSize,

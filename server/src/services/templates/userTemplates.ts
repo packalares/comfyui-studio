@@ -85,6 +85,17 @@ export interface SaveWorkflowInput {
    * TemplateCard without reparsing every workflow document.
    */
   civitaiMeta?: TemplateCivitaiMeta;
+  /**
+   * Easy-mode metadata. When the imported TemplateData JSON declares any
+   * of these, we forward them verbatim onto the saved file so the Studio
+   * Video/Image/Audio builders see them without an after-import script.
+   * Optional — generic comfy-catalog imports never set these.
+   */
+  studioBuilder?: TemplateData['studioBuilder'];
+  studioModes?: TemplateData['studioModes'];
+  studioInputMap?: TemplateData['studioInputMap'];
+  promptEnhancer?: TemplateData['promptEnhancer'];
+  prompt_toggles?: TemplateData['prompt_toggles'];
 }
 
 /**
@@ -147,6 +158,13 @@ export function saveUserWorkflow(input: SaveWorkflowInput): TemplateData {
     formInputs: generateFormInputs(raw, input.workflow),
     thumbnail: input.thumbnail ?? [],
     workflow: input.workflow,
+    // Forward Easy-mode metadata. Only land the keys that were actually
+    // declared so we don't pollute TemplateData JSON with empty fields.
+    ...(input.studioBuilder    !== undefined && { studioBuilder:    input.studioBuilder    }),
+    ...(input.studioModes      !== undefined && { studioModes:      input.studioModes      }),
+    ...(input.studioInputMap   !== undefined && { studioInputMap:   input.studioInputMap   }),
+    ...(input.promptEnhancer   !== undefined && { promptEnhancer:   input.promptEnhancer   }),
+    ...(input.prompt_toggles   !== undefined && { prompt_toggles:   input.prompt_toggles   }),
     size: 0,
     vram: 0,
     usage: 0,

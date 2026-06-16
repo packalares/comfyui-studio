@@ -256,6 +256,10 @@ function scheduleQueueBroadcast() {
   }, 100);
 }
 
+// ---- Cached last gpu snapshot — sent to each new WS client on connect so
+// the sidebar SchedulerQueueCard has data before the first state-change. ----
+let lastGpuSnapshotJson = '';
+
 // ---- Client WS: browser clients join the `clients` set; ComfyUI events are
 // forwarded by the shared bridge (wired once in start() below), not per-client.
 wss.on('connection', (clientWs) => {
@@ -268,6 +272,11 @@ wss.on('connection', (clientWs) => {
   const snapshot = getAllDownloads();
   if (snapshot.length > 0) {
     clientWs.send(JSON.stringify({ type: 'downloads-snapshot', data: snapshot }));
+  }
+  // Hydrate the GPU scheduler snapshot if we have one cached — avoids a
+  // blank SchedulerQueueCard until the next state change fires.
+  if (lastGpuSnapshotJson) {
+    clientWs.send(lastGpuSnapshotJson);
   }
 
   const cleanup = () => {
@@ -318,8 +327,21 @@ async function start() {
     onStatus,
     onExecuted,
     onExecutionComplete,
+    getComfyState,
   } = await import('./services/videoboard/comfyJobBridge.js');
   startComfyJobBridge();
+
+  // Single gpu-broadcast helper — used by scheduler state changes AND by
+  // bridge status events (so the sidebar sees external comfy queue updates
+  // without a Studio-side state change). Snapshot is cached as a serialised
+  // string so each new WS connection can hydrate instantly.
+  const broadcastGpu = () => {
+    const data = { ...scheduler.snapshot(), comfy: getComfyState() };
+    lastGpuSnapshotJson = JSON.stringify({ type: 'gpu', data });
+    for (const ws of clients) {
+      if (ws.readyState === WebSocket.OPEN) ws.send(lastGpuSnapshotJson);
+    }
+  };
 
   // Forward every raw ComfyUI message to all connected browser clients.
   onRaw((json) => broadcastRaw(json));
@@ -327,9 +349,14 @@ async function start() {
   // Queue broadcast on status messages (queue changes).
   onStatus(() => scheduleQueueBroadcast());
 
+  // Bridge status carries ComfyUI's queue_remaining + execution lifecycle
+  // — broadcast a fresh gpu snapshot so external (comfy-direct) activity
+  // shows up in the sidebar without polling.
+  onStatus(() => broadcastGpu());
+
   // Gallery + queue on executed (node finished with output).
-  onExecuted((promptId, output) => {
-    void galleryService.onNodeExecuted(promptId, output);
+  onExecuted((promptId, output, nodeId) => {
+    void galleryService.onNodeExecuted(promptId, output, nodeId);
     scheduleQueueBroadcast();
   });
 
@@ -347,10 +374,12 @@ async function start() {
     });
   });
 
-  // ONE state-change listener at boot; broadcast gpu snapshot to all WS clients.
-  scheduler.onStateChange(() => {
-    broadcast({ type: 'gpu', data: scheduler.snapshot() });
-  });
+  // ONE state-change listener at boot; broadcast gpu snapshot (incl. comfy
+  // mirror state) to all WS clients.
+  scheduler.onStateChange(broadcastGpu);
+  // Push an initial snapshot so even pre-existing WS clients (kept open
+  // through a server restart) see current state.
+  broadcastGpu();
 
   // Sweep leftover files in the uploads tmp dir (orphans from any prior
   // crash mid-upload). Safe because we only delete files older than 1h.

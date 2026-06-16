@@ -10,7 +10,7 @@ import type {
   OutputSubs,
   RawLink,
 } from './types.js';
-import { expandWrapper } from './wrappers.js';
+import { expandWrapper, recordBypassedWrapperPassthrough } from './wrappers.js';
 
 // Emit scope links with rewritten endpoints. `-20` target_id means
 // "external output of this scope" — feed each outer consumer instead.
@@ -107,6 +107,68 @@ export function emitScopeNodes(
 }
 
 /**
+ * Topologically sort wrapper instances at the current scope by their
+ * outer-link input dependencies. A wrapper W1 that reads from another
+ * wrapper W2's output must be expanded AFTER W2 so that
+ * `state.wrapperOutputs[W2]` is populated by the time W1's
+ * `buildInnerInputSubs` calls `resolveOrigin(W2, slot)`.
+ *
+ * Without this sort, when scopeNodes lists W1 before W2, every `-10`-origin
+ * inner link inside W1 that traces back to W2 resolves to null and the link
+ * is silently dropped — leaving inner real nodes with missing inputs.
+ *
+ * For workflows without inter-wrapper deps (the common case) the sort
+ * preserves the original order. Cycles fall back to original order.
+ */
+function sortWrappersTopologically(
+  wrappers: Array<{ node: Record<string, unknown>; localId: number }>,
+  scopeLinks: RawLink[],
+): Array<{ node: Record<string, unknown>; localId: number }> {
+  if (wrappers.length <= 1) return wrappers;
+  const wrapperIds = new Set(wrappers.map(w => w.localId));
+  const linkById = new Map<number, RawLink>();
+  for (const l of scopeLinks) linkById.set(l.id, l);
+
+  const deps = new Map<number, Set<number>>();
+  for (const w of wrappers) {
+    const set = new Set<number>();
+    const inputs = (w.node.inputs || []) as Array<Record<string, unknown>>;
+    for (const inp of inputs) {
+      const linkId = inp.link as number | null | undefined;
+      if (linkId == null) continue;
+      const link = linkById.get(linkId);
+      if (!link) continue;
+      if (wrapperIds.has(link.origin_id) && link.origin_id !== w.localId) {
+        set.add(link.origin_id);
+      }
+    }
+    deps.set(w.localId, set);
+  }
+
+  const indegree = new Map<number, number>();
+  for (const w of wrappers) indegree.set(w.localId, deps.get(w.localId)!.size);
+  const ready: number[] = [];
+  for (const w of wrappers) if (indegree.get(w.localId)! === 0) ready.push(w.localId);
+
+  const sortedIds: number[] = [];
+  while (ready.length) {
+    const id = ready.shift()!;
+    sortedIds.push(id);
+    for (const other of wrappers) {
+      if (deps.get(other.localId)!.has(id)) {
+        const newDeg = indegree.get(other.localId)! - 1;
+        indegree.set(other.localId, newDeg);
+        if (newDeg === 0) ready.push(other.localId);
+      }
+    }
+  }
+
+  if (sortedIds.length !== wrappers.length) return wrappers; // cycle — fall back
+  const byId = new Map(wrappers.map(w => [w.localId, w]));
+  return sortedIds.map(id => byId.get(id)!);
+}
+
+/**
  * Expand a single scope into the global flat graph. Three passes:
  *   1. Expand every wrapper node (populates state.wrapperOutputs).
  *   2. Emit rewritten links for this scope.
@@ -133,15 +195,43 @@ export function expandScope(
   // disabled" behaviour and unbreaks templates like OneReward (which ships
   // its outpaint subgraph bypassed) and Klein-4b-distilled (which ships its
   // dual-reference variant bypassed).
+  //
+  // Wrappers are processed in topological order over their cross-wrapper
+  // input deps so a wrapper feeding another wrapper at the same scope gets
+  // expanded first (otherwise `state.wrapperOutputs` lookups inside the
+  // downstream wrapper's `buildInnerInputSubs` would return null).
+  const wrapperList: Array<{ node: Record<string, unknown>; localId: number }> = [];
   for (const node of scopeNodes) {
     const type = node.type as string;
     if (!type || type === 'MarkdownNote' || type === 'Note') continue;
     const localId = node.id as number;
     if (localId < 0) continue;
-    const sg = state.sgMap.get(type);
-    if (!sg) continue;
+    if (!state.sgMap.has(type)) continue;
+    wrapperList.push({ node, localId });
+  }
+  const sortedWrappers = sortWrappersTopologically(wrapperList, scopeLinks);
+  for (const { node, localId } of sortedWrappers) {
     const wrapperMode = node.mode as number | undefined;
-    if (wrapperMode === 2 || wrapperMode === 4) continue;
+    // mode=2 (muted) means "do not execute and contribute nothing" — skip
+    // entirely so downstream consumers either bypass alongside or fail
+    // validation, mirroring ComfyUI's mute semantics.
+    if (wrapperMode === 2) continue;
+    // mode=4 (bypassed) is NOT a hard skip. ComfyUI's native runtime treats
+    // a bypassed wrapper as a transparent pass-through: each output port
+    // gets rewired from a same-type input port. Replicate that here by
+    // recording the pass-through targets in state.wrapperOutputs so
+    // resolveOrigin walks past the bypassed wrapper without dropping
+    // downstream links. Without this shim, workflows that ship a wrapper
+    // bypassed by default but with live non-bypassed consumers (e.g.
+    // Wan2.2-S2V's video_latent shunt) fail with "Required input is missing".
+    if (wrapperMode === 4) {
+      recordBypassedWrapperPassthrough(
+        state, node, toGlobal(localId), toGlobal,
+        scopeNodes, scopeLinks, inputSubs,
+      );
+      continue;
+    }
+    const sg = state.sgMap.get(node.type as string)!;
     expandWrapper(
       state, node, sg, prefix, scopeNodes, scopeLinks,
       inputSubs, outputSubs, toGlobal(localId), expandScope,
