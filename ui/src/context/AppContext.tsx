@@ -96,6 +96,12 @@ interface AppContextType {
    *  on every state change + bridge status event. null until the first
    *  frame arrives (typically within ~1s of page mount). */
   gpuSnapshot: GpuSnapshot | null;
+  /** Latest live-preview blob URL emitted by ComfyUI's KSampler during
+   *  sampling (only fires when comfy was launched with `--preview-method`).
+   *  null when nothing is sampling. The URL is created via
+   *  URL.createObjectURL on each frame; the prior URL is revoked on swap so
+   *  only one blob lives in memory at a time. */
+  livePreviewUrl: string | null;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -137,6 +143,11 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
   // GPU scheduler snapshot pushed over WS; replaces the old /api/gpu
   // setInterval poll in SchedulerQueueCard.
   const [gpuSnapshot, setGpuSnapshot] = useState<GpuSnapshot | null>(null);
+  // Live-preview blob URL. Set on every binary WS frame from ComfyUI's
+  // KSampler; the prior URL is revoked on swap so only one Blob is alive
+  // at a time. Cleared when a job terminates so the right panel stops
+  // showing the last frame of a finished run.
+  const [livePreviewUrl, setLivePreviewUrl] = useState<string | null>(null);
   const {
     _setQueueStatus,
     _setDownloads,
@@ -257,8 +268,31 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     const connectWs = () => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+      // Binary frames arrive as ArrayBuffer (default would be Blob). Cheaper
+      // to slice the 8-byte header off an ArrayBuffer than to stream a Blob.
+      ws.binaryType = 'arraybuffer';
 
       ws.onmessage = (event) => {
+        if (event.data instanceof ArrayBuffer) {
+          // ComfyUI's binary preview format (KSampler `--preview-method`):
+          //   [0..4)  uint32 BE  type   (always 1 for "preview image")
+          //   [4..8)  uint32 BE  fmt    (1 = JPEG, 2 = PNG)
+          //   [8..]   image bytes
+          // We trust the bridge to only forward type=1 frames, but read the
+          // mime from `fmt` anyway so a future binary message type that
+          // happens to slip through is at least labelled correctly.
+          const view = new DataView(event.data);
+          if (event.data.byteLength <= 8) return;
+          const fmt = view.getUint32(4);
+          const mime = fmt === 1 ? 'image/jpeg' : fmt === 2 ? 'image/png' : 'application/octet-stream';
+          const blob = new Blob([event.data.slice(8)], { type: mime });
+          const url = URL.createObjectURL(blob);
+          setLivePreviewUrl((prev) => {
+            if (prev) URL.revokeObjectURL(prev);
+            return url;
+          });
+          return;
+        }
         if (typeof event.data !== 'string') return;
         try {
           const msg = JSON.parse(event.data);
@@ -297,6 +331,12 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
             _setProgress(null);
             _setActivePromptId(null);
             _setNodeStates(null);
+            // Release the last live-preview blob; the real result will land
+            // shortly via `_fetchOutputFromHistory` and replace it.
+            setLivePreviewUrl((prev) => {
+              if (prev) URL.revokeObjectURL(prev);
+              return null;
+            });
             if (promptId) {
               scheduleTimer(() => _fetchOutputFromHistory(promptId), 500);
             }
@@ -414,7 +454,33 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
               refreshSystem();
             }
           } else if (msg.type === 'gpu') {
-            setGpuSnapshot(msg.data as GpuSnapshot);
+            const snap = msg.data as GpuSnapshot;
+            setGpuSnapshot(snap);
+            // Refresh-during-sampling rehydration: if comfy is mid-execution
+            // (executing[] non-empty) AND we have no client-side currentJob
+            // tracked, the user must have reloaded mid-generation. Synthesise
+            // a `running` job from the first prompt_id so the right-panel
+            // progress + live preview + result-on-complete chain works. The
+            // existing WS handlers (`executing`, `progress`, `executing
+            // node:null`) take over from here; nothing else needs to know
+            // this is rehydration. Skipped when a job is already present.
+            if (snap.comfy.executing.length > 0) {
+              const promptId = snap.comfy.executing[0];
+              if (promptId) {
+                setCurrentJob((prev) => {
+                  if (prev) return prev;
+                  _setActivePromptId(promptId);
+                  return {
+                    id: promptId,
+                    templateName: '',
+                    status: 'running',
+                    progress: 0,
+                    inputs: {},
+                    createdAt: new Date().toISOString(),
+                  };
+                });
+              }
+            }
           } else if (msg.type === 'queue') {
             const q = msg.data as QueueStatus;
             _setQueueStatus(q);
@@ -485,6 +551,11 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
           } else if (msg.type === 'downloads-snapshot') {
             const list = msg.data as DownloadState[];
             _setDownloads(Object.fromEntries(list.map(d => [d.taskId, d])));
+          } else if (msg.type === 'model:enriched') {
+            // Fan out via a window event so Models.tsx (or any subscriber)
+            // can refresh affected rows without piping a callback through
+            // the context tree. detail carries { filename, save_path, absPath }.
+            window.dispatchEvent(new CustomEvent('model:enriched', { detail: msg.data }));
           } else if (msg.type === 'chat:start') {
             chatEvents.dispatchStart(msg.data as ChatStartPayload);
           } else if (msg.type === 'chat:chunk') {
@@ -645,6 +716,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       cancelPending: jobs.cancelPending,
       setCurrentJob: jobs.setCurrentJob,
       gpuSnapshot,
+      livePreviewUrl,
     }),
     [
       catalog.templates,
@@ -681,6 +753,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       settings.updateSettings,
       refreshSystem,
       gpuSnapshot,
+      livePreviewUrl,
     ],
   );
 

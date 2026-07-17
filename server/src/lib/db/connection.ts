@@ -17,6 +17,8 @@ import { paths } from '../../config/paths.js';
 import { safeResolve } from '../fs.js';
 import { SCHEMA_SQL, SCHEMA_VERSION } from './schema.js';
 import { applyApiKeysMigration } from './migrations/0001_api_keys.js';
+import { applyRecipesMigration } from './migrations/0002_recipes.js';
+import { applyTemplatePresetsMigration } from './migrations/0003_template_presets.js';
 import { workflowHash } from '../workflowHash.js';
 import { extractMetadata, type ApiPrompt } from '../../services/gallery/extract.js';
 
@@ -727,6 +729,19 @@ function applyVideoboardV28Migration(db: DB): void {
   db.prepare('INSERT OR REPLACE INTO _meta (k, v) VALUES (?, ?)').run('videoboard_v28', 'done');
 }
 
+/**
+ * Schema v31 adds `sha256 TEXT` (nullable) to `model_files`.
+ * No backfill — Wave 3's background hasher will populate the column.
+ * Guarded idempotently via PRAGMA table_info.
+ */
+export function applyModelFilesSha256Migration(db: DB): void {
+  const cols = db.prepare('PRAGMA table_info(model_files)').all() as Array<{ name: string }>;
+  if (cols.length === 0) return; // table not created yet (handled by SCHEMA_SQL)
+  if (cols.some(c => c.name === 'sha256')) return;
+  db.exec('ALTER TABLE model_files ADD COLUMN sha256 TEXT');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_model_files_sha256 ON model_files(sha256)');
+}
+
 function applyTemplatesV24Migration(db: DB): void {
   const done = db.prepare('SELECT v FROM _meta WHERE k = ?')
     .get('templates_v24') as { v: string } | undefined;
@@ -844,6 +859,9 @@ function openAndInit(dbPath: string): DB {
   applyVideoboardV27Migration(db);
   applyVideoboardV28Migration(db);
   applyApiKeysMigration(db);
+  applyModelFilesSha256Migration(db);
+  applyRecipesMigration(db);
+  applyTemplatePresetsMigration(db);
   const row = db.prepare('SELECT version FROM schema_version LIMIT 1').get() as
     | { version: number } | undefined;
   if (!row) {

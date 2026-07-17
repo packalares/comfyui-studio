@@ -21,9 +21,11 @@ import {
 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverAnchor } from '../components/ui/popover';
 import {
-  ChipSelect, FORMAT_OPTIONS, dimsFor, viewUrlFor, blobToBase64,
+  ChipSelect, VIDEO_FORMAT_OPTIONS, visibleFormatsForMode, dimsFor, viewUrlFor, blobToBase64,
   inferMode, nearestModeHints, AddMediaPill, RefSlot,
   TogglesRow, resolveToggles, runEnhancePrompt,
+  useBuilderTemplates, useTemplateSelection, useTemplateBundle,
+  useDependencyCheck, useDebouncedPersist, usePresetApply,
   type EasyBuilderAction, type BuilderTemplateBundle,
 } from './builder.shared';
 
@@ -31,6 +33,7 @@ import {
 // callers (Studio.tsx) keep working without an extra refactor.
 export type { EasyBuilderAction };
 import { useApp } from '../context/AppContext';
+import { resolveInlineChoices } from '../lib/promptTemplate';
 import { api, ApiError } from '../services/comfyui';
 import { Button } from '../components/ui/button';
 import { Tooltip, TooltipTrigger, TooltipContent } from '../components/ui/tooltip';
@@ -41,7 +44,6 @@ import { Textarea } from '../components/ui/textarea';
 import { Spinner } from '../components/ui/spinner';
 import { SelectField, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/forms/SelectField';
 import { Slider } from '../components/ui/slider';
-import type { TemplateSummary } from '../types';
 
 /** Duration presets — value is the duration in seconds; label is a friendly
  *  sense-of-length name shown to the right of the value in the dropdown. */
@@ -64,6 +66,18 @@ const QUALITY_OPTIONS: Array<{ id: string; base: number; label: string }> = [
 interface Props {
   registerAction: (a: EasyBuilderAction | null) => void;
   onSwitchToAdvanced?: () => void;
+  /** Mirror the active template up to Studio so the shared right panel
+   *  (preset grid / output) reacts to selections made in this tab without
+   *  duplicating the picker logic. Optional. */
+  onTemplateChange?: (templateName: string) => void;
+  /** Latest preset payload pushed by Studio when the user clicks a card
+   *  in the right-panel grid. Identity (object ref) drives apply. */
+  presetApply?: {
+    id: string;
+    parent: string;
+    settings: Record<string, unknown>;
+    card: { id: string; title: string } | null;
+  } | null;
 }
 
 const STORAGE_KEY = 'studio:video:lastForm';
@@ -94,75 +108,17 @@ const INPUT_LABELS: Record<string, string> = {
   audio: 'Audio',
 };
 
-export default function VideoBuilder({ registerAction, onSwitchToAdvanced }: Props) {
+export default function VideoBuilder({ registerAction, onSwitchToAdvanced, onTemplateChange, presetApply }: Props) {
   const { templates, submitGeneration, connected, uploadMaxBytes } = useApp();
 
-  // ---- Pool of video-builder templates ----
-  // Strict: must declare `studioBuilder: "video"` in its metadata. The
-  // earlier mediaType fallback let every catalog template with
-  // `mediaType: "video"` (e.g. WAN i2v / FLF2V / starter examples) slip
-  // into the dropdown — only templates the author intentionally wires for
-  // the Easy-mode UI belong here.
-  const builderTemplates = useMemo(
-    () => templates.filter((t) => {
-      const tx = t as TemplateSummary & { studioBuilder?: string };
-      return tx.studioBuilder === 'video';
-    }),
-    [templates],
-  );
-
-  // ---- Selected template + bundle ----
+  const builderTemplates = useBuilderTemplates(templates, 'video');
   const persisted = useMemo(() => loadPersistedForm(), []);
-  const [selectedName, setSelectedName] = useState<string>(() => {
-    if (persisted?.templateName && builderTemplates.some((t) => t.name === persisted.templateName)) {
-      return persisted.templateName;
-    }
-    return builderTemplates[0]?.name ?? '';
-  });
+  const [selectedName, setSelectedName] = useTemplateSelection(builderTemplates, persisted?.templateName);
+  // Mirror the active template up to Studio (preset grid, Result panel).
+  useEffect(() => { onTemplateChange?.(selectedName); }, [selectedName, onTemplateChange]);
 
-  useEffect(() => {
-    if (!selectedName && builderTemplates.length > 0) {
-      setSelectedName(builderTemplates[0].name);
-    }
-  }, [selectedName, builderTemplates]);
-
-  // Per-model dependency check.
-  const [depCheck, setDepCheck] = useState<{ ready: boolean; missing: Array<{ kind?: string; name?: string; filename?: string }> } | null>(null);
-  const [depLoading, setDepLoading] = useState(false);
-  useEffect(() => {
-    if (!selectedName) { setDepCheck(null); return; }
-    let cancelled = false;
-    setDepLoading(true);
-    setDepCheck(null);
-    api.checkDependencies(selectedName)
-      .then((res) => { if (!cancelled) setDepCheck(res); })
-      .catch(() => { if (!cancelled) setDepCheck({ ready: true, missing: [] }); })
-      .finally(() => { if (!cancelled) setDepLoading(false); });
-    return () => { cancelled = true; };
-  }, [selectedName]);
-
-  const [bundle, setBundle] = useState<BuilderTemplateBundle | null>(null);
-  const [bundleLoading, setBundleLoading] = useState(false);
-  useEffect(() => {
-    if (!selectedName) { setBundle(null); return; }
-    let cancelled = false;
-    setBundleLoading(true);
-    api.getTemplateBundle(selectedName)
-      .then((res) => {
-        if (cancelled) return;
-        const meta = res.builderMeta;
-        setBundle(meta ? {
-          name: selectedName,
-          title: meta.title,
-          studioModes: meta.studioModes,
-          promptEnhancer: meta.promptEnhancer,
-          prompt_toggles: meta.prompt_toggles,
-        } : null);
-      })
-      .catch(() => { if (!cancelled) setBundle(null); })
-      .finally(() => { if (!cancelled) setBundleLoading(false); });
-    return () => { cancelled = true; };
-  }, [selectedName]);
+  const { check: depCheck, loading: depLoading } = useDependencyCheck(selectedName);
+  const { bundle, loading: bundleLoading } = useTemplateBundle(selectedName);
 
   // ---- Form state ----
   const [prompt, setPrompt] = useState<string>(persisted?.prompt ?? '');
@@ -187,6 +143,10 @@ export default function VideoBuilder({ registerAction, onSwitchToAdvanced }: Pro
 
   const [enhancing, setEnhancing] = useState(false);
   const [generating, setGenerating] = useState(false);
+  // Locked by `allow_user_select_aspect_ratio: false` in the active preset.
+  const [aspectLocked, setAspectLocked] = useState(false);
+
+  usePresetApply(presetApply, { setPrompt, setFormatId, setAspectLocked });
 
   // ---- Mode inference ----
   const filledInputs = useMemo(() => {
@@ -212,6 +172,21 @@ export default function VideoBuilder({ registerAction, onSwitchToAdvanced }: Pro
     () => inferMode(filledInputs, bundle?.studioModes),
     [filledInputs, bundle?.studioModes],
   );
+
+  // Aspect-ratio chip row — starts from the video-suitable catalog, then
+  // narrows further if the active mode declares its own `image_format`
+  // keys in studioModes (currently none of the video templates do, so the
+  // full VIDEO_FORMAT_OPTIONS shows). When a template eventually wires
+  // them, the chip row shrinks to just what's declared.
+  const visibleFormats = useMemo(
+    () => visibleFormatsForMode(bundle?.studioModes, inferredMode, VIDEO_FORMAT_OPTIONS),
+    [bundle?.studioModes, inferredMode],
+  );
+  useEffect(() => {
+    if (visibleFormats.length === 0) return;
+    if (visibleFormats.some((f) => f.id === formatId)) return;
+    setFormatId(visibleFormats.some((f) => f.id === '16:9') ? '16:9' : visibleFormats[0].id);
+  }, [visibleFormats, formatId]);
 
   const quality = useMemo(
     () => QUALITY_OPTIONS.find((q) => q.id === qualityId) ?? QUALITY_OPTIONS[1],
@@ -279,7 +254,10 @@ export default function VideoBuilder({ registerAction, onSwitchToAdvanced }: Pro
         }),
       );
 
-      const result = await runEnhancePrompt({ prompt: prompt.trim(), images, bundle });
+      // Resolve `{[A]|B|C}` choice chips before sending to the LLM — otherwise
+      // the enhancer sees the raw token syntax as literal text and either
+      // passes it through or hallucinates around the alternatives.
+      const result = await runEnhancePrompt({ prompt: resolveInlineChoices(prompt).trim(), images, bundle, mode: inferredMode });
       if (result.prompt) { setPrompt(result.prompt); toast.success('Prompt enhanced'); }
       else if (result.sawThinking) {
         toast.warning('Model never finalized — try a higher num_predict or disable thinking on the template');
@@ -302,7 +280,7 @@ export default function VideoBuilder({ registerAction, onSwitchToAdvanced }: Pro
     setGenerating(true);
     try {
       const inputs: Record<string, unknown> = {
-        text: prompt.trim(),
+        text: resolveInlineChoices(prompt).trim(),
         width: resolution.width,
         height: resolution.height,
         duration,
@@ -343,22 +321,11 @@ export default function VideoBuilder({ registerAction, onSwitchToAdvanced }: Pro
     submitGeneration, formatId, qualityId, toggles, audioStart,
   ]);
 
-  // Debounced persist of the editable form blob. Covers Clear-prompt,
-  // manual prompt edits, Enhance overwrites, format/quality/duration changes
-  // — anything that mutates a persisted field is captured here, not only on
-  // submit. 300ms debounce avoids hammering localStorage on every keystroke.
-  useEffect(() => {
-    const t = setTimeout(() => {
-      try {
-        const blob: PersistedForm = {
-          templateName: selectedName, prompt, formatId, qualityId,
-          duration, durationMode, toggles,
-        };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(blob));
-      } catch { /* ignore */ }
-    }, 300);
-    return () => clearTimeout(t);
-  }, [selectedName, prompt, formatId, qualityId, duration, durationMode, toggles]);
+  const persistBlob = useMemo<PersistedForm>(
+    () => ({ templateName: selectedName, prompt, formatId, qualityId, duration, durationMode, toggles }),
+    [selectedName, prompt, formatId, qualityId, duration, durationMode, toggles],
+  );
+  useDebouncedPersist(STORAGE_KEY, persistBlob);
 
   // ---- Reset: clear the form to first-run defaults ----
   const handleReset = useCallback(() => {
@@ -625,11 +592,12 @@ export default function VideoBuilder({ registerAction, onSwitchToAdvanced }: Pro
           </div>
         )}
         <ChipSelect
-          icon={(FORMAT_OPTIONS.find((f) => f.id === formatId) ?? FORMAT_OPTIONS[1]).Icon}
+          icon={(visibleFormats.find((f) => f.id === formatId) ?? visibleFormats[0] ?? VIDEO_FORMAT_OPTIONS[0]).Icon}
           value={formatId}
-          options={FORMAT_OPTIONS.map((f) => ({ id: f.id, left: f.id, right: f.label, Icon: f.Icon }))}
+          options={visibleFormats.map((f) => ({ id: f.id, left: f.id, right: f.label, Icon: f.Icon }))}
           selectedId={formatId}
           onChange={setFormatId}
+          disabled={aspectLocked}
         />
         <div className="ml-auto shrink-0">
           <ChipSelect

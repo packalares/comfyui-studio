@@ -6,6 +6,13 @@
 import { Router } from 'express';
 import * as civitai from '../services/civitai/civitai.service.js';
 import type { CivitaiListResponse } from '../services/civitai/models.js';
+import {
+  CIVITAI_MODEL_TYPES,
+  CIVITAI_PERIODS,
+  CIVITAI_SORTS,
+  type CivitaiPeriod,
+  type CivitaiSort,
+} from '../services/civitai/models.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { defineRoute } from '../lib/defineRoute.js';
 import { ValidationError, HttpError } from '../lib/errors.js';
@@ -13,6 +20,7 @@ import {
   CivitaiPageResponseSchema,
   CivitaiModelDetailSchema,
   CivitaiDownloadInfoSchema,
+  CivitaiFacetsResponseSchema,
   CivitaiPageQuerySchema,
   CivitaiSearchQuerySchema,
   CivitaiByUrlQuerySchema,
@@ -79,6 +87,16 @@ const byUrlRoute = defineRoute({
   }
 });
 
+function asStringArray(v: unknown): string[] | undefined {
+  if (v === undefined || v === null) return undefined;
+  if (Array.isArray(v)) {
+    const arr = v.filter((x): x is string => typeof x === 'string' && x.length > 0);
+    return arr.length > 0 ? arr : undefined;
+  }
+  if (typeof v === 'string' && v.length > 0) return [v];
+  return undefined;
+}
+
 const searchModelsRoute = defineRoute({
   method: 'GET',
   path: '/civitai/models/search',
@@ -86,14 +104,29 @@ const searchModelsRoute = defineRoute({
   response: CivitaiPageResponseSchema,
   auth: { required: true, scopes: ['catalog:read'] },
   tags: ['civitai'],
-  summary: 'Free-text search over civitai models',
+  summary: 'Faceted free-text search over civitai models',
 }, async (ctx) => {
-  const query = ctx.query.q;
-  const pageSize = intQuery(ctx.query.pageSize, intQuery(ctx.query.limit, 24), 100);
-  const page = intQuery(ctx.query.page, 1);
-  const cursor = ctx.query.cursor;
+  const q = ctx.query;
+  const query = q.q ?? '';
+  const pageSize = intQuery(q.pageSize, intQuery(q.limit, 24), 100);
+  const page = intQuery(q.page, 1);
+  const cursor = q.cursor;
+  // The bracketed alias (`types[]`) gets surfaced as `q['types[]']` by qs;
+  // prefer the canonical key when both are present.
+  const bracketed = ctx.query as Record<string, unknown>;
+  const types = asStringArray(q.types) ?? asStringArray(bracketed['types[]']);
+  const baseModels = asStringArray(q.baseModels) ?? asStringArray(bracketed['baseModels[]']);
+  const nsfw = q.nsfw === 'true' || q.nsfw === '1';
+  // Reject unknown enum values quietly — server won't forward them, UI also
+  // won't send them (chips come from /facets), but defence in depth.
+  const period = (CIVITAI_PERIODS as readonly string[]).includes(q.period ?? '')
+    ? (q.period as CivitaiPeriod) : undefined;
+  const sort = (CIVITAI_SORTS as readonly string[]).includes(q.sort ?? '')
+    ? (q.sort as CivitaiSort) : undefined;
   try {
-    const data = await civitai.searchModels(query, { limit: pageSize, cursor });
+    const data = await civitai.searchModels(query, {
+      limit: pageSize, cursor, types, baseModels, nsfw, period, sort,
+    });
     return ctx.ok(toPageEnvelope(data, { page, pageSize }));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -102,48 +135,24 @@ const searchModelsRoute = defineRoute({
   }
 });
 
-const latestModelsRoute = defineRoute({
+const facetsRoute = defineRoute({
   method: 'GET',
-  path: '/civitai/models/latest',
-  query: CivitaiPageQuerySchema,
-  response: CivitaiPageResponseSchema,
+  path: '/civitai/models/facets',
+  response: CivitaiFacetsResponseSchema,
   auth: { required: true, scopes: ['catalog:read'] },
   tags: ['civitai'],
-  summary: 'Newest civitai models',
+  summary: 'Search vocabulary for the CivitAI filter sidebar',
 }, async (ctx) => {
-  const q: civitai.PageQuery = {
-    limit: ctx.query.limit ? parseInt(ctx.query.limit, 10) : undefined,
-    page: ctx.query.page ? parseInt(ctx.query.page, 10) : undefined,
-    cursor: ctx.query.cursor,
-  };
-  try {
-    const data = await civitai.getLatestModels(q);
-    return ctx.ok(toPageEnvelope(data, parsePageQuery({ ...q, limit: q.limit ?? 12 })));
-  } catch {
-    throw new HttpError('upstream_unavailable', 'Civitai request failed');
-  }
-});
-
-const hotModelsRoute = defineRoute({
-  method: 'GET',
-  path: '/civitai/models/hot',
-  query: CivitaiPageQuerySchema,
-  response: CivitaiPageResponseSchema,
-  auth: { required: true, scopes: ['catalog:read'] },
-  tags: ['civitai'],
-  summary: 'Most-downloaded civitai models this month',
-}, async (ctx) => {
-  const q: civitai.PageQuery = {
-    limit: ctx.query.limit ? parseInt(ctx.query.limit, 10) : undefined,
-    page: ctx.query.page ? parseInt(ctx.query.page, 10) : undefined,
-    cursor: ctx.query.cursor,
-  };
-  try {
-    const data = await civitai.getHotModels(q);
-    return ctx.ok(toPageEnvelope(data, parsePageQuery({ ...q, limit: q.limit ?? 24 })));
-  } catch {
-    throw new HttpError('upstream_unavailable', 'Civitai request failed');
-  }
+  // baseModels is dynamic — probed off CivitAI's Most-Downloaded slice and
+  // cached for 1h. Failures fall back to a small hardcoded list so the UI
+  // never breaks (see civitai/facets.ts).
+  const baseModels = await civitai.getBaseModelsFacet();
+  return ctx.ok({
+    types:      Array.from(CIVITAI_MODEL_TYPES),
+    baseModels,
+    periods:    Array.from(CIVITAI_PERIODS),
+    sorts:      Array.from(CIVITAI_SORTS),
+  });
 });
 
 const modelDetailRoute = defineRoute({
@@ -233,7 +242,11 @@ const searchWorkflowsRoute = defineRoute({
   tags: ['civitai'],
   summary: 'Free-text search over civitai workflows',
 }, async (ctx) => {
-  const query = ctx.query.q;
+  // The search schema is shared with /models/search where `q` is optional
+  // (filter-only browses are valid). Workflow search has no filter sidebar
+  // so an empty query is a user error — fail it explicitly here.
+  const query = (ctx.query.q ?? '').trim();
+  if (query.length === 0) throw new ValidationError('Missing search query');
   const pageSize = intQuery(ctx.query.pageSize, intQuery(ctx.query.limit, 24), 100);
   const page = intQuery(ctx.query.page, 1);
   const cursor = ctx.query.cursor;
@@ -261,9 +274,9 @@ byUrlLimitedRouter.get('/civitai/models/by-url', byUrlLimiter, (req, res, next) 
 router.use(byUrlLimitedRouter);
 
 [
+  // Facets must register before `/:id` so Express matches the literal path first.
+  facetsRoute,
   searchModelsRoute,
-  latestModelsRoute,
-  hotModelsRoute,
   modelDetailRoute,
   downloadInfoRoute,
   latestWorkflowsRoute,

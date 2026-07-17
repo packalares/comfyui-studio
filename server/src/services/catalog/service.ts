@@ -1,6 +1,7 @@
 // Orchestrator: merge, refresh, upsert + scan adapter + event-bus subscribers.
 
 import { getHfToken, getCivitaiToken, getGithubToken } from '../settings/index.js';
+import { readSidecar } from '../models/enrichment/sidecar.js';
 import { formatBytes } from '../../lib/format.js';
 import { getHostAuthHeaders } from '../../lib/http.js';
 import * as modelFiles from '../../lib/db/modelFiles.repo.js';
@@ -8,15 +9,17 @@ import { logger } from '../../lib/logger.js';
 import * as bus from '../../lib/events.js';
 import {
   load, persist, persistCurrent, seedFromComfyUI,
-  markInstalled, markDownloadFailed, findRow, findRowFromStore,
+  markInstalled, markUninstalled, markDownloadFailed, findRow, findRowFromStore,
 } from './store.js';
 import { declaredByFor, mergeIntoExisting, urlSourceFor } from './urlSources.js';
 import { canonicalizeSync } from './canonicalize.js';
 import * as models from '../models/service.js';
+import { invalidateModelListMemo } from '../models/info.js';
+import { startHashQueue } from '../models/enrichment/hashCompute.js';
 import type { CatalogModel, MergedModel, FileStatus, UrlSource } from '../../contracts/catalog.contract.js';
 
 export type { CatalogModel, MergedModel, FileStatus };
-export { seedFromComfyUI, markInstalled, markDownloadFailed };
+export { seedFromComfyUI, markInstalled, markUninstalled, markDownloadFailed };
 
 /** Size refresh cadence — re-HEAD entries this old on next access. */
 const SIZE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -189,78 +192,117 @@ interface LauncherScanEntry {
   reference?: string;
 }
 
-async function fetchLauncherScan(): Promise<LauncherScanEntry[]> {
-  try {
-    const list = await models.scanAndRefresh();
-    const out: LauncherScanEntry[] = [];
-    for (const m of list) {
-      const wire = models.toWireEntry(m);
-      if (!wire.filename) continue;
-      out.push({
-        filename: wire.filename,
-        name: wire.name,
-        installed: wire.installed,
-        fileSize: wire.fileSize,
-        type: wire.type,
-        save_path: wire.save_path,
-        url: wire.url,
-        base: wire.base,
-        description: wire.description,
-        reference: wire.reference,
-      });
-    }
-    return out;
-  } catch {
-    return [];
-  }
-}
+/** TTL for the scan result cache. Adjustable for tests via module replacement. */
+export const SCAN_CACHE_TTL_MS = 30_000;
+
+/** No-op kept for callers that still invalidate after install/uninstall events.
+ *  The previous Manager-cache scan layer was removed from getMergedModels;
+ *  there's no live scan cache to bust anymore. Catalog + on-disk model_files
+ *  are read fresh on every getMergedModels call. */
+export function bustScanCache(): void { /* no-op */ }
 
 // ---- Merge ----
 
-/** Merge catalog with launcher's disk scan for per-model install + integrity state. */
+/** Merge catalog with disk scan for per-model install + integrity state.
+ *
+ *  Two sources only:
+ *    1. catalog.json — the authoritative list of "models we know about"
+ *       (template-driven, manual additions, plus the bundled / refreshed
+ *       upstream model-list folded in at boot / rescan time).
+ *    2. model_files (SQLite) — what is actually on disk right now.
+ *
+ *  We deliberately do NOT pull the Manager cache (`model-list.cache.json`)
+ *  into this merge anymore. Earlier this function read both catalog AND
+ *  Manager-cache via `fetchLauncherScan`, which double-listed every shared
+ *  model under conflicting save_paths (e.g. `diffusion_models` from the
+ *  user's catalog row vs `diffusion_models/Wan2.2` from upstream). The
+ *  Manager cache now feeds the catalog via boot-seed + rescan upsert; once
+ *  it lands as a catalog row, this merge can dedup cleanly against it.
+ */
 export async function getMergedModels(): Promise<MergedModel[]> {
   await seedFromComfyUI();
-  const scan = await fetchLauncherScan();
-  // Key by (save_path, filename) — bare filename collides when the same
-  // shard name appears in multiple folders (e.g. ACE-Step transcriber and
-  // captioner both ship model-00001-of-00005.safetensors).
-  const scanByKey = new Map<string, typeof scan[number]>();
-  for (const s of scan) {
-    if (!s.filename) continue;
-    const key = s.save_path ? `${s.save_path}/${s.filename}` : s.filename;
-    scanByKey.set(key, s);
-  }
 
   const merged: MergedModel[] = [];
-  const seenKeys = new Set<string>();
+  const catalogFilenames = new Set<string>();
 
   for (const model of load().models) {
-    const key = model.save_path ? `${model.save_path}/${model.filename}` : model.filename;
-    seenKeys.add(key);
-    const disk = scanByKey.get(key);
-    let installed = !!disk?.installed;
-    let fileSize = disk?.fileSize;
-    if (!installed) {
-      const expected = model.save_path ? `${model.save_path}/${model.filename}` : null;
-      const hit = modelFiles.listByFilename(model.filename)
-        .find((r) => r.status === 'complete' && (!expected || r.rel_path === expected));
-      if (hit) { installed = true; fileSize = hit.size; }
-    }
+    if (model.filename) catalogFilenames.add(model.filename);
+    // Match an on-disk file by (save_path, filename) first; fall back to
+    // bare filename so legitimately-installed files at a different folder
+    // than catalog records (e.g. user moved them) still register installed.
+    const expectedRel = model.save_path ? `${model.save_path}/${model.filename}` : null;
+    const candidates = modelFiles.listByFilename(model.filename);
+    const exact = expectedRel
+      ? candidates.find((r) => r.status === 'complete' && r.rel_path === expectedRel)
+      : undefined;
+    const any = candidates.find((r) => r.status === 'complete');
+    const hit = exact ?? any;
+    const installed = !!hit;
+    const fileSize = hit?.size;
+
+    const enrichment = installed ? readEnrichmentFor(model.filename) : undefined;
     merged.push({
       ...model,
       installed,
       fileSize,
       fileStatus: deriveFileStatus(model.size_bytes, fileSize, installed),
+      ...(enrichment ? { enrichment } : {}),
     });
   }
 
-  for (const s of scan) {
-    if (!s.filename) continue;
-    const key = s.save_path ? `${s.save_path}/${s.filename}` : s.filename;
-    if (seenKeys.has(key)) continue;
-    merged.push(scanEntryToMerged(s));
+  // Locally-discovered files — anything on disk whose filename does NOT
+  // appear in the catalog. These are files the user dropped into the
+  // ComfyUI models tree without going through Studio's install flow.
+  for (const row of modelFiles.listAll()) {
+    if (!row.filename || catalogFilenames.has(row.filename)) continue;
+    if (row.status !== 'complete') continue;
+    const dir = row.rel_path.includes('/')
+      ? row.rel_path.slice(0, row.rel_path.lastIndexOf('/'))
+      : '';
+    const entry: MergedModel = {
+      filename: row.filename,
+      name: row.filename,
+      type: 'other',
+      save_path: dir,
+      url: '',
+      size_pretty: '',
+      size_bytes: 0,
+      size_fetched_at: null,
+      source: 'scan',
+      installed: true,
+      fileSize: row.size,
+      fileStatus: null,
+    };
+    const enrichment = readEnrichmentFor(entry.filename);
+    if (enrichment) entry.enrichment = enrichment;
+    merged.push(entry);
   }
   return merged;
+}
+
+function readEnrichmentFor(
+  filename: string,
+): import('../../contracts/catalog.contract.js').CatalogEnrichment {
+  const absPath = modelFiles.listByFilename(filename)
+    .find((r) => r.status === 'complete')?.abs_path;
+  if (!absPath) return undefined;
+  const sidecar = readSidecar(absPath);
+  if (!sidecar) return undefined;
+  return {
+    tags: sidecar.tags,
+    trigger_words: sidecar.trigger_words,
+    nsfw_level: sidecar.nsfw_level,
+    favorite: sidecar.favorite,
+    metadata_source: sidecar.metadata_source,
+    civitai_model_id: sidecar.civitai_model_id,
+    civitai_version_id: sidecar.civitai_version_id,
+    description: sidecar.description,
+    preview_remote_url: sidecar.preview_remote_url,
+    preview_local_path: sidecar.preview_local_path,
+    base_model: sidecar.base_model,
+    hf_repo: sidecar.hf_repo,
+    urlSources_verified: sidecar.urlSources_verified,
+  };
 }
 
 function scanEntryToMerged(s: LauncherScanEntry): MergedModel {
@@ -283,10 +325,13 @@ function scanEntryToMerged(s: LauncherScanEntry): MergedModel {
   };
 }
 
-function deriveFileStatus(expected: number, actual: number | undefined, installed: boolean): FileStatus {
+/** Exported for tests only — callers in this module use it directly. */
+export function deriveFileStatus(expected: number, actual: number | undefined, installed: boolean): FileStatus {
   if (!installed) return null;
   if (!expected || !actual) return null;
-  if (Math.abs(expected - actual) < 1024) return 'complete';
+  // 1 KB was too tight: some formats pad to filesystem block boundaries.
+  // Allow up to 1% or 4 KB, whichever is larger.
+  if (Math.abs(expected - actual) <= Math.max(4096, Math.floor(expected * 0.01))) return 'complete';
   return actual > expected ? 'corrupt' : 'incomplete';
 }
 
@@ -331,6 +376,18 @@ function subscribeEvents(): void {
   bus.on('model:installed', ({ filename }) => {
     try {
       markInstalled(filename);
+      bustScanCache();
+      // Bug-A wire: info.ts holds its own memoised model list that
+      // `deleteByName` reads via `getAllModels('cache')`. Without this
+      // invalidation, a model that just finished downloading still shows
+      // `installed: false` until the cache duration elapses, and any
+      // delete against it 400s with "Model not installed".
+      invalidateModelListMemo();
+      // Kick the background sha256 queue so the freshly-installed row gets
+      // its hash filled in. Idempotent — no-op when already running. The
+      // queue walks every row whose sha256 is still null, so this also
+      // back-fills any historical gaps the same pass.
+      startHashQueue();
     } catch (err) {
       logger.warn('catalog model:installed hook failed', {
         filename, error: err instanceof Error ? err.message : String(err),
@@ -349,10 +406,13 @@ function subscribeEvents(): void {
   });
 
   bus.on('model:removed', ({ filename }) => {
-    // Keep the catalog entry (it's pure metadata); clear in-flight flag so
-    // the UI returns to a clean "Not installed / Download" state.
+    // Keep the catalog entry (pure metadata + URL); flip installed→false so the
+    // UI returns to "Not installed / Download" state immediately without waiting
+    // for the next full scan.
     try {
-      markInstalled(filename); // no fileSize -> clears downloading + error, leaves size_bytes
+      markUninstalled(filename);
+      bustScanCache();
+      invalidateModelListMemo();
     } catch (err) {
       logger.warn('catalog model:removed hook failed', {
         filename, error: err instanceof Error ? err.message : String(err),

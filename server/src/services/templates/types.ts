@@ -252,6 +252,19 @@ export interface TemplateData {
   studioInputMap?: Record<string, string>;
 
   /**
+   * Group titles that should NEVER be muted by the FGM (Fast Groups Muter)
+   * regardless of the active mode's `enableGroups`. Lets the author declare
+   * shared groups (e.g. "Settings", "Sampler", "VAEDecode") ONCE here
+   * instead of repeating them in every mode's `enableGroups` list.
+   *
+   * Composes with the `_`/`~` prefix convention: any group whose title
+   * starts with `_` or `~` is also treated as always-active even if it's
+   * not registered here. Useful for marking shared groups visually in the
+   * editor without touching the template metadata.
+   */
+  studioAlwaysActiveGroups?: string[];
+
+  /**
    * Per-mode UI toggle declarations. Shape:
    *   { ":" : { <key>: <label> }, <modeName>: { <key>: <label> }, ... }
    *

@@ -15,6 +15,7 @@ import {
   wireModelIndexEventHandlers,
 } from './services/models/modelIndex.js';
 import { setDownloadBroadcaster, getAllDownloads } from './services/downloads/index.js';
+import { setOllamaPullBus } from './services/downloads/ollamaPullAdapter.js';
 import { setChatBroadcaster } from './services/chat/broadcaster.js';
 import { setVideoboardBroadcaster } from './services/videoboard/jobTracker.js';
 import { setVideoboardRouteBroadcaster } from './routes/videoboard.routes.js';
@@ -38,6 +39,8 @@ import {
 import { extractPrefix, verifyKey } from './lib/auth/keyGen.js';
 import { getApiKeyByPrefix, touchApiKey } from './lib/db/apiKeys.repo.js';
 import { scheduler } from './services/gpu/scheduler.js';
+import { registerPreviewHook } from './services/models/enrichment/previewHook.js';
+import { registerEnrichmentWsHook } from './services/models/enrichment/wsHook.js';
 
 // Phase-6 path consolidation: move runtime-written JSON out of the bundled
 // data dir and into `~/.config/comfyui-studio/runtime/` so it survives image
@@ -64,7 +67,18 @@ app.use(requestLogger());
 // Trusted-UI requests (master cookie + same-origin) bypass entirely; only
 // external Bearer-key callers consume buckets. Per-route tighter profiles
 // (rateLimit('plugins:write') etc.) stack on top and bite first.
-app.use('/api', rateLimit('default'));
+//
+// `/view` is exempt: it's a static-asset-style proxy (thumbnail / preview
+// images, audio, video). An image-heavy modal — MediaLibraryModal's
+// output gallery in particular — can fire dozens of /view per scroll
+// tick. The default 300/min cap turns that into 429s that look like the
+// server is down. The route already enforces path-traversal protection
+// + a header cap, so skipping the rate bucket is safe.
+const defaultLimiter = rateLimit('default');
+app.use('/api', (req, res, next) => {
+  if (req.path === '/view') { next(); return; }
+  defaultLimiter(req, res, next);
+});
 
 app.use('/api', apiRouter);
 
@@ -180,6 +194,16 @@ function broadcastRaw(json: string) {
   }
 }
 
+// Forward binary ComfyUI frames (live-preview blobs during sampling) to
+// every connected client. ComfyUI emits these as binary WS frames with an
+// 8-byte header (uint32 type=1 + uint32 image_type, see KSampler preview
+// path); the client decodes them. We pass-through unchanged.
+function broadcastBinary(buf: Buffer) {
+  for (const ws of clients) {
+    if (ws.readyState === WebSocket.OPEN) ws.send(buf, { binary: true });
+  }
+}
+
 // ---- Single ComfyUI status poller, broadcast on change ----
 // Status is sourced from the local status service. The WS message type is
 // kept as `launcher-status` for frontend back-compat (it still listens under
@@ -225,6 +249,8 @@ pollLauncherStatus();
 
 // Hook up downloads service so it can broadcast progress to all WS clients.
 setDownloadBroadcaster(broadcast);
+// Ollama pull progress relayed from chat broadcaster to the Downloads tab bus.
+setOllamaPullBus(broadcast);
 // Gallery mutations (delete, bulk-delete) broadcast a `gallery` message so
 // other tabs update their total + recents without polling.
 galleryService.setGalleryBroadcaster(broadcast);
@@ -291,6 +317,14 @@ async function start() {
   const comfyUrl = getComfyUIUrl();
   logger.info(`ComfyUI URL: ${comfyUrl}`);
 
+  // Subscribe the preview-download hook so preview images are fetched
+  // asynchronously whenever a sidecar is written by the enrichment layer.
+  registerPreviewHook();
+
+  // Forward `model:enriched` bus events to WS clients so the Models page can
+  // refresh affected rows without polling.
+  registerEnrichmentWsHook();
+
   // Subscribe the templates repo to model/plugin lifecycle events so the
   // `installed` readiness flag stays in sync with disk state.
   wireTemplateEventHandlers();
@@ -318,17 +352,43 @@ async function start() {
     });
   });
 
+  // Boot-time hash backfill: walk every model_files row whose sha256 is null
+  // and compute it in the background. Sequential per-file, idempotent — no-op
+  // when nothing's missing. Runs concurrently with the rest of boot; errors
+  // don't block.
+  void import('./services/models/enrichment/hashCompute.js').then(
+    ({ startHashQueue }) => startHashQueue(),
+  ).catch((err) => {
+    logger.warn('hash-queue: boot kickoff failed', {
+      message: err instanceof Error ? err.message : String(err),
+    });
+  });
+
+  // Make ComfyUI's output/ directory reachable from input/ via a single
+  // symlink — `input/output_load → output`. The MediaLibraryModal's Output
+  // source surfaces files under `output_load/...`, so the standard LoadImage
+  // / LoadAudio / LoadVideo nodes resolve them without a per-file copy or a
+  // template rewrite.
+  void import('./services/mediaLibrary.js').then(
+    ({ ensureOutputInputSymlink }) => ensureOutputInputSymlink(),
+  ).catch((err) => {
+    logger.warn('output-input symlink: boot setup failed', {
+      message: err instanceof Error ? err.message : String(err),
+    });
+  });
+
   // Open the ONE shared ComfyUI upstream WS. All event consumers subscribe
   // here; no per-browser upstream is opened. Subscriptions are mounted ONCE
   // at boot so there are no per-request listener leaks.
   const {
     startComfyJobBridge,
     onRaw,
+    onBinary,
     onStatus,
     onExecuted,
     onExecutionComplete,
     getComfyState,
-  } = await import('./services/videoboard/comfyJobBridge.js');
+  } = await import('./services/comfyui/jobBridge.js');
   startComfyJobBridge();
 
   // Single gpu-broadcast helper — used by scheduler state changes AND by
@@ -345,6 +405,10 @@ async function start() {
 
   // Forward every raw ComfyUI message to all connected browser clients.
   onRaw((json) => broadcastRaw(json));
+  // Same for binary preview frames (KSampler emits these during sampling
+  // when ComfyUI was launched with `--preview-method`). Pass-through to
+  // every client; the UI parses the 8-byte header and renders the blob.
+  onBinary((buf) => broadcastBinary(buf));
 
   // Queue broadcast on status messages (queue changes).
   onStatus(() => scheduleQueueBroadcast());

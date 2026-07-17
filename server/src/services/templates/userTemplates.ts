@@ -12,6 +12,7 @@
 // same value Studio routes on via `/studio/:name`).
 
 import fs from 'fs';
+import path from 'path';
 import { atomicWrite, safeResolve } from '../../lib/fs.js';
 import { paths } from '../../config/paths.js';
 import { logger } from '../../lib/logger.js';
@@ -19,6 +20,7 @@ import { generateFormInputs } from './templates.formInputs.js';
 import { readMeta, writeMeta, deleteMeta } from './userTemplatesMeta.js';
 import { WorkflowNameCollisionError } from './errors.js';
 import { migrateUserWorkflowPluginsOnce } from './userTemplatesMigrate.js';
+import { invalidateModelUsageIndex } from './modelUsageIndex.js';
 import type { TemplateData, RawTemplate, TemplatePluginEntry, TemplateCivitaiMeta } from './types.js';
 
 const DIR = (): string => paths.userTemplatesDir;
@@ -94,6 +96,7 @@ export interface SaveWorkflowInput {
   studioBuilder?: TemplateData['studioBuilder'];
   studioModes?: TemplateData['studioModes'];
   studioInputMap?: TemplateData['studioInputMap'];
+  studioAlwaysActiveGroups?: TemplateData['studioAlwaysActiveGroups'];
   promptEnhancer?: TemplateData['promptEnhancer'];
   prompt_toggles?: TemplateData['prompt_toggles'];
 }
@@ -163,6 +166,7 @@ export function saveUserWorkflow(input: SaveWorkflowInput): TemplateData {
     ...(input.studioBuilder    !== undefined && { studioBuilder:    input.studioBuilder    }),
     ...(input.studioModes      !== undefined && { studioModes:      input.studioModes      }),
     ...(input.studioInputMap   !== undefined && { studioInputMap:   input.studioInputMap   }),
+    ...(input.studioAlwaysActiveGroups !== undefined && { studioAlwaysActiveGroups: input.studioAlwaysActiveGroups }),
     ...(input.promptEnhancer   !== undefined && { promptEnhancer:   input.promptEnhancer   }),
     ...(input.prompt_toggles   !== undefined && { prompt_toggles:   input.prompt_toggles   }),
     size: 0,
@@ -181,6 +185,9 @@ export function saveUserWorkflow(input: SaveWorkflowInput): TemplateData {
     throw err instanceof Error ? err : new Error(String(err));
   }
   if (input.civitaiMeta) writeMeta(slug, input.civitaiMeta);
+  // Bust the model→templates reverse-lookup cache so the next modal open
+  // reflects this new template's model references.
+  invalidateModelUsageIndex();
   return data;
 }
 
@@ -225,6 +232,17 @@ export function deleteUserWorkflow(name: string): boolean {
     if (!fs.existsSync(abs)) return false;
     fs.rmSync(abs, { force: true });
     deleteMeta(name);
+    // Easy-mode preset cascade: drop the entire `<userTemplatesDir>/<name>/`
+    // tree (per-preset settings JSONs + downloaded preview images). Mirrors
+    // the no-leftovers-on-disk rule promised by the import-hook contract.
+    // `force: true` keeps this a no-op when there's no preset folder.
+    try {
+      const presetsDir = path.join(DIR(), name);
+      fs.rmSync(presetsDir, { recursive: true, force: true });
+    } catch (err) {
+      logger.warn('preset folder cascade-delete failed', { name, error: String(err) });
+    }
+    invalidateModelUsageIndex();
     return true;
   } catch (err) {
     logger.error('user workflow delete failed', { name, error: String(err) });

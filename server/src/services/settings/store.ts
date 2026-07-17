@@ -43,6 +43,12 @@ export interface SettingsInternal {
    *  the queue. Defaults to `env.MAX_CONCURRENT_DOWNLOADS` when unset, so
    *  unchanged from the env-only behaviour until the user touches it. */
   downloadsMaxConcurrent?: number;
+  /**
+   * NSFW content blur threshold.
+   * Images whose `nsfw_level` is >= this value are blurred in the UI.
+   * 0 = SFW only (blur everything nsfw), 1 = PG13 (default), 2 = R, 3 = X, 4 = no blur.
+   */
+  nsfwBlurLevel?: number;
 }
 
 // DEFAULT_OLLAMA_URL respects the OLLAMA_URL env var; persisted setting still wins.
@@ -57,6 +63,9 @@ export const DEFAULT_CHAT_TITLE_TIMEOUT_MS = 30_000;
 export const DEFAULT_CHAT_SUMMARY_TIMEOUT_MS = 60_000;
 export const DEFAULT_CHAT_SMART_SUGGESTIONS = true;
 export const DEFAULT_CHAT_DEFAULT_THINK_MODE: 'on' | 'off' | 'auto' = 'auto';
+
+/** Default NSFW blur threshold: PG13 and above are blurred. */
+export const DEFAULT_NSFW_BLUR_LEVEL = 1;
 
 // Backpressure cap for the download wait queue. With MAX_CONCURRENT_DOWNLOADS
 // in env governing in-flight slots, this caps how many requests can stack up

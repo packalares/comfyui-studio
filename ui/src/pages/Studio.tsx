@@ -34,14 +34,7 @@ const WorkflowGraph = lazy(() => import('../components/studio/WorkflowGraph'));
 // stays lazy because it pulls a heavier canvas/graph dep tree.
 import VideoBuilder, { type EasyBuilderAction } from './VideoBuilder';
 import ImageBuilder from './ImageBuilder';
-
-const categories: { id: StudioCategory; label: string; icon: React.ElementType }[] = [
-  { id: 'image', label: 'IMAGE', icon: ImageIcon },
-  { id: 'video', label: 'VIDEO', icon: Film },
-  { id: 'audio', label: 'AUDIO', icon: Music },
-  { id: '3d', label: '3D', icon: Box },
-  { id: 'tools', label: 'TOOLS', icon: Wrench },
-];
+import PresetGrid, { type PresetCard, type PresetApplyPayload } from '../components/PresetGrid';
 
 const categoryTitles: Record<StudioCategory, string> = {
   image: 'Image Generator',
@@ -111,7 +104,7 @@ export default function Studio() {
   }, [splatPath]);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { templates, currentJob, submitGeneration, connected, refreshTemplates, uploadMaxBytes, queueStatus } = useApp();
+  const { templates, currentJob, submitGeneration, connected, refreshTemplates, uploadMaxBytes, queueStatus, livePreviewUrl } = useApp();
   const { errorNodeIds, errorEdges } = useJobs();
 
   useEffect(() => {
@@ -221,6 +214,14 @@ export default function Studio() {
   const [bundleApiPrompt, setBundleApiPrompt] = useState<Record<string, unknown> | null>(null);
   const [bundleMainNodeIds, setBundleMainNodeIds] = useState<Set<string> | null>(null);
   const [bundleGroups, setBundleGroups] = useState<WorkflowGroup[]>([]);
+  // Preset display cards from the template bundle. When non-empty the
+  // right-side "Ready when you are" empty state collapses to a condensed
+  // header and we render this grid below it.
+  const [bundlePresets, setBundlePresets] = useState<PresetCard[]>([]);
+  // Held until a Builder consumes the payload. Bumping `id` (or assigning
+  // a fresh object) re-fires the Builder's apply useEffect even if the
+  // user clicks the same preset twice in a row.
+  const [presetApply, setPresetApply] = useState<PresetApplyPayload | null>(null);
 
   // Error highlight set: the directly-failing nodes plus, for each
   // "required input is missing" error, the upstream node that should have
@@ -266,7 +267,13 @@ export default function Studio() {
   //   safety net; those tabs render a placeholder until Phase 2 ships the
   //   curated builder UI).
   const categoryTemplates = useMemo(() => {
-    if (studioTab === 'advanced') return templates;
+    if (studioTab === 'advanced') {
+      // Easy-mode templates (those with `studioBuilder` set) belong to the
+      // Image/Video/Audio tabs and have no advanced-fields surface — hide
+      // them from the Advanced picker so the dropdown only lists templates
+      // the workflow editor / form-fields plan can actually drive.
+      return templates.filter((t) => !t.studioBuilder);
+    }
     return templates.filter(t => getCategoryForTemplate(t) === studioTab);
   }, [templates, studioTab, activeCategory]); // activeCategory kept in deps to satisfy legacy effects below
 
@@ -306,6 +313,7 @@ export default function Studio() {
       setBundleApiPrompt(null);
       setBundleMainNodeIds(null);
       setBundleGroups([]);
+      setBundlePresets([]);
       return;
     }
     let cancelled = false;
@@ -337,6 +345,7 @@ export default function Studio() {
         setBundleApiPrompt(result.apiPrompt);
         setBundleMainNodeIds(mainIds);
         setBundleGroups(result.groups);
+        setBundlePresets(result.presets ?? []);
 
         // Prompt pre-fill — iterate every bound canonical field and seed
         // `formValues[id]` from the matching widget's default when the user
@@ -563,10 +572,6 @@ export default function Studio() {
     navigate(`/studio/${name}`, { replace: true });
   }, [navigate]);
 
-  const handleCategoryChange = useCallback((cat: StudioCategory) => {
-    setActiveCategory(cat);
-  }, []);
-
   const handleReset = useCallback(() => {
     if (mergedFormInputs.length > 0) {
       const defaults: Record<string, unknown> = {};
@@ -589,6 +594,20 @@ export default function Studio() {
     const maxMb = Math.round(uploadMaxBytes / (1024 * 1024));
 
     for (const [key, val] of Object.entries(formValues)) {
+      // Library-pick shape: `{ name, preview }` with no `file`. The name is
+      // already a server-side comfy ref (`<subfolder>/<filename>` or just
+      // `<filename>`) — no upload needed. Pass it through verbatim. Check
+      // BEFORE the file branch because the upload-fresh shape also keeps a
+      // `name` once handleFile lands; we only want to short-circuit when
+      // there's NO file to upload.
+      if (
+        val && typeof val === 'object'
+        && 'name' in (val as Record<string, unknown>)
+        && !('file' in (val as Record<string, unknown>))
+      ) {
+        inputs[key] = (val as { name: string }).name;
+        continue;
+      }
       if (val && typeof val === 'object' && 'file' in (val as Record<string, unknown>)) {
         const fileVal = val as { file: File };
         // Client-side pre-check — catches oversize files before the round-trip.
@@ -668,12 +687,18 @@ export default function Studio() {
 
   useEffect(() => {
     if (currentJob?.status === 'completed' && currentJob.outputUrl) {
-      setOutputImage(currentJob.outputUrl);
       // New result arrived — show it automatically even if the user had
       // previously dismissed to the graph view.
+      setOutputImage(currentJob.outputUrl);
       setShowResult(true);
+    } else if (currentJob && currentJob.status !== 'completed') {
+      // A new job is in flight — wipe the previously-completed output so
+      // the result panel doesn't flash the OLD image during the brief
+      // gap before the first live-preview frame arrives. Drives the
+      // `starting` display mode below.
+      setOutputImage(null);
     }
-  }, [currentJob?.outputUrl]);
+  }, [currentJob?.outputUrl, currentJob?.status]);
 
   const inputImagePreview = useMemo(() => {
     for (const fi of mergedFormInputs) {
@@ -710,6 +735,31 @@ export default function Studio() {
   const canCompare =
     !!inputImagePreview && !!outputImage && currentJob?.status === 'completed'
     && !isOutput3D && outputMediaType === 'image';
+
+  // ---- Result panel display state -----------------------------------
+  //
+  // Drives the right-side panel through six explicit modes. Derived (no
+  // separate useState) so it always stays in sync with the underlying
+  // primitives — no stale renders, no manual setX plumbing.
+  //
+  // Precedence matters — modes higher in the list shadow ones below:
+  //
+  //   output      → completed job + outputUrl + user hasn't toggled to graph
+  //   livePreview → TAESD preview frames are streaming from comfy
+  //   starting    → job submitted but no preview frame yet (the gap
+  //                 between "Generate" click and first WS binary)
+  //   presets     → Easy-mode tab w/ a template that ships preset cards
+  //   graph       → Advanced tab w/ a template selected → workflow graph
+  //   hero        → fallback "Ready when you are" empty state
+  type ResultPanelMode = 'output' | 'livePreview' | 'starting' | 'presets' | 'graph' | 'hero';
+  const resultMode: ResultPanelMode = (() => {
+    if (currentJob?.status === 'completed' && outputImage && showResult) return 'output';
+    if (livePreviewUrl) return 'livePreview';
+    if (currentJob && currentJob.status !== 'completed') return 'starting';
+    if (isEasyTab && selectedTemplate && bundlePresets.length > 0) return 'presets';
+    if (!isEasyTab && selectedTemplate) return 'graph';
+    return 'hero';
+  })();
 
   return (
     <>
@@ -832,6 +882,8 @@ export default function Studio() {
                 <VideoBuilder
                   registerAction={setEasyAction}
                   onSwitchToAdvanced={() => setStudioTab('advanced')}
+                  onTemplateChange={setSelectedTemplate}
+                  presetApply={presetApply}
                 />
               )}
 
@@ -843,6 +895,8 @@ export default function Studio() {
                 <ImageBuilder
                   registerAction={setEasyAction}
                   onSwitchToAdvanced={() => setStudioTab('advanced')}
+                  onTemplateChange={setSelectedTemplate}
+                  presetApply={presetApply}
                 />
               )}
 
@@ -1054,47 +1108,183 @@ export default function Studio() {
               </div>
             </div>
 
-            <div className="flex-1 p-6 flex items-center justify-center relative overflow-hidden bg-muted">
-              {currentJob?.status === 'completed' && outputImage && showResult ? (
-                <div className="relative w-full h-full max-w-3xl max-h-[calc(100vh-14rem)] flex items-center justify-center">
+            <div
+              // Only the `presets` mode swaps to a scrollable, top-aligned
+              // layout (because the preset grid is taller than the panel);
+              // every other mode keeps the centered viewer chrome.
+              className={
+                resultMode === 'presets'
+                  ? 'flex-1 relative overflow-y-auto bg-muted'
+                  : 'flex-1 p-6 flex items-center justify-center relative overflow-hidden bg-muted'
+              }
+            >
+              {/* `resultMode` precedence is enforced in its derivation;
+                  each branch below is independent so adding/removing a
+                  state never re-balances a brittle ternary chain. */}
+
+              {resultMode === 'output' && (
+                // Output viewer sizes by HEIGHT (max-h matches the
+                // viewport height minus surrounding chrome). Width
+                // follows aspect ratio via `object-contain`; the
+                // earlier max-w-3xl cap was dropped so portrait
+                // results use the full available height.
+                <div className="relative h-full max-h-[calc(100vh-14rem)] flex items-center justify-center">
                   {isOutput3D ? (
                     <div className="w-full h-full min-h-[400px] rounded-lg overflow-hidden">
-                      <ThreeDViewer src={outputImage} alt="Generated 3D model" />
+                      <ThreeDViewer src={outputImage!} alt="Generated 3D model" />
                     </div>
                   ) : canCompare && showCompare ? (
                     <CompareSlider
                       beforeSrc={inputImagePreview}
-                      afterSrc={outputImage}
+                      afterSrc={outputImage!}
                       beforeLabel="Input"
                       afterLabel="Output"
                     />
                   ) : outputMediaType === 'video' ? (
                     <video
-                      src={outputImage}
+                      src={outputImage!}
                       controls
                       className="max-w-full max-h-full rounded-lg"
                     />
                   ) : outputMediaType === 'audio' ? (
                     <div className="w-full max-w-lg">
-                      <AudioPlayer src={outputImage} />
+                      <AudioPlayer src={outputImage!} />
                     </div>
                   ) : (
                     <img
-                      src={outputImage}
+                      src={outputImage!}
                       alt="Generated output"
                       className="max-w-full max-h-full object-contain rounded-lg"
                     />
                   )}
 
-                  {currentJob.seed !== undefined && (
+                  {currentJob?.seed !== undefined && (
                     <p className="absolute bottom-3 left-3 text-xs text-muted-foreground bg-card/80 px-2 py-1 rounded">
                       Seed: {currentJob.seed}
                     </p>
                   )}
                 </div>
-              ) : selectedTemplate ? (
-                /* Template selected: workflow graph. A failed job keeps the graph
-                   visible and just marks the failing node red (no error panel). */
+              )}
+
+              {resultMode === 'livePreview' && (
+                /* TAESD preview frames arriving from comfy. The img
+                   src swaps on every binary WS frame; the prior blob
+                   URL was already revoked by the AppContext binary
+                   handler. Replaced by the `output` branch when the
+                   final result lands. */
+                <div className="relative h-full max-h-[calc(100vh-14rem)] flex items-center justify-center">
+                  <div className="relative overflow-hidden rounded-lg shadow-md h-full">
+                    <img
+                      src={livePreviewUrl!}
+                      alt="Live preview"
+                      className="block h-full w-auto max-h-[calc(100vh-14rem)] object-contain"
+                    />
+                    {/* Fractal-noise grain overlay — jitters every frame
+                        via the `live-grain` keyframe so the static
+                        TAESD frame reads as actively-resolving pixels.
+                        mix-blend-overlay keeps the underlying preview
+                        legible. */}
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0 mix-blend-overlay opacity-30 live-grain"
+                    />
+                  </div>
+                  <div className="absolute top-3 right-3 flex items-center gap-2 rounded-full bg-card/85 backdrop-blur px-3 py-1.5 text-xs font-medium text-foreground shadow-sm">
+                    <span className="relative flex h-2 w-2">
+                      <span className="absolute inline-flex h-full w-full rounded-full bg-brand opacity-75 animate-ping" />
+                      <span className="relative inline-flex h-2 w-2 rounded-full bg-brand" />
+                    </span>
+                    Generating
+                  </div>
+                  {currentJob?.seed !== undefined && (
+                    <p className="absolute bottom-3 left-3 text-xs text-muted-foreground bg-card/80 px-2 py-1 rounded">
+                      Seed: {currentJob.seed}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {resultMode === 'starting' && (
+                /* The gap between Generate-click and the first TAESD
+                   preview frame. We have a job (status: pending /
+                   running) but no image to show yet. Render a square
+                   placeholder driven by the same `live-grain` keyframe
+                   so the panel reads as "pixels assembling" rather
+                   than blank. Without this we'd flash the empty hero
+                   for ~1s which feels broken. */
+                <div className="relative h-full max-h-[calc(100vh-14rem)] aspect-square flex items-center justify-center">
+                  <div className="relative h-full aspect-square overflow-hidden rounded-lg shadow-md bg-muted/30 ring-1 ring-border/40">
+                    {/* Full-tile grain — opacity higher than the live-
+                        preview overlay (~60%) since there's no
+                        underlying image to keep legible. */}
+                    <div
+                      aria-hidden
+                      className="absolute inset-0 live-grain opacity-60"
+                    />
+                    {/* Soft brand-tinted bloom in the center to anchor
+                        the spinner against the noisy backdrop. */}
+                    <div
+                      aria-hidden
+                      className="absolute inset-1/3 rounded-full bg-brand/15 blur-2xl animate-pulse"
+                    />
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+                      <span className="w-8 h-8 rounded-full border-2 border-foreground/25 border-t-foreground animate-spin" />
+                      <p className="text-xs font-medium text-foreground bg-card/85 backdrop-blur px-3 py-1.5 rounded-full shadow-sm">
+                        Starting generation…
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {resultMode === 'presets' && (
+                /* Template ships preset cards — anchor the hero to the
+                   top of the panel so the preset grid claims the rest
+                   of the scrollable area. */
+                <div className="p-6 pt-10 space-y-10">
+                  <div className="flex flex-col items-center text-center">
+                    <div className="mb-3 relative">
+                      <div className="absolute -inset-1 rounded-full bg-brand/20 blur-xl" />
+                      <div className="relative w-20 h-20 rounded-3xl bg-card ring-1 ring-border/60 shadow-sm flex items-center justify-center">
+                        {activeCategory === 'video' ? (
+                          <Film className="w-8 h-8 text-muted-foreground" />
+                        ) : activeCategory === 'audio' ? (
+                          <Music className="w-8 h-8 text-muted-foreground" />
+                        ) : activeCategory === '3d' ? (
+                          <Box className="w-8 h-8 text-muted-foreground" />
+                        ) : activeCategory === 'tools' ? (
+                          <Wrench className="w-8 h-8 text-muted-foreground" />
+                        ) : (
+                          <ImageIcon className="w-8 h-8 text-brand" />
+                        )}
+                      </div>
+                    </div>
+                    <h4 className="text-sm font-semibold text-foreground mb-1">
+                      Ready when you are
+                    </h4>
+                    <p className="text-xs text-muted-foreground leading-relaxed max-w-sm">
+                      Pick a preset below, or fill the prompt and hit{' '}
+                      <span className="inline-flex items-center gap-1 font-semibold text-brand">
+                        <Wand2 className="w-3 h-3" />Generate
+                      </span>
+                      . Output shows up here.
+                    </p>
+                  </div>
+                  <PresetGrid
+                    presets={bundlePresets}
+                    parentTemplateName={selectedTemplate!}
+                    onPresetApply={setPresetApply}
+                  />
+                </div>
+              )}
+
+              {resultMode === 'graph' && (
+                /* Advanced tab + template selected → live workflow
+                   graph. Failed jobs keep the graph visible and just
+                   mark the failing node red. Easy-mode tabs skip this
+                   branch because their templates are heavily
+                   subgraphed (one wrapper node) — the graph renders
+                   mostly empty and adds no value. */
                 <div className="absolute inset-0">
                   <Suspense fallback={
                     <div className="flex h-full items-center justify-center text-xs text-muted-foreground gap-2">
@@ -1103,7 +1293,7 @@ export default function Studio() {
                     </div>
                   }>
                     <WorkflowGraph
-                      templateName={selectedTemplate}
+                      templateName={selectedTemplate!}
                       isRunning={isRunning}
                       apiPrompt={bundleApiPrompt}
                       mainNodeIds={bundleMainNodeIds}
@@ -1112,12 +1302,13 @@ export default function Studio() {
                     />
                   </Suspense>
                 </div>
-              ) : (
+              )}
+
+              {resultMode === 'hero' && (
                 <div className="text-center max-w-sm">
-                  {/* Animated hero icon with soft gradient halo — more
-                      inviting than a flat grey square. The gradient picks
-                      up the category's media-type color so users feel
-                      they've landed in the right context. */}
+                  {/* Animated hero icon — gradient halo picks up the
+                      category color so the empty state reads as "in
+                      the right context, just empty". */}
                   <div className="relative mx-auto mb-5 w-28 h-28">
                     <div
                       className="absolute inset-0 rounded-3xl blur-2xl opacity-60 animate-pulse bg-gradient-to-br from-muted to-muted-foreground/30"

@@ -1,0 +1,66 @@
+{
+  "$schema": "../profile.schema.json",
+  "id": "sd_1_5",
+  "version": 1,
+  "name": "Stable Diffusion 1.5",
+  "description": "Stability AI - Classic diffusion model favoring dense, token-efficient prompts Ported verbatim from EricRollei/Local_LLM_Prompt_Enhancer.",
+  "applies_to": [],
+  "language_target": "english",
+  "format": "token_optimized",
+  "prompt_style": "token_optimized",
+  "max_words": 90,
+  "min_word_floor": 80,
+  "length_guidance": "Stay under ~120 tokens (~90 words) while front-loading essential quality and scene descriptors.",
+  "detail_expectation": "Pack quick-hit descriptors for subject, environment, lighting, and mood without wasting tokens.",
+  "default_length_tier": "moderate",
+  "preferences": [
+    "Quality tokens at the beginning",
+    "Concise but specific descriptions",
+    "Optional ( ) emphasis syntax",
+    "Lighting and composition succinctly described",
+    "Negative prompt pairing"
+  ],
+  "quality_tokens": [
+    "masterpiece",
+    "best quality",
+    "ultra detailed",
+    "sharp focus",
+    "high resolution",
+    "8k",
+    "professional lighting",
+    "intricate details"
+  ],
+  "quality_emphasis": true,
+  "avoid": [
+    "Overly long sentences that exceed token budget",
+    "Redundant modifiers",
+    "Unnecessary filler words"
+  ],
+  "required_positive": [],
+  "negative_prompt_default": "ugly, tiling, poorly drawn, bad anatomy, deformed, blurry, low quality, watermark",
+  "supports_negative_prompt": true,
+  "platform_block": "",
+  "examples": [],
+  "few_shot_intro": "Example transformations of a user idea into a Stable Diffusion 1.5-formatted prompt:",
+  "user_message_schema_hint": "The user message arrives as JSON with fields: { raw_idea, target_model, source_image_count, aspect_ratio, camera_details?, references? }. Weave camera_details naturally into the prompt — do NOT echo them as a settings list at the end.",
+  "operation_overrides": {},
+  "model_routing": {
+    "preferred_llm": "qwen2.5:7b",
+    "preferred_vlm": "qwen2.5vl:7b",
+    "prefer_vlm_when_images_attached": false,
+    "sampling": {
+      "temperature": 0.6,
+      "top_p": 0.9,
+      "num_predict": 144
+    }
+  },
+  "provenance": {
+    "primary_sources": [
+      "https://github.com/EricRollei/Local_LLM_Prompt_Enhancer/blob/main/platforms.py"
+    ],
+    "borrowed_from": [
+      "EricRollei/Local_LLM_Prompt_Enhancer sd_1_5 config"
+    ],
+    "notes": "Ported verbatim. EricRollei's original field names and ordering preserved; platform_block lifted from text_to_image_node.py when present, otherwise empty (the master template + preferences/avoid/quality_tokens alone are enough for platforms without a bespoke block)."
+  }
+}

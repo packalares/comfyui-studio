@@ -32,13 +32,19 @@ const pageQuerySchema = z.object({
   pageSize: z.string().optional(),
 });
 
-const searchQuerySchema = pageQuerySchema.extend({ q: z.string() });
+// The bracketed array keys (`types[]`, `baseModels[]`) reach the server as
+// `string[]`; the client serialises arrays manually in `buildPageQuery` below
+// so the schema only needs to allow the scalar query params.
+const searchQuerySchema = pageQuerySchema.extend({
+  q:      z.string().optional(),
+  nsfw:   z.string().optional(),
+  period: z.string().optional(),
+  sort:   z.string().optional(),
+}).passthrough();
 const byUrlQuerySchema = pageQuerySchema.extend({ url: z.string().optional() });
 
 // ---- Route specs ----
 
-const latestModelsSpec = { method: 'GET' as const, path: '/civitai/models/latest', query: pageQuerySchema, response: CivitaiPageResponseSchema };
-const hotModelsSpec    = { method: 'GET' as const, path: '/civitai/models/hot',    query: pageQuerySchema, response: CivitaiPageResponseSchema };
 const searchModelsSpec = { method: 'GET' as const, path: '/civitai/models/search', query: searchQuerySchema, response: CivitaiPageResponseSchema };
 const byUrlSpec        = { method: 'GET' as const, path: '/civitai/models/by-url', query: byUrlQuerySchema,  response: CivitaiPageResponseSchema };
 
@@ -73,16 +79,30 @@ function buildPageQuery(opts: { page?: number; pageSize?: number; cursor?: strin
 
 // ---- Public API ----
 
-export async function getLatestModels(opts: { page?: number; pageSize?: number; cursor?: string } = {}) {
-  return apiCall(latestModelsSpec, { query: buildPageQuery(opts) });
+export interface CivitaiSearchFilters {
+  types?: string[];
+  baseModels?: string[];
+  nsfw?: boolean;
+  period?: string;
+  sort?: string;
 }
 
-export async function getHotModels(opts: { page?: number; pageSize?: number; cursor?: string } = {}) {
-  return apiCall(hotModelsSpec, { query: buildPageQuery(opts) });
-}
-
-export async function searchCivitaiModels(query: string, opts: { page?: number; pageSize?: number; cursor?: string } = {}) {
-  return apiCall(searchModelsSpec, { query: { ...buildPageQuery(opts), q: query } });
+export async function searchCivitaiModels(
+  query: string,
+  opts: { page?: number; pageSize?: number; cursor?: string } & CivitaiSearchFilters = {},
+) {
+  // `apiCall` from `./client` re-serialises the query record; arrays are
+  // emitted via repeated `key[]=v&key[]=v` keys (the exact form CivitAI's
+  // API consumes), so the route handler sees them as `types[]` / `baseModels[]`
+  // in `ctx.query`.
+  const q: Record<string, string | string[]> = { ...buildPageQuery(opts) };
+  if (query.length > 0) q.q = query;
+  if (opts.types && opts.types.length > 0) q['types[]'] = opts.types;
+  if (opts.baseModels && opts.baseModels.length > 0) q['baseModels[]'] = opts.baseModels;
+  if (opts.nsfw !== undefined) q.nsfw = String(opts.nsfw);
+  if (opts.period) q.period = opts.period;
+  if (opts.sort) q.sort = opts.sort;
+  return apiCall(searchModelsSpec, { query: q });
 }
 
 export async function getCivitaiModelsByUrl(url: string, opts: { page?: number; pageSize?: number } = {}) {

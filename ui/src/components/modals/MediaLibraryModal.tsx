@@ -1,13 +1,13 @@
 // Media library picker. Three-pane layout: source nav on the left (Local /
-// External — only Local is wired today), a masonry grid in the middle
-// scoped to the current source + kind, and an action panel on the right
-// for upload / take-photo / record-video. Files come from ComfyUI's
-// input/ directory via /api/media-library.
+// Output / Characters / External — Local + Output wired), a masonry grid
+// in the middle scoped to the current source + kind, and an action panel
+// on the right for upload / take-photo / record-video. Files come from
+// ComfyUI's input/ or output/ directory via /api/media-library.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Upload, Trash2, Image as ImageIcon, Music, Film, AlertTriangle,
-  Folder, Globe, Camera, Video, User, Play, Pause,
+  Folder, FolderDown, Globe, Camera, Video, User, Play, Pause,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, ApiError } from '../../services/comfyui';
@@ -19,7 +19,7 @@ import AppModal from './AppModal';
 import ConfirmDialog from './ConfirmDialog';
 
 type MediaKind = 'image' | 'audio' | 'video';
-type Source = 'local' | 'external';
+type Source = 'local' | 'output' | 'external';
 
 const KIND_LABEL: Record<MediaKind, string> = {
   image: 'image',
@@ -46,6 +46,11 @@ interface Props {
 
 export default function MediaLibraryModal({ open, onClose, kind, onSelect }: Props): JSX.Element {
   const [source, setSource] = useState<Source>('local');
+  // Scroll container ref — passed down to tiles as the IntersectionObserver
+  // root so each tile only loads its thumbnail when scrolled near view.
+  // Native `loading="lazy"` ignores overflow:scroll containers, so an open
+  // modal with 200 items would fire all 200 requests at once.
+  const scrollRef = useRef<HTMLElement | null>(null);
 
   // Stop any playing audio when the modal closes.
   useEffect(() => {
@@ -61,11 +66,15 @@ export default function MediaLibraryModal({ open, onClose, kind, onSelect }: Pro
   const [pendingDelete, setPendingDelete] = useState<MediaLibraryItem | null>(null);
 
   const refresh = useCallback(async () => {
-    if (source !== 'local') { setItems([]); return; }
+    if (source === 'external') { setItems([]); return; }
+    // 'output' fetches read-only from ComfyUI's output/ dir; the on-select
+    // path lets the caller decide how to wire it into the workflow (the
+    // template author swaps LoadImage for an output-aware loader).
+    const scope = source === 'output' ? 'output' : 'input';
     setLoading(true);
     setError(null);
     try {
-      const list = await api.listMediaLibrary(kind);
+      const list = await api.listMediaLibrary(kind, scope);
       setItems(list);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load library');
@@ -140,6 +149,12 @@ export default function MediaLibraryModal({ open, onClose, kind, onSelect }: Pro
             onClick={() => setSource('local')}
           />
           <SourceItem
+            icon={FolderDown}
+            label="Output"
+            active={source === 'output'}
+            onClick={() => setSource('output')}
+          />
+          <SourceItem
             icon={User}
             label="Characters"
             disabled
@@ -154,7 +169,7 @@ export default function MediaLibraryModal({ open, onClose, kind, onSelect }: Pro
         </aside>
 
         {/* MIDDLE: grid */}
-        <main className="flex-1 overflow-y-auto p-4 scrollbar-subtle">
+        <main ref={scrollRef} className="flex-1 overflow-y-auto p-4 scrollbar-subtle">
           {source === 'external' ? (
             <ExternalPlaceholder />
           ) : loading ? (
@@ -172,18 +187,26 @@ export default function MediaLibraryModal({ open, onClose, kind, onSelect }: Pro
             <MasonryGrid
               items={items}
               onSelect={(item) => { onSelect(item); onClose(); }}
-              onDelete={setPendingDelete}
+              // Delete is hidden on the Output source — those files belong to
+              // gallery generations and shouldn't be removed from a picker.
+              onDelete={source === 'output' ? undefined : setPendingDelete}
+              scrollRoot={scrollRef}
             />
           )}
         </main>
 
-        {/* RIGHT: upload + capture actions */}
+        {/* RIGHT: upload + capture actions. Output source is read-only —
+            render a small explainer instead of upload controls. */}
         <aside className="w-56 shrink-0 border-l p-4">
-          <UploadPanel
-            kind={kind}
-            uploading={uploading}
-            onPick={handleUpload}
-          />
+          {source === 'output' ? (
+            <OutputReadOnlyPanel kind={kind} />
+          ) : (
+            <UploadPanel
+              kind={kind}
+              uploading={uploading}
+              onPick={handleUpload}
+            />
+          )}
         </aside>
       </div>
 
@@ -263,6 +286,26 @@ function ExternalPlaceholder() {
   );
 }
 
+/** Right-panel explainer shown while browsing ComfyUI's output/ dir. The
+ *  picker is read-only here — no upload, no delete — so this panel just
+ *  tells the user what they're looking at and how to wire it. */
+function OutputReadOnlyPanel({ kind }: { kind: MediaKind }) {
+  return (
+    <div className="space-y-2">
+      <p className="eyebrow">Output</p>
+      <p className="text-xs text-muted-foreground">
+        Read-only browse of ComfyUI's output/ {kind === 'image' ? 'images' : kind === 'audio' ? 'audio' : 'videos'}.
+        Pick a file to wire it into the workflow.
+      </p>
+      <p className="text-[11px] text-muted-foreground">
+        Refs come back as <code className="font-mono text-foreground">output_load/…</code>.
+        The standard LoadImage / LoadAudio / LoadVideo nodes resolve them via a
+        symlink, so no template changes needed.
+      </p>
+    </div>
+  );
+}
+
 function UploadPanel({
   kind, uploading, onPick,
 }: {
@@ -334,11 +377,18 @@ function UploadPanel({
 let activeAudioEl: HTMLAudioElement | null = null;
 
 function MasonryGrid({
-  items, onSelect, onDelete,
+  items, onSelect, onDelete, scrollRoot,
 }: {
   items: MediaLibraryItem[];
   onSelect: (item: MediaLibraryItem) => void;
-  onDelete: (item: MediaLibraryItem) => void;
+  /** Omit to render tiles without the per-item delete affordance (read-only
+   *  sources like Output). */
+  onDelete?: (item: MediaLibraryItem) => void;
+  /** Modal's scrollable main element. Passed down to image tiles as the
+   *  IntersectionObserver root so each thumbnail only fetches when scrolled
+   *  near view. Native `loading="lazy"` ignores overflow containers, so an
+   *  open modal with 200 items would otherwise fire all 200 at once. */
+  scrollRoot: React.RefObject<HTMLElement | null>;
 }) {
   // Image grids use CSS columns (masonry) because images have variable
   // heights and need to pack naturally. Audio grids use an auto-fill CSS
@@ -357,6 +407,7 @@ function MasonryGrid({
             item={it}
             onSelect={onSelect}
             onDelete={onDelete}
+            scrollRoot={scrollRoot}
           />
         ))}
       </div>
@@ -370,6 +421,7 @@ function MasonryGrid({
           item={it}
           onSelect={onSelect}
           onDelete={onDelete}
+          scrollRoot={scrollRoot}
         />
       ))}
     </div>
@@ -384,6 +436,10 @@ function viewUrl(item: MediaLibraryItem): string {
   const qs = new URLSearchParams({
     filename: item.filename,
     subfolder: item.subfolder,
+    // Always input. Output-scope items carry a server-prefixed
+    // `output_load/...` subfolder; the `input/output_load → output` symlink
+    // resolves them under input so `/api/view?type=input` works for both
+    // sources without a per-source branch.
     type: 'input',
   });
   return `/api/view?${qs.toString()}`;
@@ -392,43 +448,81 @@ function viewUrl(item: MediaLibraryItem): string {
 // Pure dispatcher — no hooks here so the audio/non-audio branches each get
 // a clean component scope and React's rules-of-hooks aren't violated.
 function Tile({
-  item, onSelect, onDelete,
+  item, onSelect, onDelete, scrollRoot,
 }: {
   item: MediaLibraryItem;
   onSelect: (item: MediaLibraryItem) => void;
-  onDelete: (item: MediaLibraryItem) => void;
+  /** Optional — Output rows render without a delete button. */
+  onDelete?: (item: MediaLibraryItem) => void;
+  scrollRoot: React.RefObject<HTMLElement | null>;
 }) {
   if (item.kind === 'audio') {
     return <AudioTile item={item} onSelect={onSelect} onDelete={onDelete} />;
   }
-  return <VisualTile item={item} onSelect={onSelect} onDelete={onDelete} />;
+  return <VisualTile item={item} onSelect={onSelect} onDelete={onDelete} scrollRoot={scrollRoot} />;
 }
 
 // Image / video variant — kept as the original visual square with thumbnail
 // (image) or icon-only placeholder (video) plus a hover delete pill.
 function VisualTile({
-  item, onSelect, onDelete,
+  item, onSelect, onDelete, scrollRoot,
 }: {
   item: MediaLibraryItem;
   onSelect: (item: MediaLibraryItem) => void;
-  onDelete: (item: MediaLibraryItem) => void;
+  /** Optional — when absent the delete overlay is suppressed (Output rows). */
+  onDelete?: (item: MediaLibraryItem) => void;
+  scrollRoot: React.RefObject<HTMLElement | null>;
 }) {
   const previewUrl = useMemo(() => {
     if (item.kind !== 'image') return null;
     return viewUrl(item);
   }, [item]);
 
+  // IntersectionObserver-gated thumbnail load. The modal scroll container
+  // is the IO root so tiles below the fold stay un-fetched until the user
+  // scrolls them into view. Native `loading="lazy"` doesn't respect
+  // overflow:scroll containers, which is why 200 thumbnails were firing
+  // at modal open.
+  //
+  // rootMargin is intentionally 0 — any positive margin preloads tiles a
+  // user may never reach (one rootMargin row above + below the viewport
+  // adds ~8-12 fetches per scroll position). Small placeholder flash on
+  // scroll is preferable to the 50-row initial burst.
+  const tileRef = useRef<HTMLButtonElement>(null);
+  const [shouldLoad, setShouldLoad] = useState(false);
+  useEffect(() => {
+    if (shouldLoad) return;
+    const el = tileRef.current;
+    if (!el) return;
+    const root = scrollRoot.current ?? null;
+    const obs = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) {
+          setShouldLoad(true);
+          obs.disconnect();
+          break;
+        }
+      }
+    }, { root, rootMargin: '0px' });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [shouldLoad, scrollRoot]);
+
   const Icon = KIND_ICON[item.kind];
 
   return (
     <button
+      ref={tileRef}
       type="button"
       onClick={() => onSelect(item)}
       className="group relative mb-1 block w-full overflow-hidden rounded-md bg-card break-inside-avoid"
     >
-      {previewUrl ? (
-        <img src={previewUrl} alt="" className="w-full h-auto block" />
+      {previewUrl && shouldLoad ? (
+        <img src={previewUrl} alt="" decoding="async" className="w-full h-auto block" />
       ) : (
+        // Placeholder until the tile scrolls near view. Aspect-square keeps
+        // the masonry layout stable so scrolling doesn't reflow as images
+        // arrive.
         <div className="flex aspect-square flex-col items-center justify-center gap-1 bg-muted/40 text-muted-foreground">
           <Icon className="h-6 w-6" />
         </div>
@@ -436,17 +530,19 @@ function VisualTile({
       {/* Subtle darken-on-hover overlay so the action pill has contrast
           regardless of the image content underneath. */}
       <span className="pointer-events-none absolute inset-0 bg-foreground/0 group-hover:bg-foreground/15 transition-colors" />
-      {/* Dark translucent disc, top-right — matches the 2.png reference. */}
-      <span
-        role="button"
-        tabIndex={0}
-        onClick={(e) => { e.stopPropagation(); onDelete(item); }}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onDelete(item); } }}
-        className="absolute right-1.5 top-1.5 inline-flex h-7 w-7 items-center justify-center rounded-lg bg-black/40 text-white backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black/60 cursor-pointer"
-        aria-label="Delete"
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </span>
+      {/* Dark translucent disc, top-right — only when deletion is allowed. */}
+      {onDelete && (
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => { e.stopPropagation(); onDelete(item); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onDelete(item); } }}
+          className="absolute right-1.5 top-1.5 inline-flex h-7 w-7 items-center justify-center rounded-lg bg-black/40 text-white backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black/60 cursor-pointer"
+          aria-label="Delete"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </span>
+      )}
     </button>
   );
 }
@@ -459,7 +555,8 @@ function AudioTile({
 }: {
   item: MediaLibraryItem;
   onSelect: (item: MediaLibraryItem) => void;
-  onDelete: (item: MediaLibraryItem) => void;
+  /** Optional — when absent the delete overlay is suppressed (Output rows). */
+  onDelete?: (item: MediaLibraryItem) => void;
 }) {
   const url = useMemo(() => viewUrl(item), [item]);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -518,17 +615,19 @@ function AudioTile({
         </TooltipContent>
       </Tooltip>
 
-      {/* Top-right delete — dark translucent disc, matches 2.png design. */}
-      <span
-        className="absolute right-1.5 top-1.5 z-10 inline-flex h-7 w-7 items-center justify-center rounded-lg bg-black/40 text-white backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black/60 cursor-pointer"
-        role="button"
-        tabIndex={0}
-        onClick={(e) => { e.stopPropagation(); onDelete(item); }}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onDelete(item); } }}
-        aria-label="Delete"
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </span>
+      {/* Top-right delete — only when deletion is allowed (Output suppresses). */}
+      {onDelete && (
+        <span
+          className="absolute right-1.5 top-1.5 z-10 inline-flex h-7 w-7 items-center justify-center rounded-lg bg-black/40 text-white backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black/60 cursor-pointer"
+          role="button"
+          tabIndex={0}
+          onClick={(e) => { e.stopPropagation(); onDelete(item); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onDelete(item); } }}
+          aria-label="Delete"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </span>
+      )}
 
       {/* Center play / pause. Larger ring + medium shadow so it pops on
           top of the gradient background, matching the original look. */}

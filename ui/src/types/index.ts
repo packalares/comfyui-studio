@@ -178,6 +178,10 @@ export interface Template {
   plugins?: TemplatePlugin[];
   category: string;
   studioCategory?: StudioCategory;
+  /** Mirrors the same field on TemplateSummary. Routes Easy-mode template
+   *  clicks (TemplateCard → Studio) to the correct tab so the Advanced
+   *  picker never gets one. Optional; absent for classic templates. */
+  studioBuilder?: 'image' | 'video' | 'audio';
   io: {
     inputs: TemplateInput[];
     outputs: TemplateOutput[];
@@ -303,6 +307,7 @@ export interface WorkflowGroup {
 
 // Re-exported from server contracts (single source of truth).
 export type { UrlHost, UrlSource } from '@server/contracts/catalog.contract';
+export type { CatalogEnrichment } from '@server/contracts/catalog.contract';
 
 // Re-exported from server contracts: MergedModel = CatalogModel + installed/fileSize/fileStatus.
 export type { MergedModel as CatalogModel } from '@server/contracts/catalog.contract';
@@ -533,6 +538,11 @@ export interface CivitaiModelSummary {
       name?: string;
       sizeKB?: number;
       downloadUrl?: string;
+      /** CivitAI marks the artifact role here ('Model', 'Pruned Model',
+       *  'VAE', 'Training Data', 'Config'…). Used to drop non-model rows
+       *  from the search grid. */
+      type?: string;
+      primary?: boolean;
     }>;
     downloadUrl?: string;
   }>;

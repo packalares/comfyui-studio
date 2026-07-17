@@ -18,6 +18,13 @@ export interface AdvancedSetting {
   max?: number;
   step?: number;
   options?: { label: string; value: string }[];
+  /**
+   * Media kind when this setting drives a LoadImage / LoadAudio / LoadVideo
+   * (or compatible custom-loader) widget. The UI swaps the default
+   * select/text widget for the MediaLibraryModal picker scoped to this kind.
+   * Absent for non-media settings.
+   */
+  media?: 'image' | 'audio' | 'video';
   proxyIndex: number;
   /**
    * Source node id (top-level numeric or compound subgraph id `267:6`).
@@ -55,6 +62,10 @@ export interface EnumeratedWidget {
   max?: number;
   step?: number;
   options?: { label: string; value: string }[];
+  /** See `AdvancedSetting.media`. Surfaced here so the "expose widget" picker
+   *  can also render a media-aware control when the widget belongs to a
+   *  loader node. */
+  media?: 'image' | 'audio' | 'video';
   /** True when the user has already opted to expose this widget in Advanced Settings. */
   exposed: boolean;
   /**

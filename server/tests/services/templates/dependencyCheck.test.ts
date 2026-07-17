@@ -28,13 +28,22 @@ vi.mock('../../../src/services/templates/dependencyCheck.models.js', () => ({
   collectRequirements: vi.fn(),
   refreshStaleEntries: vi.fn(),
   fetchInstalledModels: vi.fn().mockResolvedValue([]),
-  installedNameSet: vi.fn().mockReturnValue(new Set()),
   collectModelFolders: vi.fn().mockResolvedValue({}),
   buildRequiredList: vi.fn(),
 }));
 
 vi.mock('../../../src/services/templates/dependencyCheck.plugins.js', () => ({
   buildPluginRequirementList: vi.fn(),
+}));
+
+// Wave 8 wire-in: stub the orchestrator so this test doesn't touch the DB.
+vi.mock('../../../src/services/models/resolver/orchestrator.js', () => ({
+  resolveOnDiskPresence: vi.fn().mockResolvedValue({
+    resolutions: new Map(),
+    chooserNeeded: [],
+    missing: [],
+    rewrittenWorkflow: null,
+  }),
 }));
 
 vi.mock('../../../src/services/workflow/collect.js', () => ({

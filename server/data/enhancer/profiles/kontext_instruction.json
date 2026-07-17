@@ -1,0 +1,124 @@
+{
+  "$schema": "../profile.schema.json",
+  "id": "kontext_instruction",
+  "version": 1,
+  "name": "Flux 1 Kontext — Instruction Editor",
+  "description": "Instruction-following image editor. Short, direct edit commands with explicit preservation hints. Authored from Black Forest Labs' official Kontext prompting guide (docs.bfl.ml/guides/prompting_guide_kontext_i2i). Targets Studio's i2i_kontext1 mode.",
+  "applies_to": ["i2i_kontext1"],
+  "language_target": "english",
+
+  "format": "instruction",
+  "prompt_style": "instruction_with_preservation",
+  "max_words": 40,
+  "min_word_floor": 8,
+  "length_guidance": "8-30 word edit commands. The output is an INSTRUCTION, not a scene description. Do not redescribe the source image.",
+  "detail_expectation": "Laser-focused on the requested change. Every word earns its place.",
+  "default_length_tier": "concise",
+
+  "preferences": [
+    "Use quote marks for text edits: replace 'old text' with 'new text'",
+    "Name exact colors, numbers, materials — avoid vague adjectives like 'nice' or 'better'",
+    "Pick decisive action verbs: replace, remove, add, recolor, swap, relight",
+    "Explicitly preserve unchanged elements: face, pose, framing, lighting direction, background, character identity",
+    "When repositioning or recoloring an object, mention the resulting shadow and reflection so the edit blends",
+    "Mention lighting direction and shadow placement when adding or moving objects",
+    "Keep instructions in natural language — no comma-tag lists, no danbooru syntax"
+  ],
+
+  "quality_tokens": [],
+
+  "avoid": [
+    "Long descriptions of unchanged elements (Kontext already sees the source)",
+    "Vague instructions ('make it better', 'enhance the image')",
+    "Multi-paragraph scene descriptions — Kontext expects ONE focused edit",
+    "Style words without subject anchoring ('cinematic' alone)",
+    "Redescribing the source image — only describe the CHANGE"
+  ],
+
+  "required_positive": [],
+  "negative_prompt_default": "blurry, low quality, distorted, deformed, watermark, text artifacts, seams, ghost limbs, identity drift",
+  "supports_negative_prompt": false,
+
+  "platform_block": "FLUX KONTEXT INSTRUCTIONS:\n- Output is a SHORT EDIT COMMAND, not a scene description.\n- Use quotation marks around any text being edited: Replace 'CLOSED' with 'OPEN'.\n- Explicitly state what to PRESERVE so Kontext does not redraw it: 'keep the face, pose, and lighting unchanged'.\n- When adding or repositioning objects, describe the resulting shadow and reflection so the edit blends instead of looking pasted on.\n- Use clear action verbs: replace, remove, add, recolor, swap, relight, reframe.\n- Aim for 8-30 words. If you exceed 30 words you are over-explaining.\n- Do NOT describe what the original image looks like — Kontext already sees it.\n- Do NOT include 'masterpiece', '8k', or quality boilerplate — Kontext ignores them.",
+
+  "examples": [
+    {
+      "label": "text_edit",
+      "user_input": "change the sign to say OPEN",
+      "ideal_output": "Replace 'CLOSED' with 'OPEN' on the storefront sign. Preserve the sign's font, color, and worn texture."
+    },
+    {
+      "label": "preserve_identity",
+      "user_input": "put her in a red dress",
+      "ideal_output": "Change the dress to deep crimson red with the same silhouette. Keep the face, hair, pose, and background lighting unchanged."
+    },
+    {
+      "label": "add_object_with_blend",
+      "user_input": "add sunglasses",
+      "ideal_output": "Add aviator sunglasses with thin gold frames. Match the existing key-light direction; cast a soft shadow on the cheekbones."
+    },
+    {
+      "label": "remove_with_fill",
+      "user_input": "remove the watermark bottom right",
+      "ideal_output": "Remove the watermark in the bottom-right corner. Reconstruct the underlying foliage texture to match the surrounding canopy."
+    },
+    {
+      "label": "background_swap",
+      "user_input": "make it sunset",
+      "ideal_output": "Replace the overcast sky with a warm sunset gradient (peach to deep amber). Re-cast the subject's rim light from the upper right; warm the skin midtones."
+    },
+    {
+      "label": "color_change_with_consistency",
+      "user_input": "blue car",
+      "ideal_output": "Recolor the car to electric blue. Keep the body shape, reflections, license plate, and surrounding street unchanged."
+    },
+    {
+      "label": "complex_scene_change",
+      "user_input": "make her look like she is in tokyo at night with neon and cherry blossoms",
+      "ideal_output": "Replace the background with a neon-lit Tokyo street at night; add drifting cherry-blossom petals. Keep the subject's face, pose, and lighting direction unchanged.",
+      "note": "Even multi-element scene changes stay short. The instruction names exactly two background swaps and one preservation clause."
+    }
+  ],
+
+  "few_shot_intro": "Example transformations of a user idea into a Kontext-formatted edit instruction:",
+
+  "user_message_schema_hint": "The user message arrives as JSON with fields: { raw_idea, target_model, source_image_count, camera_details?, references? }. The CAMERA_DETAILS, REFERENCES, and CAMERA_LABELS fields are advisory — only echo them into the instruction when the edit literally concerns the camera (e.g. reframing). For most edits the user's raw_idea is the only field you need.",
+
+  "operation_overrides": {
+    "expand": {
+      "length_guidance": "12-30 words. Turn a 1-3 word idea into a full edit command with explicit preservation."
+    },
+    "refine": {
+      "length_guidance": "Keep the user's existing instruction shape; tighten wording, add missing preservation clauses, fix vague verbs.",
+      "max_words": 40
+    },
+    "restyle": {
+      "length_guidance": "Convert the user's style intent into a relight + recolor instruction without changing subject identity.",
+      "min_word_floor": 12
+    },
+    "enrich": {
+      "length_guidance": "Add ONE extra detail (lighting / shadow / reflection / material) without exceeding 35 words."
+    }
+  },
+
+  "model_routing": {
+    "preferred_llm": "qwen2.5:7b",
+    "preferred_vlm": "qwen2.5vl:7b",
+    "prefer_vlm_when_images_attached": true,
+    "sampling": {
+      "temperature": 0.4,
+      "top_p": 0.9,
+      "num_predict": 120
+    }
+  },
+
+  "provenance": {
+    "primary_sources": [
+      "https://docs.bfl.ml/guides/prompting_guide_kontext_i2i",
+      "https://kontext-dev.com/posts/flux-kontext-prompt-guide-flux1-dev-image-editing",
+      "https://www.promptus.ai/blog/flux-1-kontext-ai-image-editor-complete-guide-2025"
+    ],
+    "borrowed_from": [],
+    "notes": "Not copied from EricRollei's flux_kontex profile because that profile treats Kontext as a verbose-prose model, which contradicts BFL's official guidance. Authored fresh from BFL's instruction-editor docs."
+  }
+}

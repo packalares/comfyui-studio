@@ -221,7 +221,7 @@ export async function commitStaging(id: string, selection: CommitSelection): Pro
     // here — no parallel pluck against the inner workflow.
     type BuilderMeta = Pick<
       Parameters<typeof saveUserWorkflow>[0],
-      'studioBuilder' | 'studioModes' | 'studioInputMap' | 'promptEnhancer' | 'prompt_toggles'
+      'studioBuilder' | 'studioModes' | 'studioInputMap' | 'studioAlwaysActiveGroups' | 'promptEnhancer' | 'prompt_toggles'
     >;
     const builderMeta: BuilderMeta = {};
     if (wf.studioBuilder !== undefined) {
@@ -232,6 +232,9 @@ export async function commitStaging(id: string, selection: CommitSelection): Pro
     }
     if (wf.studioInputMap !== undefined) {
       builderMeta.studioInputMap = wf.studioInputMap;
+    }
+    if (wf.studioAlwaysActiveGroups !== undefined) {
+      builderMeta.studioAlwaysActiveGroups = wf.studioAlwaysActiveGroups;
     }
     if (wf.promptEnhancer !== undefined) {
       builderMeta.promptEnhancer = wf.promptEnhancer as BuilderMeta['promptEnhancer'];
@@ -306,6 +309,26 @@ export async function commitStaging(id: string, selection: CommitSelection): Pro
       logger.warn('import commit: template_plugins edge write skipped', {
         name: saved.name, error: err instanceof Error ? err.message : String(err),
       });
+    }
+
+    // Easy-mode template_presets[] persistence — only fires when the import
+    // payload had both `studioBuilder` set AND a `template_presets` array.
+    // Downloads previews into `<userTemplatesDir>/<saved.name>/` and writes
+    // the display-card array to the `template_presets` column. Best-effort:
+    // any per-preset failure is logged and that one is dropped; the rest of
+    // the import keeps going.
+    if (wf.studioBuilder && Array.isArray(wf.template_presets) && wf.template_presets.length > 0) {
+      try {
+        const { persistTemplatePresets } = await import('./presetsImport.js');
+        const persisted = await persistTemplatePresets(saved.name, wf.template_presets);
+        logger.info('import commit: presets persisted', {
+          name: saved.name, count: persisted, supplied: wf.template_presets.length,
+        });
+      } catch (err) {
+        logger.warn('import commit: presets persistence failed', {
+          name: saved.name, error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
     const slug = slugifyTemplateName(saved.name);
     const copiedForThis = copyImagesFor(staged, slug, selection.imagesCopy);

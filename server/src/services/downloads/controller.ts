@@ -290,6 +290,10 @@ function completedHistoryUpdates(progress: DownloadProgress) {
     fileSize: progress.totalBytes,
     downloadedSize: progress.downloadedBytes,
     speed: progress.speed,
+    // Persist 100% so the Recent/All tabs render a full progress bar instead
+    // of falling back to (downloaded/total)*100, which is 0 for rows that
+    // were never updated mid-stream.
+    progress: 100,
   };
 }
 
@@ -297,11 +301,17 @@ function handleDownloadError(
   err: unknown, progress: DownloadProgress, taskId: string,
   modelName: string, historyId: string,
 ): void {
+  // Last-observed percent for the row; UI shows this on canceled/failed rows
+  // so the Recent/All tabs don't render a misleading 0% for partial downloads.
+  const lastProgress = typeof progress.overallProgress === 'number'
+    ? progress.overallProgress
+    : undefined;
   if (progress.canceled) {
     logger.info('download canceled mid-stream', { model: modelName });
     history.updateHistoryItem(historyId, {
       status: 'canceled', endTime: Date.now(),
       downloadedSize: progress.downloadedBytes, fileSize: progress.totalBytes, speed: progress.speed,
+      progress: lastProgress,
     });
     emit(taskId);
     scheduleEvict(taskId);
@@ -319,6 +329,7 @@ function handleDownloadError(
   history.updateHistoryItem(historyId, {
     status: 'failed', endTime: Date.now(), error: progress.error,
     downloadedSize: progress.downloadedBytes, fileSize: progress.totalBytes, speed: progress.speed,
+    progress: lastProgress,
   });
   logger.error('download failed', { model: modelName, message: progress.error });
   scheduleEvict(taskId);

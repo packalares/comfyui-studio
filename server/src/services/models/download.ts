@@ -8,6 +8,7 @@ import path from 'path';
 import { spawn } from 'child_process';
 import fs from 'fs';
 import { logger } from '../../lib/logger.js';
+import { safeResolve } from '../../lib/fs.js';
 import { env, currentProcessEnv } from '../../config/env.js';
 import * as bus from '../../lib/events.js';
 import {
@@ -190,7 +191,8 @@ export async function downloadHfRepo(
   const safeDir = directory.startsWith('models/') || directory.startsWith('custom_nodes/')
     ? directory
     : `models/${directory}`;
-  const absDir = path.join(env.COMFYUI_PATH, safeDir);
+  // safeResolve throws if safeDir (after path normalisation) escapes COMFYUI_PATH.
+  const absDir = safeResolve(env.COMFYUI_PATH, safeDir);
   fs.mkdirSync(absDir, { recursive: true });
 
   updateTaskProgress(taskId, {
@@ -229,7 +231,11 @@ async function indexHfRepoFiles(absDir: string): Promise<void> {
   try {
     const entries = await fs.promises.readdir(absDir, { withFileTypes: true });
     for (const e of entries) {
+      // Skip dot-directories (.cache, .git) to avoid following HF blob
+      // symlinks that produce duplicate index entries (audit C6).
+      if (e.name.startsWith('.')) continue;
       const full = path.join(absDir, e.name);
+      if (e.isSymbolicLink()) continue;
       if (e.isDirectory()) {
         await indexHfRepoFiles(full);
       } else if (e.isFile() && MODEL_EXTS.has(path.extname(e.name).toLowerCase())) {

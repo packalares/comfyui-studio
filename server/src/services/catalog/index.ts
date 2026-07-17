@@ -15,6 +15,8 @@ export {
   refreshMany,
   wireCatalogEventHandlers,
   rewireForTests,
+  bustScanCache,
+  SCAN_CACHE_TTL_MS,
 } from './service.js';
 
 export { load, persist, persistCurrent } from './store.js';

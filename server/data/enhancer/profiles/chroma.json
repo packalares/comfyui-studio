@@ -1,0 +1,66 @@
+{
+  "$schema": "../profile.schema.json",
+  "id": "chroma",
+  "version": 1,
+  "name": "Chroma (Meissonic)",
+  "description": "MeissonFlow - Natural language, handles complex compositions, multiple subjects Ported verbatim from EricRollei/Local_LLM_Prompt_Enhancer.",
+  "applies_to": [],
+  "language_target": "english",
+  "format": "natural_compositional",
+  "prompt_style": "natural_compositional",
+  "max_words": 220,
+  "min_word_floor": 165,
+  "length_guidance": "Deliver around 220 words describing every subject, relation, and environment nuance.",
+  "detail_expectation": "Layer in compositional geometry, lighting, mood, and background storytelling for each subject.",
+  "default_length_tier": "moderate",
+  "preferences": [
+    "Natural, detailed descriptions",
+    "Can handle multiple subjects well",
+    "Spatial relationships clearly described",
+    "Complex compositional instructions",
+    "Quality descriptors throughout",
+    "Good with scene complexity"
+  ],
+  "quality_tokens": [
+    "high quality",
+    "detailed",
+    "professional",
+    "intricate",
+    "masterpiece",
+    "stunning",
+    "exceptional composition"
+  ],
+  "quality_emphasis": true,
+  "avoid": [
+    "Too simplistic descriptions",
+    "Single-word tags",
+    "Overly technical jargon"
+  ],
+  "required_positive": [],
+  "negative_prompt_default": "low quality, blurry, distorted, watermark, oversaturated",
+  "supports_negative_prompt": true,
+  "platform_block": "CHROMA-SPECIFIC INSTRUCTIONS:\n- Natural, detailed language (100-200 tokens)\n- Excellent with complex scenes\n- Can handle multiple subjects\n- Describe spatial relationships clearly\n- Compositional details important",
+  "examples": [],
+  "few_shot_intro": "Example transformations of a user idea into a Chroma (Meissonic)-formatted prompt:",
+  "user_message_schema_hint": "The user message arrives as JSON with fields: { raw_idea, target_model, source_image_count, aspect_ratio, camera_details?, references? }. Weave camera_details naturally into the prompt — do NOT echo them as a settings list at the end.",
+  "operation_overrides": {},
+  "model_routing": {
+    "preferred_llm": "qwen2.5:7b",
+    "preferred_vlm": "qwen2.5vl:7b",
+    "prefer_vlm_when_images_attached": false,
+    "sampling": {
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "num_predict": 352
+    }
+  },
+  "provenance": {
+    "primary_sources": [
+      "https://github.com/EricRollei/Local_LLM_Prompt_Enhancer/blob/main/platforms.py"
+    ],
+    "borrowed_from": [
+      "EricRollei/Local_LLM_Prompt_Enhancer chroma config"
+    ],
+    "notes": "Ported verbatim. EricRollei's original field names and ordering preserved; platform_block lifted from text_to_image_node.py when present, otherwise empty (the master template + preferences/avoid/quality_tokens alone are enough for platforms without a bespoke block)."
+  }
+}

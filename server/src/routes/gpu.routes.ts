@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { defineRoute } from '../lib/defineRoute.js';
 import { ConflictError, NotFoundError } from '../lib/errors.js';
 import { scheduler } from '../services/gpu/scheduler.js';
-import { getComfyState } from '../services/videoboard/comfyJobBridge.js';
+import { getComfyState } from '../services/comfyui/jobBridge.js';
 import {
   SchedulerSnapshotSchema,
   CancelJobParamsSchema,

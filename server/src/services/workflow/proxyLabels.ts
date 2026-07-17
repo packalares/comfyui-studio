@@ -10,6 +10,7 @@
 // AdvancedSetting[] that the /workflow-settings endpoint returns.
 
 import type { AdvancedSetting } from '../../contracts/workflow.contract.js';
+import { mediaKindForNode } from './mediaKind.js';
 import { BLAND_WIDGET_NAMES, titleCase } from './constants.js';
 import {
   filteredWidgetValues,
@@ -302,6 +303,7 @@ export function extractAdvancedSettings(
       ? 'text'
       : (shape.type ?? 'text');
 
+    const media = mediaKindForNode(classType, value) ?? undefined;
     settings.push({
       id: widgetName,
       label,
@@ -312,6 +314,7 @@ export function extractAdvancedSettings(
       max: shape.max,
       step: shape.step,
       options: type === 'select' ? shape.options : undefined,
+      media,
       proxyIndex: i,
       nodeId: wrapperNodeId,
       nodeTitle: wrapperNodeTitle,

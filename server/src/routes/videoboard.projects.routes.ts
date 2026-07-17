@@ -12,7 +12,7 @@ import * as repo from '../lib/db/videoboard.repo.js';
 import * as jobTracker from '../services/videoboard/jobTracker.js';
 import * as storage from '../services/videoboard/storage.js';
 import { paths } from '../config/paths.js';
-import { analyzeViaComfyUI } from '../services/videoboard/comfyAnalyze.js';
+import { analyzeViaComfyUI } from '../services/videoboard/runAnalyze.js';
 import {
   ProjectSchema,
   AnalysisSchema,
@@ -22,7 +22,7 @@ import {
   UpdateProjectBodySchema,
   GenerateStoryboardBodySchema,
 } from '../contracts/videoboard.js';
-import { scenesViaComfyUI, type DirectorShot } from '../services/videoboard/comfyScenes.js';
+import { scenesViaComfyUI, type DirectorShot } from '../services/videoboard/runScenes.js';
 import { deleteOrphanedFiles } from './videoboard.shared.js';
 import { runShotImageGen } from '../services/videoboard/runShotImageGen.js';
 import type { Shot } from '../contracts/videoboard.js';

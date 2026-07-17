@@ -27,8 +27,31 @@ import { apiCall, apiCallPaginated, type ApiCallPaginatedOutput } from '../api/c
 import { catalogRoutes } from '@server/contracts/catalog.contract';
 import { modelsRoutes } from '@server/contracts/models.contract';
 import { chatRoutes } from '@server/contracts/chat.contract';
+import type { CivitaiFacetsResponse } from '@server/contracts/civitai.contract';
+export type { CivitaiFacetsResponse };
 
 const BASE = '/api';
+
+/** Result shape returned by POST /models/enrich. */
+export interface EnrichResult {
+  success: boolean;
+  filename: string;
+  metadata_source?: string;
+  trigger_words?: string[];
+  tags?: string[];
+  nsfw_level?: number;
+}
+
+/**
+ * Build the URL for a locally-cached model preview image.
+ * Routes through the unified `/api/thumbnail/model` endpoint (no separate
+ * preview route) — gets the same cache + resize + placeholder semantics as
+ * gallery / template / URL thumbnails.
+ */
+export function modelPreviewUrl(save_path: string, filename: string, width = 64): string {
+  const qs = new URLSearchParams({ save_path, filename, w: String(width) }).toString();
+  return `${BASE}/thumbnail/model?${qs}`;
+}
 
 /** Build a /api/download URL for a gallery item. The endpoint streams the
  *  original file with ComfyUI metadata (PNG tEXt / FLAC Vorbis / EXIF / MP4
@@ -50,6 +73,11 @@ export interface MediaLibraryItem {
   sizeBytes: number;
   mtimeMs: number;
   kind: 'image' | 'audio' | 'video';
+  /** Which ComfyUI root this file lives under. Workflow widget mapping uses
+   *  this to pick the right loader (standard LoadImage for 'input',
+   *  output-aware loader for 'output'). Older server responses without this
+   *  field default to 'input' client-side. */
+  source: 'input' | 'output';
 }
 
 export interface PageEnvelope<T> {
@@ -312,6 +340,10 @@ export interface PersonalityItemDetail {
   argumentHint?: string;
 }
 
+// Module-level cache for /models/type-map so the UI never re-fetches
+// on repeated calls within the same session (the map is server-boot stable).
+let _typeMapCache: { types: Record<string, string>; civitaiTypes: Record<string, string> } | null = null;
+
 export const api = {
   // Unified settings writer. Routes return canonical { data: T } envelope.
   updateSettings: async <K extends keyof SettingsPatchByKey>(
@@ -324,6 +356,21 @@ export const api = {
       body: JSON.stringify(patch),
     });
     return ((envelope as { data?: R }).data ?? envelope) as R;
+  },
+
+  // GET /settings/models — read model display settings.
+  getModelSettings: async (): Promise<{ nsfwBlurLevel: number }> => {
+    const r = await fetchJson<{ data?: { nsfwBlurLevel: number } } | { nsfwBlurLevel: number }>('/settings/models');
+    return ((r as { data?: { nsfwBlurLevel: number } }).data ?? r) as { nsfwBlurLevel: number };
+  },
+
+  // PUT /settings/models — update model display settings.
+  updateModelSettings: async (patch: { nsfwBlurLevel?: number }): Promise<{ nsfwBlurLevel: number }> => {
+    const r = await fetchJson<{ data?: { nsfwBlurLevel: number } } | { nsfwBlurLevel: number }>('/settings/models', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    });
+    return ((r as { data?: { nsfwBlurLevel: number } }).data ?? r) as { nsfwBlurLevel: number };
   },
 
   // DELETE /settings/secret?name= — clears a named secret.
@@ -459,12 +506,30 @@ export const api = {
           mute?: number[];
           switchNodeId?: number;
           switchSlot?: number;
+          triggers?: string[];
+          image_format?: Record<string, { standard: [number, number]; hd: [number, number] }>;
+          image_format_faster?: Record<string, { standard: [number, number]; hd: [number, number] }>;
         }>;
         promptEnhancer?: {
           systemPrompt: string;
           preferredModel?: string;
+          options?: Record<string, unknown>;
+          thinking?: boolean;
         };
+        prompt_toggles?: Record<string, Record<string, string>>;
       };
+      /** Preset display cards — when present, the Studio renders a grid of
+       *  preset thumbnails in place of the "Ready when you are" empty panel.
+       *  Click handler hits `/api/template-presets/:templateName/:presetId`
+       *  (stubbed today; apply-shape wires up later). */
+      presets?: Array<{
+        id: string;
+        title: string;
+        description?: string;
+        previewUrl?: string;
+        published?: boolean;
+        tool?: string;
+      }>;
     }>(`/template-bundle/${encodeURIComponent(templateName)}`),
 
   /** Debug/compare: return the /api/prompt payload our converter would produce. */
@@ -602,13 +667,19 @@ export const api = {
     return (body && typeof body === 'object' && 'data' in body) ? body.data : body;
   },
 
-  // ---- Media library (input/ contents, used by the Easy-mode media modal) ----
-  listMediaLibrary: async (kind: 'image' | 'audio' | 'video'): Promise<MediaLibraryItem[]> => {
-    const res = await fetch(`${BASE}/media-library?kind=${kind}`);
+  // ---- Media library (input/ or output/ contents, used by the Easy-mode media modal) ----
+  listMediaLibrary: async (
+    kind: 'image' | 'audio' | 'video',
+    scope: 'input' | 'output' = 'input',
+  ): Promise<MediaLibraryItem[]> => {
+    const res = await fetch(`${BASE}/media-library?kind=${kind}&scope=${scope}`);
     if (!res.ok) throw new ApiError(res.status, `List media failed (${res.status})`, null);
     const body = await res.json();
     const data = (body && typeof body === 'object' && 'data' in body) ? body.data : body;
-    return (data?.items ?? []) as MediaLibraryItem[];
+    // Older servers omit `source`; default to the requested scope so the
+    // client always has a definite branch value.
+    return ((data?.items ?? []) as MediaLibraryItem[])
+      .map((it) => ({ ...it, source: it.source ?? scope }));
   },
   uploadMediaLibrary: async (
     file: File, kind: 'image' | 'audio' | 'video',
@@ -649,19 +720,29 @@ export const api = {
   getModelsStats: () =>
     apiCall(catalogRoutes.stats, {}),
 
-  /** GET /models/catalog?page=&pageSize=&q=&type=&installed= — paginated catalog. */
+  /** GET /models/catalog?page=&pageSize=&q=&type=&installed=&filenames= — paginated catalog. */
   getModelsCatalogPaged: (
     page: number,
     pageSize: number,
-    opts: { q?: string; types?: string[]; installed?: boolean | null } = {},
+    opts: { q?: string; types?: string[]; installed?: boolean | null; filenames?: string[] } = {},
   ): Promise<ApiCallPaginatedOutput<typeof catalogRoutes.list>> => {
-    const query: { page: number; pageSize: number; q?: string; type?: string; installed?: 'true' | 'false' } = { page, pageSize };
+    const query: {
+      page: number; pageSize: number;
+      q?: string; type?: string;
+      installed?: 'true' | 'false';
+      filenames?: string;
+    } = { page, pageSize };
     if (opts.q) query.q = opts.q;
     if (opts.types && opts.types.length > 0) query.type = opts.types.join(',');
     if (opts.installed === true) query.installed = 'true';
     else if (opts.installed === false) query.installed = 'false';
+    if (opts.filenames && opts.filenames.length > 0) query.filenames = opts.filenames.join(',');
     return apiCallPaginated(catalogRoutes.list, { query });
   },
+
+  /** GET /models/used-by?filename= — templates whose workflow references this basename. */
+  getModelUsedBy: (filename: string) =>
+    apiCall(modelsRoutes.usedBy, { query: { filename } }),
 
   scanModels: () =>
     apiCall(modelsRoutes.scan, {}),
@@ -672,14 +753,16 @@ export const api = {
   getRegisteredFolders: () =>
     apiCall(modelsRoutes.folders, {}),
 
-  installModel: (modelName: string) =>
-    apiCall(modelsRoutes.install, { params: { modelName }, body: {} }),
-
   cancelDownload: (taskId: string) =>
     apiCall(modelsRoutes.cancelDownload, { body: { taskId } }),
 
-  deleteModel: (modelName: string) =>
-    apiCall(modelsRoutes.deleteModel, { body: { modelName } }),
+  /** Delete a model from disk. Identifier is polymorphic — prefer
+   *  (save_path, filename) so name collisions can't pick the wrong row.
+   *  Server falls back to modelName for backward compatibility. */
+  deleteModel: (
+    id: { save_path?: string; filename?: string; modelName?: string; sha256?: string; abs_path?: string },
+  ) =>
+    apiCall(modelsRoutes.deleteModel, { body: id }),
 
   /** Download a whole HuggingFace repo snapshot. */
   downloadHfRepo: (hfRepo: string, directory: string, name?: string) =>
@@ -715,6 +798,38 @@ export const api = {
 
   deleteDownloadHistoryEntry: (id: string) =>
     apiCall(modelsRoutes.downloadHistoryDelete, { body: { id } }),
+
+  // ---- Model enrichment ----
+
+  /** Enrich a single model. source defaults to 'auto' (CivitAI hash then HF fallback). */
+  enrichModel: (
+    save_path: string,
+    filename: string,
+    source?: 'auto' | 'civitai' | 'huggingface',
+  ) =>
+    fetchJson<{ data?: EnrichResult } | EnrichResult>('/models/enrich', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ save_path, filename, ...(source ? { source } : {}) }),
+    }).then((r) => ((r as { data?: EnrichResult }).data ?? r) as EnrichResult),
+
+  /** Kick off the background SHA256 hash queue for all un-hashed models. */
+  enrichAllModels: () =>
+    fetchJson<{ data?: { enqueued: number; message: string } }>('/models/enrich-all', {
+      method: 'POST',
+    }).then((r) => (r as { data?: { enqueued: number; message: string } }).data ?? r as { enqueued: number; message: string }),
+
+  /** Toggle favorite on a model sidecar (no CivitAI round-trip). */
+  setModelFavorite: (save_path: string, filename: string, favorite: boolean) =>
+    fetchJson<{ data?: { success: boolean; filename: string; favorite: boolean } }>(
+      '/models/enrichment/favorite',
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ save_path, filename, favorite }),
+      },
+    ).then((r) => (r as { data?: { success: boolean; filename: string; favorite: boolean } }).data
+      ?? r as { success: boolean; filename: string; favorite: boolean }),
 
   // ---- Launcher process control ----
   // All lifecycle routes use defineRoute and return { data: T } — unwrap inline.
@@ -940,21 +1055,14 @@ export const api = {
     ),
 
   // ---- CivitAI ----
-  // See server/src/routes/civitai.routes.ts. Every list endpoint now returns
+  // See server/src/routes/civitai.routes.ts. Every list endpoint returns
   // `PageEnvelope<CivitaiModelSummary>`. `total` is a lower bound — civitai
   // does not disclose a total result count; use `hasMore` for pagination.
-
-  /** GET /civitai/models/latest — newest models, non-NSFW by default. */
-  getCivitaiLatestModels: (opts: { page?: number; pageSize?: number; cursor?: string } = {}) =>
-    fetchJson<PageEnvelope<CivitaiModelSummary>>(
-      `/civitai/models/latest${buildCivitaiPageQuery(opts)}`,
-    ),
-
-  /** GET /civitai/models/hot — most-downloaded-this-month. */
-  getCivitaiHotModels: (opts: { page?: number; pageSize?: number; cursor?: string } = {}) =>
-    fetchJson<PageEnvelope<CivitaiModelSummary>>(
-      `/civitai/models/hot${buildCivitaiPageQuery(opts)}`,
-    ),
+  //
+  // The legacy `getCivitaiLatestModels` / `getCivitaiHotModels` helpers were
+  // dropped along with the `/civitai/models/{latest,hot}` routes in favour
+  // of the faceted /civitai/models/search endpoint. Sort=Newest replaces the
+  // old "latest" feed; sort=Most Downloaded + period=Month replaces "hot".
 
   /**
    * Explore Feed Latest — WORKFLOW listings, not models. Hits
@@ -982,17 +1090,45 @@ export const api = {
     ),
 
   /**
-   * GET /civitai/models/search — free-text search over civitai models.
-   * CivitAI requires cursor-based pagination when `query=` is present, so
-   * this method accepts `cursor` from a previous envelope's `nextCursor`.
+   * GET /civitai/models/search — free-text + faceted search. `query` may be
+   * empty when at least one filter is set (filter-only browses are a valid
+   * use case — "show me all LoRAs for Qwen Image"). CivitAI requires
+   * cursor-based pagination as soon as either `query=` OR one of the array
+   * filters is present.
    */
   searchCivitaiModels: (
     query: string,
-    opts: { page?: number; pageSize?: number; cursor?: string } = {},
-  ) =>
-    fetchJson<PageEnvelope<CivitaiModelSummary>>(
-      `/civitai/models/search${buildCivitaiPageQuery({ ...opts, query })}`,
-    ),
+    opts: {
+      page?: number; pageSize?: number; cursor?: string;
+      types?: string[]; baseModels?: string[];
+      nsfw?: boolean; period?: string; sort?: string;
+    } = {},
+  ) => {
+    const params = new URLSearchParams();
+    if (opts.pageSize !== undefined) params.set('pageSize', String(opts.pageSize));
+    if (opts.cursor !== undefined) params.set('cursor', opts.cursor);
+    else if (opts.page !== undefined) params.set('page', String(opts.page));
+    if (query.length > 0) params.set('q', query);
+    for (const t of opts.types ?? []) params.append('types[]', t);
+    for (const b of opts.baseModels ?? []) params.append('baseModels[]', b);
+    if (opts.nsfw !== undefined) params.set('nsfw', String(opts.nsfw));
+    if (opts.period) params.set('period', opts.period);
+    if (opts.sort) params.set('sort', opts.sort);
+    const qs = params.toString();
+    return fetchJson<PageEnvelope<CivitaiModelSummary>>(
+      `/civitai/models/search${qs ? `?${qs}` : ''}`,
+    );
+  },
+
+  /** GET /civitai/models/facets — vocabulary for the search-sidebar chips.
+   *  `baseModels` is dynamic (probed off CivitAI's Most-Downloaded slice);
+   *  `types`, `periods`, `sorts` are CivitAI's documented enums. */
+  getCivitaiFacets: async (): Promise<CivitaiFacetsResponse> => {
+    const env = await fetchJson<{ data?: CivitaiFacetsResponse } | CivitaiFacetsResponse>(
+      '/civitai/models/facets',
+    );
+    return ((env as { data?: CivitaiFacetsResponse }).data ?? env) as CivitaiFacetsResponse;
+  },
 
   /** GET /civitai/models/by-url — proxy a CivitAI search URL. */
   getCivitaiByUrl: (url: string, opts: { page?: number; pageSize?: number } = {}) =>
@@ -1435,6 +1571,23 @@ export const api = {
       });
       return ((env as { data?: R }).data ?? env) as R;
     },
+  },
+
+  /** GET /models/type-map — returns the catalog-type → subdir maps used by
+   *  the install handler and folder-picker. Cached at module level so repeated
+   *  calls don't refetch. Falls back to an empty map on network failure so the
+   *  UI doesn't crash. */
+  getTypeMap: async (): Promise<{ types: Record<string, string>; civitaiTypes: Record<string, string> }> => {
+    if (_typeMapCache) return _typeMapCache;
+    try {
+      type R = { types: Record<string, string>; civitaiTypes: Record<string, string> };
+      const env = await fetchJson<{ data?: R } | R>('/models/type-map');
+      const result = ((env as { data?: R }).data ?? env) as R;
+      _typeMapCache = result;
+      return result;
+    } catch {
+      return { types: {}, civitaiTypes: {} };
+    }
   },
 };
 

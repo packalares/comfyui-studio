@@ -1,6 +1,7 @@
 // Public re-exports from the settings/ folder.
 export type { SettingsInternal } from './store.js';
 export { _loadInternal, _saveInternal } from './store.js';
+export { DEFAULT_NSFW_BLUR_LEVEL } from './store.js';
 export {
   DEFAULT_CHAT_HIGH_WATER_PERCENT,
   DEFAULT_CHAT_MAX_TOOL_STEPS,
@@ -43,6 +44,8 @@ export {
   clearChatKeepAlive,
   getDefaultContextStrategy,
   setDefaultContextStrategy,
+  getNsfwBlurLevel,
+  setNsfwBlurLevel,
 } from './core.js';
 export {
   getChatHighWaterPercent,

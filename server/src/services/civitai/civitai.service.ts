@@ -3,3 +3,4 @@
 
 export * from './models.js';
 export * from './workflows.js';
+export * from './facets.js';

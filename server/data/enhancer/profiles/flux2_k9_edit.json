@@ -1,0 +1,118 @@
+{
+  "$schema": "../profile.schema.json",
+  "id": "flux2_k9_edit",
+  "version": 1,
+  "name": "Flux 2 Klein 9B — Image Editor (instruction + light prose)",
+  "description": "Flux 2 Klein 9B's image-edit mode. Hybrid format: short edit instructions (like Kontext) but allowing slightly longer compositional language and Flux 2's wider technical vocabulary. Targets Studio's i2i_flux2_k9 mode. Authored fresh — EricRollei has no equivalent.",
+  "applies_to": ["i2i_flux2_k9"],
+  "language_target": "english",
+
+  "format": "instruction_with_compositional_prose",
+  "prompt_style": "edit_instruction_extended",
+  "max_words": 80,
+  "min_word_floor": 12,
+  "length_guidance": "20-70 word edit commands. Longer than Kontext (which caps at 30) because Flux 2 K9 handles compositional detail in the same breath as the instruction.",
+  "detail_expectation": "Lead with the change. Add ONE sentence of compositional or atmospheric anchoring (lighting / camera / colour). Always state what to preserve.",
+  "default_length_tier": "concise",
+
+  "preferences": [
+    "Use quote marks for text edits: replace 'old text' with 'new text'",
+    "Name exact colours, materials, light directions — Flux 2 K9 is highly steerable",
+    "Decisive action verbs: replace, remove, add, recolor, swap, relight, reframe, expand",
+    "ALWAYS state what to preserve: face, pose, framing, lighting direction, character identity",
+    "Mention the resulting shadow / reflection / colour spill when adding or moving objects",
+    "Flux 2 K9 handles photography terms in edit instructions ('relight as 35mm f/2 portrait')",
+    "Keep the structure: [CHANGE] + [COMPOSITIONAL ANCHOR] + [PRESERVATION CLAUSE]"
+  ],
+
+  "quality_tokens": [],
+  "quality_emphasis": false,
+
+  "avoid": [
+    "Long descriptions of unchanged elements (Flux 2 K9 already sees the source)",
+    "Vague instructions ('make it better', 'enhance the image', 'improve quality')",
+    "Multi-paragraph scene rewrites — this is an EDIT, not a t2i pass",
+    "Quality boilerplate ('masterpiece', '8k', 'ultra detailed') — does nothing on edits",
+    "Forgetting the preservation clause — the model will redraw faces by default"
+  ],
+
+  "required_positive": [],
+  "negative_prompt_default": "unnatural, inconsistent, seams, ghost limbs, identity drift, oversaturated, plastic skin",
+  "supports_negative_prompt": false,
+
+  "platform_block": "FLUX 2 K9 EDIT INSTRUCTIONS:\n- Output is a SHORT EDIT COMMAND with compositional anchoring — typically 20-70 words.\n- Structure: [CHANGE] + [COMPOSITIONAL ANCHOR] + [PRESERVATION CLAUSE].\n- Use quotation marks around any text being edited: Replace 'CLOSED' with 'OPEN'.\n- Flux 2 K9 is MORE expressive than Flux 1 Kontext — you can include photography terms in the instruction ('relight with 50mm f/2 portrait softness').\n- ALWAYS state preservation: 'keep the face, pose, and original lighting direction unchanged'.\n- When adding or moving objects, mention the resulting shadow, reflection, or colour spill so the edit blends.\n- DO NOT describe the source image — Flux 2 K9 sees it.\n- DO NOT include quality boilerplate — Flux 2 K9 ignores 'masterpiece', '8k', etc. on edits.",
+
+  "examples": [
+    {
+      "label": "text_edit_with_anchor",
+      "user_input": "change sign to OPEN",
+      "ideal_output": "Replace 'CLOSED' with 'OPEN' on the storefront sign in the same chipped vintage neon font; match the sign's existing rim glow and night-time spill on the wet pavement. Preserve the storefront's framing, colour grade, and reflection in the puddle below."
+    },
+    {
+      "label": "wardrobe_change_preserving_identity",
+      "user_input": "change dress to red velvet",
+      "ideal_output": "Change the dress to deep crimson velvet with the same A-line silhouette and shoulder line; retain the fabric's gentle drape and the way light catches the texture. Keep her face, hair, pose, and the existing window-light direction unchanged."
+    },
+    {
+      "label": "object_add_with_relight",
+      "user_input": "add aviator sunglasses",
+      "ideal_output": "Add gold-framed aviator sunglasses with green polarised lenses; match the existing key-light direction from camera-left and cast a soft shadow beneath the lower lash line. Preserve her facial expression, skin tone, and the background bokeh."
+    },
+    {
+      "label": "background_swap_with_relight",
+      "user_input": "tokyo night background",
+      "ideal_output": "Replace the studio backdrop with a neon-lit Tokyo street at night; rebuild the subject's rim light as a cool magenta from camera-right and add a warm tungsten spill from below. Keep her face, pose, and the camera-angle composition unchanged."
+    },
+    {
+      "label": "expand_reframe",
+      "user_input": "make it wider",
+      "ideal_output": "Reframe to a 16:9 cinematic widescreen by extending the scene to the left and right; reconstruct the environment plausibly (continue the brick wall on the left, extend the rain-slick street on the right). Preserve the subject's position, scale, and the original lighting setup."
+    },
+    {
+      "label": "color_relight",
+      "user_input": "make it golden hour",
+      "ideal_output": "Relight the scene as warm golden-hour sunset from camera-right at a low angle; cast long horizontal shadows and a soft rim light along the subject's left side; warm the midtones and shift highlights to amber. Keep the subject's pose, expression, and the background composition unchanged."
+    }
+  ],
+
+  "few_shot_intro": "Example transformations of a user idea into a Flux 2 K9 edit instruction with compositional anchoring:",
+
+  "user_message_schema_hint": "The user message arrives as JSON: { raw_idea, target_model, source_image_count, aspect_ratio, camera_details?, references? }. CAMERA_DETAILS only matters when the edit literally concerns the camera (reframing, lens change). Most edits ignore camera_details — focus on the CHANGE and PRESERVATION CLAUSE.",
+
+  "operation_overrides": {
+    "expand": {
+      "length_guidance": "25-70 words. Turn a 2-5 word seed into a full instruction with compositional anchoring + preservation clause."
+    },
+    "refine": {
+      "length_guidance": "Polish the user's draft. Add missing preservation clause. Tighten vague verbs.",
+      "max_words": 90
+    },
+    "restyle": {
+      "length_guidance": "Convert style intent into a relight + recolor instruction with explicit subject preservation.",
+      "min_word_floor": 25
+    },
+    "enrich": {
+      "length_guidance": "Add ONE compositional anchor (lighting / shadow / camera) to a thin instruction without exceeding 70 words."
+    }
+  },
+
+  "model_routing": {
+    "preferred_llm": "qwen2.5:7b",
+    "preferred_vlm": "qwen2.5vl:7b",
+    "prefer_vlm_when_images_attached": true,
+    "sampling": {
+      "temperature": 0.5,
+      "top_p": 0.9,
+      "num_predict": 180
+    }
+  },
+
+  "provenance": {
+    "primary_sources": [
+      "https://bfl.ai/announcements/flux-2",
+      "https://docs.bfl.ml/guides/prompting_guide_kontext_i2i"
+    ],
+    "borrowed_from": [],
+    "notes": "Authored fresh. Flux 2 Klein 9B has no equivalent in EricRollei's roster. Structure (instruction + compositional anchor + preservation clause) extends BFL's Kontext editing principles with Flux 2's wider technical vocabulary. Sampling temperature 0.5 sits between Kontext's 0.4 (highly constrained edit) and prose's 0.7 (creative)."
+  }
+}

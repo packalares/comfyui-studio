@@ -23,6 +23,11 @@ export interface DownloadHistoryItem {
   savePath?: string;
   downloadUrl?: string;
   taskId?: string;
+  /** Final percent (0–100). Set to 100 on success, last-observed on
+   *  canceled/failed. Lets the Recent/All tabs render a real progress bar
+   *  instead of falling back to (downloaded/total)*100, which is 0 for rows
+   *  the controller never updated mid-stream. */
+  progress?: number;
 }
 
 const MAX_HISTORY_ITEMS = 100;

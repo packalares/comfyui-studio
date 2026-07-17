@@ -1,0 +1,66 @@
+{
+  "$schema": "../profile.schema.json",
+  "id": "wan_image",
+  "version": 1,
+  "name": "Wan Image",
+  "description": "Tencent video model adapted for images - Technical, structured, cinematic Ported verbatim from EricRollei/Local_LLM_Prompt_Enhancer.",
+  "applies_to": [],
+  "language_target": "english",
+  "format": "technical_cinematic",
+  "prompt_style": "technical_cinematic",
+  "max_words": 250,
+  "min_word_floor": 187,
+  "length_guidance": "Target ~250 words with thorough cinematic breakdowns (camera, lighting, blocking, motion).",
+  "detail_expectation": "Describe sequence-level cinematography, color design, and atmosphere in exhaustive detail.",
+  "default_length_tier": "detailed",
+  "preferences": [
+    "Technical cinematography terminology",
+    "Structured format: subject, setting, lighting, composition",
+    "Specific lighting types (soft, hard, edge, rim, etc.)",
+    "Composition rules (rule of thirds, symmetrical, etc.)",
+    "Professional photography terms",
+    "Color grading and mood descriptors"
+  ],
+  "quality_tokens": [
+    "high quality",
+    "professional",
+    "detailed",
+    "sharp focus",
+    "well composed",
+    "balanced lighting",
+    "cinematic quality"
+  ],
+  "quality_emphasis": true,
+  "avoid": [
+    "Casual language",
+    "Abstract artistic terms without technical grounding",
+    "Overly long flowery descriptions"
+  ],
+  "required_positive": [],
+  "negative_prompt_default": "low quality, blurry, distorted, casual language",
+  "supports_negative_prompt": true,
+  "platform_block": "WAN-SPECIFIC INSTRUCTIONS:\n- Technical cinematography terms\n- Structured format: subject, setting, lighting, composition\n- Specific lighting types (soft lighting, edge lighting, etc.)\n- Professional photography language\n- Medium length (60-120 tokens)",
+  "examples": [],
+  "few_shot_intro": "Example transformations of a user idea into a Wan Image-formatted prompt:",
+  "user_message_schema_hint": "The user message arrives as JSON with fields: { raw_idea, target_model, source_image_count, aspect_ratio, camera_details?, references? }. Weave camera_details naturally into the prompt — do NOT echo them as a settings list at the end.",
+  "operation_overrides": {},
+  "model_routing": {
+    "preferred_llm": "qwen2.5:7b",
+    "preferred_vlm": "qwen2.5vl:7b",
+    "prefer_vlm_when_images_attached": false,
+    "sampling": {
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "num_predict": 400
+    }
+  },
+  "provenance": {
+    "primary_sources": [
+      "https://github.com/EricRollei/Local_LLM_Prompt_Enhancer/blob/main/platforms.py"
+    ],
+    "borrowed_from": [
+      "EricRollei/Local_LLM_Prompt_Enhancer wan_image config"
+    ],
+    "notes": "Ported verbatim. EricRollei's original field names and ordering preserved; platform_block lifted from text_to_image_node.py when present, otherwise empty (the master template + preferences/avoid/quality_tokens alone are enough for platforms without a bespoke block)."
+  }
+}

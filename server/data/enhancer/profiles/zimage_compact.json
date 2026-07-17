@@ -1,0 +1,111 @@
+{
+  "$schema": "../profile.schema.json",
+  "id": "zimage_compact",
+  "version": 1,
+  "name": "Z-Image — Compact natural language",
+  "description": "Z-Image (base and turbo variants) prefers short, photographic natural-language prompts. Turbo especially rewards brevity since it samples in 4-8 steps. Targets Studio's t2i_zimage mode.",
+  "applies_to": ["t2i_zimage"],
+  "language_target": "english",
+
+  "format": "compact",
+  "prompt_style": "compact_photographic",
+  "max_words": 90,
+  "min_word_floor": 25,
+  "length_guidance": "30-80 words. Z-Image excels with short, photographic sentences — extra prose dilutes the signal.",
+  "detail_expectation": "One or two concise sentences naming subject, environment, lighting, and mood. Skip the boilerplate.",
+  "default_length_tier": "concise",
+
+  "preferences": [
+    "Short, photographic sentences — never paragraph-long prose",
+    "Lead with subject + action, then setting, then lighting",
+    "Concrete lens / focal length tokens land well ('35mm', '85mm portrait')",
+    "Time of day and weather as one-word modifiers",
+    "Skip 'masterpiece, best quality, 8k' — Z-Image doesn't reward them",
+    "Mention colour palette once if it matters; don't stack adjectives"
+  ],
+
+  "quality_tokens": [],
+  "quality_emphasis": false,
+
+  "avoid": [
+    "Long flowing prose (Z-Image diffuses the signal across too many tokens)",
+    "Quality boilerplate ('masterpiece', '8k', 'ultra detailed', 'award-winning')",
+    "Comma-tag dumps in the SDXL style",
+    "Repeating the same descriptor for emphasis"
+  ],
+
+  "required_positive": [],
+  "negative_prompt_default": "blurry, low quality, distorted, deformed, watermark, oversaturated",
+  "supports_negative_prompt": false,
+
+  "platform_block": "Z-IMAGE INSTRUCTIONS:\n- Output is SHORT photographic-style natural language — typically 30-80 words across one or two sentences.\n- Lead with the subject + their action, then anchor in setting, then lighting.\n- Z-Image is trained on photographs — lens names ('35mm', '85mm'), aperture ('f/2.8'), and lighting terms ('soft window light', 'golden hour') land well.\n- DO NOT include quality boilerplate ('masterpiece', 'ultra detailed', '8k', 'award-winning'). They do nothing on Z-Image.\n- The Turbo variant samples in 4-8 steps — keep your prompt VERY short for Turbo (30-50 words).\n- Skip elaborate paragraph prose. Z-Image responds best when the signal is concentrated.",
+
+  "examples": [
+    {
+      "label": "portrait_short",
+      "user_input": "girl in cafe",
+      "ideal_output": "A young woman in a knit sweater sips coffee at a window seat in a Parisian café, soft late-afternoon light from the left. Shot on 50mm at f/2."
+    },
+    {
+      "label": "landscape_short",
+      "user_input": "snowy mountain",
+      "ideal_output": "A jagged alpine peak at dawn, snow swept off the ridge by high wind, cold pink and blue light. Wide-angle landscape photograph."
+    },
+    {
+      "label": "object_short",
+      "user_input": "vintage camera",
+      "ideal_output": "A brass-and-leather Leica M3 rests on a weathered oak desk beside a leather notebook, warm tungsten light from a desk lamp. 50mm macro at f/4."
+    },
+    {
+      "label": "action_short",
+      "user_input": "skateboarder",
+      "ideal_output": "A skateboarder kickflips over a concrete bench under a Los Angeles overpass, mid-air, hard noon light, dust trail behind. Shot on 28mm wide, 1/2000s."
+    },
+    {
+      "label": "interior_short",
+      "user_input": "cozy reading nook",
+      "ideal_output": "A cushioned window seat scattered with knit blankets and an open novel, late autumn rain on the glass, warm tungsten lamp glow. 35mm at f/2, shallow focus."
+    }
+  ],
+
+  "few_shot_intro": "Example transformations of a user idea into a Z-Image-formatted compact prompt:",
+
+  "user_message_schema_hint": "The user message arrives as JSON: { raw_idea, target_model, source_image_count, aspect_ratio, camera_details?, references? }. Weave camera_details (lens, aperture, film_or_sensor) into the second sentence — one phrase, not a list. Skip them entirely on short outputs.",
+
+  "operation_overrides": {
+    "expand": {
+      "length_guidance": "40-80 words. Build a focused 1-2 sentence scene from a 1-3 word seed."
+    },
+    "refine": {
+      "length_guidance": "Tighten the user's existing draft. Cut adjective stacks. Z-Image hates redundancy.",
+      "max_words": 100
+    },
+    "restyle": {
+      "length_guidance": "Keep the subject; change only the medium / time of day / colour palette in one short sentence.",
+      "min_word_floor": 25
+    },
+    "enrich": {
+      "length_guidance": "Add ONE specific photographic detail (lens / aperture / lighting direction) without expanding to a second sentence."
+    }
+  },
+
+  "model_routing": {
+    "preferred_llm": "qwen2.5:7b",
+    "preferred_vlm": "qwen2.5vl:7b",
+    "prefer_vlm_when_images_attached": false,
+    "sampling": {
+      "temperature": 0.6,
+      "top_p": 0.88,
+      "num_predict": 160
+    }
+  },
+
+  "provenance": {
+    "primary_sources": [
+      "https://huggingface.co/Tongyi-MAI/Z-Image-Turbo",
+      "https://github.com/comfyanonymous/ComfyUI/discussions"
+    ],
+    "borrowed_from": [],
+    "notes": "Authored fresh — Z-Image isn't in EricRollei's roster. Style derived from Z-Image's community-shared example prompts (compact photographic sentences, no quality boilerplate, prefers lens / lighting tokens). Lower sampling temperature (0.6) keeps the LLM from over-expanding."
+  }
+}

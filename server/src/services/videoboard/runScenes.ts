@@ -4,7 +4,7 @@
  * Flow:
  *   1) build the workflow JSON via buildScenesWorkflow
  *   2) POST it to /api/prompt — get prompt_id
- *   3) await trackComfyPrompt(prompt_id) — WS-driven (see comfyJobBridge.ts)
+ *   3) await trackComfyPrompt(prompt_id) — WS-driven (see jobBridge.ts)
  *      Resolves on `execution_success`/`execution_complete`, rejects on
  *      `execution_cancelled`/`execution_interrupted`/`execution_error`,
  *      or caller-side abort/timeout.
@@ -24,7 +24,7 @@ import {
   type ScenesWorkflowParams,
   type ComfyPromptGraph,
 } from './buildScenesWorkflow.js';
-import { trackComfyPrompt, getBridgeClientId } from './comfyJobBridge.js';
+import { trackComfyPrompt, getBridgeClientId } from '../comfyui/jobBridge.js';
 
 // ---------------------------------------------------------------------------
 // Public entry

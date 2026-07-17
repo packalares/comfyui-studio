@@ -2,9 +2,13 @@
 // persist their selection, and return the merged Advanced Settings list
 // (proxy-widget entries + user-exposed raw-node entries).
 
+import fs from 'fs';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import * as exposedWidgets from '../services/exposedWidgets.js';
 import * as templates from '../services/templates/index.js';
+import * as templatePresetsRepo from '../lib/db/templatePresets.repo.js';
+import { paths } from '../config/paths.js';
+import { safeResolve } from '../lib/fs.js';
 import {
   buildRawWidgetSettings,
   enumerateTemplateWidgets,
@@ -75,8 +79,54 @@ function rawTemplateOf(templateName: string): RawTemplate {
  *  Returns null when the workflow is missing so the route can surface a 404.
  *  All three derivations (settings, widgets, primitiveFormFields) share the
  *  same workflow JSON, the same memoised `getObjectInfo`, and the same
- *  `buildFormFieldPlan` invocation — they used to re-run them per endpoint. */
+ *  `buildFormFieldPlan` invocation — they used to re-run them per endpoint.
+ *
+ *  Easy-mode templates (`studioBuilder` set to image/video/audio) short-
+ *  circuit before the heavy workflow parse: Image/VideoBuilder.tsx only ever
+ *  read `res.builderMeta`, so loading the workflow JSON, hitting comfy for
+ *  `getObjectInfo`, building the form-field plan, extracting advanced
+ *  settings, enumerating widgets, and computing apiPrompt+groups is wasted
+ *  work that ends up discarded by the caller. */
 export async function buildTemplateBundle(templateName: string) {
+  // Cheap: one small sidecar file read. Tells us whether this template will
+  // be consumed by an Easy-mode builder (Image/Video/Audio) or by the Studio
+  // page (classic — needs the full bundle).
+  const tpl = templates.getUserTemplate(templateName);
+  const builderMeta = tpl
+    ? {
+        studioBuilder: tpl.studioBuilder,
+        title: tpl.title,
+        studioModes: tpl.studioModes,
+        promptEnhancer: tpl.promptEnhancer,
+        // Per-mode UI toggles. UI merges the `:` shared entry with the
+        // active mode's entry to decide which buttons to render in the
+        // prompt card. Server-side resolution lives in generate.routes.ts.
+        prompt_toggles: tpl.prompt_toggles,
+      }
+    : undefined;
+
+  // Preset display cards are stored on the templates.template_presets JSON
+  // column by the import hook. Read once and forward as-is — the column
+  // already carries local-rewritten previewUrls so no per-card URL massaging.
+  const presets = templatePresetsRepo.getPresets(templateName);
+
+  // Easy-mode short-circuit: Image/VideoBuilder.tsx only read `builderMeta`,
+  // so we can skip the workflow load + plan/widget/apiPrompt/groups build
+  // entirely. Shape stays identical for the consumer — fields they ignore
+  // are present but empty. `presets` rides along so the right-panel grid can
+  // render without a second round trip.
+  if (tpl?.studioBuilder) {
+    return {
+      settings: [] as AdvancedSetting[],
+      widgets: [],
+      primitiveFormFields: [],
+      apiPrompt: {},
+      groups: [],
+      builderMeta,
+      presets,
+    };
+  }
+
   const workflow = await loadWorkflowJson(templateName);
   if (!workflow) return null;
   const objectInfo = await getObjectInfo();
@@ -115,24 +165,13 @@ export async function buildTemplateBundle(templateName: string) {
   const apiPrompt = await buildStableApiPrompt(workflow);
   const groups = computeWorkflowGroups(workflow, apiPrompt);
   const primitiveFormFields = disambiguateFieldLabels(plan.fields, groups);
-  // Forward Easy-mode metadata so the VideoBuilder UI (and the same code
-  // path for future Image/Audio builders) has everything it needs in one
-  // round-trip: which modes are declared, their input requirements, the
-  // mute/switch config, and the prompt-enhance system prompt.
-  const tpl = templates.getUserTemplate(templateName);
-  const builderMeta = tpl
-    ? {
-        studioBuilder: tpl.studioBuilder,
-        title: tpl.title,
-        studioModes: tpl.studioModes,
-        promptEnhancer: tpl.promptEnhancer,
-        // Per-mode UI toggles. UI merges the `:` shared entry with the
-        // active mode's entry to decide which buttons to render in the
-        // prompt card. Server-side resolution lives in generate.routes.ts.
-        prompt_toggles: tpl.prompt_toggles,
-      }
-    : undefined;
-  return { settings, widgets, primitiveFormFields, apiPrompt, groups, builderMeta };
+  // builderMeta was resolved at the top so the Easy-mode short-circuit
+  // could use it; classic-path templates carry it too in case the Studio
+  // page ever surfaces builder-mode flags on a classic template. `presets`
+  // is forwarded for the same reason — classic templates almost never have
+  // presets today, but the field is always present so the client doesn't
+  // branch on its existence.
+  return { settings, widgets, primitiveFormFields, apiPrompt, groups, builderMeta, presets };
 }
 
 router.get('/workflow-settings/:templateName', async (req: Request, res: Response, next: NextFunction) => {
@@ -196,6 +235,49 @@ router.get('/template-api-prompt/:templateName', async (req: Request, res: Respo
     next(err instanceof Error ? err : new InternalError('Failed to build API prompt'));
   }
 });
+
+// Click-to-load endpoint for Easy-mode preset cards. Reads the per-preset
+// settings JSON the import hook wrote into
+// `<userTemplatesDir>/<parent>/<presetId>.json` and returns it verbatim so
+// the UI can fill the Builder form. The matching display card from the
+// `templates.template_presets` column rides along so the client doesn't
+// need a second lookup to render "now applying: <title>" feedback.
+router.get(
+  '/template-presets/:parent/:presetId',
+  (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parent = req.params.parent as string;
+      const presetId = req.params.presetId as string;
+      // safeResolve protects against traversal even though both segments
+      // came through express's `:param` matchers — defence in depth.
+      let abs: string;
+      try {
+        abs = safeResolve(paths.userTemplatesDir, parent, `${presetId}.json`);
+      } catch {
+        throw new NotFoundError('Preset path not allowed');
+      }
+      if (!fs.existsSync(abs)) {
+        throw new NotFoundError('Preset settings file not found');
+      }
+      let settings: unknown;
+      try {
+        settings = JSON.parse(fs.readFileSync(abs, 'utf8'));
+      } catch (parseErr) {
+        throw new InternalError(`Preset JSON malformed: ${
+          parseErr instanceof Error ? parseErr.message : String(parseErr)
+        }`);
+      }
+      // Card lookup is best-effort — missing card just means the column was
+      // cleared (soft-deleted parent) while the on-disk file lingered. We
+      // return the settings either way; the UI keeps working.
+      const cards = templatePresetsRepo.getPresets(parent);
+      const card = cards.find((c) => c.id === presetId) ?? null;
+      res.json({ id: presetId, parent, settings, card });
+    } catch (err) {
+      next(err instanceof Error ? err : new InternalError('preset load failed'));
+    }
+  },
+);
 
 // Save the user's selection of which widgets should appear in Advanced Settings for this template.
 router.put('/template-widgets/:templateName', (req: Request, res: Response, next: NextFunction) => {

@@ -18,6 +18,8 @@ export interface ModelFileRow {
   size: number;
   status: string;
   scanned_at: number;
+  /** SHA256 hex string (64 chars, lowercase). Null/undefined until Wave 3 hasher runs. */
+  sha256?: string | null;
 }
 
 function rowFromRecord(row: Record<string, unknown>): ModelFileRow {
@@ -30,6 +32,7 @@ function rowFromRecord(row: Record<string, unknown>): ModelFileRow {
     size: Number(row.size ?? 0),
     status: String(row.status),
     scanned_at: Number(row.scanned_at ?? 0),
+    sha256: row.sha256 != null ? String(row.sha256) : null,
   };
 }
 
@@ -88,6 +91,19 @@ export function findByDirAndName(
   return row ? rowFromRecord(row) : null;
 }
 
+/** Look up a row by its on-disk abs_path. abs_path is the table's de-facto
+ *  primary key (UPDATEs and DELETEs all use it) so this is the canonical
+ *  single-row lookup. */
+export function findByAbsPath(
+  absPath: string,
+  db: Database.Database = getDb(),
+): ModelFileRow | null {
+  const row = db.prepare(
+    'SELECT * FROM model_files WHERE abs_path = ? LIMIT 1',
+  ).get(absPath) as Record<string, unknown> | undefined;
+  return row ? rowFromRecord(row) : null;
+}
+
 export function listByFilename(
   filename: string,
   db: Database.Database = getDb(),
@@ -133,4 +149,63 @@ export function deleteScannedBefore(
 
 export function deleteAll(db: Database.Database = getDb()): void {
   db.prepare('DELETE FROM model_files').run();
+}
+
+/**
+ * Store a computed SHA256 for the given absolute path.
+ * The value must be a 64-char lowercase hex string.
+ * No-op when the row does not exist (stale reference from a deleted file).
+ */
+export function setSha256(
+  absPath: string,
+  sha256: string,
+  db: Database.Database = getDb(),
+): void {
+  db.prepare(
+    'UPDATE model_files SET sha256 = ? WHERE abs_path = ?',
+  ).run(sha256, absPath);
+}
+
+export interface MissingSha256Row {
+  abs_path: string;
+  filename: string;
+  size?: number;
+}
+
+/**
+ * List rows that have no sha256 yet, ordered by ascending size so the
+ * background hasher processes small files first. Used by Wave 3's hasher.
+ * @param limit - Maximum number of rows to return (default 100).
+ */
+export function listMissingSha256(
+  limit = 100,
+  db: Database.Database = getDb(),
+): MissingSha256Row[] {
+  const rows = db.prepare(
+    `SELECT abs_path, filename, size
+     FROM model_files
+     WHERE sha256 IS NULL
+     ORDER BY size ASC
+     LIMIT ?`,
+  ).all(limit) as Array<{ abs_path: string; filename: string; size: number | null }>;
+  return rows.map(r => ({
+    abs_path: r.abs_path,
+    filename: r.filename,
+    size: r.size ?? undefined,
+  }));
+}
+
+/**
+ * Look up model file rows by their SHA256 hash. Used by Wave 8's 5-tier
+ * on-disk resolver (Tier 1: hash-first match). The hash is normalised to
+ * lowercase before the query so callers need not pre-normalise.
+ */
+export function listBySha256(
+  sha256: string,
+  db: Database.Database = getDb(),
+): ModelFileRow[] {
+  const rows = db.prepare(
+    'SELECT * FROM model_files WHERE sha256 = ?',
+  ).all(sha256.toLowerCase()) as Record<string, unknown>[];
+  return rows.map(rowFromRecord);
 }

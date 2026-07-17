@@ -9,6 +9,7 @@ import { logger } from '../../lib/logger.js';
 import * as liveSettings from '../settings/network.js';
 import { hostIsPrivate, isHttpUrl } from '../../lib/security.js';
 import { getModelTrustedHosts } from '../settings/network.js';
+import { modelSaveDir } from './typeMap.js';
 
 // ── Catalog entry type ──────────────────────────────────────────────────────
 
@@ -32,15 +33,6 @@ export interface CatalogModelEntry {
 }
 
 // ── URL builders ─────────────────────────────────────────────────────────────
-
-export class NoDownloadSourceError extends Error {
-  modelName: string;
-  constructor(modelName: string) {
-    super(`No download URL available for ${modelName}. Add a URL in catalog or paste one manually.`);
-    this.name = 'NoDownloadSourceError';
-    this.modelName = modelName;
-  }
-}
 
 /**
  * Build the preferred download URL. Honours `source` (hf | mirror | cdn).
@@ -292,18 +284,10 @@ export function composeModelSaveDir(modelDir: string): string {
   return `models/${modelDir}`;
 }
 
-/** Models directory category -> subdir mapping (matches launcher exactly). */
+/** Models directory category -> subdir mapping. Delegates to typeMap so the
+ *  server and UI always share the same table. */
 export function getModelSaveDir(modelType: string): string {
-  switch (modelType) {
-    case 'checkpoint': return 'models/checkpoints';
-    case 'lora': return 'models/loras';
-    case 'vae': return 'models/vae';
-    case 'controlnet': return 'models/controlnet';
-    case 'upscaler': return 'models/upscale_models';
-    case 'embedding': return 'models/embeddings';
-    case 'inpaint': return 'models/inpaint';
-    default: return 'models/checkpoints';
-  }
+  return modelSaveDir(modelType);
 }
 
 /** Infer a model's category from its filename. Matches launcher. */

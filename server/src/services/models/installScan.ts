@@ -96,8 +96,13 @@ export async function scanDirectory(
   try {
     const files = await fs.promises.readdir(dir);
     for (const file of files) {
+      // Skip dot-directories (.cache, .git, etc.) — avoids symlink loops
+      // inside HF snapshot blobs and duplicate index entries (audit C6).
+      // Use lstat so we inspect the symlink itself, not its target.
+      if (file.startsWith('.')) continue;
       const fullPath = path.join(dir, file);
-      const stat = await fs.promises.stat(fullPath);
+      const stat = await fs.promises.lstat(fullPath);
+      if (stat.isSymbolicLink()) continue;
       if (stat.isDirectory()) {
         await scanDirectory(fullPath, result, rootForRelative);
         continue;

@@ -7,8 +7,11 @@
 import fs from 'fs';
 import path from 'path';
 import * as catalog from '../catalog/index.js';
+import { normalizeModelFilename } from '../models/identity.js';
+import { validateAllowedUrl } from '../models/downloadUrl.js';
 import { extractDepsWithPluginResolution } from './extractDepsAsync.js';
 import { extractDeps } from './depExtract.js';
+import type { ResolvedModel } from '../models/resolver/orchestrator.js';
 import * as modelFiles from '../../lib/db/modelFiles.repo.js';
 import { env } from '../../config/env.js';
 import type {
@@ -22,6 +25,24 @@ interface RepoEntryData {
   hfRepo: string;
   directory: string;
   description?: string;
+}
+
+/**
+ * Wave 8: One entry surfaced when a model filename maps to multiple on-disk
+ * files and could not be auto-resolved by sidecar disambiguation. The generate
+ * route returns these to the UI so the user can pick the correct copy and
+ * re-submit with `chosenResolutions`.
+ */
+export interface ChooserEntry {
+  nodeId: string;
+  widgetName: string;
+  filename: string;
+  candidates: Array<{
+    filename: string;
+    save_path: string;
+    abs_path: string;
+    base_model?: string;
+  }>;
 }
 
 export interface CollectedRequirements {
@@ -64,12 +85,17 @@ export function collectRequirements(
         continue;
       }
       if (url) {
-        catalog.upsertModel({
-          filename: name, name, type: dir || 'other',
-          save_path: dir || 'checkpoints', url,
-          description: raw.description as string | undefined,
-          source: `template:${templateName}`,
-        });
+        // Guard (audit G4): skip upsert when the URL fails SSRF/http validation
+        // so malformed template URLs cannot pollute the catalog.
+        const urlCheck = validateAllowedUrl(url);
+        if (urlCheck.ok) {
+          catalog.upsertModel({
+            filename: name, name, type: dir || 'other',
+            save_path: dir || 'checkpoints', url,
+            description: raw.description as string | undefined,
+            source: `template:${templateName}`,
+          });
+        }
       }
     }
   }
@@ -109,17 +135,6 @@ export async function fetchInstalledModels(): Promise<LauncherModelEntry[]> {
   }
 }
 
-export function installedNameSet(installedModels: LauncherModelEntry[]): Set<string> {
-  const installedSet = new Set<string>();
-  for (const m of installedModels) {
-    if (m.installed) {
-      installedSet.add(m.filename);
-      installedSet.add(m.name);
-    }
-  }
-  return installedSet;
-}
-
 export async function refreshStaleEntries(filenames: Set<string>): Promise<void> {
   const toRefresh = Array.from(filenames).filter(fn => {
     const entry = catalog.getModel(fn);
@@ -145,17 +160,33 @@ export function buildRequiredList(args: {
   templateDir: Map<string, string>;
   modelFolders: Record<string, string>;
   installedModels: LauncherModelEntry[];
-  installedSet: Set<string>;
   repoEntries: Map<string, RepoEntryData>;
-}): { required: RequiredModelInfo[]; missing: RequiredModelInfo[] } {
+  /** Wave 8 wire-in: the orchestrator's per-filename on-disk resolution map.
+   *  Key = the raw widget value as it appeared in the workflow (path-form or
+   *  basename). Hash + (top_dir, filename) + sidecar disambiguation are all
+   *  handled inside `resolveOnDiskPresence`; this map is the authoritative
+   *  "is it installed and where" answer. */
+  presenceResolutions: Map<string, ResolvedModel>;
+  /** Wave 8: Optional pre-computed chooser entries to pass through. */
+  chooserNeeded?: ChooserEntry[];
+}): { required: RequiredModelInfo[]; missing: RequiredModelInfo[]; chooserNeeded?: ChooserEntry[] } {
   const required: RequiredModelInfo[] = [];
   const missing: RequiredModelInfo[] = [];
+  // Normalize the orchestrator's map keys so Windows backslash paths (e.g.
+  // `flux1\ae.safetensors`) resolve against our forward-slash normalization.
+  const normalizedResolutions = new Map<string, ResolvedModel>();
+  for (const [key, val] of args.presenceResolutions) {
+    normalizedResolutions.set(normalizeModelFilename(key), val);
+  }
   // Dedup by basename: the same file can be declared in `properties.models[]`
   // by basename AND referenced by widget value as `subfolder/filename`
   // (ReActor pattern). Collapse to one entry; the path-form hits later in
   // the loop just refine the directory hint and skip re-emitting.
   const seenBasenames = new Set<string>();
-  for (const filename of args.requiredFilenames) {
+  for (let filename of args.requiredFilenames) {
+    // Normalize Windows backslash separators before deriving basename so that
+    // widget values like `flux1\ae.safetensors` split correctly.
+    filename = normalizeModelFilename(filename);
     const basename = filename.includes('/')
       ? (filename.split('/').pop() ?? filename)
       : filename;
@@ -170,21 +201,50 @@ export function buildRequiredList(args: {
         || m.filename === filename || m.name === filename,
     );
     const tooltipFolder = args.modelFolders[filename] ?? args.modelFolders[basename];
-    const directory = args.templateDir.get(filename)
+    // Prefer the orchestrator's resolved save_path: it's the authoritative
+    // on-disk folder when a presence hit exists, beating any
+    // template-declared / tooltip / catalog guess.
+    const presenceHit = normalizedResolutions.get(filename)
+      ?? normalizedResolutions.get(basename);
+    const directoryHint = args.templateDir.get(filename)
       || (tooltipFolder && subPath ? `${tooltipFolder}/${subPath}` : tooltipFolder)
       || cat?.save_path || scanEntry?.type || '';
-    let isInstalled = args.installedSet.has(basename) || args.installedSet.has(filename);
-    let diskSize: number | null = null;
-    if (!isInstalled) {
-      const hit = modelFiles.listByFilename(basename)[0]
-        ?? (directory ? modelFiles.findByDirAndName(directory, basename) : null)
-        ?? modelFiles.listByFilename(filename)[0]
-        ?? null;
-      if (hit && hit.status === 'complete') {
-        isInstalled = true;
-        diskSize = hit.size;
+    // Safety net for the orchestrator coverage gap. `resolveOnDiskPresence`
+    // walks `extractHashHints`, which only sees `widgets_values` strings;
+    // filenames declared purely in `properties.models[]` (i.e. template
+    // metadata that's never written into a widget) bypass the orchestrator
+    // entirely. Reuse the same tier ordering it uses — (top_dir, basename)
+    // first, then basename-unique — so we don't regress to the pre-Wave-8
+    // sloppy "first hit wins" behaviour.
+    let fallback: ResolvedModel | undefined;
+    if (!presenceHit) {
+      const exact = directoryHint
+        ? modelFiles.findByDirAndName(directoryHint, basename)
+        : null;
+      if (exact && exact.status === 'complete') {
+        fallback = {
+          filename: exact.filename,
+          save_path: exact.top_dir,
+          abs_path: exact.abs_path,
+          size: exact.size,
+        };
+      } else {
+        const rows = modelFiles.listByFilename(basename)
+          .filter((r) => r.status === 'complete');
+        if (rows.length === 1) {
+          fallback = {
+            filename: rows[0].filename,
+            save_path: rows[0].top_dir,
+            abs_path: rows[0].abs_path,
+            size: rows[0].size,
+          };
+        }
       }
     }
+    const hit = presenceHit ?? fallback;
+    const directory = hit?.save_path || directoryHint;
+    const isInstalled = !!hit;
+    const diskSize = hit?.size;
     const entry: RequiredModelInfo = {
       name: basename,
       url: cat?.url || '',
@@ -210,5 +270,5 @@ export function buildRequiredList(args: {
     required.push(info);
     if (!installed) missing.push(info);
   }
-  return { required, missing };
+  return { required, missing, chooserNeeded: args.chooserNeeded };
 }

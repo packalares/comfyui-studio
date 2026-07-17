@@ -1,0 +1,117 @@
+{
+  "$schema": "../profile.schema.json",
+  "id": "qwen_image_studio",
+  "version": 1,
+  "name": "Qwen Image 2512 — Studio variant",
+  "description": "Qwen Image 2512 — Alibaba's dense-prose t2i model. Trained natively at 1328²/1664² and rewards 200-400 word descriptions structured as subject → composition → style → atmosphere. Studio-tuned variant of EricRollei's qwen_image config with hand-written examples and explicit structure guidance. Targets Studio's t2i_qwen_2512 mode.",
+  "applies_to": ["t2i_qwen_2512"],
+  "language_target": "english",
+
+  "format": "dense_structured",
+  "prompt_style": "dense_natural",
+  "max_words": 280,
+  "min_word_floor": 200,
+  "length_guidance": "Aim for 220-280 words structured as subject → composition → style → atmosphere. Qwen Image rewards length and density more than Flux.",
+  "detail_expectation": "Layered descriptive prose covering subject + environment + composition + colour palette + light direction + mood. Cultural specificity (Eastern or Western) lands well.",
+  "default_length_tier": "detailed",
+
+  "preferences": [
+    "Natural conversational prose — Qwen Image is bilingual and culturally aware",
+    "Structure the description: SUBJECT first, then COMPOSITION, then STYLE, then ATMOSPHERE",
+    "Specify lighting direction and quality concretely ('cold morning side-light', 'warm tungsten fill')",
+    "Cultural and historical references work well: 'Tang Dynasty silk painting', 'Wong Kar-wai style', 'Studio Ghibli colour palette'",
+    "Mention medium when relevant ('oil painting', 'tempera', 'film photograph', 'digital matte painting')",
+    "Colour palette descriptions are first-class ('muted ochre and slate-blue', 'high-key pastel')",
+    "Aspect-ratio-appropriate framing: name 'portrait orientation' or 'cinematic widescreen' when it matters"
+  ],
+
+  "quality_tokens": [
+    "high quality", "detailed", "professional", "beautiful",
+    "intricate", "refined", "elegant"
+  ],
+  "quality_emphasis": true,
+
+  "avoid": [
+    "Overly formal English ('the aforementioned subject', 'henceforth')",
+    "Excessive technical jargon stacked without context",
+    "Platform-specific keywords from other models ('score_9', 'masterpiece' alone, danbooru tag syntax)",
+    "Repeating the same adjective without adding new information",
+    "Brevity — fewer than 180 words underuses Qwen's capacity"
+  ],
+
+  "required_positive": [],
+  "negative_prompt_default": "low quality, blurry, distorted, artifacts, bad anatomy",
+  "supports_negative_prompt": false,
+
+  "platform_block": "QWEN IMAGE 2512 INSTRUCTIONS:\n- Output is ONE flowing paragraph of dense natural-language prose, 200-280 words.\n- Structure: SUBJECT (who/what + action) → COMPOSITION (framing, vantage, depth) → STYLE (medium, artist or film reference) → ATMOSPHERE (lighting direction, weather, mood, colour palette).\n- Qwen Image is fluent in both Eastern and Western aesthetics — quote artists, dynasties, film directors, or cultural movements freely.\n- Name the lighting direction and quality explicitly ('soft late-afternoon light from camera-right', 'cold north-facing window light').\n- Describe the colour palette in concrete terms (Pantone-style: 'muted ochre, slate-blue, charcoal' beats 'warm and cool').\n- Native training resolutions are 1328² standard and 1664² HD. Composition cues that fit a square or near-square frame land well.\n- Do NOT use comma-tag dumps, danbooru syntax, or 'score_X' tokens — Qwen Image is not trained on those.",
+
+  "examples": [
+    {
+      "label": "portrait_cultural",
+      "user_input": "tea ceremony",
+      "ideal_output": "A young woman in a moon-white kimono performs a quiet tea ceremony in a traditional Kyoto tea room, kneeling on a tatami mat before a cast-iron kettle. Her hands move with the deliberate precision of years of training, lifting a black raku chawan into the dappled light filtering through the rice-paper shoji screen. Composition: low three-quarter vantage that places her hands and the bowl in the foreground, with the soft blur of a hanging scroll and a single ikebana arrangement behind. Style reminiscent of a Hashimoto Okiie woodblock print crossed with a Wong Kar-wai cinematic still — quiet, contemplative, formally composed. The light is cool and indirect, the colour palette muted: cream and bone for the kimono, dark walnut for the wooden floor, oxidised iron grey for the kettle, a single accent of vermilion in the scroll's hanko. Atmosphere is hushed, ritualistic, almost reverential — steam rising from the kettle drifts in slow motion through a single shaft of pale winter light."
+    },
+    {
+      "label": "landscape_atmospheric",
+      "user_input": "mountain temple at dawn",
+      "ideal_output": "A weathered Buddhist mountain temple perched on a granite outcrop above a sea of cloud at the first moment of dawn, the tiered pagoda's wooden eaves catching the cold pink alpenglow. The composition is a sweeping wide shot from a slightly elevated vantage, the temple offset to the right third, with cloud filling the foreground and distant peaks emerging in receding washes of grey-blue. The style draws from Song Dynasty ink-wash landscape painting reimagined as cinematic photography — atmospheric, vast in scale, intimate in the temple's quiet detail. The light is the cold rose-gold of high altitude sunrise, casting long horizontal shadows across the courtyard. Colour palette: ink-blue cloud, weathered cedar gold, slate stone, a single thread of crimson banner snapping in the wind. The atmosphere is mythic, still, slightly mournful — the first temple bell is about to ring."
+    },
+    {
+      "label": "interior_storytelling",
+      "user_input": "old bookshop",
+      "ideal_output": "An old second-hand bookshop on a rainy autumn afternoon in central London, photographed from a low three-quarter angle that draws the eye down a narrow aisle of teetering wooden shelves crammed with leather-spined volumes. A grey cat curls on a stack of art monographs in the foreground; deeper in the shop, an elderly proprietor adjusts his glasses under a single brass desk lamp, surrounded by the warm amber glow of stained-glass bankers' lamps. Composition uses converging perspective lines to pull the viewer into the depth of the shop. Style references the painterly photographic work of Saul Leiter — soft colour saturation, gentle film grain, occasional pools of warm light against the cool blue rainlight from the window. Colour palette: leather brown, dust-jacket cream, tobacco amber, a single accent of cobalt from a Penguin Classic spine. Atmosphere is bookish, slightly melancholic, almost reverential — the hush of accumulated knowledge."
+    },
+    {
+      "label": "character_action",
+      "user_input": "samurai under cherry blossoms",
+      "ideal_output": "A lone samurai stands in the centre of an ancient cherry-blossom grove at the peak moment of bloom, her hand resting lightly on the hilt of her wakizashi as petals drift past her shoulders like slow pink snow. Composition: medium-wide shot from a slightly low vantage, the canopy of blossoms forming a soft pink-and-white frame above her, the grove's stone path leading the eye into bokeh behind. Her armour is lacquered black with crimson lacing, weathered but immaculate; the helmet's neck guards catch the diffuse afternoon light. Style references a Hokusai woodblock print modernised through Wes Anderson's symmetrical staging and Akira Kurosawa's painterly mid-shots. The light is soft and overcast, almost cloud-light — colour palette of pale petal pink, deep lacquer black, oxidised iron grey, fresh moss green. Atmosphere is suspended, suspended in time — a moment before motion, the quiet space between breath and intention."
+    },
+    {
+      "label": "abstract_concept",
+      "user_input": "the colour blue",
+      "ideal_output": "An evocative still life arranged across a long stretch of pale cyanotype paper, exploring the entire emotional spectrum of blue. From foreground to background: a chipped Persian cobalt teacup steaming with tea, a vase of dried hydrangea heads in faded periwinkle, a single ultramarine pigment cake from a 19th-century watercolour set, an antique bottle of ink labelled 'Quink Indigo', a hand-thrown ceramic raku bowl with a tenmoku navy glaze, and at the far edge a folded silk fabric the precise blue-green of a glacial crevasse. Composition: medium-wide overhead documentary angle, even soft light from a north-facing window, evenly distributed across the spread. Style draws from a Wolfgang Tillmans still life crossed with a Vermeer's quiet luminance. Colour palette: every gradation of blue from ice to abyssal, anchored only by a single neutral linen tablecloth. Atmosphere is meditative, archival, slightly philosophical — a quiet study in how a single colour holds so much accumulated meaning."
+    }
+  ],
+
+  "few_shot_intro": "Example transformations of a user idea into a Qwen Image 2512 dense-prose prompt:",
+
+  "user_message_schema_hint": "The user message arrives as JSON: { raw_idea, target_model, source_image_count, aspect_ratio, camera_details?, references? }. Native Qwen Image resolutions are 1328² (standard) and 1664² (HD); the aspect_ratio field carries the user's chosen orientation. Weave camera_details (lens, aperture, film_or_sensor) into the COMPOSITION or STYLE section; do not list them as settings.",
+
+  "operation_overrides": {
+    "expand": {
+      "length_guidance": "220-280 words. Build a full subject → composition → style → atmosphere description from a 1-5 word seed."
+    },
+    "refine": {
+      "length_guidance": "Polish to the structured shape: ensure all 4 sections (subject, composition, style, atmosphere) are present. Add what's missing; tighten what's verbose.",
+      "max_words": 320
+    },
+    "restyle": {
+      "length_guidance": "Keep subject and composition. Change only the style and atmosphere sections — different medium, era, colour palette, mood.",
+      "min_word_floor": 200
+    },
+    "enrich": {
+      "length_guidance": "Add ONE specific layer to a thin draft — usually the missing section (often style or atmosphere)."
+    }
+  },
+
+  "model_routing": {
+    "preferred_llm": "qwen2.5:7b",
+    "preferred_vlm": "qwen2.5vl:7b",
+    "prefer_vlm_when_images_attached": false,
+    "sampling": {
+      "temperature": 0.7,
+      "top_p": 0.92,
+      "num_predict": 480
+    }
+  },
+
+  "provenance": {
+    "primary_sources": [
+      "https://huggingface.co/Qwen/Qwen-Image",
+      "https://github.com/QwenLM/Qwen-Image",
+      "https://github.com/EricRollei/Local_LLM_Prompt_Enhancer/blob/main/platforms.py"
+    ],
+    "borrowed_from": ["EricRollei/Local_LLM_Prompt_Enhancer qwen_image config"],
+    "notes": "Borrows EricRollei's qwen_image config (preferences, quality_tokens, avoid, length_guidance) but adds (a) hand-written 4-section structure (subject/composition/style/atmosphere), (b) 5 hand-written examples emphasising cultural and bilingual aesthetic awareness, (c) native resolution hints (1328²/1664²) in the platform_block. Examples are original."
+  }
+}

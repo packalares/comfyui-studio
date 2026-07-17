@@ -1,0 +1,33 @@
+{
+  "$schema": "./genres.schema.json",
+  "description": "Genre / style modifier dictionary. Verbatim from EricRollei/Local_LLM_Prompt_Enhancer/text_to_image_node.py (genre_guidance map).",
+  "provenance": "https://github.com/EricRollei/Local_LLM_Prompt_Enhancer/blob/main/text_to_image_node.py",
+  "genres": {
+    "surreal": "dreamlike, unexpected juxtapositions, reality-bending elements",
+    "cinematic": "film-like quality, dramatic lighting, professional composition",
+    "dramatic": "high contrast, emotional intensity, dynamic tension",
+    "action": "dynamic motion, energy, movement, intensity",
+    "humorous": "playful, whimsical, lighthearted, amusing elements",
+    "indie": "artistic, unconventional, creative freedom, unique perspective",
+    "horror": "dark atmosphere, ominous mood, eerie elements, tension",
+    "scifi": "futuristic, technology, otherworldly, advanced elements",
+    "romantic": "soft, intimate, emotional warmth, tender mood",
+    "x-rated": "mature themes, adult content, sensual elements",
+    "pg": "family-friendly, clean, wholesome, appropriate for all ages",
+    "artistic": "creative interpretation, aesthetic focus, expressive",
+    "documentary": "realistic, authentic, unposed, natural",
+    "minimalist": "simple, clean, essential elements only, negative space",
+    "maximalist": "rich details, complex, layered, ornate",
+    "vintage": "classic, retro, aged aesthetic, nostalgic feel",
+    "modern": "contemporary, current, sleek, clean lines",
+    "fantasy": "magical, mythical, imaginative, enchanted",
+    "noir": "dark, moody, high contrast shadows, mystery",
+    "cyberpunk": "neon, futuristic dystopia, tech, gritty urban",
+    "steampunk": "retro-futuristic contraptions, brass machinery, victorian flair",
+    "dieselpunk": "industrial grit, roaring engines, interwar aesthetics",
+    "mythic": "legendary scale, archetypal symbolism, timeless myth",
+    "gothic": "dramatic architecture, chiaroscuro mood, romantic darkness",
+    "art deco": "sleek geometry, metallic sheen, roaring twenties glamour",
+    "retro futurism": "optimistic vintage sci-fi, bold colors, nostalgic futurism"
+  }
+}

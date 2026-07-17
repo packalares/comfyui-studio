@@ -14,7 +14,7 @@ import {
   _simulateMessageForTests,
   _listenerCountForTests,
   _removeAllListenersForTests,
-} from '../../src/services/videoboard/comfyJobBridge.js';
+} from '../../src/services/comfyui/jobBridge.js';
 
 afterEach(() => {
   _removeAllListenersForTests();

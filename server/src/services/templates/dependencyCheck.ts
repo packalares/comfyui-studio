@@ -24,16 +24,21 @@ import {
   collectRequirements,
   refreshStaleEntries,
   fetchInstalledModels,
-  installedNameSet,
   collectModelFolders,
   buildRequiredList,
+  type ChooserEntry,
 } from './dependencyCheck.models.js';
 import { buildPluginRequirementList } from './dependencyCheck.plugins.js';
+import { resolveOnDiskPresence } from '../models/resolver/orchestrator.js';
 
 export interface DependencyCheckResult {
   ready: boolean;
   required: RequiredItem[];
   missing: RequiredItem[];
+  /** Wave 8: filenames that matched multiple on-disk candidates and could
+   *  not be auto-disambiguated. The generate route surfaces these to the
+   *  UI's chooser; an empty/absent array means everything resolved cleanly. */
+  chooserNeeded?: ChooserEntry[];
 }
 
 export async function fetchTemplateWorkflow(
@@ -85,11 +90,17 @@ async function computeTemplateDependencies(
     collectRequirements(workflow, allNodes, templateName);
   await refreshStaleEntries(requiredFilenames);
   const installedModels = await fetchInstalledModels();
-  const installedSet = installedNameSet(installedModels);
   const modelFolders = await collectModelFolders(workflow);
-  const { required: modelsReq, missing: modelsMissing } = buildRequiredList({
+  // Wave 8 wire-in: the orchestrator walks the workflow, applies
+  // hash → (folder, name) → basename → sidecar disambiguation, and produces
+  // an authoritative "is each filename on disk" map plus a chooser list for
+  // truly ambiguous basenames.
+  const presence = await resolveOnDiskPresence(workflow);
+  const { required: modelsReq, missing: modelsMissing, chooserNeeded } = buildRequiredList({
     requiredFilenames, templateDir, modelFolders,
-    installedModels, installedSet, repoEntries,
+    installedModels, repoEntries,
+    presenceResolutions: presence.resolutions,
+    chooserNeeded: presence.chooserNeeded,
   });
   // Stamp the `kind` discriminator so the UI's union type can route models
   // vs plugins to the right renderer in a single `missing[]` list.
@@ -101,7 +112,7 @@ async function computeTemplateDependencies(
     await buildPluginRequirementList(workflow);
   const required: RequiredItem[] = [...stampedModelsReq, ...pluginsReq];
   const missing: RequiredItem[] = [...stampedModelsMissing, ...pluginsMissing];
-  return { ready: missing.length === 0, required, missing };
+  return { ready: missing.length === 0, required, missing, chooserNeeded };
 }
 
 /**

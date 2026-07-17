@@ -9,7 +9,7 @@ import { catalogRoutes } from '../contracts/catalog.contract.js';
 // ---- GET /models/catalog ----
 
 export const catalogListRoute = defineRoute(catalogRoutes.list, async (ctx) => {
-  const { page, pageSize = 100, q, type, installed } = ctx.query;
+  const { page, pageSize = 100, q, type, installed, filenames } = ctx.query;
   const all = await catalog.getMergedModels();
 
   if (page === undefined) {
@@ -23,6 +23,17 @@ export const catalogListRoute = defineRoute(catalogRoutes.list, async (ctx) => {
   if (type) {
     const typeFilter = new Set(type.split(',').map((s) => s.trim()).filter(Boolean));
     if (typeFilter.size > 0) rows = rows.filter((m) => typeFilter.has(m.type || 'other'));
+  }
+
+  if (filenames) {
+    // Template-driven filter: narrow to catalog rows whose `filename` or
+    // `name` matches one of the basenames the workflow needs. Both fields
+    // are checked because catalog rows may key by either depending on
+    // import path (template seed vs scan vs manual upsert).
+    const wanted = new Set(filenames.split(',').map((s) => s.trim()).filter(Boolean));
+    if (wanted.size > 0) {
+      rows = rows.filter((m) => wanted.has(m.filename) || wanted.has(m.name));
+    }
   }
 
   if (q) {

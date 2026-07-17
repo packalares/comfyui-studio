@@ -22,6 +22,7 @@
 import * as catalog from '../catalog/index.js';
 import { canonicalizeSync } from '../catalog/canonicalize.js';
 import { folderForLoaderClass } from '../workflow/loaderFolders.js';
+import { normalizeModelFilename } from '../models/identity.js';
 import { logger } from '../../lib/logger.js';
 import { env, autoResolveSearchEnabled } from '../../config/env.js';
 import { resolveHuggingfaceUrl, type ResolvedModel } from '../models/resolvers.js';
@@ -76,7 +77,7 @@ function stepCatalog(filename: string, loaderClass?: string): AutoResolvedModel 
   // `flux1\ae.safetensors` (backslash separator). Normalize before any path
   // inspection so the `.includes('/')` branch below and the bare-filename
   // fallback both see a canonical forward-slash form.
-  filename = filename.replace(/\\/g, '/');
+  filename = normalizeModelFilename(filename);
   // Symmetric lookup: upsertModel canonicalizes the entry on write, splitting
   // `Flux1Dev/super-realism.safetensors` into `(filename: super-realism.safetensors,
   // save_path: loras/Flux1Dev)`. If we look up by the workflow's declared path-

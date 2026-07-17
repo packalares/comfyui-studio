@@ -57,6 +57,21 @@
     to   { background-position: 0%   center; }
   }
 
+  /* `live-grain` keyframe used by the PromptComposer-adjacent live-VAE
+     preview overlay. The CLASS itself can't live inside `@theme` — Tailwind
+     v4 only allows custom properties or `@keyframes` here — so the class
+     definition has been moved to the `@layer components` block at the
+     bottom of this file. */
+  @keyframes live-grain {
+    0%   { background-position:   0px    0px; }
+    16%  { background-position: -80px   40px; }
+    33%  { background-position:  60px  -50px; }
+    50%  { background-position: -30px  -90px; }
+    66%  { background-position:  90px   70px; }
+    83%  { background-position: -70px  -20px; }
+    100% { background-position:   0px    0px; }
+  }
+
   /* Radix <Collapsible> open/close height transition. Used by the sidebar
      submenu groups (Models → Comfy / Ollama). Radix exposes the measured
      content height via `--radix-collapsible-content-height` so CSS can
@@ -738,6 +753,78 @@
   .wf-viewtoggle              { @apply flex items-center gap-0.5 rounded-full border border-border bg-card/95 p-0.5 text-[11px] shadow-sm backdrop-blur; }
   .wf-viewtoggle-btn          { @apply rounded-full px-2.5 py-1 text-muted-foreground transition-colors hover:text-foreground; }
   .wf-viewtoggle-btn.is-active { @apply bg-muted font-medium text-foreground; }
+
+  /* ===== PromptComposer =====
+     ContentEditable prompt field with inline chips + mention pills. Each
+     class composes design tokens; no hard-coded RGB/HSL anywhere. Components
+     should reference these classes, not re-derive the same chains inline. */
+
+  /* The editable surface itself. Looks identical to the textarea it
+     replaces — same border, padding, type scale — but the cursor jumps
+     across chips as opaque widgets. */
+  .prompt-composer {
+    @apply min-h-[6rem] max-h-72 w-full overflow-y-auto rounded-lg
+           bg-transparent px-3 py-2 text-base leading-relaxed
+           whitespace-pre-wrap break-words outline-none
+           md:text-sm;
+    /* Hide the scroll track but keep the content scrollable — keeps the
+       composer visually clean even when long prompts overflow. Firefox uses
+       `scrollbar-width`; WebKit/Blink hide via the pseudo-element. */
+    scrollbar-width: none;
+  }
+  .prompt-composer::-webkit-scrollbar { display: none; }
+  .prompt-composer:empty::before {
+    content: attr(data-placeholder);
+    @apply text-muted-foreground pointer-events-none;
+  }
+
+  /* Inline chip rendered at every `{…|…}` or `@name` token position.
+     Compact pill, brand-tinted, hosts a trailing chevron via the SVG in
+     the composer's `segmentsToHTML`. */
+  .prompt-chip {
+    @apply inline-flex items-center gap-0.5 rounded-md px-1.5 py-0 mx-0.5
+           align-baseline border border-brand/40 bg-brand/10 text-brand
+           font-medium text-[0.95em] leading-tight select-none
+           transition-colors cursor-pointer
+           hover:bg-brand/20 hover:border-brand/60;
+  }
+
+  /* `@reference1` etc — clickable; opens a popover with the other refs. */
+  .prompt-mention {
+    @apply rounded bg-brand/20 px-0.5 mx-0 font-medium text-brand select-none cursor-pointer
+           transition-colors hover:bg-brand/30;
+  }
+
+  /* Floating mention picker, positioned at the caret in viewport coords.
+     `position: fixed` puts it above any sibling stacking context so it
+     can't get buried behind the right-panel preset grid. */
+  .prompt-picker {
+    @apply fixed z-50 w-[280px] rounded-md border bg-popover text-popover-foreground shadow-md p-1;
+  }
+  .prompt-picker-header {
+    @apply flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground border-b mb-1;
+  }
+  .prompt-picker-list {
+    @apply flex flex-col gap-0.5 max-h-[240px] overflow-y-auto;
+  }
+  .prompt-picker-item {
+    @apply flex items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-xs cursor-pointer
+           hover:bg-muted
+           data-[active=true]:bg-brand/15 data-[active=true]:text-brand data-[active=true]:font-semibold;
+  }
+  .prompt-picker-item-label {
+    @apply text-[10px] text-muted-foreground truncate;
+  }
+
+  /* Live VAE preview "alive pixels" grain. Tiled fractal-noise SVG
+     overlaid via mix-blend-overlay on the TAESD frame so the static
+     low-res preview reads as actively-resolving pixels. Keyframe lives
+     up in the `@theme` block — Tailwind v4 hosts custom @keyframes there. */
+  .live-grain {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+    background-size: 200px 200px;
+    animation: live-grain 0.6s steps(6) infinite;
+  }
 }
 
 /* Custom scrollbar */

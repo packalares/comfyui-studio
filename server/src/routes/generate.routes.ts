@@ -23,9 +23,10 @@ import {
   applyProxyOverrides,
   splitAdvancedSettings,
 } from '../services/templates/advancedSettings.js';
-import { getBridgeClientId, trackComfyPrompt } from '../services/videoboard/comfyJobBridge.js';
+import { getBridgeClientId, trackComfyPrompt } from '../services/comfyui/jobBridge.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { GenerateBodySchema, GenerateResponseSchema } from '../contracts/generate.contract.js';
+import { checkTemplateDependencies } from '../services/templates/dependencyCheck.js';
 import { submitGpuJob } from '../services/gpu/scheduler.js';
 import { buildJobUrls } from '../services/jobs/urls.js';
 
@@ -63,11 +64,31 @@ const generateRoute = defineRoute({
   tags: ['generate'],
   summary: 'Submit a workflow prompt to ComfyUI',
 }, async ({ body, ok }) => {
-  const { templateName, inputs: userInputs, advancedSettings, mode: bodyMode } = body;
+  const { templateName, inputs: userInputs, advancedSettings, mode: bodyMode, skipDepCheck } = body;
   let mode = bodyMode;
 
   const workflow = templates.getUserWorkflowJson(templateName);
   if (!workflow) throw new NotFoundError('Workflow file missing or unreadable');
+
+  // Pre-check model dependencies before burning a GPU slot. Missing models
+  // would fail inside ComfyUI with a cryptic node error instead of a clean 400.
+  // Callers can pass skipDepCheck=true for admin debugging.
+  if (!skipDepCheck) {
+    const depResult = await checkTemplateDependencies(templateName);
+    if (!depResult.ready) {
+      const missingModels = depResult.missing
+        .filter((m) => m.kind === 'model')
+        .map((m) => (m as { filename?: string; name?: string }).filename ?? (m as { name?: string }).name ?? String(m));
+      if (missingModels.length > 0) {
+        throw new ValidationError('Missing required models', { missingModels });
+      }
+    }
+    // Wave 8: Surface ambiguous on-disk candidates to the UI for user selection.
+    const chooserNeeded = depResult.chooserNeeded ?? [];
+    if (chooserNeeded.length > 0 && !body.chosenResolutions) {
+      throw new ValidationError('Model selection required', { chooserNeeded });
+    }
+  }
 
   const templateHash = createHash('sha1')
     .update(JSON.stringify(workflow))
@@ -110,6 +131,18 @@ const generateRoute = defineRoute({
   };
   const mergedFormInputs = generateFormInputs(rawForBindings, workflow, objectInfo);
 
+  // ---- Reserved Studio inputs ----
+  // The mode string lands in `body.mode` (not `body.inputs`), so the
+  // rename pass below would never see it. Templates that want to route
+  // the active mode into a workflow node — e.g. a `StudioSwitchCase`'s
+  // `condition` widget that fans out the mode to a per-model filename —
+  // bind it via `studioInputMap["_studio_mode"]`. We inject it under the
+  // underscore-prefixed key so it can't clobber a real user-input named
+  // `mode` (no template uses one today, but the prefix is cheap insurance).
+  if (mode && !('_studio_mode' in userInputs)) {
+    (userInputs as Record<string, unknown>)._studio_mode = mode;
+  }
+
   // ---- Easy-mode input-key rename ----
   // VideoBuilder (and future Image/Audio builders) send semantic keys like
   // `image` / `audio` / `lastFrame`. The template's form-input generator
@@ -126,11 +159,28 @@ const generateRoute = defineRoute({
   const renameMap = (shared || perMode)
     ? { ...(shared ?? {}), ...(perMode ?? {}) }
     : null;
-  const finalInputs = renameMap
+  const finalInputs: Record<string, unknown> = renameMap
     ? Object.fromEntries(Object.entries(userInputs).map(
         ([k, v]) => [renameMap[k] ?? k, v],
       ))
-    : userInputs;
+    : { ...userInputs };
+
+  // ---- `images` array → refs_json string transform ----
+  // ImageBuilder ships `images: string[]` (a list of `<subfolder>/<filename>`
+  // refs). Templates that wire `studioInputMap.images` to a STRING widget —
+  // typically a PrimitiveStringMultiline feeding a SetNode broadcast to
+  // `StudioFluxKontextRefChain.refs_json` — need the array reshaped into the
+  // node's expected JSON shape (`[{image: "<path>"}, ...]`) and serialized
+  // BEFORE it reaches the api-prompt widget write. Otherwise the node
+  // receives a Python list and errors with `'list' object has no attribute
+  // 'strip'`. Idempotent: only fires when the value is still an array.
+  for (const key of Object.keys(finalInputs)) {
+    if (!key.includes(':')) continue; // skip form-input ids; only direct-write `<nodeId>:<widget>` targets
+    const v = finalInputs[key];
+    if (!Array.isArray(v)) continue;
+    if (!v.every((x) => typeof x === 'string')) continue;
+    finalInputs[key] = JSON.stringify(v.map((image) => ({ image })));
+  }
 
   // ---- Title-search fallback for unmapped boolean inputs ----
   // Single-path routing: studioInputMap above is the EXPLICIT pointer; for
@@ -182,8 +232,18 @@ const generateRoute = defineRoute({
     // apiPrompt enforcement below, so they compose cleanly: a template can
     // use `enableGroups` to mute whole subgraphs by group AND keep a small
     // `mute: [id]` list for surgical per-node disables in the active group.
+    // Template-level "always-active" group list (e.g. shared "Settings",
+    // "Sampler", "VAEDecode" sections kept alive across every mode). FGM
+    // also treats any group whose title starts with `_` or `~` as
+    // always-active without needing to register it here.
+    const alwaysActiveGroups: string[] = Array.isArray(
+      (template as { studioAlwaysActiveGroups?: unknown }).studioAlwaysActiveGroups,
+    )
+      ? ((template as { studioAlwaysActiveGroups?: string[] }).studioAlwaysActiveGroups ?? [])
+        .filter((g): g is string => typeof g === 'string')
+      : [];
     const fgmMutes = mode
-      ? computeFgmMutedNodes(workflow, mode, modeConfig)
+      ? computeFgmMutedNodes(workflow, mode, modeConfig, alwaysActiveGroups)
       : [];
     const explicitMutes = Array.isArray(modeConfig.mute) ? modeConfig.mute : [];
     const combinedMutes: Array<number | string> =

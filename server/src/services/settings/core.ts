@@ -1,5 +1,5 @@
 import { _loadInternal, _saveInternal } from './store.js';
-import { DEFAULT_OLLAMA_URL, DEFAULT_CHAT_KEEP_ALIVE } from './store.js';
+import { DEFAULT_OLLAMA_URL, DEFAULT_CHAT_KEEP_ALIVE, DEFAULT_NSFW_BLUR_LEVEL } from './store.js';
 import { stripTrailingSlash } from '../../lib/url.js';
 
 export function getApiKey(): string | undefined {
@@ -145,5 +145,20 @@ export function getDefaultContextStrategy(): 'sliding' | 'auto' {
 export function setDefaultContextStrategy(value: 'sliding' | 'auto'): void {
   if (!VALID_CONTEXT_STRATEGIES.includes(value)) return;
   _saveInternal({ ..._loadInternal(), defaultContextStrategy: value });
+}
+
+/**
+ * NSFW blur threshold: images at or above this level are blurred in the UI.
+ * 0 = blur all NSFW, 1 = PG13 (default), 2 = R, 3 = X, 4 = never blur.
+ */
+export function getNsfwBlurLevel(): number {
+  const v = _loadInternal().nsfwBlurLevel;
+  if (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 4) return v;
+  return DEFAULT_NSFW_BLUR_LEVEL;
+}
+
+export function setNsfwBlurLevel(level: number): void {
+  if (!Number.isInteger(level) || level < 0 || level > 4) return;
+  _saveInternal({ ..._loadInternal(), nsfwBlurLevel: level });
 }
 

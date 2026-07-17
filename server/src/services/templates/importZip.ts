@@ -57,8 +57,10 @@ interface EntryDefaults {
   defaultStudioBuilder?: string;
   defaultStudioModes?: Record<string, unknown>;
   defaultStudioInputMap?: Record<string, string>;
+  defaultStudioAlwaysActiveGroups?: string[];
   defaultPromptEnhancer?: Record<string, unknown>;
   defaultPromptToggles?: Record<string, Record<string, string>>;
+  defaultTemplatePresets?: Array<Record<string, unknown>>;
 }
 async function entryToWorkflow(
   name: string, workflow: Record<string, unknown>, size: number,
@@ -85,8 +87,10 @@ async function entryToWorkflow(
     studioBuilder: defaults?.defaultStudioBuilder,
     studioModes: defaults?.defaultStudioModes,
     studioInputMap: defaults?.defaultStudioInputMap,
+    studioAlwaysActiveGroups: defaults?.defaultStudioAlwaysActiveGroups,
     promptEnhancer: defaults?.defaultPromptEnhancer,
     prompt_toggles: defaults?.defaultPromptToggles,
+    template_presets: defaults?.defaultTemplatePresets,
   };
 }
 
@@ -168,8 +172,10 @@ export interface StageFromJsonOptions {
   defaultStudioBuilder?: string;
   defaultStudioModes?: Record<string, unknown>;
   defaultStudioInputMap?: Record<string, string>;
+  defaultStudioAlwaysActiveGroups?: string[];
   defaultPromptEnhancer?: Record<string, unknown>;
   defaultPromptToggles?: Record<string, Record<string, string>>;
+  defaultTemplatePresets?: Array<Record<string, unknown>>;
 }
 
 /** Stage a single JSON workflow (single-file upload or paste). */
@@ -188,8 +194,10 @@ export async function stageFromJson(
     defaultStudioBuilder: opts.defaultStudioBuilder,
     defaultStudioModes: opts.defaultStudioModes,
     defaultStudioInputMap: opts.defaultStudioInputMap,
+    defaultStudioAlwaysActiveGroups: opts.defaultStudioAlwaysActiveGroups,
     defaultPromptEnhancer: opts.defaultPromptEnhancer,
     defaultPromptToggles: opts.defaultPromptToggles,
+    defaultTemplatePresets: opts.defaultTemplatePresets,
   });
 
   const staged = newStagedImport(opts.source, opts.sourceUrl);

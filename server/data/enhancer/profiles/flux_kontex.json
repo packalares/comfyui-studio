@@ -1,0 +1,66 @@
+{
+  "$schema": "../profile.schema.json",
+  "id": "flux_kontex",
+  "version": 1,
+  "name": "Flux Kontex",
+  "description": "Black Forest Labs - Context-aware variant built for extra-long descriptive prompts Ported verbatim from EricRollei/Local_LLM_Prompt_Enhancer.",
+  "applies_to": [],
+  "language_target": "english",
+  "format": "natural_detailed",
+  "prompt_style": "natural_detailed",
+  "max_words": 220,
+  "min_word_floor": 165,
+  "length_guidance": "Push toward 220+ words with exhaustive scene breakdowns and cross-subject relationships.",
+  "detail_expectation": "Stack contextual storytelling, environmental cues, and emotional subtext for every subject.",
+  "default_length_tier": "moderate",
+  "preferences": [
+    "Deep environmental storytelling",
+    "Precise lighting and atmosphere descriptions",
+    "Detailed character motivations and actions",
+    "Layered color grading references",
+    "Artistic nods and medium descriptors"
+  ],
+  "quality_tokens": [
+    "masterpiece",
+    "best quality",
+    "ultra detailed",
+    "hyper realistic",
+    "award-winning",
+    "cinematic lighting",
+    "8k uhd",
+    "immersive"
+  ],
+  "quality_emphasis": false,
+  "avoid": [
+    "Short, generic summaries",
+    "Sparse descriptions lacking context",
+    "Repeating the same adjective without adding information"
+  ],
+  "required_positive": [],
+  "negative_prompt_default": "blurry, low quality, distorted, deformed, ugly, bad anatomy, watermark, text artifacts",
+  "supports_negative_prompt": true,
+  "platform_block": "",
+  "examples": [],
+  "few_shot_intro": "Example transformations of a user idea into a Flux Kontex-formatted prompt:",
+  "user_message_schema_hint": "The user message arrives as JSON with fields: { raw_idea, target_model, source_image_count, aspect_ratio, camera_details?, references? }. Weave camera_details naturally into the prompt — do NOT echo them as a settings list at the end.",
+  "operation_overrides": {},
+  "model_routing": {
+    "preferred_llm": "qwen2.5:7b",
+    "preferred_vlm": "qwen2.5vl:7b",
+    "prefer_vlm_when_images_attached": false,
+    "sampling": {
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "num_predict": 352
+    }
+  },
+  "provenance": {
+    "primary_sources": [
+      "https://github.com/EricRollei/Local_LLM_Prompt_Enhancer/blob/main/platforms.py"
+    ],
+    "borrowed_from": [
+      "EricRollei/Local_LLM_Prompt_Enhancer flux_kontex config"
+    ],
+    "notes": "Ported verbatim. EricRollei's original field names and ordering preserved; platform_block lifted from text_to_image_node.py when present, otherwise empty (the master template + preferences/avoid/quality_tokens alone are enough for platforms without a bespoke block)."
+  }
+}

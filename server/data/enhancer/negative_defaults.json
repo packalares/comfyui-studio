@@ -1,0 +1,23 @@
+{
+  "$schema": "./negative_defaults.schema.json",
+  "description": "Per-platform negative-prompt defaults. Verbatim from EricRollei/Local_LLM_Prompt_Enhancer/platforms.py.",
+  "provenance": "https://github.com/EricRollei/Local_LLM_Prompt_Enhancer/blob/main/platforms.py",
+  "defaults": {
+    "flux": "blurry, low quality, distorted, deformed, ugly, bad anatomy, watermark, signature, text",
+    "flux_kontex": "blurry, low quality, distorted, deformed, ugly, bad anatomy, watermark, text artifacts",
+    "pixart_sigma": "blurry, low quality, distorted, oversaturated, watermark",
+    "aura_flow": "blurry, low quality, distorted, deformed, watermark, signature",
+    "noobai": "blurry, low quality, bad anatomy, deformed, watermark",
+    "kolors": "blurry, low quality, distorted, washed out, watermark",
+    "wan22": "low quality, blurry, distorted, casual language, abstract noise",
+    "hunyuan_image": "blurry, low quality, distorted, deformed, watermark",
+    "qwen_image": "low quality, blurry, distorted, artifacts, bad anatomy",
+    "qwen_image_edit": "unnatural, inconsistent, artifacts, seams, low quality",
+    "sd_1_5": "ugly, tiling, poorly drawn, bad anatomy, deformed, blurry, low quality, watermark",
+    "sd_xl": "ugly, tiling, poorly drawn, bad anatomy, deformed, disfigured, worst quality, low quality, blurry",
+    "pony": "score_6, score_5, score_4, worst quality, low quality, bad anatomy, sketch, jpeg artifacts, blurry, simple background",
+    "illustrious": "worst quality, low quality, bad anatomy, bad hands, bad feet, deformed, disfigured, poorly drawn, blurry, jpeg artifacts",
+    "chroma": "low quality, blurry, distorted, watermark, oversaturated",
+    "wan_image": "low quality, blurry, distorted, casual language"
+  }
+}

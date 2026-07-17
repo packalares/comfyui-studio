@@ -31,7 +31,7 @@ import {
   getBridgeClientId,
   ComfyJobCancelledError,
   ComfyJobExecutionError,
-} from './comfyJobBridge.js';
+} from '../comfyui/jobBridge.js';
 
 // ---------------------------------------------------------------------------
 // Cancel-and-replace registry (per-shot, same shape as runShotImageGen)

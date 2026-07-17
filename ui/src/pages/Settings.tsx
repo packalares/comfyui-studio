@@ -1096,6 +1096,76 @@ function CommandPreview({ text, loading }: { text: string; loading: boolean }) {
   );
 }
 
+/* =================================================================
+   1i. Model Display Card — NSFW blur threshold.
+   ================================================================= */
+
+const NSFW_OPTIONS = [
+  { value: '0', label: '0 — SFW only (blur any NSFW)' },
+  { value: '1', label: '1 — PG13 (default)' },
+  { value: '2', label: '2 — R (mature)' },
+  { value: '3', label: '3 — X' },
+  { value: '4', label: '4 — No blur' },
+];
+
+function ModelDisplayCard() {
+  const [nsfwLevel, setNsfwLevel] = useState<string>('1');
+  const [busy, setBusy] = useState(false);
+  const [saved, markSaved] = useTransientFlag(3000);
+
+  useEffect(() => {
+    api.getModelSettings().then((s) => setNsfwLevel(String(s.nsfwBlurLevel))).catch(() => {});
+  }, []);
+
+  const handleSave = async () => {
+    setBusy(true);
+    try {
+      await api.updateModelSettings({ nsfwBlurLevel: Number(nsfwLevel) });
+      markSaved();
+    } catch { /* ignore */ } finally { setBusy(false); }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">Model Display</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Control how sensitive content is rendered in the model catalog.</p>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div>
+          <div className="mb-1 flex items-center gap-1.5">
+            <label className="field-label">Blur images at NSFW level</label>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="cursor-help text-muted-foreground text-[11px]">(?)</span>
+              </TooltipTrigger>
+              <TooltipContent>Images whose NSFW level is at or above this value will be blurred in the model catalog. Set to 4 to disable blurring entirely.</TooltipContent>
+            </Tooltip>
+          </div>
+          <SelectField value={nsfwLevel} onValueChange={setNsfwLevel}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {NSFW_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </SelectField>
+        </div>
+      </CardContent>
+      <CardFooter>
+        <Button onClick={handleSave} disabled={busy}>
+          {saved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
+          {saved ? 'Saved' : 'Save'}
+        </Button>
+      </CardFooter>
+    </Card>
+  );
+}
+
 function LaunchOptionsCard() {
   const [data, setData] = useState<LaunchOptionsData | null>(null);
   const [items, setItems] = useState<LaunchOptionItem[]>([]);
@@ -1815,6 +1885,7 @@ export default function Settings() {
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               <DownloadsCard />
+              <ModelDisplayCard />
             </div>
           </div>
         )}

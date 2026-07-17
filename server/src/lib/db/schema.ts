@@ -57,7 +57,26 @@
 // one entry per source. The migration also drops the v30-original singleton
 // `enhancedPromptText` column on rolling upgrades — no data was captured to
 // it before this reshape landed.
-export const SCHEMA_VERSION = 30;
+//
+// Schema v31 adds `model_files.sha256 TEXT` (nullable). No backfill; Wave 3's
+// background hasher will populate the column. The migration is applied via
+// `applyModelFilesSha256Migration` in connection.ts (ALTER TABLE guarded by
+// PRAGMA table_info so existing DBs are safe).
+//
+// Schema v32 adds the `recipes` table for saved LoRA combinations. Rows hold
+// a title, optional notes, a JSON array of tags, and a JSON array of lora
+// descriptors ({ filename, save_path, strength }). Migration is applied via
+// `applyRecipesMigration` in connection.ts (CREATE TABLE IF NOT EXISTS so
+// existing DBs are safe — no data loss on re-run).
+//
+// Schema v33 adds `templates.template_presets TEXT` — JSON array of preset
+// display cards for Easy-mode templates (studioBuilder set). Per-preset
+// settings blocks live on disk at `user-workflows/<parent>/<id>.json`; this
+// column carries just the card metadata (id, title, description, local
+// previewUrl, published, tool) so it stays cheap to ship in the bundle.
+// Migration `applyTemplatePresetsMigration` (PRAGMA-guarded ALTER) keeps
+// existing DBs safe.
+export const SCHEMA_VERSION = 33;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -134,7 +153,9 @@ CREATE TABLE IF NOT EXISTS templates (
   media_type     TEXT,
   open_source    INTEGER NOT NULL DEFAULT 1,
   search_rank    INTEGER NOT NULL DEFAULT 0,
-  username       TEXT
+  username       TEXT,
+  -- v33
+  template_presets TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_templates_installed ON templates(installed);
 CREATE INDEX IF NOT EXISTS idx_templates_category  ON templates(category);

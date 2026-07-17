@@ -6,6 +6,7 @@ import type {
   EnumeratedWidget,
 } from '../../../contracts/workflow.contract.js';
 import * as exposedWidgets from '../../exposedWidgets.js';
+import { mediaKindForNode } from '../mediaKind.js';
 import { isEnumerableWidget, titleCase, TEXT_PLUMBING_CLASS_TYPES } from '../constants.js';
 import { getObjectInfo } from '../objectInfo.js';
 import { computeFormClaimedWidgets } from './claimed.js';
@@ -42,6 +43,7 @@ function buildEnumeratedEntry(
     max: shape.max,
     step: shape.step,
     options: shape.options,
+    media: mediaKindForNode(classType, value) ?? undefined,
     exposed: savedSet.has(`${nodeId}|${widgetName}`),
     formClaimed,
     // Top-level widgets aren't reachable from any wrapper's proxyWidgets
@@ -197,6 +199,7 @@ export function buildRawWidgetSettings(
     // a tooltip. The untitled fallback uses classType, matching the previous
     // combined-label behaviour.
     const scopeLabel = (node.title as string | undefined) || classType;
+    const media = mediaKindForNode(classType, value) ?? undefined;
     result.push({
       id: `node:${e.nodeId}:${e.widgetName}`,
       label: titleCase(e.widgetName),
@@ -207,6 +210,7 @@ export function buildRawWidgetSettings(
       max: shape.max,
       step: shape.step,
       options: shape.options,
+      media,
       proxyIndex: -1,
       nodeId: e.nodeId,
       nodeTitle: scopeLabel,

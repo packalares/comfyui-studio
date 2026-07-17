@@ -1,0 +1,66 @@
+{
+  "$schema": "../profile.schema.json",
+  "id": "aura_flow",
+  "version": 1,
+  "name": "Aura Flow",
+  "description": "Stability AI - Photographic realism with flowing stylistic accents Ported verbatim from EricRollei/Local_LLM_Prompt_Enhancer.",
+  "applies_to": [],
+  "language_target": "english",
+  "format": "natural_photo",
+  "prompt_style": "natural_photo",
+  "max_words": 180,
+  "min_word_floor": 135,
+  "length_guidance": "Aim for ~180 words blending photoreal cues with stylistic direction.",
+  "detail_expectation": "Combine technical photography language with vivid stylistic descriptors and ambiance cues.",
+  "default_length_tier": "moderate",
+  "preferences": [
+    "Lens and camera specifications",
+    "Exposure and lighting adjectives",
+    "Environment and weather context",
+    "Wardrobe/fabric texture callouts",
+    "Post-processing or grading notes"
+  ],
+  "quality_tokens": [
+    "ultra high resolution",
+    "sharp focus",
+    "cinematic lighting",
+    "photo-realistic",
+    "8k",
+    "professionally lit",
+    "hyper detailed",
+    "premium quality"
+  ],
+  "quality_emphasis": true,
+  "avoid": [
+    "Overly abstract artistic terminology without photographic grounding",
+    "Short clip descriptions",
+    "Contradictory lighting instructions"
+  ],
+  "required_positive": [],
+  "negative_prompt_default": "blurry, low quality, distorted, deformed, watermark, signature",
+  "supports_negative_prompt": true,
+  "platform_block": "",
+  "examples": [],
+  "few_shot_intro": "Example transformations of a user idea into a Aura Flow-formatted prompt:",
+  "user_message_schema_hint": "The user message arrives as JSON with fields: { raw_idea, target_model, source_image_count, aspect_ratio, camera_details?, references? }. Weave camera_details naturally into the prompt — do NOT echo them as a settings list at the end.",
+  "operation_overrides": {},
+  "model_routing": {
+    "preferred_llm": "qwen2.5:7b",
+    "preferred_vlm": "qwen2.5vl:7b",
+    "prefer_vlm_when_images_attached": false,
+    "sampling": {
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "num_predict": 288
+    }
+  },
+  "provenance": {
+    "primary_sources": [
+      "https://github.com/EricRollei/Local_LLM_Prompt_Enhancer/blob/main/platforms.py"
+    ],
+    "borrowed_from": [
+      "EricRollei/Local_LLM_Prompt_Enhancer aura_flow config"
+    ],
+    "notes": "Ported verbatim. EricRollei's original field names and ordering preserved; platform_block lifted from text_to_image_node.py when present, otherwise empty (the master template + preferences/avoid/quality_tokens alone are enough for platforms without a bespoke block)."
+  }
+}

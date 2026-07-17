@@ -29,8 +29,13 @@ export interface ExtractedLitegraphDefaults {
   defaultStudioBuilder?: string;
   defaultStudioModes?: Record<string, unknown>;
   defaultStudioInputMap?: Record<string, string>;
+  defaultStudioAlwaysActiveGroups?: string[];
   defaultPromptEnhancer?: Record<string, unknown>;
   defaultPromptToggles?: Record<string, Record<string, string>>;
+  /** Easy-mode preset list harvested from the outer wrapper. Each entry's
+   *  shape is intentionally loose at this layer — `persistTemplatePresets`
+   *  applies the field-level validation when it actually writes them. */
+  defaultTemplatePresets?: Array<Record<string, unknown>>;
 }
 
 export interface ExtractedLitegraph {
@@ -69,11 +74,21 @@ export function extractLitegraph(value: unknown): ExtractedLitegraph | null {
       }
       defaults.defaultStudioInputMap = cleaned;
     }
+    if (Array.isArray(obj.studioAlwaysActiveGroups)) {
+      defaults.defaultStudioAlwaysActiveGroups = (obj.studioAlwaysActiveGroups as unknown[])
+        .filter((g): g is string => typeof g === 'string');
+    }
     if (obj.promptEnhancer && typeof obj.promptEnhancer === 'object' && !Array.isArray(obj.promptEnhancer)) {
       defaults.defaultPromptEnhancer = obj.promptEnhancer as Record<string, unknown>;
     }
     if (obj.prompt_toggles && typeof obj.prompt_toggles === 'object' && !Array.isArray(obj.prompt_toggles)) {
       defaults.defaultPromptToggles = obj.prompt_toggles as Record<string, Record<string, string>>;
+    }
+    if (Array.isArray(obj.template_presets)) {
+      // Filter to plain objects; `persistTemplatePresets` handles the rest.
+      defaults.defaultTemplatePresets = obj.template_presets.filter(
+        (p): p is Record<string, unknown> => typeof p === 'object' && p !== null && !Array.isArray(p),
+      );
     }
     return { workflow: obj.workflow as Record<string, unknown>, defaults };
   }

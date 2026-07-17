@@ -15,7 +15,6 @@ export type { DownloadState, DownloadIdentity };
 
 interface Entry {
   state: DownloadState;
-  timer: NodeJS.Timeout;
 }
 
 const active = new Map<string, Entry>();
@@ -32,6 +31,10 @@ interface QueuedRequest {
   modelDir: string;
   modelName?: string;
   filename?: string;
+  /** Per-request tokens captured at enqueue time. Take precedence over the
+   *  settings-layer token when the user supplied a one-off token in the body. */
+  hfToken?: string;
+  civitaiToken?: string;
 }
 const queue: QueuedRequest[] = [];
 
@@ -77,9 +80,22 @@ async function pollOnce(taskId: string): Promise<void> {
     completed: !!data.completed || data.status === 'completed',
     error: data.error ?? entry.state.error,
   };
+
+  // Skip broadcast when nothing observable changed. Terminal transitions always emit
+  // so the UI flips the status badge even if bytes haven't moved.
+  const prev = entry.state;
+  const isTerminal = next.completed || next.status === 'completed' || next.status === 'error';
+  const changed =
+    isTerminal ||
+    next.downloadedBytes !== prev.downloadedBytes ||
+    next.totalBytes !== prev.totalBytes ||
+    next.progress !== prev.progress ||
+    next.status !== prev.status ||
+    next.error !== prev.error;
+
   entry.state = next;
-  emit({ type: 'download', data: next });
-  if (next.completed || next.status === 'completed' || next.status === 'error') {
+  if (changed) emit({ type: 'download', data: next });
+  if (isTerminal) {
     stopTracking(taskId);
   }
 }
@@ -106,17 +122,16 @@ export function trackDownload(taskId: string, id: DownloadIdentity = {}): void {
     completed: false,
     error: null,
   };
-  const timer = setInterval(() => { void pollOnce(taskId); }, 1500);
-  active.set(taskId, { state, timer });
+  active.set(taskId, { state });
   emit({ type: 'download', data: state });
-  // Kick an immediate poll so the first progress arrives fast.
+  // Kick an immediate poll so the first progress snapshot arrives without waiting
+  // for the next engine callback.
   void pollOnce(taskId);
 }
 
 export function stopTracking(taskId: string): void {
   const entry = active.get(taskId);
   if (!entry) return;
-  clearInterval(entry.timer);
   active.delete(taskId);
   emit({ type: 'download', data: { ...entry.state, completed: true } });
   void tryDequeue();
@@ -179,12 +194,12 @@ async function tryDequeue(): Promise<void> {
   const next = queue.shift();
   if (!next) return;
   try {
-    // Local `downloadCustom` accepts host-specific tokens and wires
-    // `authHeaders` into the engine. Tokens come from persisted settings; the
-    // queued request itself does not carry secrets.
+    // Prefer per-request tokens captured at enqueue time (supplied by the user
+    // in the POST body). Fall back to the settings-layer persisted token so
+    // queued items still work when the body carried no token.
     const tokens = {
-      hfToken: settings.getHfToken(),
-      civitaiToken: settings.getCivitaiToken(),
+      hfToken: next.hfToken || settings.getHfToken(),
+      civitaiToken: next.civitaiToken || settings.getCivitaiToken(),
     };
     const out = await models.downloadCustom(next.hfUrl, next.modelDir, tokens, next.filename);
     // The real taskId's broadcasts take over from here. We DON'T emit a

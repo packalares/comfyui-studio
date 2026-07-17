@@ -27,7 +27,7 @@ import {
   getBridgeClientId,
   ComfyJobCancelledError,
   ComfyJobExecutionError,
-} from './comfyJobBridge.js';
+} from '../comfyui/jobBridge.js';
 
 // ---------------------------------------------------------------------------
 // Cancel-and-replace registry

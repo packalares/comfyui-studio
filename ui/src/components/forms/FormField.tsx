@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback, useLayoutEffect, useEffect, useMemo } from 'react';
-import { Info, Upload, X, Minus, Plus, Pencil } from 'lucide-react';
+import { Info, Upload, X, Minus, Plus, Pencil, FolderOpen } from 'lucide-react';
 import { toast } from 'sonner';
 import type { FormInput } from '../../types';
+import type { MediaLibraryItem } from '../../services/comfyui';
 import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Slider } from '../ui/slider';
 import { Switch } from '../ui/switch';
@@ -12,6 +13,7 @@ import { VideoPlayer } from '../ui/video-player';
 import MaskFieldModal, { type MaskSaveState } from './MaskFieldModal.js';
 import type { PadValues } from './PadCanvas.js';
 import { compositeMaskIntoImage } from './maskComposite.js';
+import MediaLibraryModal from '../modals/MediaLibraryModal';
 
 interface Props {
   input: FormInput;
@@ -287,6 +289,7 @@ function ImageField({ input, value, onChange, invalid, activeMode }: Props) {
   const [maskModalOpen, setMaskModalOpen] = useState(false);
   const [maskState, setMaskState] = useState<MaskSaveState>({});
   const [compositing, setCompositing] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
 
   // Pick the maskable entry that applies in the current mode. Search order:
   //   1. Exact match by `requiresMode === activeMode` (multi-pipeline case).
@@ -318,7 +321,10 @@ function ImageField({ input, value, onChange, invalid, activeMode }: Props) {
     setMaskState({});
   }, [activeKind]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const imageValue = value as { file?: File; preview?: string; url?: string } | null;
+  // `name` carries the comfy ref string for values that came from the
+  // MediaLibraryModal (no upload round-trip). The submit path in Studio.tsx
+  // forwards `name` verbatim — no `file` upload — when present.
+  const imageValue = value as { file?: File; preview?: string; url?: string; name?: string } | null;
 
   // Blob URLs created via URL.createObjectURL hold a reference to the File
   // until revoked. We intentionally DO NOT revoke on unmount: this field
@@ -462,7 +468,11 @@ function ImageField({ input, value, onChange, invalid, activeMode }: Props) {
   return (
     <div>
       <div
-        onClick={() => fileInputRef.current?.click()}
+        // Click → MediaLibraryModal. The modal carries its own upload
+        // affordance (right-side upload panel on the Local source) so the
+        // user has a one-stop pick / upload / browse-output flow. Drag-and-
+        // drop still uploads a fresh file directly (handleDrop unchanged).
+        onClick={() => setLibraryOpen(true)}
         onDragOver={e => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
@@ -475,19 +485,15 @@ function ImageField({ input, value, onChange, invalid, activeMode }: Props) {
         }`}
       >
         <Upload className="w-6 h-6 text-muted-foreground mb-1.5" />
-        <p className="text-xs text-muted-foreground">Drop image here or click to browse</p>
+        <p className="text-xs text-muted-foreground">Drop image here or click to choose</p>
         <p className="text-[10px] text-muted-foreground mt-0.5">PNG, JPG, WebP, HEIC</p>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*,.heic,.heif"
-          className="hidden"
-          onChange={e => {
-            const file = e.target.files?.[0];
-            if (file) void handleFile(file);
-          }}
-        />
       </div>
+      <MediaLibraryModal
+        open={libraryOpen}
+        onClose={() => setLibraryOpen(false)}
+        kind="image"
+        onSelect={(item) => { onChange(libraryItemToValue(item)); setLibraryOpen(false); }}
+      />
     </div>
   );
 }
@@ -495,6 +501,26 @@ function ImageField({ input, value, onChange, invalid, activeMode }: Props) {
 // Build a /api/view URL from a server-side uploaded filename — same scheme ImageField uses.
 function serverViewUrl(filename: string): string {
   return `/api/view?filename=${encodeURIComponent(filename)}&subfolder=&type=input`;
+}
+
+// Compose the /api/view URL for a MediaLibraryItem. Output-scope items
+// carry an `output_load/...` subfolder so they resolve under input/ via the
+// server-managed symlink — single type=input branch works for both sources.
+function libraryViewUrl(item: MediaLibraryItem): string {
+  const qs = new URLSearchParams({
+    filename: item.filename,
+    subfolder: item.subfolder,
+    type: 'input',
+  });
+  return `/api/view?${qs.toString()}`;
+}
+
+/** Translate a MediaLibraryItem into the field's stored value shape so the
+ *  existing render branches (`preview` for images / video, `name` for the
+ *  player fallback) light up without per-field logic. The submit path in
+ *  Studio.tsx forwards `name` as the comfy ref unchanged — no upload. */
+function libraryItemToValue(item: MediaLibraryItem): { name: string; preview: string } {
+  return { name: item.ref, preview: libraryViewUrl(item) };
 }
 
 function AudioUploadField({ input, value, onChange, invalid }: Props) {
@@ -589,8 +615,12 @@ function VideoUploadField({ input, value, onChange, invalid }: Props) {
 
 function FileUploadField({ input, value, onChange, accept, label, invalid }: Props & { accept: string; label: string }) {
   const [dragOver, setDragOver] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileValue = value as { file?: File; name?: string } | null;
+  // Audio FileUploadField is wired for both audio and video — the accept
+  // string picks the right MediaLibraryModal kind.
+  const libraryKind: 'audio' | 'video' = accept.startsWith('video') ? 'video' : 'audio';
 
   const handleFile = useCallback((file: File) => {
     onChange({ file, name: file.name });
@@ -618,31 +648,31 @@ function FileUploadField({ input, value, onChange, accept, label, invalid }: Pro
   }
 
   return (
-    <div
-      onClick={() => fileInputRef.current?.click()}
-      onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={handleDrop}
-      className={`flex flex-col items-center justify-center h-24 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
-        dragOver
-          ? 'border-brand bg-brand/10'
-          : invalid
-            ? 'border-destructive bg-destructive/5 hover:bg-destructive/10'
-            : 'border-input bg-muted hover:border-input hover:bg-secondary'
-      }`}
-    >
-      <Upload className="w-5 h-5 text-muted-foreground mb-1" />
-      <p className="text-xs text-muted-foreground">Drop file or click to browse</p>
-      <p className="text-[10px] text-muted-foreground mt-0.5">{label}</p>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept={accept}
-        className="hidden"
-        onChange={e => {
-          const file = e.target.files?.[0];
-          if (file) handleFile(file);
-        }}
+    <div>
+      <div
+        // Click → MediaLibraryModal (same flow as ImageField above). Drag-
+        // and-drop continues to upload a fresh file directly via handleDrop.
+        onClick={() => setLibraryOpen(true)}
+        onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+        className={`flex flex-col items-center justify-center h-24 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
+          dragOver
+            ? 'border-brand bg-brand/10'
+            : invalid
+              ? 'border-destructive bg-destructive/5 hover:bg-destructive/10'
+              : 'border-input bg-muted hover:border-input hover:bg-secondary'
+        }`}
+      >
+        <Upload className="w-5 h-5 text-muted-foreground mb-1" />
+        <p className="text-xs text-muted-foreground">Drop file or click to choose</p>
+        <p className="text-[10px] text-muted-foreground mt-0.5">{label}</p>
+      </div>
+      <MediaLibraryModal
+        open={libraryOpen}
+        onClose={() => setLibraryOpen(false)}
+        kind={libraryKind}
+        onSelect={(item) => { onChange(libraryItemToValue(item)); setLibraryOpen(false); }}
       />
     </div>
   );

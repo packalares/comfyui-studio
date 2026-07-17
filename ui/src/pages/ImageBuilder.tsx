@@ -24,24 +24,26 @@ import {
 import { useApp } from '../context/AppContext';
 import { api } from '../services/comfyui';
 import type { MediaLibraryItem } from '../services/comfyui';
-import type { TemplateSummary } from '../types';
 import { Button } from '../components/ui/button';
-import { Textarea } from '../components/ui/textarea';
 import { Spinner } from '../components/ui/spinner';
 import { Tooltip, TooltipTrigger, TooltipContent } from '../components/ui/tooltip';
 import { SelectField, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/forms/SelectField';
 import MediaLibraryModal from '../components/modals/MediaLibraryModal';
+import { PromptComposer, type PromptComposerMention } from '../components/forms/PromptComposer';
+import { resolvePromptTemplate } from '../lib/promptTemplate';
+import { usePromptRegistry } from '../hooks/usePromptRegistry';
 import CameraSettingsModal, {
   resolveCameraLabels,
   type CameraSelection,
 } from '../components/modals/CameraSettingsModal';
 import {
-  ChipSelect, FORMAT_OPTIONS, viewUrlFor, blobToBase64,
+  ChipSelect, FORMAT_OPTIONS, visibleFormatsForMode, viewUrlFor, blobToBase64,
   AddMediaPill, RefSlot,
   TogglesRow, resolveToggles, runEnhancePrompt, buildImageEnhancerInput,
   groupModesByTaskType, pickResolution,
-  useMentionPicker, modeTriggersFromBundle, renderHighlightedPrompt,
-  type Mentionable, type QualityTier,
+  useBuilderTemplates, useTemplateSelection, useTemplateBundle,
+  useDependencyCheck, useDebouncedPersist, usePresetApply,
+  type QualityTier,
   type EasyBuilderAction, type BuilderTemplateBundle,
 } from './builder.shared';
 
@@ -58,6 +60,22 @@ const MAX_REFS = 8;
 interface Props {
   registerAction: (action: EasyBuilderAction | null) => void;
   onSwitchToAdvanced?: () => void;
+  /** Bubbles the active builder template up to Studio so the shared right
+   *  panel (preset grid, Result header) can react to the same selection
+   *  without duplicating the picker logic here. Fires with '' when the
+   *  builder has nothing selected. Optional — passing-through hosts that
+   *  don't need it can omit. */
+  onTemplateChange?: (templateName: string) => void;
+  /** Latest preset the user clicked in the right-panel grid (Studio holds
+   *  the state; we apply it to our form fields when it changes). Null means
+   *  no preset has been applied yet. Identity (object reference) drives the
+   *  apply effect, so re-clicking the same preset re-applies cleanly. */
+  presetApply?: {
+    id: string;
+    parent: string;
+    settings: Record<string, unknown>;
+    card: { id: string; title: string } | null;
+  } | null;
 }
 
 const STORAGE_KEY = 'studio:image:lastForm';
@@ -70,6 +88,11 @@ interface PersistedForm {
   selectedMode: string | null;
   toggles: Record<string, boolean>;
   camera: CameraSelection;
+  /** Snapshot of the references panel. Each entry is a serialised
+   *  `MediaLibraryItem` — refs survive a reload because the items still
+   *  live on disk (the modal serves them by `ref`); we just remember which
+   *  were attached. */
+  references: MediaLibraryItem[];
 }
 
 /** Migrate older PersistedForm shapes (qualityId was `'1024' | '1440' |
@@ -81,6 +104,11 @@ function migratePersistedForm(raw: unknown): PersistedForm | null {
   const legacyQ = typeof r.qualityId === 'string' ? r.qualityId : '1024';
   const qualityId: QualityTier =
     legacyQ === 'hd' || legacyQ === '2048' ? 'hd' : 'standard';
+  const refs = Array.isArray(r.references)
+    ? (r.references as unknown[]).filter((x): x is MediaLibraryItem => {
+        return !!x && typeof x === 'object' && typeof (x as MediaLibraryItem).ref === 'string';
+      })
+    : [];
   return {
     templateName: typeof r.templateName === 'string' ? r.templateName : '',
     prompt: typeof r.prompt === 'string' ? r.prompt : '',
@@ -89,6 +117,7 @@ function migratePersistedForm(raw: unknown): PersistedForm | null {
     selectedMode: typeof r.selectedMode === 'string' ? r.selectedMode : null,
     toggles: (r.toggles && typeof r.toggles === 'object') ? r.toggles as Record<string, boolean> : {},
     camera: (r.camera && typeof r.camera === 'object') ? r.camera as CameraSelection : EMPTY_CAMERA,
+    references: refs,
   };
 }
 
@@ -107,75 +136,19 @@ function loadPersistedForm(): PersistedForm | null {
   } catch { return null; }
 }
 
-export default function ImageBuilder({ registerAction, onSwitchToAdvanced }: Props) {
+export default function ImageBuilder({ registerAction, onSwitchToAdvanced, onTemplateChange, presetApply }: Props) {
   const { templates, submitGeneration, connected } = useApp();
 
-  // ---- Pool of image-builder templates ----
-  // Strict: must declare `studioBuilder: "image"` in its metadata. The
-  // earlier mediaType fallback let every catalog template with
-  // `mediaType: "image"` (hundreds of them) into the dropdown — only
-  // templates the author intentionally wires for the Easy-mode UI belong
-  // here.
-  const builderTemplates = useMemo(
-    () => templates.filter((t) => {
-      const tx = t as TemplateSummary & { studioBuilder?: string };
-      return tx.studioBuilder === 'image';
-    }),
-    [templates],
-  );
-
-  // ---- Selected template + bundle ----
+  const builderTemplates = useBuilderTemplates(templates, 'image');
   const persisted = useMemo(() => loadPersistedForm(), []);
-  const [selectedName, setSelectedName] = useState<string>(() => {
-    if (persisted?.templateName && builderTemplates.some((t) => t.name === persisted.templateName)) {
-      return persisted.templateName;
-    }
-    return builderTemplates[0]?.name ?? '';
-  });
+  const [selectedName, setSelectedName] = useTemplateSelection(builderTemplates, persisted?.templateName);
+  // Mirror the active template up to Studio so the shared right-panel can
+  // fetch the bundle and render preset cards / output result against the
+  // same selection without each tab maintaining its own picker state.
+  useEffect(() => { onTemplateChange?.(selectedName); }, [selectedName, onTemplateChange]);
 
-  useEffect(() => {
-    if (!selectedName && builderTemplates.length > 0) {
-      setSelectedName(builderTemplates[0].name);
-    }
-  }, [selectedName, builderTemplates]);
-
-  // Per-model dependency check.
-  const [depCheck, setDepCheck] = useState<{ ready: boolean; missing: Array<{ kind?: string; name?: string; filename?: string }> } | null>(null);
-  const [depLoading, setDepLoading] = useState(false);
-  useEffect(() => {
-    if (!selectedName) { setDepCheck(null); return; }
-    let cancelled = false;
-    setDepLoading(true);
-    setDepCheck(null);
-    api.checkDependencies(selectedName)
-      .then((res) => { if (!cancelled) setDepCheck(res); })
-      .catch(() => { if (!cancelled) setDepCheck({ ready: true, missing: [] }); })
-      .finally(() => { if (!cancelled) setDepLoading(false); });
-    return () => { cancelled = true; };
-  }, [selectedName]);
-
-  const [bundle, setBundle] = useState<BuilderTemplateBundle | null>(null);
-  const [bundleLoading, setBundleLoading] = useState(false);
-  useEffect(() => {
-    if (!selectedName) { setBundle(null); return; }
-    let cancelled = false;
-    setBundleLoading(true);
-    api.getTemplateBundle(selectedName)
-      .then((res) => {
-        if (cancelled) return;
-        const meta = res.builderMeta;
-        setBundle(meta ? {
-          name: selectedName,
-          title: meta.title,
-          studioModes: meta.studioModes,
-          promptEnhancer: meta.promptEnhancer,
-          prompt_toggles: meta.prompt_toggles,
-        } : null);
-      })
-      .catch(() => { if (!cancelled) setBundle(null); })
-      .finally(() => { if (!cancelled) setBundleLoading(false); });
-    return () => { cancelled = true; };
-  }, [selectedName]);
+  const { check: depCheck, loading: depLoading } = useDependencyCheck(selectedName);
+  const { bundle, loading: bundleLoading } = useTemplateBundle(selectedName);
 
   // ---- Form state ----
   const [prompt, setPrompt] = useState<string>(persisted?.prompt ?? '');
@@ -189,10 +162,16 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced }: Pro
   const [selectedMode, setSelectedMode] = useState<string | null>(persisted?.selectedMode ?? null);
   const [toggles, setToggles] = useState<Record<string, boolean>>(persisted?.toggles ?? {});
   const [camera, setCamera] = useState<CameraSelection>(persisted?.camera ?? EMPTY_CAMERA);
+  /** Locked by `allow_user_select_aspect_ratio: false` in the active preset.
+   *  Resets on every preset apply so a later one that omits the field
+   *  releases the lock. */
+  const [aspectLocked, setAspectLocked] = useState(false);
+
+  usePresetApply(presetApply, { setPrompt, setFormatId, setSelectedMode, setAspectLocked });
 
   // Multi-reference: an ordered list (max MAX_REFS). MediaLibraryModal feeds
   // one pick at a time; dedupe by filename to make double-picks a no-op.
-  const [references, setReferences] = useState<MediaLibraryItem[]>([]);
+  const [references, setReferences] = useState<MediaLibraryItem[]>(() => persisted?.references ?? []);
 
   const [pickerOpen, setPickerOpen] = useState(false);
   // 'main' = picked item replaces references[0]; 'append' = picked is pushed
@@ -200,22 +179,21 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced }: Pro
   const [pickerTarget, setPickerTarget] = useState<'main' | 'append'>('append');
   const [cameraOpen, setCameraOpen] = useState(false);
 
-  // @-mention picker: references (@reference1…) + active template's mode
-  // triggers that start with @. Filter narrows on typed substring. Modes
-  // dedupe across the picker (each can only fire once); references can
-  // be inserted multiple times.
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const overlayRef = useRef<HTMLDivElement | null>(null);
-  const mentionables = useMemo<Mentionable[]>(() => {
-    const out: Mentionable[] = [];
-    references.forEach((_r, i) => {
-      out.push({ key: `@reference${i + 1}`, label: 'reference image', category: 'reference' });
-    });
-    out.push(...modeTriggersFromBundle(bundle?.studioModes));
-    return out;
-  }, [references, bundle?.studioModes]);
-  const mention = useMentionPicker({ textareaRef, prompt, setPrompt, mentionables });
-  const mentionMarks = useMemo(() => mentionables.map(m => m.key), [mentionables]);
+  // @-mention picker: only image-reference mentions for now. Mode triggers
+  // were removed from the picker — keep the dropdown focused on what the
+  // user can immediately act on with the attached media.
+  const mentionables = useMemo<PromptComposerMention[]>(() => {
+    return references.map((_r, i) => ({
+      key: `@reference${i + 1}`,
+      label: 'reference image',
+      category: 'reference' as const,
+    }));
+  }, [references]);
+  const promptRegistry = usePromptRegistry();
+  const knownMentionKeys = useMemo(
+    () => mentionables.map((m) => m.key),
+    [mentionables],
+  );
 
   const [enhancing, setEnhancing] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -231,13 +209,17 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced }: Pro
     () => groupModesByTaskType(bundle?.studioModes),
     [bundle?.studioModes],
   );
-  // Single-type for now (only `t2i` exists). When future templates add
-  // i2i / t2v / etc., introduce a Type chip — for now we pick the first
-  // group's modes verbatim.
-  const availableModes = useMemo(
-    () => taskGroups[0]?.modes ?? [],
-    [taskGroups],
-  );
+  // Task type is driven by whether the user has attached any reference
+  // media: empty → `t2i`, otherwise → `i2i`. When the active template
+  // doesn't declare the wanted type, fall back to whatever it has so the
+  // chip row never blanks out (covers older t2i-only templates and the
+  // momentary state during template-switch).
+  const wantedTaskType = references.length > 0 ? 'i2i' : 't2i';
+  const availableModes = useMemo(() => {
+    const matched = taskGroups.find((g) => g.taskType === wantedTaskType);
+    if (matched) return matched.modes;
+    return taskGroups[0]?.modes ?? [];
+  }, [taskGroups, wantedTaskType]);
 
   // Auto-pick the first mode whenever the bundle changes and the persisted
   // selection isn't valid for it. Idempotent: if `selectedMode` is already
@@ -247,6 +229,23 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced }: Pro
     if (selectedMode && availableModes.some((m) => m.name === selectedMode)) return;
     setSelectedMode(availableModes[0].name);
   }, [availableModes, selectedMode]);
+
+  // Aspect-ratio chip row — filtered down to what the active mode declares
+  // in `studioModes[mode].image_format`. Falls back to the full catalog when
+  // the bundle or mode is missing so the chip row never blanks out.
+  const visibleFormats = useMemo(
+    () => visibleFormatsForMode(bundle?.studioModes, selectedMode),
+    [bundle?.studioModes, selectedMode],
+  );
+  // Snap formatId back into the supported set whenever the visible list
+  // changes (mode switch, bundle landed). Keeps the chip row + preset apply
+  // from leaving an invalid ratio selected that `pickResolution` would
+  // silently coerce to 1:1.
+  useEffect(() => {
+    if (visibleFormats.length === 0) return;
+    if (visibleFormats.some((f) => f.id === formatId)) return;
+    setFormatId(visibleFormats.some((f) => f.id === '1:1') ? '1:1' : visibleFormats[0].id);
+  }, [visibleFormats, formatId]);
 
   const resolution = useMemo(
     () => pickResolution({
@@ -343,14 +342,19 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced }: Pro
       // passed verbatim as target_model (the template's system prompt teaches
       // the LLM the `t2i_flux_dev` / `i2i_*` / etc. convention), formatId is
       // already a "W:H" string, camera labels come from the picker modal.
+      // Resolve choice chips before handing to the LLM — otherwise the
+      // enhancer sees raw `{[A]|B|C}` syntax as literal text and either
+      // passes it through or, worse, gets confused into hallucinating
+      // about the alternatives.
+      const resolvedPrompt = resolvePromptTemplate(prompt, promptRegistry, knownMentionKeys);
       const enhancerInput = buildImageEnhancerInput({
-        prompt,
+        prompt: resolvedPrompt,
         inferredMode: selectedMode ?? '',
         formatId,
         referenceCount: references.length,
         cameraLabels,
       });
-      const result = await runEnhancePrompt({ prompt: enhancerInput, images, bundle });
+      const result = await runEnhancePrompt({ prompt: enhancerInput, images, bundle, mode: selectedMode });
       // Route the parsed fields into their slots. `prompt` always goes into
       // the textarea. `negativePrompt` is captured into a separate state
       // slot (no UI yet) so it flows into the submit's inputs.negative_prompt
@@ -383,8 +387,13 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced }: Pro
     }
     setGenerating(true);
     try {
+      // Resolve any `{…|[opt]|…}` chips, `@name(pick)` registry chips, and
+      // strip unknown `@xxx`. References + modes pass through verbatim for
+      // the downstream engine. localStorage keeps the raw template so
+      // chips round-trip on reload.
+      const finalPrompt = resolvePromptTemplate(prompt, promptRegistry, knownMentionKeys).trim();
       const inputs: Record<string, unknown> = {
-        text: prompt.trim(),
+        text: finalPrompt,
         width: resolution.width,
         height: resolution.height,
         seed: Math.floor(Math.random() * 1_000_000),
@@ -418,7 +427,7 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced }: Pro
 
       try {
         const blob: PersistedForm = {
-          templateName: selectedName, prompt, formatId, qualityId, selectedMode, toggles, camera,
+          templateName: selectedName, prompt, formatId, qualityId, selectedMode, toggles, camera, references,
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(blob));
       } catch { /* ignore */ }
@@ -437,18 +446,11 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced }: Pro
     camera, cameraLabels,
   ]);
 
-  // Debounced persist.
-  useEffect(() => {
-    const t = setTimeout(() => {
-      try {
-        const blob: PersistedForm = {
-          templateName: selectedName, prompt, formatId, qualityId, selectedMode, toggles, camera,
-        };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(blob));
-      } catch { /* ignore */ }
-    }, 300);
-    return () => clearTimeout(t);
-  }, [selectedName, prompt, formatId, qualityId, selectedMode, toggles, camera]);
+  const persistBlob = useMemo<PersistedForm>(
+    () => ({ templateName: selectedName, prompt, formatId, qualityId, selectedMode, toggles, camera, references }),
+    [selectedName, prompt, formatId, qualityId, selectedMode, toggles, camera, references],
+  );
+  useDebouncedPersist(STORAGE_KEY, persistBlob);
 
   // ---- Reset ----
   const handleReset = useCallback(() => {
@@ -652,35 +654,15 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced }: Pro
         <p className="eyebrow mb-2">Prompt</p>
         <div className="relative rounded-xl border bg-card">
           <div className={enhancing ? 'pointer-events-none blur-[1px] opacity-60 transition' : 'transition'}>
-            <div className="relative">
-              {/* Underlay: same text + same font/padding as the textarea,
-                  rendered with styled <span>s for any mention occurrence.
-                  Sits behind the textarea; the textarea's text is made
-                  transparent so what the user "sees" is the underlay. */}
-              <div
-                ref={overlayRef}
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words rounded-lg border border-transparent px-2.5 py-2 text-base text-foreground md:text-sm"
-              >
-                {renderHighlightedPrompt(prompt, mentionMarks)}
-              </div>
-              <Textarea
-                ref={textareaRef}
-                value={prompt}
-                onChange={(e) => mention.onTextareaChange(e.target.value)}
-                onKeyDown={mention.onTextareaKeyDown}
-                onScroll={(e) => {
-                  const o = overlayRef.current;
-                  if (o) o.scrollTop = e.currentTarget.scrollTop;
-                }}
-                onBlur={() => requestAnimationFrame(() => mention.close())}
-                placeholder="Describe the image you want to generate…"
-                rows={4}
-                className="relative border-0 bg-transparent !text-transparent shadow-none caret-foreground focus-visible:ring-0 resize-none max-h-72 overflow-y-auto"
-                readOnly={enhancing}
-              />
-            </div>
-            {mention.picker}
+            <PromptComposer
+              value={prompt}
+              onChange={setPrompt}
+              mentionables={mentionables}
+              registry={promptRegistry}
+              placeholder="Describe the image you want to generate…"
+              readOnly={enhancing}
+              ariaLabel="Prompt"
+            />
             <div className="flex justify-end gap-1 px-2 pb-2">
               {bundle?.promptEnhancer && (
                 <Tooltip>
@@ -735,7 +717,7 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced }: Pro
           Triggers like `@krea` still work inline in the prompt; server-side
           trigger override at submit takes precedence. */}
       <div className="flex items-center gap-2 flex-nowrap min-w-0">
-        {availableModes.length > 1 && (
+        {availableModes.length > 0 && (
           <ChipSelect
             icon={Sparkles}
             value={availableModes.find((m) => m.name === selectedMode)?.label ?? 'Pick a model'}
@@ -746,11 +728,12 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced }: Pro
         )}
         <div className="ml-auto flex items-center gap-2 shrink-0">
           <ChipSelect
-            icon={(FORMAT_OPTIONS.find((f) => f.id === formatId) ?? FORMAT_OPTIONS[1]).Icon}
+            icon={(visibleFormats.find((f) => f.id === formatId) ?? visibleFormats[0] ?? FORMAT_OPTIONS[0]).Icon}
             value={formatId}
-            options={FORMAT_OPTIONS.map((f) => ({ id: f.id, left: f.id, right: f.label, Icon: f.Icon }))}
+            options={visibleFormats.map((f) => ({ id: f.id, left: f.id, right: f.label, Icon: f.Icon }))}
             selectedId={formatId}
             onChange={setFormatId}
+            disabled={aspectLocked}
           />
           <ChipSelect
             icon={Gauge}

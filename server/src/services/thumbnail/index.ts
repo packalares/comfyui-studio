@@ -3,6 +3,8 @@ export {
   thumbnailForGalleryItem,
   thumbnailForUrl,
   thumbnailForTemplateAsset,
+  thumbnailForModelAsset,
+  thumbnailForPresetAsset,
   isThumbError,
   validateWidth,
   pipelineForFilename,

@@ -79,55 +79,98 @@ function pageParams(q: PageQuery, defaultLimit: number): QueryParams {
   return out;
 }
 
-/** Latest models, sorted Newest. */
-export async function getLatestModels(q: PageQuery): Promise<CivitaiListResponse> {
-  const params: QueryParams = {
-    ...pageParams(q, 12),
-    sort: 'Newest',
-    period: 'AllTime',
-    nsfw: false,
-  };
-  logger.info('civitai latest models', params);
-  return (await fetchJson(`${apiBase()}/models${encodeQuery(params)}`)) as CivitaiListResponse;
+/** Documented CivitAI enums — keep here so the facets endpoint can expose them
+ *  to the UI without hardcoding chip lists on the frontend. */
+export const CIVITAI_MODEL_TYPES = [
+  'Checkpoint',
+  'TextualInversion',
+  'Hypernetwork',
+  'AestheticGradient',
+  'LORA',
+  'LoCon',
+  'Controlnet',
+  'Upscaler',
+  'MotionModule',
+  'VAE',
+  'Poses',
+  'Wildcards',
+  'Workflows',
+  'Other',
+] as const;
+export const CIVITAI_PERIODS = ['AllTime', 'Year', 'Month', 'Week', 'Day'] as const;
+export const CIVITAI_SORTS = ['Highest Rated', 'Most Downloaded', 'Newest'] as const;
+// `CIVITAI_BASE_MODELS_FALLBACK` lives in ./facets.ts so the cache + probe +
+// fallback list stay co-located; import from there if you need it.
+
+export type CivitaiModelType = (typeof CIVITAI_MODEL_TYPES)[number];
+export type CivitaiPeriod = (typeof CIVITAI_PERIODS)[number];
+export type CivitaiSort = (typeof CIVITAI_SORTS)[number];
+
+/** Optional, user-controllable filters layered on top of the free-text query. */
+export interface SearchFilters {
+  types?: string[];
+  baseModels?: string[];
+  nsfw?: boolean;
+  period?: CivitaiPeriod;
+  sort?: CivitaiSort;
 }
 
-/** Hot models, sorted by Most Downloaded last month. */
-export async function getHotModels(q: PageQuery): Promise<CivitaiListResponse> {
-  const params: QueryParams = {
-    ...pageParams(q, 24),
-    sort: 'Most Downloaded',
-    period: 'Month',
-    nsfw: false,
-  };
-  logger.info('civitai hot models', params);
-  return (await fetchJson(`${apiBase()}/models${encodeQuery(params)}`)) as CivitaiListResponse;
+/** Append `key=value` parts for CivitAI's repeated-key array encoding.
+ *  Verified against the live API: `baseModels[]=Flux.1 D` silently returns
+ *  unfiltered results, while `baseModels=Flux.1 D` (no brackets) actually
+ *  filters. Multiple values are sent as repeated keys
+ *  (`baseModels=A&baseModels=B`). */
+function appendArrayQuery(parts: string[], key: string, values: string[]): void {
+  for (const v of values) {
+    parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(v)}`);
+  }
 }
 
 /**
- * Free-text model search. Civitai rejects `page=` when `query=` is set (see
- * file header), so this helper always passes a cursor when provided and
- * otherwise omits the pagination token — the first hit returns `nextCursor`
- * which subsequent calls thread through.
+ * Free-text + faceted model search. Civitai rejects `page=` when `query=` is
+ * set (see file header), so this helper always passes a cursor when provided
+ * and otherwise omits the pagination token — the first hit returns
+ * `nextCursor` which subsequent calls thread through.
  */
 export async function searchModels(
   query: string,
-  q: PageQuery,
+  q: PageQuery & SearchFilters,
 ): Promise<CivitaiListResponse> {
-  if (!query || query.trim().length === 0) {
+  const trimmed = query ? query.trim() : '';
+  // Empty query is allowed when at least one filter is set — that's how the UI
+  // "browse by Type=LORA" use case lands. We only reject when the caller asks
+  // for nothing at all.
+  const hasFilters = Boolean(
+    (q.types && q.types.length > 0)
+    || (q.baseModels && q.baseModels.length > 0)
+    || q.period
+    || q.sort
+    || q.nsfw,
+  );
+  if (trimmed.length === 0 && !hasFilters) {
     throw new Error('Missing search query');
   }
   const limit = Number.isFinite(q.limit) ? Number(q.limit) : 24;
   const params: QueryParams = {
     limit,
-    query: query.trim(),
-    sort: 'Highest Rated',
-    period: 'AllTime',
-    nsfw: false,
+    sort: q.sort ?? 'Highest Rated',
+    period: q.period ?? 'AllTime',
+    nsfw: q.nsfw === true,
   };
+  if (trimmed.length > 0) params.query = trimmed;
   if (q.cursor) params.cursor = q.cursor;
-  logger.info('civitai search models', { query, limit, cursor: q.cursor ?? null });
-  return (await fetchJson(`${apiBase()}/models${encodeQuery(params)}`)) as CivitaiListResponse;
+  const baseParts = encodeQuery(params).slice(1).split('&').filter(Boolean);
+  if (q.types && q.types.length > 0) appendArrayQuery(baseParts, 'types', q.types);
+  if (q.baseModels && q.baseModels.length > 0) appendArrayQuery(baseParts, 'baseModels', q.baseModels);
+  const qs = baseParts.length === 0 ? '' : `?${baseParts.join('&')}`;
+  logger.info('civitai search models', {
+    query: trimmed, limit, cursor: q.cursor ?? null,
+    types: q.types ?? null, baseModels: q.baseModels ?? null,
+    period: params.period, sort: params.sort, nsfw: params.nsfw,
+  });
+  return (await fetchJson(`${apiBase()}/models${qs}`)) as CivitaiListResponse;
 }
+
 
 /** Model details by ID. */
 export async function getModelDetails(modelId: string): Promise<unknown> {

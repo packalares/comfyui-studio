@@ -1,0 +1,65 @@
+{
+  "$schema": "../profile.schema.json",
+  "id": "noobai",
+  "version": 1,
+  "name": "NoobAI",
+  "description": "NoobAI diffusion model - balanced between natural language and structured tags Ported verbatim from EricRollei/Local_LLM_Prompt_Enhancer.",
+  "applies_to": [],
+  "language_target": "english",
+  "format": "natural_balanced",
+  "prompt_style": "natural_balanced",
+  "max_words": 200,
+  "min_word_floor": 150,
+  "length_guidance": "Generate around 200 words focusing on clarity, character detail, and background narrative.",
+  "detail_expectation": "Interleave narrative beats with descriptive art direction and technical camera hints.",
+  "default_length_tier": "moderate",
+  "preferences": [
+    "Well-structured scene descriptions",
+    "Clear subject hierarchy",
+    "Movement or action cues",
+    "Texture and material specificity",
+    "Lighting and emotion descriptors"
+  ],
+  "quality_tokens": [
+    "masterpiece",
+    "finely detailed",
+    "studio lighting",
+    "ultra sharp",
+    "beautiful composition",
+    "high dynamic range",
+    "award-winning"
+  ],
+  "quality_emphasis": true,
+  "avoid": [
+    "Minimal prompts",
+    "Missing background context",
+    "Vague adjectives without support"
+  ],
+  "required_positive": [],
+  "negative_prompt_default": "blurry, low quality, bad anatomy, deformed, watermark",
+  "supports_negative_prompt": true,
+  "platform_block": "",
+  "examples": [],
+  "few_shot_intro": "Example transformations of a user idea into a NoobAI-formatted prompt:",
+  "user_message_schema_hint": "The user message arrives as JSON with fields: { raw_idea, target_model, source_image_count, aspect_ratio, camera_details?, references? }. Weave camera_details naturally into the prompt — do NOT echo them as a settings list at the end.",
+  "operation_overrides": {},
+  "model_routing": {
+    "preferred_llm": "qwen2.5:7b",
+    "preferred_vlm": "qwen2.5vl:7b",
+    "prefer_vlm_when_images_attached": false,
+    "sampling": {
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "num_predict": 320
+    }
+  },
+  "provenance": {
+    "primary_sources": [
+      "https://github.com/EricRollei/Local_LLM_Prompt_Enhancer/blob/main/platforms.py"
+    ],
+    "borrowed_from": [
+      "EricRollei/Local_LLM_Prompt_Enhancer noobai config"
+    ],
+    "notes": "Ported verbatim. EricRollei's original field names and ordering preserved; platform_block lifted from text_to_image_node.py when present, otherwise empty (the master template + preferences/avoid/quality_tokens alone are enough for platforms without a bespoke block)."
+  }
+}

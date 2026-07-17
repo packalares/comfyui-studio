@@ -1,0 +1,72 @@
+{
+  "$schema": "../profile.schema.json",
+  "id": "pony",
+  "version": 1,
+  "name": "Pony Diffusion",
+  "description": "Versatile model - Score tags required, then natural language comma-separated descriptions Ported verbatim from EricRollei/Local_LLM_Prompt_Enhancer.",
+  "applies_to": [],
+  "language_target": "english",
+  "format": "natural_detailed",
+  "prompt_style": "natural_detailed",
+  "max_words": 200,
+  "min_word_floor": 150,
+  "length_guidance": "Generate 150-200 words with rich descriptive detail after the required score tags.",
+  "detail_expectation": "Provide comprehensive character, outfit, environment, and lighting descriptions in natural language.",
+  "default_length_tier": "moderate",
+  "preferences": [
+    "MUST start with: score_9, score_8_up, score_7_up",
+    "Then use natural language comma-separated descriptions",
+    "NO underscores in descriptive text (only in score tags)",
+    "Detailed character and scene descriptions",
+    "Specific quality and mood descriptors",
+    "Clear, readable phrases not technical tags"
+  ],
+  "quality_tokens": [
+    "masterpiece",
+    "best quality",
+    "highly detailed",
+    "professional",
+    "stunning",
+    "beautiful",
+    "intricate details",
+    "sharp focus"
+  ],
+  "quality_emphasis": true,
+  "avoid": [
+    "Underscore_formatting in descriptive text",
+    "Danbooru-style tags (except score tags)",
+    "Missing score tags at start",
+    "Technical tag format instead of natural language"
+  ],
+  "required_positive": [
+    "score_9",
+    "score_8_up",
+    "score_7_up"
+  ],
+  "negative_prompt_default": "score_6, score_5, score_4, worst quality, low quality, bad anatomy, sketch, jpeg artifacts, blurry, simple background",
+  "supports_negative_prompt": true,
+  "platform_block": "PONY DIFFUSION FORMAT (CRITICAL):\n- MUST START with exactly: score_9, score_8_up, score_7_up\n- After score tags, use NATURAL LANGUAGE descriptions (NO underscores)\n- Comma-separated detailed phrases\n- DO NOT use danbooru tag format (no long_hair, brown_eyes, etc.)\n- Use readable text: \"long flowing hair\", \"brown eyes\", \"red dress\"\n- Aim for 150-200 words of rich descriptive detail\n- Example: score_9, score_8_up, score_7_up, a young woman with long flowing hair, intense gaze, wearing elegant red dress, soft studio lighting, professional portrait",
+  "examples": [],
+  "few_shot_intro": "Example transformations of a user idea into a Pony Diffusion-formatted prompt:",
+  "user_message_schema_hint": "The user message arrives as JSON with fields: { raw_idea, target_model, source_image_count, aspect_ratio, camera_details?, references? }. Weave camera_details naturally into the prompt — do NOT echo them as a settings list at the end.",
+  "operation_overrides": {},
+  "model_routing": {
+    "preferred_llm": "qwen2.5:7b",
+    "preferred_vlm": "qwen2.5vl:7b",
+    "prefer_vlm_when_images_attached": false,
+    "sampling": {
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "num_predict": 320
+    }
+  },
+  "provenance": {
+    "primary_sources": [
+      "https://github.com/EricRollei/Local_LLM_Prompt_Enhancer/blob/main/platforms.py"
+    ],
+    "borrowed_from": [
+      "EricRollei/Local_LLM_Prompt_Enhancer pony config"
+    ],
+    "notes": "Ported verbatim. EricRollei's original field names and ordering preserved; platform_block lifted from text_to_image_node.py when present, otherwise empty (the master template + preferences/avoid/quality_tokens alone are enough for platforms without a bespoke block)."
+  }
+}

@@ -7,6 +7,7 @@
 
 import type { EnumeratedWidget } from '../../../contracts/workflow.contract.js';
 import { logger } from '../../../lib/logger.js';
+import { mediaKindForNode } from '../mediaKind.js';
 import { isEnumerableWidget, titleCase, TEXT_PLUMBING_CLASS_TYPES } from '../constants.js';
 import { findSubgraphDef } from '../proxyLabels.js';
 import {
@@ -146,6 +147,7 @@ function emitLeafEntries(
       max: shape.max,
       step: shape.step,
       options: shape.options,
+      media: mediaKindForNode(classType, wv[i]) ?? undefined,
       exposed: savedSet.has(`${compoundId}|${widgetName}`),
       // Inner widgets are strictly opt-in via the expose modal; the main
       // form's claim semantics only operate on top-level nodes.

@@ -15,7 +15,7 @@ import {
 import {
   ComfyJobCancelledError,
   ComfyJobExecutionError,
-} from '../services/videoboard/comfyJobBridge.js';
+} from '../services/comfyui/jobBridge.js';
 import {
   ShotSchema,
   JobStartedSchema,

@@ -34,6 +34,7 @@ import * as eventBus from '../jobs/eventBus.js';
 // Typed event map keeps subscriber signatures correct without `any`.
 interface BridgeEvents {
   raw: [json: string];
+  binary: [buf: Buffer];
   status: [];
   executed: [promptId: string, output: Record<string, unknown>, nodeId?: string];
   executionComplete: [promptId: string];
@@ -64,7 +65,7 @@ class BridgeEmitter extends EventEmitter {
 const emitter = new BridgeEmitter();
 // 0 = unlimited; suppresses Node's "possible leak" warning even in tests that
 // stress-subscribe 1000 times. Memory-leak protection is provided by tests
-// (see comfyJobBridge.test.ts) that assert the count returns to baseline, not
+// (see jobBridge.test.ts) that assert the count returns to baseline, not
 // by EventEmitter's built-in cap (which would only warn, not throw).
 emitter.setMaxListeners(0);
 
@@ -78,6 +79,15 @@ emitter.setMaxListeners(0);
 export function onRaw(handler: (json: string) => void): () => void {
   emitter.on('raw', handler);
   return () => emitter.off('raw', handler);
+}
+
+/** Subscribe to binary frames as-received (ComfyUI's `KSampler` emits
+ *  PNG/JPEG preview blobs over WS during sampling, when launched with
+ *  `--preview-method`). Handler gets the raw Buffer — header parsing is
+ *  the client's job. Subscribers MUST be mounted once at boot. */
+export function onBinary(handler: (buf: Buffer) => void): () => void {
+  emitter.on('binary', handler);
+  return () => emitter.off('binary', handler);
 }
 
 /** Subscribe to ComfyUI `status` messages (fires on queue changes). */
@@ -171,7 +181,7 @@ function resolveTracked(promptId: string, why: string): void {
   if (!r) return;
   const elapsedMs = Date.now() - r.startedAt;
   logger.info?.(
-    `[comfyJobBridge] prompt ${promptId} ${why} after ${elapsedMs}ms`,
+    `[jobBridge] prompt ${promptId} ${why} after ${elapsedMs}ms`,
   );
   r.resolve();
 }
@@ -181,7 +191,7 @@ function rejectTracked(promptId: string, err: Error): void {
   if (!r) return;
   const elapsedMs = Date.now() - r.startedAt;
   logger.warn?.(
-    `[comfyJobBridge] prompt ${promptId} rejected after ${elapsedMs}ms: ${err.message}`,
+    `[jobBridge] prompt ${promptId} rejected after ${elapsedMs}ms: ${err.message}`,
   );
   r.reject(err);
 }
@@ -266,7 +276,7 @@ export function trackComfyPrompt(
       abortListener,
       startedAt: Date.now(),
     });
-    logger.info?.(`[comfyJobBridge] tracking prompt ${promptId} (timeout ${opts.timeoutMs}ms)`);
+    logger.info?.(`[jobBridge] tracking prompt ${promptId} (timeout ${opts.timeoutMs}ms)`);
     scheduleQueuePoll();
   });
 }
@@ -333,7 +343,7 @@ function handleComfyMessage(raw: string): void {
   // this ComfyUI build, or if ComfyUI uses entirely different event names.
   if (DEBUG_LOG_EVENTS && msg.type !== 'progress' && msg.type !== 'progress_state') {
     logger.info?.(
-      `[comfyJobBridge] DEBUG type=${msg.type ?? '<no-type>'} data=${JSON.stringify(msg.data ?? {}).slice(0, 300)}`,
+      `[jobBridge] DEBUG type=${msg.type ?? '<no-type>'} data=${JSON.stringify(msg.data ?? {}).slice(0, 300)}`,
     );
   }
 
@@ -342,7 +352,16 @@ function handleComfyMessage(raw: string): void {
   // Also mirror queue_remaining into the state snapshot exposed by getComfyState().
   if (msg.type === 'status') {
     const qr = msg.data?.status?.exec_info?.queue_remaining;
-    if (typeof qr === 'number') lastQueueRemaining = qr;
+    if (typeof qr === 'number') {
+      lastQueueRemaining = qr;
+      // Reconcile against ground truth: comfy reports idle. Anything still
+      // sitting in `currentlyExecuting` is a phantom from a missed
+      // terminal event — clear so /api/gpu and client-side rehydration
+      // don't show a stale "Running in ComfyUI" forever.
+      if (qr === 0 && currentlyExecuting.size > 0) {
+        currentlyExecuting.clear();
+      }
+    }
     emitter.emit('status');
   }
 
@@ -351,8 +370,18 @@ function handleComfyMessage(raw: string): void {
 
   // Mirror execution lifecycle for state snapshot — runs for EVERY prompt
   // (Studio-tracked + comfy-direct), so external activity is visible.
-  if (msg.type === 'execution_start' || msg.type === 'executing') {
+  if (msg.type === 'execution_start') {
     currentlyExecuting.add(promptId);
+  } else if (msg.type === 'executing') {
+    // ComfyUI's `executing` event is dual-purpose: `{node: "<id>"}` signals
+    // a node is about to run (keep in-set), `{node: null}` signals the
+    // prompt finished (drop from set).
+    const node = msg.data?.node;
+    if (node === null || node === undefined) {
+      currentlyExecuting.delete(promptId);
+    } else {
+      currentlyExecuting.add(promptId);
+    }
   } else if (
     msg.type === 'execution_success' ||
     msg.type === 'execution_complete' ||
@@ -498,7 +527,7 @@ async function pollQueueForVanishedPrompts(): Promise<void> {
     }
     // Not in queue and not in history: was clear-queued before execution started.
     logger.info?.(
-      `[comfyJobBridge] prompt ${promptId} vanished from queue without running — rejecting`,
+      `[jobBridge] prompt ${promptId} vanished from queue without running — rejecting`,
     );
     rejectTracked(promptId, new ComfyJobCancelledError(promptId, 'comfyui'));
   }
@@ -523,7 +552,7 @@ function scheduleQueuePoll(): void {
 async function sweepHistoryForTracked(): Promise<void> {
   if (tracked.size === 0) return;
   const ids = Array.from(tracked.keys());
-  logger.info?.(`[comfyJobBridge] reconnect sweep: checking history for ${ids.length} tracked prompts`);
+  logger.info?.(`[jobBridge] reconnect sweep: checking history for ${ids.length} tracked prompts`);
   for (const promptId of ids) {
     try {
       const hist = await getHistoryForPrompt(promptId);
@@ -550,25 +579,36 @@ function openWs(): void {
     const sock = new WebSocket(url);
     ws = sock;
     sock.on('open', () => {
-      logger.info?.(`[comfyJobBridge] connected ${url}`);
+      logger.info?.(`[jobBridge] connected ${url}`);
       // Catch up on terminal events ComfyUI may have emitted while we were
       // disconnected. Best-effort; never throws to the WS layer.
       void sweepHistoryForTracked().catch(() => { /* logged inside */ });
     });
-    sock.on('message', (data) => {
+    sock.on('message', (data, isBinary) => {
+      // ComfyUI emits two kinds of WS frames: JSON status/event text frames
+      // (handled by handleComfyMessage) and binary preview blobs (PNG/JPEG)
+      // produced by the KSampler `--preview-method` path. `data.toString()`
+      // on a binary frame yields garbage, so we branch first. `isBinary`
+      // (per the `ws` library) is true exactly when the frame opcode is
+      // 0x2 (binary).
+      if (isBinary) {
+        const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
+        emitter.emit('binary', buf);
+        return;
+      }
       handleComfyMessage(data.toString());
     });
     sock.on('close', () => {
       if (ws === sock) ws = null;
-      logger.warn?.('[comfyJobBridge] disconnected; reconnecting in 5s');
+      logger.warn?.('[jobBridge] disconnected; reconnecting in 5s');
       scheduleReconnect();
     });
     sock.on('error', (err) => {
       // Per-event log only; the close handler does the reconnect work.
-      logger.warn?.(`[comfyJobBridge] socket error: ${(err as Error).message}`);
+      logger.warn?.(`[jobBridge] socket error: ${(err as Error).message}`);
     });
   } catch (err) {
-    logger.warn?.(`[comfyJobBridge] failed to open WS: ${(err as Error).message}`);
+    logger.warn?.(`[jobBridge] failed to open WS: ${(err as Error).message}`);
     scheduleReconnect();
   }
 }

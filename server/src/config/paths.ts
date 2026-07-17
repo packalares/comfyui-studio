@@ -59,6 +59,16 @@ export const paths = {
    * below for mutable JSON.
    */
   dataDir: env.DATA_DIR || BUNDLED_DATA_DIR,
+  /**
+   * Bundled prompt-enhancer profile library + master template + genres /
+   * operations / negative defaults / video presets. Always resolves to the
+   * bundled `server/data/enhancer/` directory — NOT overridable via
+   * $DATA_DIR — because these are read-only seeds shipped with the
+   * deployment, not runtime-mutable state. Letting $DATA_DIR override here
+   * would silently hide the bundled profiles on every pod that points
+   * dataDir at a runtime cache dir.
+   */
+  enhancerDir: path.join(BUNDLED_DATA_DIR, 'enhancer'),
   /** Bundled plugin-catalog snapshot (tracked, read-only). */
   nodeListPath: env.NODE_LIST_PATH || path.join(BUNDLED_DATA_DIR, 'all_nodes.mirrored.json'),
   /** Mutable plugin cache written by the plugin service (runtime). */
@@ -100,6 +110,13 @@ export const paths = {
    * treats them identically to upstream ComfyUI templates.
    */
   userTemplatesDir: path.join(STUDIO_CONFIG_ROOT, 'user-workflows'),
+  /**
+   * User-editable prompt-token registry. JSON file mapping a short token
+   * name (`@business`) to a list of options the PromptComposer chip widget
+   * surfaces. Missing file → empty registry; `@foo` tokens with no registry
+   * entry are silently stripped from the resolved prompt.
+   */
+  promptRegistryFile: path.join(STUDIO_CONFIG_ROOT, 'prompt-registry.json'),
   /**
    * User-writable personality directory. Houses user-authored soul files
    * (souls/*.md) and memory.md. These overlay the bundled seeds in

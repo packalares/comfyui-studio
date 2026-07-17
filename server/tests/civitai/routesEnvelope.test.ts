@@ -1,5 +1,7 @@
-// Tests the Wave J expectation that /civitai/models/{latest,hot,search}
-// return a PageEnvelope carrying `hasMore` and `nextCursor`.
+// Tests the Wave J expectation that /civitai/models/search returns a
+// PageEnvelope carrying `hasMore` and `nextCursor`. The legacy /latest and
+// /hot endpoints were removed when CivitAI browse was unified onto faceted
+// search; their tests folded into the search case here.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import express from 'express';
@@ -29,13 +31,13 @@ function startApp(): Promise<{ url: string; close: () => Promise<void> }> {
   });
 }
 
-describe('civitai list routes envelope shape', () => {
+describe('civitai search route envelope shape', () => {
   let originalFetch: typeof fetch;
 
   beforeEach(() => { originalFetch = globalThis.fetch; });
   afterEach(() => { globalThis.fetch = originalFetch; });
 
-  it('/civitai/models/latest returns hasMore + items', async () => {
+  it('/civitai/models/search returns hasMore + items', async () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (/civitai\.com\/api\/v1\/models/.test(url)) {
@@ -49,7 +51,7 @@ describe('civitai list routes envelope shape', () => {
 
     const app = await startApp();
     try {
-      const res = await authedFetch(`${app.url}/civitai/models/latest`);
+      const res = await authedFetch(`${app.url}/civitai/models/search?q=sd`);
       expect(res.status).toBe(200);
       const body = await res.json() as {
         data: { items: Array<{ id: number }>; hasMore: boolean; total: number; page: number; pageSize: number };
@@ -96,7 +98,7 @@ describe('civitai list routes envelope shape', () => {
 
     const app = await startApp();
     try {
-      const res = await authedFetch(`${app.url}/civitai/models/hot`);
+      const res = await authedFetch(`${app.url}/civitai/models/search?q=sd`);
       expect(res.status).toBe(200);
       const body = await res.json() as { data: { hasMore: boolean; nextCursor?: string } };
       expect(body.data.hasMore).toBe(false);

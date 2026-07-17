@@ -1,0 +1,115 @@
+{
+  "$schema": "../profile.schema.json",
+  "id": "flux1_prose",
+  "version": 1,
+  "name": "Flux 1 — Natural-language prose",
+  "description": "Flux 1 (Dev / Krea / Schnell) speaks natural-language paragraphs, not comma-tag lists. ~200 words is the sweet spot. Authored from EricRollei's flux config + BFL's Flux 1 prompting guidance. Targets Studio's t2i_flux_krea and t2i_flux_dev (when the Faster toggle = ON = Flux 1).",
+  "applies_to": ["t2i_flux_krea", "t2i_flux_dev_faster"],
+  "language_target": "english",
+
+  "format": "prose",
+  "prompt_style": "natural_detailed",
+  "max_words": 220,
+  "min_word_floor": 140,
+  "length_guidance": "Aim for ~200 words of layered, cinematic prose. One coherent description, not bullet points.",
+  "detail_expectation": "Deliver sensory-rich storytelling with multiple focal elements: subject, environment, lighting, atmosphere, medium.",
+  "default_length_tier": "moderate",
+
+  "preferences": [
+    "Natural language descriptions — one flowing paragraph, no bullet lists",
+    "Artistic style references work well: 'in the style of …', 'reminiscent of …'",
+    "Photography terms are first-class: 'shot on Hasselblad', 'studio lighting', '85mm portrait lens'",
+    "Quality modifiers ('masterpiece', 'highly detailed', '8k') are accepted but not required",
+    "Medium specifications welcome: 'oil painting', 'digital art', 'cinematic photograph'",
+    "Mention lighting direction explicitly ('rim light from the upper-left', 'soft window light')",
+    "Anchor mood through environment + colour palette, not bare emotion words"
+  ],
+
+  "quality_tokens": [
+    "masterpiece", "best quality", "highly detailed", "8k uhd",
+    "professional", "award-winning", "stunning", "exceptional quality"
+  ],
+
+  "avoid": [
+    "Comma-tag dumps in the danbooru style (no 'long_hair, 1girl, masterpiece')",
+    "Robotic technical lists — Flux 1 expects natural prose",
+    "Repetitive keywords stacked for emphasis",
+    "Overly structured format with explicit section headers"
+  ],
+
+  "required_positive": [],
+  "negative_prompt_default": "blurry, low quality, distorted, deformed, ugly, bad anatomy, watermark, signature, text",
+  "supports_negative_prompt": false,
+
+  "platform_block": "FLUX 1 INSTRUCTIONS:\n- Output is ONE flowing paragraph of natural-language prose (no bullet points, no tag lists).\n- Aim for 150-220 words. Anything shorter feels undercooked; longer adds little.\n- Photography terms are first-class — use focal lengths, lens types, film stocks, lighting setups freely.\n- Style references work well: 'in the style of Saul Leiter', 'reminiscent of a Wong Kar-wai still'.\n- Name the lighting direction and quality explicitly ('warm key light from the left', 'soft overcast diffusion').\n- Anchor mood via environment, colour, and weather — not bare emotion words.\n- Quality tokens ('masterpiece', '8k', 'highly detailed') help slightly but are not load-bearing.\n- Do NOT produce a comma-separated tag list.",
+
+  "examples": [
+    {
+      "label": "portrait_window_light",
+      "user_input": "woman by a window",
+      "ideal_output": "A pensive young woman in her late twenties sits beside a tall casement window, soft afternoon light spilling across her cheekbone and catching the rim of a ceramic mug she's cradling. Steam rises in lazy ribbons against the pale grey sky outside. Shot on a medium-format camera with an 85mm portrait lens, the depth of field is shallow enough that the window frame dissolves into a creamy bokeh. Her wool sweater is the colour of oatmeal, threadbare at the cuff. There's a hardcover novel open against her thigh, spine cracked from use. The mood is unhurried, contemplative, slightly melancholic — early-morning quiet. Cinematic photography, 8k, natural light, masterpiece quality."
+    },
+    {
+      "label": "landscape_atmospheric",
+      "user_input": "misty forest at dawn",
+      "ideal_output": "A dense pine forest at the moment dawn breaks, low mist clinging to the moss-covered roots and curling between the trunks. Cold golden light filters down in thin shafts, catching motes of pollen and refracting through the fog into pale visible beams. The ground is a quilt of damp ferns and fallen needles, the silence broken only by water dripping from high branches. Captured with a wide-angle landscape lens at a low vantage, the composition draws the eye along a winding deer path that disappears into the haze. The palette is muted — deep evergreens, charcoal trunks, the warm honey wash of early sunlight. Atmospheric photography, hyper detailed, award-winning landscape, cinematic mood."
+    },
+    {
+      "label": "character_action",
+      "user_input": "warrior on a cliff",
+      "ideal_output": "A weather-worn warrior stands on a windswept basalt cliff overlooking a stormy grey sea, her cloak whipping behind her like a torn banner. She grips a long-hafted spear, knuckles white against dark leather wraps, and her gaze is fixed on the horizon where lightning fractures the heavy clouds. Sea spray hits the rock below in slow-motion bursts. Her armour is hammered iron with a verdigris patina, dented from past battles, and the tartan beneath is faded crimson and forest green. The light is cold, blue-grey, with one shaft of pale gold breaking through the cloud cover and falling on her shoulder. Cinematic fantasy photograph, dramatic composition, 8k, in the style of Frank Frazetta's painted realism."
+    },
+    {
+      "label": "food_macro",
+      "user_input": "ramen bowl",
+      "ideal_output": "A steaming bowl of tonkotsu ramen photographed from a low three-quarter angle, the broth a rich pearlescent ivory thick with collagen. Chashu pork glistens against a coil of fresh wavy noodles; a soft-boiled egg cleaved in half reveals its molten amber yolk. Curls of nori, julienned scallion, and a half-moon of pink-rimmed naruto float across the surface. Steam rises in soft tendrils, catching the warm overhead light. The wooden table beneath is dark walnut, slightly oiled, with droplets of broth beading the surface. Shot on a 100mm macro lens, shallow depth of field, the bokeh pulls a wabi-sabi tea-house interior into soft amber blur. Studio food photography, ultra-detailed, magazine quality, masterpiece."
+    },
+    {
+      "label": "abstract_concept",
+      "user_input": "loneliness",
+      "ideal_output": "A single empty diner booth photographed at 3am, the red vinyl seat scuffed and faded, a half-finished cup of coffee going cold on the formica table. The fluorescent overhead light hums a sickly cyan-green and throws long bands of shadow across the chequered linoleum. Through the rain-streaked window, the wet asphalt of an empty avenue reflects neon signage — a pharmacy cross, a payphone glow. There are no people in frame, but the impression of a recent departure: a folded napkin, a quarter left as tip, a coat hanger swinging slowly. Hopper-esque composition, melancholic urban photography, cinematic 35mm film grain, deep saturated colour grading, award-winning atmosphere."
+    }
+  ],
+
+  "few_shot_intro": "Example transformations of a user idea into a Flux 1-formatted prose prompt:",
+
+  "user_message_schema_hint": "The user message arrives as JSON: { raw_idea, target_model, source_image_count, aspect_ratio, camera_details?, references? }. Weave camera_details (lens, aperture, film_or_sensor) naturally into the prose — do NOT echo them as a settings list at the end.",
+
+  "operation_overrides": {
+    "expand": {
+      "length_guidance": "150-220 words. The user gave a 1-5 word seed; build a full cinematic scene around it."
+    },
+    "refine": {
+      "length_guidance": "Polish the user's existing draft to read as flowing prose. Tighten verbs, swap vague adjectives for concrete ones, do not invent new subjects.",
+      "max_words": 240
+    },
+    "restyle": {
+      "length_guidance": "Keep the user's subject + composition. Replace only the style and mood — change the medium, the lighting, the colour palette.",
+      "min_word_floor": 140
+    },
+    "enrich": {
+      "length_guidance": "Add ONE specific detail layer the user is missing (lighting / texture / atmosphere / camera) without changing the scene."
+    }
+  },
+
+  "model_routing": {
+    "preferred_llm": "qwen2.5:7b",
+    "preferred_vlm": "qwen2.5vl:7b",
+    "prefer_vlm_when_images_attached": false,
+    "sampling": {
+      "temperature": 0.75,
+      "top_p": 0.92,
+      "num_predict": 360
+    }
+  },
+
+  "provenance": {
+    "primary_sources": [
+      "https://github.com/EricRollei/Local_LLM_Prompt_Enhancer/blob/main/platforms.py",
+      "https://fal.ai/learn/tools/how-to-use-flux",
+      "https://filmora.wondershare.com/ai-prompt/flux-prompt-guide.html"
+    ],
+    "borrowed_from": ["EricRollei/Local_LLM_Prompt_Enhancer flux config"],
+    "notes": "Borrows EricRollei's flux platform config (length guidance, quality tokens, avoid list, preferences). Examples are original. Sampling temperature raised from default 0.7 to 0.75 because Flux 1 benefits from slightly more creative phrasing."
+  }
+}

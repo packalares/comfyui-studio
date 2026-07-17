@@ -104,16 +104,9 @@ export const DownloadHistoryItemSchema = z.object({
   speed: z.number().optional(),
   downloadUrl: z.string().optional(),
   taskId: z.string().optional(),
+  progress: z.number().optional(),
 });
 export type DownloadHistoryItem = z.infer<typeof DownloadHistoryItemSchema>;
-
-export const InstallResultSchema = z.object({
-  success: z.literal(true),
-  taskId: z.string(),
-  message: z.string().optional(),
-  alreadyActive: z.boolean().optional(),
-});
-export type InstallResult = z.infer<typeof InstallResultSchema>;
 
 export const DownloadCustomResultSchema = z.object({
   success: z.literal(true),
@@ -216,7 +209,23 @@ export interface DownloadOptions {
 
 // ---- Local sub-schemas (moved from routes/models.routes.ts) ----
 
-export const DeleteBodySchema = z.object({ modelName: z.string().min(1) });
+/** Polymorphic delete identifier. The route tries the keys in this order:
+ *    1. `abs_path` — canonical local identifier; can never collide.
+ *    2. `sha256` — unique by content. Resolves to the row's abs_path.
+ *    3. `(save_path, filename)` pair — natural composite key on model_files.
+ *    4. `modelName` — legacy display-name lookup; kept for backward compat.
+ *  Allowing all four keeps the wire flexible: the UI already has the pair
+ *  on every catalog row and sends it; older clients fall back gracefully. */
+export const DeleteBodySchema = z.object({
+  abs_path: z.string().min(1).optional(),
+  sha256: z.string().length(64).optional(),
+  save_path: z.string().min(1).optional(),
+  filename: z.string().min(1).optional(),
+  modelName: z.string().min(1).optional(),
+}).refine(
+  (b) => !!(b.abs_path || b.sha256 || (b.save_path && b.filename) || b.modelName),
+  { message: 'Must supply abs_path, sha256, (save_path, filename) pair, or modelName' },
+);
 
 export const CancelBodySchema = z.object({
   taskId: z.string().optional(),
@@ -224,9 +233,6 @@ export const CancelBodySchema = z.object({
 }).refine((b: { taskId?: string; modelName?: string }) => b.taskId !== undefined || b.modelName !== undefined, {
   message: 'taskId or modelName required',
 });
-
-const InstallBodySchema = z.object({ source: z.string().optional() });
-const InstallParamsSchema = z.object({ modelName: z.string().min(1) });
 
 const HistoryQuerySchema = z.object({
   page: z.coerce.number().int().positive().optional(),
@@ -238,7 +244,21 @@ const HistoryDeleteBodySchema = z.object({ id: z.string().min(1) });
 // ---- Route specs — exported here so the UI client can import them
 // without dragging Express/multer/services into the browser bundle. ----
 
+export const TypeMapResponseSchema = z.object({
+  types: z.record(z.string(), z.string()),
+  civitaiTypes: z.record(z.string(), z.string()),
+});
+export type TypeMapResponse = z.infer<typeof TypeMapResponseSchema>;
+
 export const modelsRoutes = {
+  typeMap: {
+    method: 'GET' as const,
+    path: '/models/type-map',
+    response: TypeMapResponseSchema,
+    auth: { required: true, scopes: ['catalog:read'] as const },
+    tags: ['models'],
+    summary: 'Catalog-type → ComfyUI subdir map (shared by UI and server)',
+  },
   folders: {
     method: 'GET' as const,
     path: '/models/folders',
@@ -280,16 +300,6 @@ export const modelsRoutes = {
     auth: { required: true, scopes: ['models:write'] as const },
     tags: ['models'],
     summary: 'Cancel an active download by taskId or modelName',
-  },
-  install: {
-    method: 'POST' as const,
-    path: '/models/install/:modelName',
-    params: InstallParamsSchema,
-    body: InstallBodySchema,
-    response: InstallResultSchema,
-    auth: { required: true, scopes: ['models:install'] as const },
-    tags: ['models'],
-    summary: 'Start a catalog model install by name',
   },
   downloadHistory: {
     method: 'GET' as const,
@@ -350,5 +360,14 @@ export const modelsRoutes = {
     auth: { required: true, scopes: ['models:write'] as const },
     tags: ['models'],
     summary: 'Discover HuggingFace snapshot dirs and upsert into catalog',
+  },
+  usedBy: {
+    method: 'GET' as const,
+    path: '/models/used-by',
+    query: z.object({ filename: z.string().min(1) }),
+    response: z.array(z.string()),
+    auth: { required: true, scopes: ['catalog:read'] as const },
+    tags: ['models'],
+    summary: 'Templates whose workflow references this model basename',
   },
 } as const;

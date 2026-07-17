@@ -9,8 +9,12 @@
 // carries it explicitly; for subsequent events (chunk/reasoning/tool/done/
 // error) we maintain a msgId→conversationId registry that streamChat
 // populates via registerInFlight / unregisterInFlight.
+//
+// model:pull:* events are also intercepted here and relayed to the Downloads
+// tab via ollamaPullAdapter so Ollama pulls appear alongside model downloads.
 
 import { dispatchToConvSubscribers } from './convSubscriber.js';
+import { handleOllamaChatEvent } from '../downloads/ollamaPullAdapter.js';
 
 let broadcaster: ((message: object) => void) | null = null;
 
@@ -34,9 +38,10 @@ export function emitChatEvent(message: object): void {
   // WS path — unchanged.
   if (broadcaster) broadcaster(message);
 
-  // SSE path — resolve conversationId for per-conv routing.
+  // Downloads tab bridge — relay Ollama pull events to the unified download bus.
   const env = message as { type?: string; data?: Record<string, unknown> };
   if (!env.type || !env.data) return;
+  handleOllamaChatEvent(env.type, env.data);
 
   const data = env.data;
   // chat:start is the only event that carries conversationId directly.

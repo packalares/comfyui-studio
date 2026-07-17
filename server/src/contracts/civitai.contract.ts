@@ -41,9 +41,30 @@ export const CivitaiPageQuerySchema = z.object({
   pageSize: z.string().optional(),
 });
 
+/**
+ * Models search query. `q` is now optional — the UI's "browse by Type=LORA"
+ * use case sends an empty query alongside one or more filters. The route
+ * handler rejects the all-empty case (`Missing search query`) so we don't
+ * forward a useless request to CivitAI.
+ *
+ * `types`, `baseModels` arrive as either bare arrays (`?types=LORA&types=VAE`)
+ * or bracketed arrays (`?types[]=LORA`). Express's default query parser
+ * surfaces both as `string[]`; we coerce string-or-array to `string[]`.
+ */
+const stringOrStringArray = z.union([z.string(), z.array(z.string())])
+  .transform((v) => (Array.isArray(v) ? v : v.length === 0 ? [] : [v]));
+
 export const CivitaiSearchQuerySchema = CivitaiPageQuerySchema.extend({
-  q: z.string().min(1),
-});
+  q:          z.string().optional(),
+  types:      stringOrStringArray.optional(),
+  baseModels: stringOrStringArray.optional(),
+  nsfw:       z.string().optional(),
+  period:     z.enum(['AllTime', 'Year', 'Month', 'Week', 'Day']).optional(),
+  sort:       z.enum(['Highest Rated', 'Most Downloaded', 'Newest']).optional(),
+}).passthrough();
+// Express's qs parser surfaces `types[]=A&types[]=B` under the literal key
+// `types[]`. `.passthrough()` keeps the bracketed alias visible so the route
+// handler can pick whichever form arrived.
 
 export const CivitaiByUrlQuerySchema = CivitaiPageQuerySchema.extend({
   url: z.string().optional(),
@@ -56,3 +77,20 @@ export const CivitaiModelParamsSchema = z.object({
 export const CivitaiVersionParamsSchema = z.object({
   versionId: z.string().min(1),
 });
+
+// ---- Facets endpoint ----
+
+export const CivitaiFacetsResponseSchema = z.object({
+  types:      z.array(z.string()),
+  baseModels: z.array(z.string()),
+  periods:    z.array(z.string()),
+  sorts:      z.array(z.string()),
+});
+export type CivitaiFacetsResponse = z.infer<typeof CivitaiFacetsResponseSchema>;
+
+export const facetsRoute = {
+  method: 'GET' as const,
+  path: '/civitai/models/facets',
+  response: CivitaiFacetsResponseSchema,
+  summary: 'CivitAI search vocabulary (types/baseModels/periods/sorts)',
+};

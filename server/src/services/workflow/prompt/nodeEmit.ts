@@ -65,6 +65,18 @@ export function getApiWidgetSpecs(
     if (!Array.isArray(spec) || spec.length === 0) continue;
     const rawType = spec[0];
     const cfg = (spec[1] as Record<string, unknown> | undefined) ?? null;
+    // `forceInput: true` turns a normally-widget input (STRING / INT /
+    // FLOAT / COMBO) into a connector socket — the editor renders it
+    // on the left edge instead of as a widget row, and the saved
+    // `widgets_values[]` array DOES NOT contain a slot for it. If we
+    // counted it as a widget here, every later widget would read from
+    // the wrong index. (Repro: WAS `Text Find and Replace` declares
+    // `text` as STRING + forceInput; without this guard the `find` /
+    // `replace` widget values land one slot off, the regex compile
+    // explodes with "bad character range Y-%".)
+    const isForceInput = !!(cfg && typeof cfg === 'object'
+      && (cfg as Record<string, unknown>).forceInput === true);
+    if (isForceInput) continue;
     if (Array.isArray(rawType)) {
       // Inline COMBO array (e.g. ['a', 'b', 'c']) — widget. Carry the
       // allowed options list so the emitter can normalise stored values

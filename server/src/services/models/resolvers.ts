@@ -7,7 +7,8 @@ import { promises as dns } from 'node:dns';
 import { env } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
 import { getGithubAuthHeaders } from '../../lib/http.js';
-import { getGithubToken } from '../settings/index.js';
+import { getGithubToken, getHfToken } from '../settings/index.js';
+import { civitaiTypeToDir } from './typeMap.js';
 
 // ── Shared types ──────────────────────────────────────────────────────────────
 
@@ -138,7 +139,10 @@ function buildHfResolveUrl(parsed: ParsedHfFile): string {
 }
 
 function hfAuthHeaders(): Record<string, string> {
-  const token = env.HUGGINGFACE_TOKEN;
+  // Prefer the settings-layer token (set by the user in UI) so paste-URL
+  // resolution uses the same credentials as actual downloads. Fall back to
+  // the environment variable for deployments that inject the token via env.
+  const token = getHfToken() || env.HUGGINGFACE_TOKEN;
   if (!token) return {};
   return { Authorization: `Bearer ${token}` };
 }
@@ -246,20 +250,11 @@ type CivitaiUrlKind =
   | { kind: 'download'; versionId: number };
 
 /**
- * Type->folder mapping cribbed from the CivitAI model-type vocabulary the
- * existing catalog already understands. Extends the HF set with
- * `embeddings` so TextualInversion rows land in the right place.
+ * Type->folder mapping for CivitAI model types. Delegates to typeMap so
+ * server and UI share the same table (audit §4 consolidation).
  */
 function civitaiTypeToFolder(type: string | undefined): SuggestedFolder | undefined {
-  const t = (type || '').toLowerCase();
-  if (!t) return undefined;
-  if (t === 'checkpoint') return 'checkpoints';
-  if (t === 'lora' || t === 'locon' || t === 'lycoris') return 'loras';
-  if (t === 'textualinversion' || t === 'textual inversion' || t === 'embedding') return 'embeddings';
-  if (t === 'vae') return 'vae';
-  if (t === 'controlnet') return 'controlnet';
-  if (t === 'upscaler') return 'upscale_models';
-  return undefined;
+  return civitaiTypeToDir(type) as SuggestedFolder | undefined;
 }
 
 function parseCivitaiUrl(raw: string): CivitaiUrlKind | null {

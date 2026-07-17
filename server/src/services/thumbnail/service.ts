@@ -16,6 +16,8 @@ import {
 import type { ThumbResult, ThumbError, ThumbPipeline } from './types.js';
 
 export { thumbnailForTemplateAsset } from './pipelines/template.js';
+export { thumbnailForModelAsset } from './pipelines/model.js';
+export { thumbnailForPresetAsset } from './pipelines/preset.js';
 export * from './types.js';
 
 // ── Extension → pipeline mapping ─────────────────────────────────────────────

@@ -19,18 +19,29 @@ import { ValidationError, InternalError, HttpError } from '../lib/errors.js';
 import { uploadRejectionReason } from './upload.routes.js';
 import {
   listLibrary, deleteLibraryItem, subfolderForKind, extsFor,
-  resolveLibraryPath, type MediaKind,
+  resolveLibraryPath, type MediaKind, type Scope,
 } from '../services/mediaLibrary.js';
 
 const router = Router();
 
 const ALLOWED_KINDS: ReadonlySet<MediaKind> = new Set(['image', 'audio', 'video']);
+const ALLOWED_SCOPES: ReadonlySet<Scope> = new Set(['input', 'output']);
 
 function parseKind(raw: unknown): MediaKind {
   if (typeof raw !== 'string' || !ALLOWED_KINDS.has(raw as MediaKind)) {
     throw new ValidationError('kind must be image, audio, or video');
   }
   return raw as MediaKind;
+}
+
+/** Optional `scope` query param; default 'input' (back-compat). 'output'
+ *  browses ComfyUI's output/ dir read-only. */
+function parseScope(raw: unknown): Scope {
+  if (raw === undefined || raw === '') return 'input';
+  if (typeof raw !== 'string' || !ALLOWED_SCOPES.has(raw as Scope)) {
+    throw new ValidationError('scope must be input or output');
+  }
+  return raw as Scope;
 }
 
 const uploadLimiter = rateLimit('upload');
@@ -80,12 +91,13 @@ function uniqueName(destDir: string, original: string): string {
   return `${stem}-${Date.now()}${ext}`;
 }
 
-// GET /api/media-library?kind=image|audio|video
+// GET /api/media-library?kind=image|audio|video&scope=input|output
 router.get('/media-library', authMiddleware({ required: true, scopes: ['gallery:read'] as const }),
   (req: Request, res: Response, next: NextFunction) => {
     try {
       const kind = parseKind(req.query.kind);
-      res.json({ data: { items: listLibrary(kind) } });
+      const scope = parseScope(req.query.scope);
+      res.json({ data: { items: listLibrary(kind, scope) } });
     } catch (err) {
       next(err instanceof Error ? err : new InternalError('media-library list failed'));
     }

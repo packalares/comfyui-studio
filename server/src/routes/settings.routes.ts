@@ -320,6 +320,40 @@ const deleteLegacyKeyRoute = defineRoute({
   throw new ValidationError('Use DELETE /settings/secret?name=<secretName>');
 });
 
+// ---- PUT /settings/models ----
+
+const ModelsPatchSchema = z.object({
+  nsfwBlurLevel: z.number().int().min(0).max(4).optional(),
+}).partial();
+
+const ModelsResponseSchema = z.object({
+  nsfwBlurLevel: z.number().int(),
+});
+
+const putModelsRoute = defineRoute({
+  method: 'PUT',
+  path: '/settings/models',
+  body: ModelsPatchSchema,
+  response: ModelsResponseSchema,
+  auth: { required: true, scopes: ['settings:write'] },
+  tags: ['settings'],
+  summary: 'Update model display settings (NSFW blur threshold)',
+}, ({ body, ok }) => {
+  if (typeof body.nsfwBlurLevel === 'number') {
+    settings.setNsfwBlurLevel(body.nsfwBlurLevel);
+  }
+  return ok({ nsfwBlurLevel: settings.getNsfwBlurLevel() });
+});
+
+const getModelsRoute = defineRoute({
+  method: 'GET',
+  path: '/settings/models',
+  response: ModelsResponseSchema,
+  auth: { required: true, scopes: ['settings:read'] },
+  tags: ['settings'],
+  summary: 'Get model display settings (NSFW blur threshold)',
+}, ({ ok }) => ok({ nsfwBlurLevel: settings.getNsfwBlurLevel() }));
+
 const router = Router();
 putSecretRoute.register(router);
 deleteSecretRoute.register(router);
@@ -327,6 +361,8 @@ putChatRoute.register(router);
 putToolsRoute.register(router);
 putDownloadsRoute.register(router);
 probeRoute.register(router);
+getModelsRoute.register(router);
+putModelsRoute.register(router);
 // Legacy catch-all after explicit routes
 putLegacyKeyRoute.register(router);
 deleteLegacyKeyRoute.register(router);

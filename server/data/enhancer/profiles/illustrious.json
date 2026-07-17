@@ -1,0 +1,66 @@
+{
+  "$schema": "../profile.schema.json",
+  "id": "illustrious",
+  "version": 1,
+  "name": "Illustrious XL",
+  "description": "Anime model - Booru tags, quality emphasis, detailed character descriptions Ported verbatim from EricRollei/Local_LLM_Prompt_Enhancer.",
+  "applies_to": [],
+  "language_target": "english",
+  "format": "booru_detailed",
+  "prompt_style": "booru_detailed",
+  "max_words": 150,
+  "min_word_floor": 112,
+  "length_guidance": "Provide around 150 detailed tags covering quality, anatomy, clothing, and atmosphere.",
+  "detail_expectation": "Go beyond basics—describe micro-details, accessories, background storytelling, and lighting tags.",
+  "default_length_tier": "moderate",
+  "preferences": [
+    "Start with quality tags (masterpiece, best quality)",
+    "Use danbooru tag format with underscores",
+    "Detailed character appearance tags",
+    "Clothing and accessory tags",
+    "Background and atmosphere tags",
+    "Lighting and color mood tags"
+  ],
+  "quality_tokens": [
+    "masterpiece",
+    "best quality",
+    "very aesthetic",
+    "absurdres",
+    "intricate details",
+    "official art",
+    "extremely detailed"
+  ],
+  "quality_emphasis": true,
+  "avoid": [
+    "Overly long narrative descriptions",
+    "Realistic photography terms",
+    "3D render terminology"
+  ],
+  "required_positive": [],
+  "negative_prompt_default": "worst quality, low quality, bad anatomy, bad hands, bad feet, deformed, disfigured, poorly drawn, blurry, jpeg artifacts",
+  "supports_negative_prompt": true,
+  "platform_block": "ILLUSTRIOUS-SPECIFIC INSTRUCTIONS:\n- Start with quality tags: masterpiece, best quality\n- Use danbooru tag format with underscores\n- Detailed character appearance tags\n- Clothing and accessory tags\n- Background and atmosphere tags\n- Example: masterpiece, best quality, 1girl, detailed_face, flowing_dress, etc.",
+  "examples": [],
+  "few_shot_intro": "Example transformations of a user idea into a Illustrious XL-formatted prompt:",
+  "user_message_schema_hint": "The user message arrives as JSON with fields: { raw_idea, target_model, source_image_count, aspect_ratio, camera_details?, references? }. Weave camera_details naturally into the prompt — do NOT echo them as a settings list at the end.",
+  "operation_overrides": {},
+  "model_routing": {
+    "preferred_llm": "qwen2.5:7b",
+    "preferred_vlm": "qwen2.5vl:7b",
+    "prefer_vlm_when_images_attached": false,
+    "sampling": {
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "num_predict": 240
+    }
+  },
+  "provenance": {
+    "primary_sources": [
+      "https://github.com/EricRollei/Local_LLM_Prompt_Enhancer/blob/main/platforms.py"
+    ],
+    "borrowed_from": [
+      "EricRollei/Local_LLM_Prompt_Enhancer illustrious config"
+    ],
+    "notes": "Ported verbatim. EricRollei's original field names and ordering preserved; platform_block lifted from text_to_image_node.py when present, otherwise empty (the master template + preferences/avoid/quality_tokens alone are enough for platforms without a bespoke block)."
+  }
+}

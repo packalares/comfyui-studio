@@ -10,7 +10,8 @@ import { Router, type Request, type Response, type NextFunction, type RequestHan
 import { createReadStream } from 'fs';
 import { logger } from '../lib/logger.js';
 import {
-  thumbnailForGalleryItem, thumbnailForTemplateAsset, thumbnailForUrl,
+  thumbnailForGalleryItem, thumbnailForTemplateAsset, thumbnailForModelAsset,
+  thumbnailForPresetAsset, thumbnailForUrl,
   collectStats, clearCache, scheduleSweeps,
   isThumbError,
 } from '../services/thumbnail/index.js';
@@ -149,13 +150,47 @@ const handleTemplateMode: RequestHandler = async (req: Request, res: Response, n
   }
 };
 
-// Mount order: literal `/thumbnail/stats`, `/thumbnail/cache`, and the
-// `/thumbnail/template/*` glob are registered BEFORE the `:galleryId`
-// param handler so the param doesn't swallow them.
+const handleModelMode: RequestHandler = async (req: Request, res: Response, next: NextFunction) => {
+  const save_path = typeof req.query.save_path === 'string' ? req.query.save_path : '';
+  const filename = typeof req.query.filename === 'string' ? req.query.filename : '';
+  if (!save_path || !filename) { next(new ValidationError('save_path and filename required')); return; }
+  const width = parseWidth(req.query.w);
+  if (typeof width !== 'number') { next(new ValidationError(width.error)); return; }
+  try {
+    const result = await thumbnailForModelAsset({ save_path, filename, width });
+    sendThumb(res, result);
+  } catch (err) {
+    try { throwMappedError(err, { save_path, filename }); } catch (mapped) { next(mapped); }
+  }
+};
+
+// Preset mode: streams a downloaded preview image saved by the import hook
+// into `<userTemplatesDir>/<parent>/<filename>`. The matched glob is
+// `<parent>/<filename>` and resolves under userTemplatesDir via safeResolve
+// inside the pipeline. Width controls the resize stage like every other mode.
+const handlePresetMode: RequestHandler = async (req: Request, res: Response, next: NextFunction) => {
+  const rawPath = (req.params as Record<string, unknown>)[0];
+  const assetPath = typeof rawPath === 'string' ? rawPath : '';
+  if (!assetPath) { next(new ValidationError('assetPath required')); return; }
+  const width = parseWidth(req.query.w);
+  if (typeof width !== 'number') { next(new ValidationError(width.error)); return; }
+  try {
+    const result = await thumbnailForPresetAsset({ assetPath, width });
+    sendThumb(res, result);
+  } catch (err) {
+    try { throwMappedError(err, { assetPath }); } catch (mapped) { next(mapped); }
+  }
+};
+
+// Mount order: literal `/thumbnail/stats`, `/thumbnail/cache`,
+// `/thumbnail/template/*` and `/thumbnail/model` are registered BEFORE the
+// `:galleryId` param handler so the param doesn't swallow them.
 router.get('/thumbnail/stats', handleStats);
 router.delete('/thumbnail/cache', handleClear);
 router.get('/thumbnail', handleUrlMode);
 router.get('/thumbnail/template/*', handleTemplateMode);
+router.get('/thumbnail/preset/*', handlePresetMode);
+router.get('/thumbnail/model', handleModelMode);
 router.get('/thumbnail/:galleryId', handleIdMode);
 
 export default router;

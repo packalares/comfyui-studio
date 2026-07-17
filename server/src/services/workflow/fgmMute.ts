@@ -15,6 +15,16 @@
 //   - `enableGroups` omitted on the mode → default to `[mode]`, i.e. enable
 //     the single group whose title equals the mode key.
 //   - `fgmNodeId` omitted → auto-pick the first FGM-class node found.
+//
+// Always-active groups (skip muting regardless of the mode's `enableGroups`):
+//   - `alwaysActiveGroups` param → explicit list, typically driven by the
+//     template's `studioAlwaysActiveGroups` field. Lets the author declare
+//     shared groups (e.g. "Settings", "Sampler", "VAEDecode") ONCE at the
+//     top of the template instead of repeating them in every mode entry.
+//   - `_`/`~` prefix convention → any group whose title literally starts
+//     with `_` or `~` is treated as always-active without needing to
+//     register it. Useful for shared groups the author wants to mark
+//     visually in the editor by name alone.
 
 import { FGM_CLASS_TYPE } from './fgmConst.js';
 
@@ -47,6 +57,10 @@ interface FgmModeConfig {
  * @param mode      Active mode key (used as the default group name when
  *                  `enableGroups` is omitted).
  * @param modeConfig  Per-mode config from `studioModes[mode]`.
+ * @param alwaysActiveGroups  Optional template-level list of group titles
+ *                  that should NEVER be muted, regardless of the active
+ *                  mode's `enableGroups`. Typically sourced from the
+ *                  template's `studioAlwaysActiveGroups` field.
  * @returns         Top-level node ids to mute. Empty array if no FGM in the
  *                  workflow, no groups defined, or all groups are enabled.
  */
@@ -54,6 +68,7 @@ export function computeFgmMutedNodes(
   workflow: LiteGraphWorkflow,
   mode: string,
   modeConfig: FgmModeConfig,
+  alwaysActiveGroups: string[] = [],
 ): number[] {
   const groups = workflow.groups;
   const nodes = workflow.nodes;
@@ -67,13 +82,26 @@ export function computeFgmMutedNodes(
   if (!fgm) return [];
 
   // ---- Resolve which groups should stay active ----
-  const enable = new Set(modeConfig.enableGroups ?? [mode]);
+  // Three sources, unioned:
+  //   1. Mode-declared `enableGroups` (default = [mode]).
+  //   2. Template-level `alwaysActiveGroups` — shared groups the template
+  //      author wants kept alive across every mode.
+  //   3. `_`/`~` prefix convention — checked per-group in the loop below
+  //      so the prefix is enough to keep a group active.
+  const enable = new Set<string>([
+    ...(modeConfig.enableGroups ?? [mode]),
+    ...alwaysActiveGroups,
+  ]);
+  const hasAlwaysActivePrefix = (title: string): boolean => {
+    const t = title.trimStart();
+    return t.startsWith('_') || t.startsWith('~');
+  };
 
   // ---- For every disabled group, collect its inner nodes ----
   const muted: number[] = [];
   for (const group of groups) {
     const title = group.title;
-    if (!title || enable.has(title)) continue;
+    if (!title || enable.has(title) || hasAlwaysActivePrefix(title)) continue;
     const bounding = group.bounding;
     if (!bounding || bounding.length < 4) continue;
     const [gx, gy, gw, gh] = bounding;

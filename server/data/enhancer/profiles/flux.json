@@ -1,0 +1,66 @@
+{
+  "$schema": "../profile.schema.json",
+  "id": "flux",
+  "version": 1,
+  "name": "Flux (FLUX.1-dev/schnell)",
+  "description": "Black Forest Labs - Natural language, detailed, artistic Ported verbatim from EricRollei/Local_LLM_Prompt_Enhancer.",
+  "applies_to": [],
+  "language_target": "english",
+  "format": "natural_detailed",
+  "prompt_style": "natural_detailed",
+  "max_words": 200,
+  "min_word_floor": 150,
+  "length_guidance": "Aim for about 200 words (or more) with layered, cinematic imagery.",
+  "detail_expectation": "Deliver ultra-detailed, sensory-rich storytelling with multiple focal elements.",
+  "default_length_tier": "moderate",
+  "preferences": [
+    "Natural language descriptions",
+    "Artistic style references (e.g., 'in the style of...')",
+    "Photography terms (e.g., 'professional photograph', 'studio lighting')",
+    "Quality descriptors (e.g., 'masterpiece', 'highly detailed', '8k')",
+    "Medium specifications (e.g., 'oil painting', 'digital art', 'photograph')"
+  ],
+  "quality_tokens": [
+    "masterpiece",
+    "best quality",
+    "highly detailed",
+    "8k uhd",
+    "professional",
+    "award-winning",
+    "stunning",
+    "exceptional quality"
+  ],
+  "quality_emphasis": false,
+  "avoid": [
+    "Too technical/robotic language",
+    "Repetitive keywords",
+    "Overly structured format"
+  ],
+  "required_positive": [],
+  "negative_prompt_default": "blurry, low quality, distorted, deformed, ugly, bad anatomy, watermark, signature, text",
+  "supports_negative_prompt": true,
+  "platform_block": "FLUX-SPECIFIC INSTRUCTIONS:\n- Natural language descriptions (75-150 tokens)\n- Use artistic terminology\n- Can include \"in the style of [artist/style]\"\n- Quality modifiers important\n- Photography terms work well",
+  "examples": [],
+  "few_shot_intro": "Example transformations of a user idea into a Flux (FLUX.1-dev/schnell)-formatted prompt:",
+  "user_message_schema_hint": "The user message arrives as JSON with fields: { raw_idea, target_model, source_image_count, aspect_ratio, camera_details?, references? }. Weave camera_details naturally into the prompt — do NOT echo them as a settings list at the end.",
+  "operation_overrides": {},
+  "model_routing": {
+    "preferred_llm": "qwen2.5:7b",
+    "preferred_vlm": "qwen2.5vl:7b",
+    "prefer_vlm_when_images_attached": false,
+    "sampling": {
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "num_predict": 320
+    }
+  },
+  "provenance": {
+    "primary_sources": [
+      "https://github.com/EricRollei/Local_LLM_Prompt_Enhancer/blob/main/platforms.py"
+    ],
+    "borrowed_from": [
+      "EricRollei/Local_LLM_Prompt_Enhancer flux config"
+    ],
+    "notes": "Ported verbatim. EricRollei's original field names and ordering preserved; platform_block lifted from text_to_image_node.py when present, otherwise empty (the master template + preferences/avoid/quality_tokens alone are enough for platforms without a bespoke block)."
+  }
+}

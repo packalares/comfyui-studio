@@ -19,6 +19,9 @@ import templateWidgets from './templateWidgets.routes.js';
 import generate from './generate.routes.js';
 import dependencies from './dependencies.routes.js';
 import models from './models.routes.js';
+import modelsEnrichment from './modelsEnrichment.routes.js';
+import modelsRecipes from './modelsRecipes.routes.js';
+import civitaiByHash from './civitaiByHash.routes.js';
 import comfyuiLifecycle from './comfyui.routes.js';
 import comfyuiControl from './comfyui.control.routes.js';
 import plugins from './plugins.routes.js';
@@ -38,6 +41,8 @@ import openapi from './openapi.routes.js';
 import gpu from './gpu.routes.js';
 import llm from './llm.routes.js';
 import jobs from './jobs.routes.js';
+import promptRegistry from './promptRegistry.routes.js';
+import enhancer from './enhancer.routes.js';
 
 const router = Router();
 
@@ -58,6 +63,9 @@ router.use(templateWidgets);
 router.use(generate);
 router.use(dependencies);
 router.use(models);
+router.use(modelsEnrichment);
+router.use(modelsRecipes);
+router.use(civitaiByHash);
 router.use(comfyuiLifecycle);
 router.use(comfyuiControl);
 router.use(plugins);
@@ -77,5 +85,7 @@ router.use(openapi);
 router.use(gpu);
 router.use(llm);
 router.use(jobs);
+router.use(promptRegistry);
+router.use(enhancer);
 
 export default router;

@@ -1,0 +1,52 @@
+{
+  "$schema": "./operations.schema.json",
+  "description": "Operation modes for the enhancer. `operations` is a higher-level UI concept layered on top of EricRollei's prompt-context map (also ported below as `context_map` for direct use). `length_tiers` is EricRollei's word-count tier system.",
+  "provenance": "https://github.com/EricRollei/Local_LLM_Prompt_Enhancer/blob/main/text_to_image_node.py",
+  "operations": {
+    "expand": {
+      "description": "Build a full scene from a short user seed (1-5 words).",
+      "default_context": "expand_short_prompt",
+      "default_length_tier": "moderate"
+    },
+    "refine": {
+      "description": "Polish an existing user draft without changing intent or subject.",
+      "default_context": "finish_opening_line",
+      "default_length_tier": "moderate"
+    },
+    "restyle": {
+      "description": "Keep subject and composition; change only the style, medium, and mood.",
+      "default_context": "expand_short_prompt",
+      "default_length_tier": "moderate"
+    },
+    "enrich": {
+      "description": "Add ONE specific layer (lighting / texture / atmosphere / lens) without altering the scene.",
+      "default_context": "finish_opening_line",
+      "default_length_tier": "moderate"
+    }
+  },
+  "context_map": {
+    "expand_short_prompt": "User provided a shorthand idea. Expand it into a full, production-ready description.",
+    "finish_opening_line": "Treat input as the opening line of the prompt. Continue and embellish it coherently.",
+    "prompt_from_item_list": "User supplied a checklist. Transform it into a cohesive narrative scene.",
+    "modify_reference_image": "Focus on altering specific parts of the reference imagery as requested.",
+    "enhance_reference_image": "Use reference images as a base and enrich them with new imaginative elements."
+  },
+  "length_tiers": {
+    "concise": {
+      "word_range": "150-200",
+      "max_words_multiplier": 0.6
+    },
+    "moderate": {
+      "word_range": "250-350",
+      "max_words_multiplier": 1.0
+    },
+    "detailed": {
+      "word_range": "400-500",
+      "max_words_multiplier": 1.4
+    },
+    "exhaustive": {
+      "word_range": "600-1000",
+      "max_words_multiplier": 2.0
+    }
+  }
+}

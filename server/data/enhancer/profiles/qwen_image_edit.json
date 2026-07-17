@@ -1,0 +1,71 @@
+{
+  "$schema": "../profile.schema.json",
+  "id": "qwen_image_edit",
+  "version": 1,
+  "name": "Qwen Image Edit",
+  "description": "Alibaba - Specialized for editing, clear change instructions Ported verbatim from EricRollei/Local_LLM_Prompt_Enhancer.",
+  "applies_to": [],
+  "language_target": "english",
+  "format": "edit_focused",
+  "prompt_style": "edit_focused",
+  "max_words": 30,
+  "min_word_floor": 15,
+  "length_guidance": "Stay between 5 and 30 words; short, direct edit commands only.",
+  "detail_expectation": "Laser-focused on the requested change; avoid full-scene rewrites.",
+  "default_length_tier": "concise",
+  "preferences": [
+    "VERY concise change instructions",
+    "Focus on what changes, not what stays",
+    "Clear before/after language",
+    "Direct commands (e.g., 'change X to Y', 'add Z', 'remove W')",
+    "Preservation hints (e.g., 'keep background', 'maintain composition')"
+  ],
+  "quality_tokens": [
+    "seamless",
+    "natural",
+    "realistic",
+    "consistent",
+    "high quality"
+  ],
+  "quality_emphasis": false,
+  "avoid": [
+    "Long descriptions of unchanged elements",
+    "Redundant information",
+    "Vague change requests",
+    "Overly artistic language"
+  ],
+  "required_positive": [],
+  "negative_prompt_default": "unnatural, inconsistent, artifacts, seams, low quality",
+  "supports_negative_prompt": true,
+  "platform_block": "",
+  "edit_templates": [
+    "Change {element} to {new_value}",
+    "Add {new_element} to {location}",
+    "Remove {element}",
+    "Replace {old} with {new}",
+    "Modify {element}: {description}"
+  ],
+  "examples": [],
+  "few_shot_intro": "Example transformations of a user idea into a Qwen Image Edit-formatted prompt:",
+  "user_message_schema_hint": "The user message arrives as JSON with fields: { raw_idea, target_model, source_image_count, aspect_ratio, camera_details?, references? }. Weave camera_details naturally into the prompt — do NOT echo them as a settings list at the end.",
+  "operation_overrides": {},
+  "model_routing": {
+    "preferred_llm": "qwen2.5:7b",
+    "preferred_vlm": "qwen2.5vl:7b",
+    "prefer_vlm_when_images_attached": true,
+    "sampling": {
+      "temperature": 0.4,
+      "top_p": 0.9,
+      "num_predict": 48
+    }
+  },
+  "provenance": {
+    "primary_sources": [
+      "https://github.com/EricRollei/Local_LLM_Prompt_Enhancer/blob/main/platforms.py"
+    ],
+    "borrowed_from": [
+      "EricRollei/Local_LLM_Prompt_Enhancer qwen_image_edit config"
+    ],
+    "notes": "Ported verbatim. EricRollei's original field names and ordering preserved; platform_block lifted from text_to_image_node.py when present, otherwise empty (the master template + preferences/avoid/quality_tokens alone are enough for platforms without a bespoke block)."
+  }
+}

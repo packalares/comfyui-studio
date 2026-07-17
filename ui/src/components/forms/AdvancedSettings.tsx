@@ -1,11 +1,14 @@
 import { useState } from 'react';
-import { ChevronDown, Shuffle, Minus, Plus, Info } from 'lucide-react';
+import { ChevronDown, Shuffle, Minus, Plus, Info, Image as ImageIcon, Music, Film, FolderOpen } from 'lucide-react';
 import type { AdvancedSetting } from '../../types';
 import { Slider } from '../ui/slider';
 import { SelectField, SelectContent, SelectItem, SelectTrigger, SelectValue } from './SelectField';
 import { Combobox, COMBOBOX_SEARCH_THRESHOLD } from '../ui/combobox';
 import { Switch } from '../ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+import { Button } from '../ui/button';
+import MediaLibraryModal from '../modals/MediaLibraryModal';
+import type { MediaLibraryItem } from '../../services/comfyui';
 
 interface Props {
   settings: AdvancedSetting[];
@@ -219,6 +222,17 @@ function SettingField({
   onChange: (value: unknown) => void;
   invalid?: boolean;
 }) {
+  // Media-aware widget: when the server flagged this setting as driving a
+  // LoadImage / LoadAudio / LoadVideo (or compatible custom loader), swap
+  // the default select/text control for the same MediaLibraryModal picker
+  // Easy mode uses. Same wire format on submit (the ref string), uniform
+  // UX across Easy / Advanced.
+  if (setting.media) {
+    return (
+      <MediaSettingField setting={setting} value={value} onChange={onChange} />
+    );
+  }
+
   // Toggle renders inline: label left, switch right, no control row below.
   if (setting.type === 'toggle') {
     return (
@@ -246,6 +260,78 @@ function SettingField({
         {labelRight && <span className="ml-auto">{labelRight}</span>}
       </div>
       <SettingControl setting={setting} value={value} onChange={onChange} invalid={invalid} />
+    </div>
+  );
+}
+
+// Media-aware advanced setting. Renders a thumbnail / filename strip plus a
+// "Choose…" button that opens MediaLibraryModal scoped to the right kind
+// (image / audio / video). The picker carries both input/ and output/
+// sources, so power users can wire a previously-generated output into a
+// loader from the same control. On select we set the widget value to the
+// ComfyUI-format ref (`<subfolder>/<filename>` or just `<filename>`).
+function MediaSettingField({
+  setting, value, onChange,
+}: {
+  setting: AdvancedSetting;
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const kind = setting.media as 'image' | 'audio' | 'video';
+  const ref = typeof value === 'string' ? value : '';
+  const basename = ref ? (ref.split('/').pop() || ref) : '';
+
+  const handleSelect = (item: MediaLibraryItem) => {
+    onChange(item.ref);
+    setOpen(false);
+  };
+
+  const KindIcon = kind === 'image' ? ImageIcon : kind === 'audio' ? Music : Film;
+
+  return (
+    <div>
+      <div className="flex items-center mb-1">
+        <SettingLabel setting={setting} />
+      </div>
+      <div className="flex items-center gap-2 rounded-md border border-border bg-card p-2">
+        {/* Thumbnail / icon-block. For 'image' we attempt to render the actual
+            preview through ComfyUI's /api/view; audio/video get an icon. */}
+        {kind === 'image' && ref ? (
+          <img
+            src={`/api/view?filename=${encodeURIComponent(basename)}&subfolder=${encodeURIComponent(ref.includes('/') ? ref.slice(0, ref.lastIndexOf('/')) : '')}&type=input`}
+            alt=""
+            className="h-10 w-10 rounded object-cover bg-muted shrink-0"
+          />
+        ) : (
+          <div className="h-10 w-10 rounded bg-muted flex items-center justify-center shrink-0">
+            <KindIcon className="h-4 w-4 text-muted-foreground" />
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-mono text-foreground truncate" title={ref || undefined}>
+            {basename || <span className="text-muted-foreground italic">No file selected</span>}
+          </p>
+          {ref && ref !== basename && (
+            <p className="text-[10px] text-muted-foreground truncate">{ref}</p>
+          )}
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          onClick={() => setOpen(true)}
+        >
+          <FolderOpen className="w-3.5 h-3.5" />
+          Choose…
+        </Button>
+      </div>
+      <MediaLibraryModal
+        open={open}
+        onClose={() => setOpen(false)}
+        kind={kind}
+        onSelect={handleSelect}
+      />
     </div>
   );
 }

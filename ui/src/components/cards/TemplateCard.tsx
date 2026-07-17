@@ -135,6 +135,18 @@ function TemplateCardInner({ template, onDeleted, onFavoriteToggled }: Props) {
   }, [menuOpen]);
 
   const handleCardClick = (): void => {
+    if (template.studioBuilder) {
+      // Easy-mode template: navigate to the dedicated builder PATH
+      // (`/studio/easy/<image|video|audio>`) so `studioTab` resolves to
+      // the right tab. The `?template=` hint preselects the clicked
+      // template inside the builder's own picker (which otherwise reuses
+      // whatever `studio:<tab>:lastForm` had stored).
+      navigate(
+        `/studio/easy/${template.studioBuilder}?template=${encodeURIComponent(template.name)}`,
+      );
+      return;
+    }
+    // Classic template: legacy `/studio/<name>?category=<cat>` flow.
     const cat = template.studioCategory || template.mediaType || 'image';
     navigate(`/studio/${encodeURIComponent(template.name)}?category=${cat}`);
   };

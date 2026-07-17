@@ -1,14 +1,18 @@
+import { useState } from 'react';
 import {
   ExternalLink, Download as DownloadIcon, ThumbsUp, Star, HardDrive,
-  User as UserIcon,
+  User as UserIcon, Sparkles,
 } from 'lucide-react';
 import type { CatalogModel, CivitaiModelSummary } from '../../types';
 import { formatBytes } from '../../lib/utils';
+import { api } from '../../services/comfyui';
 import AppModal from './AppModal';
 import {
   CatalogModelBody, sanitizeHtml, hasHtmlTags,
 } from './ModelInfoModal.catalog';
 import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Spinner } from '../ui/spinner';
 
 export type ModelInfoSource =
   | { kind: 'civitai'; item: CivitaiModelSummary }
@@ -56,18 +60,7 @@ export default function ModelInfoModal({ open, onClose, source }: Props): JSX.El
   if (!open || !source) return null;
 
   if (source.kind === 'catalog') {
-    const model = source.model;
-    return (
-      <AppModal
-        open={open}
-        onClose={onClose}
-        title={model.filename || model.name}
-        subtitle={model.type ? `${model.type} — Local catalog` : 'Local catalog'}
-        size="lg"
-      >
-        <CatalogModelBody model={model} />
-      </AppModal>
-    );
+    return <CatalogModalShell open={open} onClose={onClose} model={source.model} />;
   }
 
   // Civitai branch — kept in this file because it's tightly coupled to
@@ -174,6 +167,93 @@ export default function ModelInfoModal({ open, onClose, source }: Props): JSX.El
           Open on civitai.com
         </a>
       </div>
+    </AppModal>
+  );
+}
+
+// CatalogModalShell — wraps `CatalogModelBody` with state-owning chrome so the
+// Enrich + Favorite buttons can sit INLINE with the subtitle text (not in the
+// body). State lives here because AppModal's `subtitle` slot is a ReactNode
+// rendered above the body; the buttons need shared access to enriching /
+// favorite state with the body, but the body itself no longer renders them.
+function CatalogModalShell({
+  open, onClose, model,
+}: { open: boolean; onClose: () => void; model: CatalogModel }): JSX.Element {
+  const [enriching, setEnriching] = useState(false);
+  const [enrichError, setEnrichError] = useState<string | null>(null);
+  const [favorite, setFavorite] = useState(model.enrichment?.favorite ?? false);
+
+  const onEnrich = () => {
+    setEnriching(true);
+    setEnrichError(null);
+    api.enrichModel(model.save_path, model.filename)
+      .then(() => { window.location.reload(); })
+      .catch((err: unknown) => {
+        setEnrichError(err instanceof Error ? err.message : 'Enrichment failed');
+        setEnriching(false);
+      });
+  };
+
+  const onToggleFavorite = () => {
+    const next = !favorite;
+    setFavorite(next);
+    api.setModelFavorite(model.save_path, model.filename, next)
+      .catch(() => setFavorite(!next));
+  };
+
+  const enrichmentSource = model.enrichment?.metadata_source;
+  const typePrefix = model.type ? `${model.type} — ` : '';
+  let subtitleSuffix: string;
+  if (enrichmentSource === 'civitai') subtitleSuffix = 'CivitAI';
+  else if (typeof model.source === 'string' && model.source.startsWith('template:')) subtitleSuffix = 'Template';
+  else if (typeof model.source === 'string' && model.source.startsWith('enrichment:')) subtitleSuffix = 'CivitAI';
+  else subtitleSuffix = 'Local catalog';
+  const subtitleText = `${typePrefix}${subtitleSuffix}`;
+
+  // Subtitle = text + inline action buttons. AppModal's subtitle slot already
+  // sits under the title; the flex row keeps the buttons aligned with text.
+  const subtitleNode = (
+    <div className="flex items-center gap-2 flex-wrap">
+      <span>{subtitleText}</span>
+      {model.installed && (
+        <>
+          <Button
+            type="button"
+            onClick={onEnrich}
+            disabled={enriching}
+            variant="secondary"
+            size="sm"
+            className="h-6 px-2 text-[11px]"
+          >
+            {enriching ? <Spinner size="xs" /> : <Sparkles className="w-3 h-3" />}
+            Enrich
+          </Button>
+          <button
+            type="button"
+            onClick={onToggleFavorite}
+            aria-label={favorite ? 'Remove from favorites' : 'Add to favorites'}
+            title={favorite ? 'Remove from favorites' : 'Add to favorites'}
+            className="inline-flex items-center justify-center h-6 w-6 rounded hover:bg-muted text-muted-foreground hover:text-warning transition-colors"
+          >
+            <Star className={`w-3.5 h-3.5 ${favorite ? 'text-warning fill-warning' : ''}`} />
+          </button>
+          {enrichError && (
+            <span className="text-[11px] text-destructive">{enrichError}</span>
+          )}
+        </>
+      )}
+    </div>
+  );
+
+  return (
+    <AppModal
+      open={open}
+      onClose={onClose}
+      title={model.filename || model.name}
+      subtitle={subtitleNode}
+      size="lg"
+    >
+      <CatalogModelBody model={model} />
     </AppModal>
   );
 }

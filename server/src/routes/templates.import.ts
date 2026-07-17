@@ -15,6 +15,7 @@ import { Router, type Request, type Response, type NextFunction, type RequestHan
 import multer from 'multer';
 import * as templates from '../services/templates/index.js';
 import * as templateRepo from '../lib/db/templates.repo.js';
+import * as templatePresetsRepo from '../lib/db/templatePresets.repo.js';
 import { resolveModelForStaging, ResolverError } from '../services/templates/commitOverrides.js';
 import { CommitBlockedError } from '../services/templates/importCommit.js';
 import { WorkflowNameCollisionError } from '../services/templates/errors.js';
@@ -475,6 +476,10 @@ export function handleDeleteTemplate(req: Request, res: Response): void {
     templates.deleteUserWorkflow(name); // remove JSON file from disk
     if (dbRow) {
       templateRepo.setSoftDeleted(name);
+      // The folder + per-preset files are gone via deleteUserWorkflow above;
+      // null the JSON column too so a re-install rebuilds from import rather
+      // than reviving stale card metadata.
+      templatePresetsRepo.clearPresets(name);
     }
     res.json({ deleted: true, soft: true, name });
     return;

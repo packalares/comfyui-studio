@@ -10,6 +10,26 @@ import type { PluginResolution } from './extractDepsAsync.js';
 /** Wave L auto-resolution record. Declared here to avoid circular imports. */
 export type AutoResolveSource = 'catalog' | 'markdown' | 'huggingface' | 'civitai' | 'hfRepo' | 'pluginReadme';
 
+/**
+ * Wave 8: Locally-scoped shape for an on-disk ambiguity entry stored on a
+ * staged import. Mirrors ChooserEntry from dependencyCheck.models.ts but
+ * declared here to avoid circular imports between staging and dep-check layers.
+ * When populated, the review UI should surface a picker before allowing commit.
+ * The eager-rewrite pass runs at commit time once the user has resolved all
+ * entries via `StagedWorkflowEntry.resolvedModels` / `autoResolvedModels`.
+ */
+export interface StagedChooserEntry {
+  nodeId: string;
+  widgetName: string;
+  filename: string;
+  candidates: Array<{
+    filename: string;
+    save_path: string;
+    abs_path: string;
+    base_model?: string;
+  }>;
+}
+
 export interface AutoResolvedModel {
   source: AutoResolveSource;
   /** Empty for `source: 'hfRepo'` — the whole repo is the artifact. */
@@ -98,6 +118,14 @@ export interface StagedWorkflowEntry {
    * "covered" when deciding whether the Commit button is enabled.
    */
   autoResolvedModels?: Record<string, AutoResolvedModel>;
+  /**
+   * Wave 8: On-disk ambiguity entries. Populated when the Wave 8 resolver
+   * finds multiple on-disk copies of a required model and cannot pick one
+   * automatically. The review UI must present a picker for each entry.
+   * Cleared once the user's selections are applied via an eager rewrite at
+   * commit time.
+   */
+  chooserNeeded?: StagedChooserEntry[];
   // Easy-mode metadata harvested by `extractLitegraph` from the outer
   // TemplateData wrapper. Stored per-workflow so a multi-entry zip with
   // distinct builder tags works. Forwarded verbatim by importCommit to
@@ -106,8 +134,14 @@ export interface StagedWorkflowEntry {
   studioBuilder?: string;
   studioModes?: Record<string, unknown>;
   studioInputMap?: Record<string, string>;
+  studioAlwaysActiveGroups?: string[];
   promptEnhancer?: Record<string, unknown>;
   prompt_toggles?: Record<string, Record<string, string>>;
+  /** Easy-mode preset list (Pikaso-style). Forwarded verbatim by
+   *  importCommit to `persistTemplatePresets` after the parent saves.
+   *  Loose typing here so different upstream payloads work; the persistor
+   *  validates per-field. */
+  template_presets?: Array<Record<string, unknown>>;
 }
 
 export interface StagedImageEntry {

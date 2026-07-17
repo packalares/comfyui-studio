@@ -25,6 +25,8 @@ export interface StudioEventPayloads {
   'plugin:removed':         { pluginId: string };
   'plugin:disabled':        { pluginId: string };
   'plugin:enabled':         { pluginId: string };
+  /** Emitted after a model sidecar has been written (enrichment complete). */
+  'model:enriched':         { filename: string; save_path: string; absPath: string };
 }
 
 export type StudioEventName = keyof StudioEventPayloads;

@@ -1,0 +1,115 @@
+{
+  "$schema": "../profile.schema.json",
+  "id": "flux2_prose",
+  "version": 1,
+  "name": "Flux 2 — Technical-natural prose",
+  "description": "Flux 2 (Dev, Klein 9B) accepts the same prose shape as Flux 1 but is markedly more steerable with technical photography terms (focal length, ISO, lens stack, lighting setups). 200-250 words is the sweet spot. Targets Studio's t2i_flux_dev (default = Flux 2) and t2i_flux_klein_9b.",
+  "applies_to": ["t2i_flux_dev", "t2i_flux_klein_9b"],
+  "language_target": "english",
+
+  "format": "prose_technical",
+  "prompt_style": "natural_detailed_technical",
+  "max_words": 260,
+  "min_word_floor": 160,
+  "length_guidance": "Aim for ~220 words combining cinematic prose and concrete technical photography terms.",
+  "detail_expectation": "Layered storytelling AND specific technical choices: lens, aperture, ISO, lighting setup, film stock or sensor type.",
+  "default_length_tier": "moderate",
+
+  "preferences": [
+    "Natural-language prose — one flowing paragraph, no tag lists",
+    "Be specific with photography terms: '35mm f/1.4', 'ARRI Alexa 65', 'Kodak Portra 400', 'overhead softbox'",
+    "Name the lighting setup in concrete terms: 'three-point lighting with the key from camera-right', 'practical neon spill from a vending machine'",
+    "Mention the time of day and weather when relevant — Flux 2 renders both faithfully",
+    "Quote artists, films, or photographers by name when chasing a specific look",
+    "Mood emerges from environment + colour + texture, not adjective stacks",
+    "Treat the user's idea as the foundation; technical choices serve their concept"
+  ],
+
+  "quality_tokens": [
+    "masterpiece", "best quality", "ultra detailed", "hyper realistic",
+    "award-winning", "cinematic lighting", "8k uhd", "immersive"
+  ],
+
+  "avoid": [
+    "Comma-tag lists in danbooru style",
+    "Generic adjective stacks ('beautiful, stunning, amazing, gorgeous')",
+    "Treating Flux 2 like SDXL — it does NOT need token economy",
+    "Surface descriptions without technical anchoring (lighting? lens? mood?)"
+  ],
+
+  "required_positive": [],
+  "negative_prompt_default": "blurry, low quality, distorted, deformed, watermark, signature, text artifacts, plastic skin, oversaturated, overprocessed",
+  "supports_negative_prompt": false,
+
+  "platform_block": "FLUX 2 INSTRUCTIONS:\n- Output is ONE flowing paragraph of natural-language prose (no bullet points, no tag lists).\n- Aim for 180-250 words. Flux 2 rewards length and technical specificity more than Flux 1.\n- Specify the camera, lens, and lighting setup in concrete terms ('shot on Arri Alexa 65 with a 50mm Master Prime, three-point lighting with a soft key from camera-left').\n- Quote artists, directors, photographers, or film references freely when chasing a look ('in the style of Roger Deakins', 'reminiscent of a Wong Kar-wai still').\n- Anchor mood via environment, time of day, weather, and colour palette — never bare emotion words.\n- Flux 2 is more steerable than Flux 1: name the SPECIFIC thing you want and it will deliver.\n- Quality modifiers can be used but are not load-bearing.",
+
+  "examples": [
+    {
+      "label": "cinematic_portrait",
+      "user_input": "executive in an office",
+      "ideal_output": "A woman in her early forties, mid-level executive, sits behind a glass-topped desk in a high-floor corner office. She wears a charcoal wool blazer over a cream silk blouse; her hands rest folded over a leather portfolio. The afternoon sun comes through the floor-to-ceiling windows behind her in long golden bands, throwing her face into half-shadow and lighting the dust motes drifting between her and the lens. Shot on an ARRI Alexa Mini LF with a 50mm anamorphic prime at f/2, the focus rolls past her shoulder into the soft blur of Manhattan rooftops far below. The colour palette is warm tungsten skin tones against a cool grey-blue cityscape. Editorial photography, cinematic composition, in the style of Annie Leibovitz's corporate work — confident, slightly intimidating, beautifully composed. Ultra detailed, award-winning, 8k."
+    },
+    {
+      "label": "product_macro",
+      "user_input": "watch on a black surface",
+      "ideal_output": "A vintage 1960s steel diver's watch lies face-up on a polished black slate surface, the crystal catching a single sliver of cold blue rim-light from the upper-right. Shot on a Canon RF 100mm f/2.8 L Macro at f/8 with focus stacking, every brushed-steel index and patinated radium pip resolves crisply against the dial's deep abyssal blue. A pinprick reflection of the studio's diffusion panel curves across the domed sapphire crystal. The leather strap, oxblood and slightly scuffed, fades out of focus to the right. Lighting is one large overhead softbox with a black v-flat negative-fill on the left to deepen the shadows. Product photography for a watchmaker's catalogue, hyper-detailed, magazine quality, museum lighting."
+    },
+    {
+      "label": "environment_speculative",
+      "user_input": "alien marketplace",
+      "ideal_output": "A bustling open-air bazaar on the surface of a tide-locked moon, where everything is lit by the perpetual rose-gold glow of a setting gas giant suspended low on the horizon. The vendors are seven-foot beings with elongated limbs and translucent silicate skin, draped in iridescent cloaks that shift colour as they move. Stalls offer fluorescing lichen jars, gravitic stabilizers, and live tendril-fruit that recoils from touch. The architecture is biomechanical — coral-shaped towers grown from cultured ceramic, doorways framed by living vine-conduits. Crowds drift along cobblestone paths inlaid with copper conduits that hum with low magnetic discharge. Shot at a low three-quarter angle on an anamorphic 35mm lens, foreground figures partially silhouetted against the orange-magenta sky. Cinematic science fiction concept art, in the style of Syd Mead crossed with Moebius, ultra detailed, painterly photoreal, 8k."
+    },
+    {
+      "label": "food_editorial",
+      "user_input": "rustic loaf of bread",
+      "ideal_output": "A torn rustic sourdough boule rests on a heavily-floured oak board, the open crumb structure revealing a glossy, irregular cellular interior. Steam still curls from the freshly-cleaved heart of the loaf, catching the warm afternoon window-light that rakes across the scene from the left. The crust is dark amber, blistered and slightly charred at the edges, dusted with cracked rye flakes. To the right, a smear of cultured European butter melts into a pool on a small ceramic dish, and a sprig of rosemary lies discarded across the cutting board. Shot on a Hasselblad H6D-100c with an 80mm macro lens at f/4, the depth of field falls off into a creamy bokeh of the bakery's stone hearth in the background. Food editorial photography, magazine quality, in the style of Donna Hay or Jamie Oliver's print work, masterpiece detail, 8k."
+    },
+    {
+      "label": "abstract_mood",
+      "user_input": "memory of summer",
+      "ideal_output": "A back garden at the soft-blue end of a long summer evening, captured from the perspective of a child looking up through the leaves of a low apple tree. Lens flare from the dying sun fragments through the foliage; tiny gnats swirl in the warm refracted light. A frayed cotton rope swing hangs motionless in the foreground, the wooden seat sun-warmed and worn smooth by years of use. Distant laughter and the clink of glassware drift from beyond the hedge. Shot on Kodak Portra 400 with a Pentax 67 and a 105mm lens at f/2.4, the image carries a soft halation and gentle film grain, the highlights blooming into a creamy pink-gold. Nostalgic colour palette — sun-bleached green, faded denim, peach. In the style of Saul Leiter's painterly photography, cinematic, evocative, award-winning."
+    }
+  ],
+
+  "few_shot_intro": "Example transformations of a user idea into a Flux 2-formatted prose prompt with technical photography anchoring:",
+
+  "user_message_schema_hint": "The user message arrives as JSON: { raw_idea, target_model, source_image_count, aspect_ratio, camera_details?, references? }. Weave camera_details (lens, aperture, film_or_sensor) directly into the prose — Flux 2 acts on them faithfully. Do NOT echo them as a settings list at the end.",
+
+  "operation_overrides": {
+    "expand": {
+      "length_guidance": "180-260 words. Build a full cinematic scene with technical anchoring from a short user seed."
+    },
+    "refine": {
+      "length_guidance": "Polish the user's existing draft. Tighten verbs, swap vague adjectives for concrete technical choices, do not invent new subjects.",
+      "max_words": 280
+    },
+    "restyle": {
+      "length_guidance": "Keep subject and composition. Change only the medium, era, lighting, and colour palette.",
+      "min_word_floor": 160
+    },
+    "enrich": {
+      "length_guidance": "Add ONE specific technical layer (lens / lighting setup / film stock / time of day) without changing the scene."
+    }
+  },
+
+  "model_routing": {
+    "preferred_llm": "qwen2.5:7b",
+    "preferred_vlm": "qwen2.5vl:7b",
+    "prefer_vlm_when_images_attached": false,
+    "sampling": {
+      "temperature": 0.7,
+      "top_p": 0.92,
+      "num_predict": 420
+    }
+  },
+
+  "provenance": {
+    "primary_sources": [
+      "https://bfl.ai/announcements/flux-2",
+      "https://docs.bfl.ml/guides/prompting_guide",
+      "https://fal.ai/learn/tools/how-to-use-flux"
+    ],
+    "borrowed_from": [],
+    "notes": "Authored fresh. Flux 2 specifically rewards technical photography terms more than Flux 1 — that's the main differentiator from the flux1_prose profile. Quality tokens list borrowed from EricRollei's flux_kontex config since they map well to Flux 2's training distribution."
+  }
+}

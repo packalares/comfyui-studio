@@ -16,6 +16,10 @@ import {
 } from '../components/forms/SelectField';
 import { Tooltip, TooltipTrigger, TooltipContent } from '../components/ui/tooltip';
 import type { MediaLibraryItem } from '../services/comfyui';
+import {
+  fetchEnhancerBundle, fetchEnhancerProfile,
+} from '../lib/enhancer/profileClient';
+import { buildEnhancerMessages } from '../lib/enhancer/buildPrompt';
 
 // ---- Types ----
 
@@ -47,6 +51,20 @@ export interface BuilderTemplateBundle {
      *  has a faster preset (e.g. t2i_flux_dev uses Flux 1 dev sizes when
      *  faster is on). Modes without this entry fall back to image_format. */
     image_format_faster?: Record<string, { standard: [number, number]; hd: [number, number] }>;
+    /** Per-mode prompt-enhancer profile reference. When set, the Enhance
+     *  button assembles the LLM system prompt from `data/enhancer/profiles/
+     *  <profileId>.json` instead of using the template-level systemPrompt.
+     *  Lets one template carry per-mode enhancer logic (e.g. t2i_flux_dev →
+     *  flux2_prose, i2i_kontext1 → kontext_instruction). Unset = legacy
+     *  template.promptEnhancer.systemPrompt path. */
+    promptEnhancer?: {
+      profileId: string;
+      defaults?: {
+        operation?: 'expand' | 'refine' | 'restyle' | 'enrich';
+        length?: 'concise' | 'moderate' | 'detailed' | 'exhaustive';
+        genre?: string;
+      };
+    };
   }>;
   promptEnhancer?: {
     systemPrompt: string;
@@ -88,15 +106,53 @@ export function resolveToggles(
 
 /** Aspect-ratio presets shared by every builder. The chip row sources its
  *  options from here. */
-export const FORMAT_OPTIONS: Array<{ id: string; ratio: number; label: string; Icon: React.ElementType }> = [
+export interface FormatOption {
+  id: string;
+  ratio: number;
+  label: string;
+  Icon: React.ElementType;
+}
+
+/** Image-builder catalog. The two extras over the video set — `3:2` /
+ *  `2:3` — are still-photo formats that video models don't natively
+ *  output, so they're omitted from VIDEO_FORMAT_OPTIONS below. */
+export const FORMAT_OPTIONS: FormatOption[] = [
   { id: '1:1',  ratio: 1,        label: 'Square',             Icon: SquareIcon },
   { id: '21:9', ratio: 21 / 9,   label: 'Ultrawide',          Icon: RectangleHorizontal },
   { id: '16:9', ratio: 16 / 9,   label: 'Widescreen',         Icon: RectangleHorizontal },
+  { id: '3:2',  ratio: 3 / 2,    label: 'Photo',              Icon: RectangleHorizontal },
   { id: '4:3',  ratio: 4 / 3,    label: 'Classic',            Icon: RectangleHorizontal },
+  { id: '2:3',  ratio: 2 / 3,    label: 'Portrait photo',     Icon: RectangleVertical },
   { id: '3:4',  ratio: 3 / 4,    label: 'Traditional',        Icon: RectangleVertical },
   { id: '9:16', ratio: 9 / 16,   label: 'Social story',       Icon: RectangleVertical },
   { id: '9:21', ratio: 9 / 21,   label: 'Vertical ultrawide', Icon: RectangleVertical },
 ];
+
+/** Video-builder catalog. Subset of FORMAT_OPTIONS sized for the ratios
+ *  video models actually render at. If a video template declares its own
+ *  `image_format` (or equivalent) in `studioModes`, `visibleFormatsForMode`
+ *  intersects that table with this catalog so authoring the JSON narrows
+ *  the chip row further from this baseline. */
+export const VIDEO_FORMAT_OPTIONS: FormatOption[] = FORMAT_OPTIONS
+  .filter((f) => ['1:1', '21:9', '16:9', '4:3', '3:4', '9:16', '9:21'].includes(f.id));
+
+/** Filter a format catalog down to the ratios the active mode actually
+ *  declares in its `image_format` table. Mode-less or empty-table callers
+ *  fall back to the full catalog so the chip row never blanks out on
+ *  templates without an `image_format` wired. Pass `FORMAT_OPTIONS` for
+ *  image, `VIDEO_FORMAT_OPTIONS` for video; the same intersection logic
+ *  applies on top of either, so once a video template eventually declares
+ *  `image_format` it narrows down from the video catalog cleanly. */
+export function visibleFormatsForMode(
+  studioModes: BuilderTemplateBundle['studioModes'] | undefined,
+  modeName: string | null | undefined,
+  catalog: FormatOption[] = FORMAT_OPTIONS,
+): FormatOption[] {
+  if (!studioModes || !modeName) return catalog;
+  const table = studioModes[modeName]?.image_format;
+  if (!table) return catalog;
+  return catalog.filter((f) => f.id in table);
+}
 
 /** Resolve a (format, qualityBase) pair into pixel dimensions. `qualityBase`
  *  is always the short side — landscape stretches width, portrait stretches
@@ -174,7 +230,67 @@ export async function runEnhancePrompt(args: {
   prompt: string;
   images: string[];               // already base64-encoded; caller filters which refs to send
   bundle: BuilderTemplateBundle;
+  /** Active studio mode (e.g. `t2i_flux_dev`, `i2i_kontext1`). Optional for
+   *  back-compat — when present and the mode has a `promptEnhancer.profileId`
+   *  set, runEnhancePrompt routes through the profile library (data-driven,
+   *  per-mode) instead of the legacy template-level systemPrompt path. */
+  mode?: string | null;
 }): Promise<EnhancedResult> {
+  // ---- Path A — profile-driven enhancer (data-driven, per-mode) -----
+  //
+  // Studio mode JSON carries a `promptEnhancer.profileId` pointing at one of
+  // the bundled profiles under `server/data/enhancer/profiles/`. Fetch the
+  // profile + the master/genres/operations bundle, assemble the system
+  // prompt via `buildEnhancerMessages`, and skip the legacy path entirely.
+  // Falls back to Path B when ANY step fails (network error, missing
+  // profile, bundle unavailable) so a misconfigured profileId never breaks
+  // Enhance.
+  const modeEnh = args.mode
+    ? args.bundle.studioModes?.[args.mode]?.promptEnhancer
+    : undefined;
+  if (modeEnh?.profileId) {
+    try {
+      const [profile, enhBundle] = await Promise.all([
+        fetchEnhancerProfile(modeEnh.profileId),
+        fetchEnhancerBundle(),
+      ]);
+      if (profile && enhBundle) {
+        const built = buildEnhancerMessages({
+          profile,
+          bundle: enhBundle,
+          rawIdea: args.prompt,
+          targetMode: args.mode!,
+          operation: modeEnh.defaults?.operation,
+          length: modeEnh.defaults?.length as
+            | 'concise' | 'moderate' | 'detailed' | 'exhaustive' | undefined,
+          genre: modeEnh.defaults?.genre,
+          sourceImageCount: args.images.length,
+        });
+        return runChatStream({
+          model: built.preferredModel,
+          messages: built.messages,
+          options: {
+            num_ctx: 8192,
+            num_predict: built.options.num_predict,
+            temperature: built.options.temperature,
+            top_p: built.options.top_p,
+            top_k: 64,
+            min_p: 0.05,
+            repeat_penalty: 1.05,
+            presence_penalty: 0.0,
+          },
+          images: args.images,
+          thinking: false,
+        });
+      }
+      // Fall through to legacy path when profile/bundle fetch failed.
+    } catch {
+      // Same fallback on any unexpected error — never block Enhance.
+    }
+  }
+
+  // ---- Path B — legacy template-level systemPrompt -----------------
+
   const enhancer = args.bundle.promptEnhancer;
   if (!enhancer?.systemPrompt) {
     throw new Error('This model has no prompt enhancer configured');
@@ -198,22 +314,53 @@ export async function runEnhancePrompt(args: {
     presence_penalty: tplOpts.presence_penalty ?? 0.0,
   };
 
-  const userMessage: Record<string, unknown> = { role: 'user', content: args.prompt };
-  if (args.images.length > 0) userMessage.images = args.images;
+  return runChatStream({
+    model,
+    messages: [{ role: 'system', content: system }, { role: 'user', content: args.prompt }],
+    options,
+    images: args.images,
+    thinking: enhancer.thinking === true,
+  });
+}
+
+// ---- /api/llm/chat round trip + NDJSON parse ----
+//
+// Extracted from runEnhancePrompt so both profile-driven (Path A) and
+// legacy (Path B) paths share one streaming + JSON-aware response handler.
+// Behaviour identical to the pre-refactor inline code — same body shape,
+// same NDJSON loop, same tryParseEnhancerJson fallback.
+async function runChatStream(args: {
+  model: string;
+  messages: Array<{ role: 'system' | 'user'; content: string }>;
+  options: Record<string, number>;
+  images: string[];
+  thinking: boolean;
+}): Promise<EnhancedResult> {
+  // Append the images array to the LAST user message — Ollama's `images`
+  // field is per-message, attached alongside the role:'user' content.
+  const messages: Array<Record<string, unknown>> = args.messages.map((m) => ({ ...m }));
+  if (args.images.length > 0) {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].role === 'user') {
+        messages[i].images = args.images;
+        break;
+      }
+    }
+  }
 
   // `thinking` is a top-level Ollama chat field, NOT a sampling option.
-  // Forwarded only when the template opts in (default off).
+  // Forwarded only when the caller opts in (default off).
   //
   // `stream: true` is critical: without streaming, large-context thinking
   // models can take 60-120s to produce, and nginx-ingress's default 60s
   // proxy_read_timeout would return 504 before Studio saw the answer.
   const body: Record<string, unknown> = {
-    model,
+    model: args.model,
     stream: true,
-    messages: [{ role: 'system', content: system }, userMessage],
-    options,
+    messages,
+    options: args.options,
   };
-  if (enhancer.thinking === true) body.thinking = true;
+  if (args.thinking) body.thinking = true;
 
   const res = await fetch('/api/llm/chat', {
     method: 'POST',
@@ -332,10 +479,10 @@ export function buildImageEnhancerInput(args: {
   formatId: string;              // → aspect_ratio (FORMAT_OPTIONS ids are already "W:H")
   referenceCount: number;
   cameraLabels?: {
-    camera?: string;
-    lens?: string;
-    aperture?: string;
-    focalLength?: string;
+    camera?: string | null;
+    lens?: string | null;
+    aperture?: string | null;
+    focalLength?: string | null;
   } | null;
 }): string {
   const payload: Record<string, unknown> = {
@@ -597,7 +744,11 @@ export function RefSlot({
         title={`Change ${label} (current: ${item.filename})`}
       >
         {isImage ? (
-          <img src={viewUrlFor(item)} alt={item.filename} className="h-full w-full object-cover" />
+          // `object-contain` keeps the full image visible inside the
+          // RefSlot tile — portrait inputs no longer get top/bottom
+          // cropped by the 2:1 wrapper. The empty side strips are
+          // intentional, mirrors the output viewer's letterbox behaviour.
+          <img src={viewUrlFor(item)} alt={item.filename} className="h-full w-full object-contain bg-muted" />
         ) : (
           <div className="flex h-full w-full items-center justify-center bg-muted text-muted-foreground">
             <Icon className="h-5 w-5" />
@@ -633,279 +784,13 @@ export function RefSlot({
   );
 }
 
-// ---- @-mention picker ----
-//
-// Slack/Discord-style autocomplete. When the user types `@` at a word
-// boundary in the prompt textarea, a popover opens at the caret position
-// showing the available mentionables (template's mode @-triggers + any
-// active references like `@reference1`). Filter narrows as the user keeps
-// typing; arrow keys navigate; Enter / click inserts; Esc / blur dismisses.
-//
-// Only mentionables whose `key` LITERALLY starts with `@` appear here —
-// non-@ trigger syntaxes (e.g. `[portrait]`) are still recognised by the
-// server's trigger extractor but don't show in this picker.
-
-import {
-  useEffect as useEffectMention, useMemo as useMemoMention,
-  useRef as useRefMention, useState as useStateMention,
-  useCallback as useCallbackMention, type RefObject as MentionRef,
-} from 'react';
-
-export interface Mentionable {
-  key: string;     // exact string inserted into the textarea, e.g. "@portrait"
-  label: string;   // human-readable description shown in the dropdown
-  category?: 'mode' | 'reference';
-}
-
-/** Collect mode @-triggers from a template bundle, one Mentionable per trigger. */
-export function modeTriggersFromBundle(
-  prompt_triggers: BuilderTemplateBundle['studioModes'],
-): Mentionable[] {
-  const out: Mentionable[] = [];
-  if (!prompt_triggers) return out;
-  for (const [modeName, cfg] of Object.entries(prompt_triggers)) {
-    const triggers = cfg.triggers ?? [];
-    for (const t of triggers) {
-      if (typeof t !== 'string' || !t.startsWith('@')) continue;
-      out.push({ key: t, label: `mode: ${modeName}`, category: 'mode' });
-    }
-  }
-  return out;
-}
-
-/** Measure the pixel position of a caret index inside a textarea by mirroring
- *  the textarea into a hidden div and inspecting a span at the caret. */
-function getCaretPx(
-  ta: HTMLTextAreaElement, caretIndex: number,
-): { top: number; left: number } {
-  const mirror = document.createElement('div');
-  const taStyle = window.getComputedStyle(ta);
-  // Copy every layout-affecting style onto the mirror.
-  const copyProps = [
-    'boxSizing', 'width', 'height', 'overflow', 'borderTopWidth',
-    'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
-    'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
-    'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'letterSpacing',
-    'lineHeight', 'textTransform', 'wordSpacing', 'whiteSpace',
-    'wordWrap', 'tabSize',
-  ] as const;
-  for (const p of copyProps) (mirror.style as unknown as Record<string, string>)[p] = taStyle[p as keyof CSSStyleDeclaration] as string;
-  mirror.style.position = 'absolute';
-  mirror.style.visibility = 'hidden';
-  mirror.style.top = '0';
-  mirror.style.left = '0';
-  mirror.style.whiteSpace = 'pre-wrap';
-  mirror.style.wordWrap = 'break-word';
-  mirror.textContent = ta.value.substring(0, caretIndex);
-  const marker = document.createElement('span');
-  marker.textContent = ta.value.substring(caretIndex) || '​';
-  mirror.appendChild(marker);
-  document.body.appendChild(mirror);
-  const taRect = ta.getBoundingClientRect();
-  const top = marker.offsetTop - ta.scrollTop + taRect.top + window.scrollY;
-  const left = marker.offsetLeft - ta.scrollLeft + taRect.left + window.scrollX;
-  document.body.removeChild(mirror);
-  // Place popover slightly BELOW the caret's baseline so it doesn't cover
-  // the character the user just typed.
-  return { top: top + (parseFloat(taStyle.lineHeight) || 16) + 4, left };
-}
-
-interface MentionPickerState {
-  open: boolean;
-  filter: string;
-  /** Index into `prompt` at the `@` character; the picker rewrites everything
-   *  from here through the caret when inserting. */
-  startIndex: number;
-  px: { top: number; left: number };
-  activeIndex: number;
-}
-
-/** Hook that wires the @-mention picker into a textarea. Returns the change
- *  + keydown handlers to spread onto the Textarea, plus a `picker` JSX node
- *  the caller renders at the top of their prompt-card subtree (it positions
- *  itself absolutely via fixed offsets — no parent layout constraint). */
-export function useMentionPicker({
-  textareaRef,
-  prompt,
-  setPrompt,
-  mentionables,
-}: {
-  textareaRef: MentionRef<HTMLTextAreaElement | null>;
-  prompt: string;
-  setPrompt: (next: string) => void;
-  mentionables: Mentionable[];
-}) {
-  const [state, setState] = useStateMention<MentionPickerState | null>(null);
-
-  // Only @-prefixed items. Filtered by typed substring AND by category
-  // dedupe rule: `mode`-category mentions are hidden when they're already
-  // present elsewhere in the prompt (each mode can only fire once); other
-  // categories (e.g. `reference`) can be inserted multiple times.
-  const items = useMemoMention(() => {
-    if (!state) return [];
-    const before = prompt.slice(0, state.startIndex);
-    const after = prompt.slice(state.startIndex + 1 + state.filter.length);
-    const restLower = (before + after).toLowerCase();
-    return mentionables
-      .filter((m) => m.key.startsWith('@'))
-      .filter((m) => m.key.toLowerCase().slice(1).includes(state.filter))
-      .filter((m) => {
-        if (m.category !== 'mode') return true;
-        return !restLower.includes(m.key.toLowerCase());
-      });
-  }, [mentionables, state, prompt]);
-
-  // Clamp activeIndex when items shrink.
-  useEffectMention(() => {
-    if (state && state.activeIndex >= items.length) {
-      setState({ ...state, activeIndex: Math.max(0, items.length - 1) });
-    }
-  }, [items.length]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const close = useCallbackMention(() => setState(null), []);
-
-  const insert = useCallbackMention((m: Mentionable) => {
-    if (!state) return;
-    const ta = textareaRef.current;
-    const before = prompt.slice(0, state.startIndex);
-    // Skip "@" + filter we already consumed from prompt.
-    const skipChars = 1 + state.filter.length;
-    const after = prompt.slice(state.startIndex + skipChars);
-    // Ensure a trailing space after the mention so the user can keep typing.
-    const sep = after.startsWith(' ') ? '' : ' ';
-    const next = before + m.key + sep + after;
-    setPrompt(next);
-    close();
-    // Restore caret right after the inserted mention + separator.
-    requestAnimationFrame(() => {
-      if (!ta) return;
-      ta.focus();
-      const newCaret = before.length + m.key.length + sep.length;
-      ta.setSelectionRange(newCaret, newCaret);
-    });
-  }, [state, prompt, setPrompt, close, textareaRef]);
-
-  const onTextareaChange = useCallbackMention((value: string) => {
-    setPrompt(value);
-    const ta = textareaRef.current;
-    if (!ta) return;
-    if (mentionables.length === 0) { setState(null); return; }
-    // Wait until React commits the new value so selectionStart is accurate
-    // for the just-typed character.
-    requestAnimationFrame(() => {
-      if (!ta) return;
-      const caret = ta.selectionStart ?? 0;
-      // Look back from caret for the most recent `@…<word-chars>`. Earlier
-      // we required the `@` to follow whitespace or start-of-line, which
-      // missed the common case of typing `@` mid-sentence after an enhance
-      // dumped a paragraph into the textarea (`…cinematic.@krea` produced
-      // no match). Now we just match the LAST `@<word>` ending at the
-      // caret — Esc closes the picker if the user didn't actually want it.
-      const before = value.slice(0, caret);
-      const m = /(@\w*)$/.exec(before);
-      if (!m) { setState(null); return; }
-      const startIndex = caret - m[1].length;
-      const filter = m[1].slice(1).toLowerCase();
-      const px = getCaretPx(ta, startIndex);
-      setState({ open: true, filter, startIndex, px, activeIndex: 0 });
-    });
-  }, [textareaRef, mentionables, setPrompt]);
-
-  const onTextareaKeyDown = useCallbackMention((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!state) return;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setState({ ...state, activeIndex: Math.min(state.activeIndex + 1, items.length - 1) });
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setState({ ...state, activeIndex: Math.max(state.activeIndex - 1, 0) });
-    } else if (e.key === 'Enter' || e.key === 'Tab') {
-      if (items.length > 0) {
-        e.preventDefault();
-        insert(items[state.activeIndex]);
-      }
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      close();
-    }
-  }, [state, items, insert, close]);
-
-  const picker = (state && state.open && items.length > 0) ? (
-    <div
-      role="listbox"
-      style={{ top: state.px.top, left: state.px.left }}
-      className="fixed z-50 min-w-[180px] max-w-[260px] overflow-hidden rounded-md border bg-popover shadow-md"
-    >
-      {items.map((m, i) => (
-        <button
-          key={m.key}
-          type="button"
-          role="option"
-          aria-selected={i === state.activeIndex}
-          onMouseDown={(e) => { e.preventDefault(); insert(m); }}
-          onMouseEnter={() => setState({ ...state, activeIndex: i })}
-          className={[
-            'flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left text-xs transition',
-            i === state.activeIndex ? 'bg-accent text-foreground' : 'text-foreground/90 hover:bg-accent/50',
-          ].join(' ')}
-        >
-          <span className="font-mono">{m.key}</span>
-          <span className="truncate text-[10px] text-muted-foreground">{m.label}</span>
-        </button>
-      ))}
-    </div>
-  ) : null;
-
-  return { onTextareaChange, onTextareaKeyDown, picker, close };
-}
-
-// ---- Highlighted-prompt overlay ----
-//
-// HTML <textarea> can't render styled inline content (chips, colors), but
-// we can fake it with an overlay div behind the textarea: the overlay holds
-// the same text with mention-string occurrences wrapped in styled <span>s,
-// the textarea sits on top with transparent text + visible caret. Selection
-// highlighting still works (browser draws the selection BG on the
-// textarea); only inside selection do the chips temporarily lose styling.
-// Acceptable for the cue this gives.
-
-function escapeRegExpChars(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/** Render text with every occurrence of any string in `marks` wrapped in a
- *  styled span. Case-insensitive. Marks are matched greedily — longest
- *  first — so `@reference10` wins over `@reference1` when both are marks. */
-export function renderHighlightedPrompt(
-  text: string,
-  marks: string[],
-): React.ReactNode[] {
-  if (marks.length === 0 || text.length === 0) return [text];
-  const sorted = [...marks].sort((a, b) => b.length - a.length);
-  const re = new RegExp(`(${sorted.map(escapeRegExpChars).join('|')})`, 'gi');
-  const out: React.ReactNode[] = [];
-  let lastIdx = 0;
-  let m: RegExpExecArray | null;
-  let key = 0;
-  while ((m = re.exec(text)) !== null) {
-    if (m.index > lastIdx) out.push(text.slice(lastIdx, m.index));
-    out.push(
-      <span
-        key={`mark-${key++}`}
-        className="rounded bg-brand/20 px-0.5 font-medium text-brand"
-      >
-        {m[0]}
-      </span>,
-    );
-    lastIdx = m.index + m[0].length;
-  }
-  if (lastIdx < text.length) out.push(text.slice(lastIdx));
-  // Trailing zero-width so the final line height is preserved when text
-  // ends with a newline (overlay doesn't render trailing whitespace lines
-  // otherwise; the textarea does).
-  if (text.endsWith('\n')) out.push('​');
-  return out;
-}
+// @-mention picker and `renderHighlightedPrompt` overlay used to live here.
+// Both belonged to the old textarea + transparent-mirror pattern. They were
+// retired when ImageBuilder/VideoBuilder switched to PromptComposer, which
+// renders the picker and chip overlays natively in its contentEditable. If
+// you need to bring mention picking back to a textarea-based field, lift
+// it from the PromptComposer's `getTextBeforeCaret` / commit-mention logic
+// rather than reviving the old hook.
 
 // ---- Toggles row ----
 //
@@ -919,7 +804,7 @@ export function renderHighlightedPrompt(
 // fires with the next state when the user clicks a button.
 
 import {
-  Sparkles, Zap, Gauge, Maximize2, Lightbulb, Palette,
+  Zap, Gauge, Maximize2, Lightbulb, Palette,
   ShieldCheck, Wand2 as WandIcon,
 } from 'lucide-react';
 import { Tooltip as TgTooltip, TooltipTrigger as TgTrigger, TooltipContent as TgContent } from '../components/ui/tooltip';
@@ -1002,6 +887,7 @@ export function ChipSelect({
   selectedId,
   onChange,
   trailing,
+  disabled,
 }: {
   icon: React.ElementType;
   value: string;
@@ -1009,11 +895,18 @@ export function ChipSelect({
   selectedId: string;
   onChange: (id: string) => void;
   trailing?: React.ReactNode;
+  /** When true, the trigger is non-interactive and styled muted. Used by
+   *  preset-applied locks (e.g. `allow_user_select_aspect_ratio: false`)
+   *  to keep the chip visible while preventing the user from changing it. */
+  disabled?: boolean;
 }) {
   return (
-    <SelectField value={selectedId} onValueChange={onChange}>
+    <SelectField value={selectedId} onValueChange={onChange} disabled={disabled}>
       <SelectTrigger
-        className="h-8 w-auto gap-1.5 rounded-md border-0 bg-muted px-3 py-0 text-xs font-medium text-foreground shadow-none hover:bg-muted/80 focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 [&_svg.lucide-chevron-down]:hidden"
+        className={[
+          'h-8 w-auto gap-1.5 rounded-md border-0 bg-muted px-3 py-0 text-xs font-medium text-foreground shadow-none focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 [&_svg.lucide-chevron-down]:hidden',
+          disabled ? 'opacity-60 cursor-not-allowed' : 'hover:bg-muted/80',
+        ].join(' ')}
       >
         <Icon className="h-3.5 w-3.5 text-muted-foreground" />
         <SelectValue>{value}</SelectValue>
@@ -1043,4 +936,210 @@ export function ChipSelect({
       </SelectContent>
     </SelectField>
   );
+}
+
+// ---- Shared builder hooks ----
+//
+// These hooks compress logic that was previously copy-pasted between
+// ImageBuilder and VideoBuilder: the template filter, URL deep-link
+// selection, per-template bundle fetch, dependency-check fetch, and
+// debounced localStorage persistence. Each hook is small and has no
+// builder-specific knowledge — only what's truly shared.
+
+import {
+  useEffect as useEffectBuilder,
+  useMemo as useMemoBuilder,
+  useState as useStateBuilder,
+} from 'react';
+import { toast as toastBuilder } from 'sonner';
+import { useSearchParams as useSearchParamsBuilder } from 'react-router-dom';
+import { api as apiBuilder } from '../services/comfyui';
+import type { TemplateSummary as TemplateSummaryBuilder } from '../types';
+
+/** Filter the global template list down to a builder's own pool by the
+ *  metadata `studioBuilder` flag. */
+export function useBuilderTemplates(
+  templates: TemplateSummaryBuilder[],
+  kind: 'image' | 'video',
+): TemplateSummaryBuilder[] {
+  return useMemoBuilder(
+    () => templates.filter((t) => {
+      const tx = t as TemplateSummaryBuilder & { studioBuilder?: string };
+      return tx.studioBuilder === kind;
+    }),
+    [templates, kind],
+  );
+}
+
+/** Owns the `selectedName` template selection, including:
+ *   - seeding from a `?template=` URL param (TemplateCard deep-link),
+ *   - falling back to a persisted last-used name, then first available,
+ *   - clearing the URL param once consumed so a later in-tab change
+ *     isn't undone by a back-nav,
+ *   - re-picking the first template when the list arrives empty-then-full.
+ *  Returns the standard `[value, setter]` tuple. */
+export function useTemplateSelection(
+  builderTemplates: TemplateSummaryBuilder[],
+  persistedName: string | undefined,
+): [string, (next: string) => void] {
+  const [searchParams, setSearchParams] = useSearchParamsBuilder();
+  const urlTemplate = searchParams.get('template') || '';
+  const [selectedName, setSelectedName] = useStateBuilder<string>(() => {
+    if (urlTemplate && builderTemplates.some((t) => t.name === urlTemplate)) return urlTemplate;
+    if (persistedName && builderTemplates.some((t) => t.name === persistedName)) return persistedName;
+    return builderTemplates[0]?.name ?? '';
+  });
+  useEffectBuilder(() => {
+    if (!selectedName && builderTemplates.length > 0) setSelectedName(builderTemplates[0].name);
+  }, [selectedName, builderTemplates]);
+  useEffectBuilder(() => {
+    if (!urlTemplate) return;
+    if (!builderTemplates.some((t) => t.name === urlTemplate)) return;
+    if (selectedName !== urlTemplate) setSelectedName(urlTemplate);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('template');
+      return next;
+    }, { replace: true });
+  }, [urlTemplate, builderTemplates, selectedName, setSearchParams]);
+  return [selectedName, setSelectedName];
+}
+
+/** Fetch the per-template builder bundle (studioModes + promptEnhancer +
+ *  prompt_toggles) whenever `selectedName` changes. Returns the parsed
+ *  bundle (or null when the template has no Easy-mode metadata) and a
+ *  loading flag the caller can use to gate UI. */
+export function useTemplateBundle(selectedName: string): {
+  bundle: BuilderTemplateBundle | null;
+  loading: boolean;
+} {
+  const [bundle, setBundle] = useStateBuilder<BuilderTemplateBundle | null>(null);
+  const [loading, setLoading] = useStateBuilder(false);
+  useEffectBuilder(() => {
+    if (!selectedName) { setBundle(null); return; }
+    let cancelled = false;
+    setLoading(true);
+    apiBuilder.getTemplateBundle(selectedName)
+      .then((res) => {
+        if (cancelled) return;
+        const meta = res.builderMeta;
+        setBundle(meta ? {
+          name: selectedName,
+          title: meta.title,
+          studioModes: meta.studioModes,
+          promptEnhancer: meta.promptEnhancer,
+          prompt_toggles: meta.prompt_toggles,
+        } : null);
+      })
+      .catch(() => { if (!cancelled) setBundle(null); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedName]);
+  return { bundle, loading };
+}
+
+/** Dependency-check fetch keyed off `selectedName`. Mirrors the bundle
+ *  fetch shape — same cancel guard, same loading flag, missing models
+ *  surface to the caller via the `check.missing` array. */
+export interface DependencyCheck {
+  ready: boolean;
+  missing: Array<{ kind?: string; name?: string; filename?: string }>;
+}
+export function useDependencyCheck(selectedName: string): {
+  check: DependencyCheck | null;
+  loading: boolean;
+} {
+  const [check, setCheck] = useStateBuilder<DependencyCheck | null>(null);
+  const [loading, setLoading] = useStateBuilder(false);
+  useEffectBuilder(() => {
+    if (!selectedName) { setCheck(null); return; }
+    let cancelled = false;
+    setLoading(true);
+    setCheck(null);
+    apiBuilder.checkDependencies(selectedName)
+      .then((res) => { if (!cancelled) setCheck(res); })
+      // Soft-fail to "ready" so the builder doesn't get stuck if the dep
+      // endpoint is down — generation will surface real errors anyway.
+      .catch(() => { if (!cancelled) setCheck({ ready: true, missing: [] }); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedName]);
+  return { check, loading };
+}
+
+/** Debounced localStorage write. Pass the JSON-serialisable blob; the
+ *  hook serialises on a trailing-edge timer so rapid form-state churn
+ *  collapses to a single write. */
+export function useDebouncedPersist<T>(key: string, blob: T, delayMs = 300): void {
+  useEffectBuilder(() => {
+    const t = setTimeout(() => {
+      try { localStorage.setItem(key, JSON.stringify(blob)); }
+      catch { /* quota / serialise — best-effort */ }
+    }, delayMs);
+    return () => clearTimeout(t);
+  }, [key, blob, delayMs]);
+}
+
+/** Apply a right-panel preset payload to one or more form fields when the
+ *  payload's identity changes. Each handler is optional and only fires when
+ *  the corresponding setting is a usable string; the toast fires once per
+ *  preset apply if any field was touched. Studio passes a fresh payload
+ *  object on every click, so re-applying the same preset twice still fires. */
+export interface PresetApplyHandlers {
+  setPrompt?: (next: string) => void;
+  /** Sets the aspect-ratio chip. Only fires when the preset's
+   *  `aspect_ratio` is a known FORMAT_OPTIONS id; `auto` and unknown
+   *  values are skipped so the user's pick stays in effect. */
+  setFormatId?: (next: string) => void;
+  /** Sets the active template mode. Preset's `generation_mode` is the
+   *  Pikaso-side key (e.g. `t2i_flux_dev`); the builder's mode-auto-pick
+   *  effect coerces to a fallback if this template doesn't expose it. */
+  setSelectedMode?: (next: string) => void;
+  /** Locks the aspect-ratio chip from user changes when the preset
+   *  declares `allow_user_select_aspect_ratio: false`. Called with `true`
+   *  to lock and `false` to unlock — every preset apply resets the flag
+   *  so a later preset that omits the field releases the lock. */
+  setAspectLocked?: (locked: boolean) => void;
+}
+export function usePresetApply(
+  presetApply: { id: string; card?: { id: string; title: string } | null; settings: Record<string, unknown> } | null | undefined,
+  handlers: PresetApplyHandlers,
+): void {
+  useEffectBuilder(() => {
+    if (!presetApply) return;
+    const s = presetApply.settings as {
+      prompt?: unknown;
+      aspect_ratio?: unknown;
+      generation_mode?: unknown;
+      allow_user_select_aspect_ratio?: unknown;
+    };
+    let touched = false;
+    if (handlers.setPrompt && typeof s.prompt === 'string' && s.prompt.length > 0) {
+      handlers.setPrompt(s.prompt);
+      touched = true;
+    }
+    if (handlers.setFormatId
+      && typeof s.aspect_ratio === 'string'
+      && FORMAT_OPTIONS.some((f) => f.id === s.aspect_ratio)
+    ) {
+      handlers.setFormatId(s.aspect_ratio);
+      touched = true;
+    }
+    if (handlers.setSelectedMode
+      && typeof s.generation_mode === 'string'
+      && s.generation_mode.length > 0
+    ) {
+      handlers.setSelectedMode(s.generation_mode);
+      touched = true;
+    }
+    if (handlers.setAspectLocked) {
+      // Explicitly reset on every apply so omitting the field unlocks.
+      handlers.setAspectLocked(s.allow_user_select_aspect_ratio === false);
+    }
+    if (touched) toastBuilder.success(`Applied preset: ${presetApply.card?.title ?? presetApply.id}`);
+    // We deliberately don't depend on the individual handlers — they're
+    // identity-unstable in the parent and would re-run the effect on every
+    // render. The presetApply object identity is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetApply]);
 }

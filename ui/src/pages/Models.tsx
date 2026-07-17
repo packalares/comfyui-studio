@@ -3,13 +3,13 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Box, Trash2, Search, WifiOff, Settings,
   Download, SlidersHorizontal, History, X, HardDrive, CheckCircle2, Package,
-  RefreshCw,
+  RefreshCw, Sparkles,
 } from 'lucide-react';
 import { Spinner } from '../components/ui/spinner';
 import { toast } from 'sonner';
 import type { CatalogModel, CivitaiModelSummary, RequiredItem, RequiredModel } from '../types';
 import { findDownloadForModel } from '../types';
-import { api, type PageEnvelope } from '../services/comfyui';
+import { api, type PageEnvelope, type CivitaiFacetsResponse } from '../services/comfyui';
 import { useApp } from '../context/AppContext';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { usePaginated } from '../hooks/usePaginated';
@@ -20,6 +20,7 @@ import DownloadsTab from '../components/DownloadsTab';
 import OllamaModelsPanel from '../components/OllamaModelsPanel';
 import ModelRow, { type ModelRowDownload, type ModelRowItem } from '../components/cards/ModelRow';
 import ModelInfoModal, { type ModelInfoSource } from '../components/modals/ModelInfoModal';
+import CivitaiFilterSidebar from '../components/CivitaiFilterSidebar';
 import ModelFolderPickerModal from '../components/modals/ModelFolderPickerModal';
 import { formatBytes } from '../lib/utils';
 import { imgProxy } from '../lib/imgProxy';
@@ -29,12 +30,13 @@ import { Checkbox } from '../components/ui/checkbox';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import ConfirmDialog from '../components/modals/ConfirmDialog';
+import RecipesPanel from '../components/cards/RecipesPanel';
 
-type ModelsTab = 'models' | 'downloads';
+type ModelsTab = 'models' | 'downloads' | 'recipes';
 
-// Catalog `type` -> ComfyUI models/<dir> mapping. Lives at module scope so
-// the install handler + folder-picker pre-selection both read the same table.
-const TYPE_TO_DIR: Record<string, string> = {
+// Fallback map used until the server responds. Kept in sync manually;
+// the authoritative version is fetched from /models/type-map on mount.
+const FALLBACK_TYPE_TO_DIR: Record<string, string> = {
   upscale: 'upscale_models',
   upscaler: 'upscale_models',
   checkpoint: 'checkpoints',
@@ -47,6 +49,7 @@ const TYPE_TO_DIR: Record<string, string> = {
   vae_approx: 'vae_approx',
   controlnet: 'controlnet',
   embedding: 'embeddings',
+  embeddings: 'embeddings',
   'IP-Adapter': 'ipadapter',
   clip: 'clip',
   clip_vision: 'clip_vision',
@@ -55,6 +58,21 @@ const TYPE_TO_DIR: Record<string, string> = {
   diffusion_model: 'diffusion_models',
   diffusion_models: 'diffusion_models',
   unet: 'unet',
+};
+
+const FALLBACK_CIVITAI_TYPE_TO_DIR: Record<string, string> = {
+  Checkpoint: 'checkpoints',
+  LORA: 'loras',
+  LoCon: 'loras',
+  LoRA: 'loras',
+  VAE: 'vae',
+  Controlnet: 'controlnet',
+  ControlNet: 'controlnet',
+  Upscaler: 'upscale_models',
+  TextualInversion: 'embeddings',
+  Hypernetwork: 'hypernetworks',
+  MotionModule: 'animatediff_models',
+  AestheticGradient: 'embeddings',
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -75,13 +93,24 @@ export default function Models() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlTab = searchParams.get('tab');
-  const initialTab: ModelsTab = urlTab === 'downloads' ? 'downloads' : 'models';
+  const initialTab: ModelsTab = urlTab === 'downloads' ? 'downloads' : urlTab === 'recipes' ? 'recipes' : 'models';
   const [tab, setTab] = useState<ModelsTab>(initialTab);
+
+  // Server-authoritative type→dir maps. Start from static fallback so the UI
+  // renders correctly before the fetch resolves.
+  const [typeToDirMap, setTypeToDirMap] = useState<Record<string, string>>(FALLBACK_TYPE_TO_DIR);
+  const [civitaiTypeToDirMap, setCivitaiTypeToDirMap] = useState<Record<string, string>>(FALLBACK_CIVITAI_TYPE_TO_DIR);
+  useEffect(() => {
+    api.getTypeMap().then((m) => {
+      if (m && Object.keys(m.types).length > 0) setTypeToDirMap(m.types);
+      if (m && Object.keys(m.civitaiTypes).length > 0) setCivitaiTypeToDirMap(m.civitaiTypes);
+    }).catch(() => { /* fallback already set */ });
+  }, []);
 
   // Keep URL in sync when the tab changes (and react to back/forward).
   useEffect(() => {
     const current = searchParams.get('tab');
-    const desired = tab === 'downloads' ? 'downloads' : null;
+    const desired = tab === 'downloads' ? 'downloads' : tab === 'recipes' ? 'recipes' : null;
     if (desired === current) return;
     const next = new URLSearchParams(searchParams);
     if (desired) next.set('tab', desired);
@@ -90,7 +119,7 @@ export default function Models() {
   }, [tab, searchParams, setSearchParams]);
 
   useEffect(() => {
-    const fromUrl: ModelsTab = urlTab === 'downloads' ? 'downloads' : 'models';
+    const fromUrl: ModelsTab = urlTab === 'downloads' ? 'downloads' : urlTab === 'recipes' ? 'recipes' : 'models';
     setTab(prev => (prev === fromUrl ? prev : fromUrl));
   }, [urlTab]);
 
@@ -107,6 +136,28 @@ export default function Models() {
   const [typeFilter, setTypeFilter] = usePersistedState<Set<string>>('models.types', new Set());
   const [installedFilter, setInstalledFilter] = usePersistedState<'all' | 'yes' | 'no'>('models.installed', 'all');
   const [filtersOpen, setFiltersOpen] = usePersistedState('models.filtersOpen', false);
+  const [enrichAllBusy, setEnrichAllBusy] = useState(false);
+
+  // Kick off the background hash+enrich queue for every installed model whose
+  // sidecar is empty or hasn't been touched. Server returns { enqueued, message };
+  // toast confirms the count. Catalog rows update as `model:enriched` events fire.
+  const handleEnrichAll = useCallback(async () => {
+    if (enrichAllBusy) return;
+    setEnrichAllBusy(true);
+    try {
+      const res = await api.enrichAllModels();
+      const enqueued = res?.enqueued ?? 0;
+      toast.success(
+        enqueued > 0
+          ? `Enrichment queued for ${enqueued} model${enqueued === 1 ? '' : 's'}`
+          : 'All installed models are already enriched',
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to start enrichment');
+    } finally {
+      setEnrichAllBusy(false);
+    }
+  }, [enrichAllBusy]);
   // Source: local catalog | CivitAI | Ollama. Can be primed from
   // `?source=ollama` (the legacy /chat/models redirect lands here) or
   // `?source=civitai` (the legacy /plugins/civitai/models redirect).
@@ -132,24 +183,39 @@ export default function Models() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlSource]);
 
-  // CivitAI feed picker — Latest / Hot / Search. Mirrors Explore's UX so
-  // both pages have the same vocabulary. Persisted so a reload restores it.
-  // CivitAI's "Most Downloaded" sort returns cursor-based responses (page=
-  // is silently ignored upstream) so we thread `nextCursor` between fetches
-  // — see `civCursorRef` below.
-  type CivitaiFeed = 'latest' | 'hot' | 'search';
-  const [civitaiFeed, setCivitaiFeed] = usePersistedState<CivitaiFeed>(
-    'models.civitaiFeed',
-    'hot',
-  );
+  // CivitAI search filters. Vocabulary (types/baseModels/periods/sorts)
+  // is fetched dynamically from `/civitai/models/facets` so chip lists are
+  // never hardcoded here. `nsfw` defaults off; selections persist across
+  // reloads via usePersistedState (keys: `models.civitai.*`).
+  const [civitaiTypes, setCivitaiTypes] = usePersistedState<string[]>('models.civitai.types', []);
+  const [civitaiBaseModels, setCivitaiBaseModels] = usePersistedState<string[]>('models.civitai.baseModels', []);
+  const [civitaiNsfw, setCivitaiNsfw] = usePersistedState<boolean>('models.civitai.nsfw', false);
+  const [civitaiPeriod, setCivitaiPeriod] = usePersistedState<string>('models.civitai.period', 'AllTime');
+  const [civitaiSort, setCivitaiSort] = usePersistedState<string>('models.civitai.sort', 'Highest Rated');
+  const [facets, setFacets] = useState<CivitaiFacetsResponse | null>(null);
+  const [facetsLoading, setFacetsLoading] = useState(false);
+  useEffect(() => {
+    if (source !== 'civitai' || facets) return;
+    setFacetsLoading(true);
+    api.getCivitaiFacets()
+      .then((f) => setFacets(f))
+      .catch(() => { /* sidebar gracefully renders with empty arrays */ })
+      .finally(() => setFacetsLoading(false));
+  }, [source, facets]);
   const civCursorRef = useRef<string | undefined>(undefined);
-  // Reset the cursor whenever a civitai axis changes (source, feed, or
-  // search query). usePaginated's own deps array resets `page→1`; we just
-  // need to clear the cursor in lock-step so page-1 fetches fresh, not
-  // from the previous feed's tail.
+  // Reset cursor whenever a civitai axis changes. usePaginated's own deps
+  // array resets `page→1`; we just need to clear the cursor in lock-step
+  // so page-1 fetches fresh, not from the previous filter set's tail.
+  // (Joined strings keep the dep array primitive — Set/Array identity changes
+  // would otherwise refire on every render.)
+  const civitaiTypesKey = useMemo(() => civitaiTypes.slice().sort().join('|'), [civitaiTypes]);
+  const civitaiBaseModelsKey = useMemo(
+    () => civitaiBaseModels.slice().sort().join('|'),
+    [civitaiBaseModels],
+  );
   useEffect(() => {
     civCursorRef.current = undefined;
-  }, [source, civitaiFeed, debouncedSearch]);
+  }, [source, debouncedSearch, civitaiTypesKey, civitaiBaseModelsKey, civitaiNsfw, civitaiPeriod, civitaiSort]);
 
   // Sidebar aggregates (installedCount + totalDiskSize + types) come from
   // /models/stats — a server-side aggregation that replaces the prior
@@ -226,6 +292,13 @@ export default function Models() {
   // pagination lines up across pages.
   const types = useMemo(() => Array.from(typeFilter), [typeFilter]);
   const installedParam: boolean | null = installedFilter === 'yes' ? true : installedFilter === 'no' ? false : null;
+  // When a template is picked, narrow the catalog query to just that
+  // template's required basenames. Stable identity via sort so the fetcher
+  // dep array doesn't refire on insertion-order shuffle.
+  const filenamesParam = useMemo(() => {
+    if (!selectedWorkflow || workflowRequired.size === 0) return undefined;
+    return Array.from(workflowRequired).sort();
+  }, [selectedWorkflow, workflowRequired]);
 
   // A shared row type covers both local catalog items + civitai search results
   // so `usePaginated` / the grid stay single-fetcher. Local rows carry a
@@ -243,26 +316,30 @@ export default function Models() {
         return { items: [], total: 0, hasMore: false };
       }
       if (source === 'civitai') {
-        // Cursor threading: Civitai's Most-Downloaded sort silently ignores
-        // `page=`. We pass the previous response's `nextCursor` on every
-        // fetch after page 1; the cursor was reset to undefined when the
-        // axis changed (see `civCursorRef` effect above).
+        // Cursor threading: CivitAI's search sort silently ignores `page=`
+        // when `query=` is set, and even filter-only browses use cursor
+        // pagination. Pass the previous response's `nextCursor` after page 1.
         const cursor = page > 1 ? civCursorRef.current : undefined;
         const trimmed = debouncedSearch.trim();
-        let res: PageEnvelope<CivitaiModelSummary>;
-        if (civitaiFeed === 'search') {
-          if (!trimmed) {
-            // Empty search query → reset and short-circuit. Don't hit the
-            // server; the empty-state branch renders the "type a query" hint.
-            civCursorRef.current = undefined;
-            return { items: [], total: 0, hasMore: false };
-          }
-          res = await api.searchCivitaiModels(trimmed, { pageSize, cursor });
-        } else if (civitaiFeed === 'hot') {
-          res = await api.getCivitaiHotModels({ page, pageSize, cursor });
-        } else {
-          res = await api.getCivitaiLatestModels({ page, pageSize, cursor });
+        const hasFilter =
+          civitaiTypes.length > 0
+          || civitaiBaseModels.length > 0
+          || civitaiNsfw === true;
+        // Empty query AND no filters AND NSFW off → short-circuit. Don't
+        // hit the server; the empty-state branch renders the "type a
+        // query or pick a filter" hint.
+        if (!trimmed && !hasFilter) {
+          civCursorRef.current = undefined;
+          return { items: [], total: 0, hasMore: false };
         }
+        const res: PageEnvelope<CivitaiModelSummary> = await api.searchCivitaiModels(trimmed, {
+          page, pageSize, cursor,
+          types: civitaiTypes.length > 0 ? civitaiTypes : undefined,
+          baseModels: civitaiBaseModels.length > 0 ? civitaiBaseModels : undefined,
+          nsfw: civitaiNsfw,
+          period: civitaiPeriod,
+          sort: civitaiSort,
+        });
         civCursorRef.current = res.nextCursor;
         return {
           items: res.items.map<PageRow>((item) => ({ kind: 'civitai', item })),
@@ -274,6 +351,7 @@ export default function Models() {
         q: debouncedSearch.trim() || undefined,
         types: types.length > 0 ? types : undefined,
         installed: installedParam,
+        filenames: filenamesParam,
       });
       return {
         items: res.items.map<PageRow>((model) => ({ kind: 'catalog', model })),
@@ -281,10 +359,16 @@ export default function Models() {
         hasMore: res.meta.hasMore ?? false,
       };
     },
-    [source, civitaiFeed, debouncedSearch, types, installedParam],
+    [
+      source, debouncedSearch, types, installedParam, filenamesParam,
+      civitaiTypes, civitaiBaseModels, civitaiNsfw, civitaiPeriod, civitaiSort,
+    ],
   );
   const paged = usePaginated<PageRow>(fetcher, {
-    deps: [source, civitaiFeed, debouncedSearch, types, installedParam],
+    deps: [
+      source, debouncedSearch, types, installedParam, filenamesParam,
+      civitaiTypesKey, civitaiBaseModelsKey, civitaiNsfw, civitaiPeriod, civitaiSort,
+    ],
   });
   const { items: pageItems, loading, refetch: refetchPage } = paged;
 
@@ -300,7 +384,10 @@ export default function Models() {
     // On any axis change reset the accumulator AND mirror the new pageItems
     // immediately so local-catalog renders show no stale rows.
     setPageRows([]);
-  }, [source, civitaiFeed, debouncedSearch, types, installedParam]);
+  }, [
+    source, debouncedSearch, types, installedParam,
+    civitaiTypesKey, civitaiBaseModelsKey, civitaiNsfw, civitaiPeriod, civitaiSort,
+  ]);
   useEffect(() => {
     if (loading) return;
     // Local + Ollama (Ollama renders elsewhere — guard preserved): always
@@ -331,6 +418,36 @@ export default function Models() {
     });
   }, [pageItems, loading, paged.page, source]);
 
+  // Client-side artifact filter on civitai rows. CivitAI's /models endpoint
+  // returns hits that aren't directly downloadable as a model (training data
+  // archives, accompanying images, config zips). The download path can't do
+  // anything sensible with those, so drop them up front and surface a small
+  // muted line about the hidden count.
+  const CIVITAI_KEEP_FILE_TYPES = new Set(['Model', 'Pruned Model', 'VAE']);
+  const CIVITAI_KEEP_EXTENSIONS = new Set([
+    'safetensors', 'ckpt', 'pt', 'bin', 'gguf', 'onnx', 'pth',
+  ]);
+  const civitaiFilteredRows = useMemo<{ rows: PageRow[]; hidden: number }>(() => {
+    if (source !== 'civitai') return { rows: pageRows, hidden: 0 };
+    let hidden = 0;
+    const kept: PageRow[] = [];
+    for (const row of pageRows) {
+      if (row.kind !== 'civitai') { kept.push(row); continue; }
+      const file = row.item.modelVersions?.[0]?.files?.[0];
+      const fileType = (file?.type ?? '').trim();
+      const ext = (file?.name ?? '').split('.').pop()?.toLowerCase() ?? '';
+      const okType = fileType.length === 0 || CIVITAI_KEEP_FILE_TYPES.has(fileType);
+      const okExt = ext.length === 0 || CIVITAI_KEEP_EXTENSIONS.has(ext);
+      if (okType && okExt) { kept.push(row); } else { hidden++; }
+    }
+    return { rows: kept, hidden };
+    // CIVITAI_KEEP_* are module-stable Sets declared just above; the only
+    // input that can change is pageRows + source.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageRows, source]);
+  const visiblePageRows = civitaiFilteredRows.rows;
+  const civitaiHiddenCount = civitaiFilteredRows.hidden;
+
   // For the parts of the UI that only care about local catalog items (e.g.
   // the workflow-deps filter, download-by-model map) preserve the old name.
   const models = useMemo<CatalogModel[]>(
@@ -342,6 +459,22 @@ export default function Models() {
   // Expose refetchPage to the download-completion watcher without creating a
   // dep cycle (the watcher was declared above loadAllModels / paged).
   useEffect(() => { refetchPageRef.current = refetchPage; }, [refetchPage]);
+
+  // Refetch the visible page when the enrichment layer finishes a model.
+  // Debounced (250ms trailing) because the hash queue often fires many
+  // model:enriched events in quick succession — one fetch covers them all.
+  useEffect(() => {
+    let timer: number | null = null;
+    const onEnriched = () => {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => { refetchPageRef.current?.(); }, 250);
+    };
+    window.addEventListener('model:enriched', onEnriched);
+    return () => {
+      window.removeEventListener('model:enriched', onEnriched);
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, []);
 
   // Per-civitai-row transient state (busy + copied + error). Keyed by item id
   // so rows stay independent. Local rows don't need this — they use the
@@ -363,9 +496,21 @@ export default function Models() {
     if (model.hfRepo) {
       await api.downloadHfRepo(model.hfRepo, dir, model.name);
     } else if (model.url) {
-      await api.downloadCustomModel(model.url, dir, { modelName: model.name, filename: model.filename });
+      // Pass `type` in meta so the server's `prepopulateCatalog` writes the
+      // right `type` field on the catalog row — without it, the row gets
+      // `type: 'other'` and the canonicalize gate's save_path validation
+      // (which needs a real type to look up registered folders) can't
+      // correct a bad save_path. Result was the catalog persisting weird
+      // values like `unet_gguf` even after the validation fix.
+      await api.downloadCustomModel(model.url, dir, {
+        modelName: model.name,
+        filename: model.filename,
+        meta: { type: model.type },
+      });
     } else {
-      await api.installModel(model.name);
+      // No URL and no HF repo — can't fetch bytes. Surface a clear error
+      // instead of calling a dead endpoint.
+      throw new Error(`No download URL for ${model.name}. Add a URL to the catalog row or paste one manually.`);
     }
   }, []);
 
@@ -375,20 +520,6 @@ export default function Models() {
         // Mirror CivitaiCard.handleDownload: resolve the primary file, map
         // civitai type -> comfyui dir, pre-populate catalog meta so the row
         // starts showing progress immediately.
-        const CIVITAI_TYPE_TO_DIR: Record<string, string> = {
-          Checkpoint: 'checkpoints',
-          LORA: 'loras',
-          LoCon: 'loras',
-          LoRA: 'loras',
-          VAE: 'vae',
-          Controlnet: 'controlnet',
-          ControlNet: 'controlnet',
-          Upscaler: 'upscale_models',
-          TextualInversion: 'embeddings',
-          Hypernetwork: 'hypernetworks',
-          MotionModule: 'animatediff_models',
-          AestheticGradient: 'embeddings',
-        };
         const civItem = item.item;
         const id = civItem.id;
         const primaryVersion = civItem.modelVersions?.[0];
@@ -420,7 +551,7 @@ export default function Models() {
             primaryFile?.name ||
             primaryVersion.files?.[0]?.name ||
             `${civItem.name}.safetensors`;
-          const dir = CIVITAI_TYPE_TO_DIR[civItem.type ?? ''] || 'checkpoints';
+          const dir = civitaiTypeToDirMap[civItem.type ?? ''] || 'checkpoints';
           const plainDescription = civItem.description
             ? civItem.description.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() || undefined
             : undefined;
@@ -462,7 +593,7 @@ export default function Models() {
 
       const model = item.model;
       const explicitSavePath = model.save_path && model.save_path !== 'default' ? model.save_path : '';
-      const typeDerived = TYPE_TO_DIR[model.type];
+      const typeDerived = typeToDirMap[model.type];
       // Block the install when no save_path AND no type-derived fallback —
       // silently writing such files to checkpoints/ has caused user confusion
       // for ONNX detectors, GGUF quants, etc. Only catalog rows with a URL
@@ -481,7 +612,7 @@ export default function Models() {
         description: err instanceof Error ? err.message : String(err),
       });
     }
-  }, [installCatalogWithDir]);
+  }, [installCatalogWithDir, typeToDirMap, civitaiTypeToDirMap]);
 
   const [deleteTarget, setDeleteTarget] = useState<CatalogModel | null>(null);
   const [infoSource, setInfoSource] = useState<ModelInfoSource | null>(null);
@@ -527,7 +658,13 @@ export default function Models() {
   const confirmDelete = useCallback(async () => {
     if (!deleteTarget) return;
     try {
-      await api.deleteModel(deleteTarget.name);
+      // Pass the (save_path, filename) pair — collision-free, no name lookup.
+      // Falls back to `modelName` if either field is missing on the catalog row.
+      await api.deleteModel(
+        deleteTarget.save_path && deleteTarget.filename
+          ? { save_path: deleteTarget.save_path, filename: deleteTarget.filename }
+          : { modelName: deleteTarget.name },
+      );
       try { await api.scanModels(); } catch { /* ignore */ }
       // Mirror the post-install path: refresh the full catalog AND the
       // visible page so the deleted row drops out immediately instead of
@@ -575,11 +712,11 @@ export default function Models() {
   // catalog client-side.
   const uniqueTypes = useMemo(() => stats?.types ?? [], [stats]);
 
-  // When a template is selected, the visible grid currently shows whatever
-  // the paginated fetch returns — `workflowRequired` highlights required
-  // rows (`isRequired` badge in <ModelRow>). The dependency modal continues
-  // to be the place where the user sees the FULL required list in one
-  // place; the grid's job is to filter the local catalog.
+  // The visible grid is now server-filtered when a template is picked
+  // (`filenamesParam` narrows the catalog query). `workflowRequired` still
+  // drives the `isRequired` badge so the row labelling stays consistent.
+  // The dependency modal remains the canonical place for the FULL list
+  // including download buttons for models not yet in the catalog.
   const filteredModels = useMemo(() => {
     if (source !== 'local') return [];
     return models;
@@ -665,6 +802,8 @@ export default function Models() {
   const subbarDescription =
     tab === 'downloads'
       ? 'Download history'
+      : tab === 'recipes'
+      ? 'Saved LoRA combinations'
       : `${stats?.available ?? 0} total, ${installedCount} installed`;
 
   return (
@@ -674,15 +813,35 @@ export default function Models() {
         description={subbarDescription}
         right={
           tab === 'models' ? (
-            <Button
-              onClick={() => setFiltersOpen(o => !o)}
-              variant="secondary"
-              className="lg:hidden"
-              aria-label="Toggle filters"
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-              Filters
-            </Button>
+            <div className="flex items-center gap-2">
+              {/* Bulk enrich — only meaningful for the local catalog tab; the
+                  CivitAI search tab and Ollama tab don't have local sidecars
+                  to populate. Hash queue + per-model enrich runs in the
+                  background; toast confirms enqueue count. */}
+              {source === 'local' && (
+                <Button
+                  onClick={handleEnrichAll}
+                  variant="secondary"
+                  disabled={enrichAllBusy}
+                  aria-label="Enrich all installed models from CivitAI / HuggingFace"
+                  title="Enrich all installed models from CivitAI / HuggingFace"
+                >
+                  {enrichAllBusy
+                    ? <Spinner size="xs" />
+                    : <Sparkles className="w-3.5 h-3.5" />}
+                  <span className="hidden sm:inline">Enrich all</span>
+                </Button>
+              )}
+              <Button
+                onClick={() => setFiltersOpen(o => !o)}
+                variant="secondary"
+                className="lg:hidden"
+                aria-label="Toggle filters"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                Filters
+              </Button>
+            </div>
           ) : null
         }
       />
@@ -712,28 +871,24 @@ export default function Models() {
                 </SelectField>
               </div>
 
-              {/* CivitAI feed picker — Latest / Hot / Search. Only visible
-                  when source === 'civitai'. Mirrors the Explore sidebar so
-                  the vocabulary is consistent across pages. */}
+              {/* CivitAI filter sidebar — vocabulary is fetched dynamically
+                  from /civitai/models/facets so chip lists are never
+                  hardcoded here. Only visible when source === 'civitai'. */}
               {source === 'civitai' && (
-                <div>
-                  <label className="field-label mb-1.5 block">Feed</label>
-                  <SelectField value={civitaiFeed} onValueChange={(v) => setCivitaiFeed(v as CivitaiFeed)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="latest">Latest</SelectItem>
-                      <SelectItem value="hot">Hot</SelectItem>
-                      <SelectItem value="search">Search</SelectItem>
-                    </SelectContent>
-                  </SelectField>
-                  {civitaiFeed === 'search' && !debouncedSearch.trim() && (
-                    <p className="mt-1.5 text-[11px] text-muted-foreground">
-                      Type a query in the Search box above to run a CivitAI search.
-                    </p>
-                  )}
-                </div>
+                <CivitaiFilterSidebar
+                  facets={facets}
+                  loading={facetsLoading}
+                  types={civitaiTypes}
+                  baseModels={civitaiBaseModels}
+                  nsfw={civitaiNsfw}
+                  period={civitaiPeriod}
+                  sort={civitaiSort}
+                  onTypesChange={setCivitaiTypes}
+                  onBaseModelsChange={setCivitaiBaseModels}
+                  onNsfwChange={setCivitaiNsfw}
+                  onPeriodChange={setCivitaiPeriod}
+                  onSortChange={setCivitaiSort}
+                />
               )}
 
               {/* Local-catalog-only filters. CivitAI search uses its own query
@@ -907,6 +1062,14 @@ export default function Models() {
                     <History className="w-3.5 h-3.5" />
                     Downloads
                   </button>
+                  <button
+                    role="tab"
+                    aria-selected={tab === 'recipes'}
+                    onClick={() => setTab('recipes')}
+                    className={`tab-strip-item ${tab === 'recipes' ? 'is-active' : ''}`}
+                  >
+                    Recipes
+                  </button>
                   {/* Rescan sits inline with the tabs (action, not a tab —
                       no aria-selected). Tinted teal so it's visually marked
                       as an action and doesn't read as an "off" tab waiting
@@ -927,6 +1090,8 @@ export default function Models() {
 
               {tab === 'downloads' ? (
                 <DownloadsTab />
+              ) : tab === 'recipes' ? (
+                <RecipesPanel />
               ) : (
               <>
               {/* Download All Missing banner — local catalog only. */}
@@ -988,10 +1153,10 @@ export default function Models() {
                     })}
                   </div>
                 </Card>
-              ) : source === 'civitai' && pageRows.length > 0 ? (
+              ) : source === 'civitai' && visiblePageRows.length > 0 ? (
                 <Card>
                   <div className="divide-y">
-                    {pageRows.map((row, i) => {
+                    {visiblePageRows.map((row, i) => {
                       if (row.kind !== 'civitai') return null;
                       const civ = row.item;
                       const state = civitaiRowState[civ.id];
@@ -1035,13 +1200,40 @@ export default function Models() {
               ) : (
                 <div className="text-center py-16">
                   {source === 'civitai' ? (
-                    <>
-                      <Box className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-                      <p className="text-sm font-medium text-muted-foreground">
-                        {search.trim() ? `No results for "${search}"` : 'No CivitAI models found.'}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">Try a different search query.</p>
-                    </>
+                    (() => {
+                      const noQuery = !search.trim();
+                      const noFilter =
+                        civitaiTypes.length === 0
+                        && civitaiBaseModels.length === 0
+                        && !civitaiNsfw;
+                      // Only show "type a query" when every input is empty.
+                      // If filters are set OR NSFW is on, treat as "searching"
+                      // — empty-state is "no results", not a prompt to type.
+                      if (noQuery && noFilter) {
+                        return (
+                          <>
+                            <Search className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+                            <p className="text-sm font-medium text-muted-foreground">
+                              Search CivitAI
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Type a query or pick a filter to start.
+                            </p>
+                          </>
+                        );
+                      }
+                      return (
+                        <>
+                          <Box className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+                          <p className="text-sm font-medium text-muted-foreground">
+                            {search.trim() ? `No results for "${search}"` : 'No CivitAI models match these filters.'}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Try a different query or relax a filter.
+                          </p>
+                        </>
+                      );
+                    })()
                   ) : !connected ? (
                     <>
                       <WifiOff className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
@@ -1076,11 +1268,20 @@ export default function Models() {
                 </div>
               )}
 
+              {/* Hidden-row note — surfaced only when the artifact filter
+                  actually dropped something so the user understands the
+                  apparent under-count between page size + visible rows. */}
+              {source === 'civitai' && civitaiHiddenCount > 0 && (
+                <p className="mt-2 text-xs text-muted-foreground italic">
+                  {civitaiHiddenCount} hidden — not downloadable as a model
+                </p>
+              )}
+
               {/* CivitAI: infinite-scroll sentinel. CivitAI's API doesn't
                   ship a usable `total`, so numbered pagination isn't an
                   option here — keep "Load more" via the
                   IntersectionObserver above. */}
-              {source === 'civitai' && pageRows.length > 0 && (
+              {source === 'civitai' && visiblePageRows.length > 0 && (
                 <div
                   ref={sentinelRef}
                   className="mt-4 rounded-lg border bg-muted px-4 py-3 flex items-center justify-center"
@@ -1127,7 +1328,7 @@ export default function Models() {
       <ModelFolderPickerModal
         open={!!folderPickModel}
         modelName={folderPickModel?.filename || folderPickModel?.name || ''}
-        preferred={folderPickModel ? TYPE_TO_DIR[folderPickModel.type] : undefined}
+        preferred={folderPickModel ? typeToDirMap[folderPickModel.type] : undefined}
         onCancel={() => setFolderPickModel(null)}
         onConfirm={async (folder) => {
           const target = folderPickModel;

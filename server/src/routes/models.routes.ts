@@ -1,14 +1,14 @@
-// Model management routes: scan, delete, cancel, install, download-custom,
+// Model management routes: scan, delete, cancel, download-custom,
 // download-hf-repo, download-history, folders.
 
 import { Router } from 'express';
 import { z } from 'zod';
 import * as models from '../services/models/service.js';
-import { NoDownloadSourceError } from '../services/models/downloadUrl.js';
 import * as modelIndex from '../services/models/modelIndex.js';
-import { refreshModelListFromUpstream, invalidateModelListMemo } from '../services/models/info.js';
+import { refreshModelListFromUpstream, invalidateModelListMemo, getCachedModelList } from '../services/models/info.js';
 import { logger } from '../lib/logger.js';
 import { toWireEntry } from '../services/models/service.js';
+import { mergeUpstreamIntoCatalog } from '../services/catalog/store.js';
 import * as settings from '../services/settings/index.js';
 import {
   enqueueDownload, findByIdentity, findQueuedByIdentity, isAtCapacity,
@@ -25,6 +25,7 @@ import { paginate, splitPaginated } from '../lib/pagination.js';
 import { markDownloadFailed } from '../services/catalog/index.js';
 import * as catalog from '../services/catalog/index.js';
 import { discoverHfSnapshotDirs, discoverAndUpsert } from '../services/models/discoverHfRepos.js';
+import { getUsedBy } from '../services/templates/modelUsageIndex.js';
 import { formatBytes } from '../lib/format.js';
 import { env } from '../config/env.js';
 import { defineRoute } from '../lib/defineRoute.js';
@@ -35,9 +36,16 @@ import {
   DownloadCustomBodySchema,
   modelsRoutes,
 } from '../contracts/models.contract.js';
+import { TYPE_TO_DIR, CIVITAI_TYPE_TO_DIR } from '../services/models/typeMap.js';
 
 // 30 req/min per IP — download-custom triggers upstream HTTP fetches.
 const downloadCustomLimiter = rateLimit('models:download-custom');
+
+// ---- /models/type-map ----
+
+export const typeMapRoute = defineRoute(modelsRoutes.typeMap, (ctx) => {
+  return ctx.ok({ types: TYPE_TO_DIR as Record<string, string>, civitaiTypes: CIVITAI_TYPE_TO_DIR as Record<string, string> });
+});
 
 // ---- /models/folders ----
 
@@ -87,6 +95,27 @@ export const rescanRoute = defineRoute(modelsRoutes.rescan, async (ctx) => {
     });
   }
   invalidateModelListMemo();
+
+  // Merge the (now-refreshed-or-stale) upstream model-list into the user's
+  // catalog by URL identity. Newly-added upstream entries land as catalog
+  // rows; existing rows whose URL matches get refreshed metadata (name,
+  // save_path with subfolder, etc.) — except already-installed rows, which
+  // stay anchored to the on-disk location. The Models page reads the
+  // catalog directly (no Manager-cache overlay), so all rescan-discovered
+  // changes immediately show up.
+  let mergeStats: { added: number; updated: number; skipped: number } | undefined;
+  try {
+    const upstream = getCachedModelList();
+    if (Array.isArray(upstream.models)) {
+      mergeStats = mergeUpstreamIntoCatalog(upstream.models, catalog.upsertModel);
+      logger.info('rescan: merged upstream into catalog', mergeStats);
+    }
+  } catch (err) {
+    logger.warn('rescan: catalog merge failed', {
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   const result = await modelIndex.rebuildFullIndex();
   return ctx.ok({ ...result, modelListRefreshed: refresh.ok });
 });
@@ -94,7 +123,7 @@ export const rescanRoute = defineRoute(modelsRoutes.rescan, async (ctx) => {
 // ---- /models/delete ----
 
 export const deleteModelRoute = defineRoute(modelsRoutes.deleteModel, async (ctx) => {
-  const r = await models.deleteByName(ctx.body.modelName);
+  const r = await models.deleteByIdentityWrap(ctx.body);
   if (!r.success) throw new ValidationError(r.message);
   return ctx.ok({ success: true as const, message: r.message });
 });
@@ -107,28 +136,6 @@ export const cancelDownloadRoute = defineRoute(modelsRoutes.cancelDownload, asyn
   if (taskId) stopTracking(taskId);
   if (!r.success) throw new NotFoundError(r.message);
   return ctx.ok({ success: true as const, message: r.message });
-});
-
-// ---- /models/install/:modelName ----
-
-export const installRoute = defineRoute(modelsRoutes.install, async (ctx) => {
-  const { modelName } = ctx.params;
-  const { source = 'hf' } = ctx.body;
-  const existing = findByIdentity({ modelName });
-  if (existing) {
-    return ctx.ok({ success: true as const, taskId: existing.taskId, alreadyActive: true });
-  }
-  const hfToken = settings.getHfToken();
-  try {
-    const { taskId } = await models.installFromCatalog(modelName, source, hfToken);
-    trackDownload(taskId, { modelName });
-    return ctx.ok({ success: true as const, taskId, message: `Starting model download: ${modelName}` });
-  } catch (err) {
-    if (err instanceof NoDownloadSourceError) {
-      throw new ValidationError(err.message);
-    }
-    throw err;
-  }
 });
 
 // ---- /models/download-history ----
@@ -245,8 +252,11 @@ export const downloadHfRepoRoute = defineRoute(modelsRoutes.downloadHfRepo, asyn
   if (!/^[A-Za-z0-9_.\-]+\/[A-Za-z0-9_.\-]+$/.test(hfRepo)) {
     throw new ValidationError('hfRepo required (format "owner/repo")');
   }
-  if (directory.includes('..') || directory.startsWith('/')) {
-    throw new ValidationError('directory must be relative without ".."');
+  // Decode percent-encoding before checking so "..%2F" is caught here too.
+  // The authoritative boundary is safeResolve inside downloadHfRepo.
+  const decodedDir = decodeURIComponent(directory);
+  if (decodedDir.includes('..') || decodedDir.startsWith('/')) {
+    throw new ValidationError('directory must be a relative path without ".." segments');
   }
   const out = await models.downloadHfRepo(
     hfRepo, directory, name || hfRepo,
@@ -268,21 +278,28 @@ export const discoverHfReposMutateRoute = defineRoute(modelsRoutes.discoverHfRep
   return ctx.ok({ success: true as const, ...result });
 });
 
+// ---- /models/used-by?filename= ----
+
+export const usedByRoute = defineRoute(modelsRoutes.usedBy, (ctx) => {
+  return ctx.ok(getUsedBy(ctx.query.filename));
+});
+
 // ---- Router assembly ----
 
 const router = Router();
 
+typeMapRoute.register(router);
 foldersRoute.register(router);
 scanRoute.register(router);
 rescanRoute.register(router);
 deleteModelRoute.register(router);
 cancelDownloadRoute.register(router);
-installRoute.register(router);
 downloadHistoryRoute.register(router);
 downloadHistoryClearRoute.register(router);
 downloadHistoryDeleteRoute.register(router);
 discoverHfReposDryRoute.register(router);
 discoverHfReposMutateRoute.register(router);
+usedByRoute.register(router);
 
 // Rate-limited download routes on a sub-router.
 const downloadRouter = Router();

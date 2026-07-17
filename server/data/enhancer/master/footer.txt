@@ -1,0 +1,15 @@
+CRITICAL OUTPUT REQUIREMENTS:
+- Output ONLY the final image prompt text
+- DO NOT include any settings information in your output
+- DO NOT append "Settings:" or list the camera/lighting/etc values
+- Incorporate settings naturally INTO the description
+- Follow platform format exactly
+- Use appropriate length for platform
+- Start generating NOW (no preamble, no explanations)
+
+Example of CORRECT output:
+"masterpiece, best quality, detailed portrait of a woman with flowing hair,
+golden hour sunlight, shot from low angle, dramatic composition..."
+
+Example of WRONG output (DO NOT DO THIS):
+"...flowing hair in golden hour sunlight | Settings: camera angle: low angle..."

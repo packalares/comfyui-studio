@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { env } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
+import { safeResolve } from '../../lib/fs.js';
 import * as bus from '../../lib/events.js';
 import { inferModelType, getModelSaveDir } from './downloadUrl.js';
 import type { CatalogModelEntry } from './downloadUrl.js';
@@ -228,6 +229,74 @@ function gatherUnknownModels(
   return unknown;
 }
 
+/** Polymorphic delete identifier — see contracts/models.contract.ts.
+ *  Resolves to a single `model_files` row, then deletes that row's abs_path.
+ *  No catalog walk needed when an unambiguous identifier is supplied. */
+export interface DeleteIdentity {
+  abs_path?: string;
+  sha256?: string;
+  save_path?: string;
+  filename?: string;
+  modelName?: string;
+}
+
+/** Resolve a polymorphic identifier to a single model_files row.
+ *  Tier order matches the contract docstring: abs_path → sha256 → pair. */
+function resolveIdentityRow(id: DeleteIdentity): { row?: modelFiles.ModelFileRow; error?: string } {
+  if (id.abs_path) {
+    const row = modelFiles.findByAbsPath(id.abs_path);
+    return row ? { row } : { error: `No indexed row at abs_path: ${id.abs_path}` };
+  }
+  if (id.sha256) {
+    const rows = modelFiles.listBySha256(id.sha256);
+    if (rows.length === 0) return { error: `No file with sha256: ${id.sha256.slice(0, 12)}…` };
+    if (rows.length > 1) return { error: `sha256 matches ${rows.length} files; supply abs_path or pair instead` };
+    return { row: rows[0] };
+  }
+  if (id.save_path && id.filename) {
+    const row = modelFiles.findByDirAndName(id.save_path, id.filename);
+    return row ? { row } : { error: `No file at ${id.save_path}/${id.filename}` };
+  }
+  return {};
+}
+
+/** Delete a model identified by (abs_path | sha256 | pair | name).
+ *  When only `modelName` is supplied, falls through to the catalog-walk
+ *  `deleteModel` helper so historic callers keep working. */
+export async function deleteByIdentity(
+  id: DeleteIdentity,
+  catalogModels: CatalogModelEntry[],
+): Promise<{ success: boolean; message: string }> {
+  const { row, error } = resolveIdentityRow(id);
+  if (error) return { success: false, message: error };
+  if (row) {
+    try {
+      if (!fs.existsSync(row.abs_path)) {
+        // File already gone — still scrub the index so the catalog reflects
+        // reality. Treat as success: idempotent delete.
+        modelFiles.removeByAbsPath(row.abs_path);
+        bus.emit('model:removed', { filename: row.filename, absPath: row.abs_path });
+        return { success: true, message: `Already removed: ${row.filename}` };
+      }
+      logger.info('attempting model delete', { abs_path: row.abs_path });
+      fs.rmSync(row.abs_path, { force: true });
+      modelFiles.removeByAbsPath(row.abs_path);
+      logger.info('model deleted', { filename: row.filename, abs_path: row.abs_path });
+      bus.emit('model:removed', { filename: row.filename, absPath: row.abs_path });
+      return { success: true, message: `Deleted: ${row.filename}` };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('model delete failed', { abs_path: row.abs_path, message: msg });
+      return { success: false, message: `Error deleting model: ${msg}` };
+    }
+  }
+  // Legacy path: only `modelName` was supplied. Fall back to the catalog
+  // walk so older clients (and the rare case where model_files doesn't
+  // index the file yet) still work.
+  if (id.modelName) return deleteModel(id.modelName, catalogModels);
+  return { success: false, message: 'No identifier supplied' };
+}
+
 /** Delete a model from disk. Searches through the supplied catalog for a match. */
 export async function deleteModel(
   modelName: string,
@@ -261,7 +330,7 @@ export async function deleteModel(
   }
 }
 
-function resolveAbsoluteModelPath(info: CatalogModelEntry, modelName: string): string {
+export function resolveAbsoluteModelPath(info: CatalogModelEntry, modelName: string): string {
   const filename = info.filename || modelName;
   // Index lookup is the authoritative source: it has the actual on-disk
   // path even when the catalog's `save_path` is a folder-only hint
@@ -275,9 +344,12 @@ function resolveAbsoluteModelPath(info: CatalogModelEntry, modelName: string): s
   if (info.save_path) {
     if (path.isAbsolute(info.save_path)) return info.save_path;
     if (info.save_path.startsWith('models/') || info.save_path.startsWith('models\\')) {
-      return path.join(env.COMFYUI_PATH, info.save_path);
+      // save_path is a legacy full-relative path (models/<topdir>/<file>).
+      // safeResolve normalises and throws if it would escape COMFYUI_PATH.
+      return safeResolve(env.COMFYUI_PATH, info.save_path);
     }
-    return path.join(env.COMFYUI_PATH, 'models', info.save_path, filename);
+    // bare folder name (e.g. "loras") — resolve under models/.
+    return safeResolve(env.COMFYUI_PATH, 'models', info.save_path, filename);
   }
   return path.join(
     env.COMFYUI_PATH,

@@ -1,8 +1,9 @@
-import { memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import {
-  Trash2, Download, X, Lock, AlertTriangle, ExternalLink, Info,
+  Trash2, Download, X, Lock, AlertTriangle, ExternalLink, Info, Star,
 } from 'lucide-react';
 import type { CatalogModel, DownloadState, CivitaiModelSummary } from '../../types';
+import { api, modelPreviewUrl } from '../../services/comfyui';
 import { formatBytes } from '../../lib/utils';
 import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Badge } from '../ui/badge';
@@ -51,6 +52,21 @@ interface Props {
   onShowInfo?: (item: ModelRowItem) => void;
 }
 
+/** Module-level NSFW blur level cache — fetched once, shared across all rows. */
+let _cachedNsfwBlurLevel: number | null = null;
+
+function useNsfwBlurLevel(): number {
+  const [level, setLevel] = useState(_cachedNsfwBlurLevel ?? 1);
+  useEffect(() => {
+    if (_cachedNsfwBlurLevel !== null) { setLevel(_cachedNsfwBlurLevel); return; }
+    api.getModelSettings().then((s) => {
+      _cachedNsfwBlurLevel = s.nsfwBlurLevel;
+      setLevel(s.nsfwBlurLevel);
+    }).catch(() => { /* use default */ });
+  }, []);
+  return level;
+}
+
 function CatalogRow({
   model, download, isRequired, selectedWorkflow, hfTokenConfigured, showTypeBadge,
   onInstall, onDelete, onCancelDownload, onNavigateSettings, item, onShowInfo,
@@ -68,6 +84,11 @@ function CatalogRow({
   item: ModelRowItem;
   onShowInfo?: (item: ModelRowItem) => void;
 }) {
+  const nsfwBlurLevel = useNsfwBlurLevel();
+  const enrichment = model.enrichment;
+  const shouldBlur = typeof enrichment?.nsfw_level === 'number' && enrichment.nsfw_level >= nsfwBlurLevel && nsfwBlurLevel < 4;
+  const twCount = enrichment?.trigger_words?.length ?? 0;
+
   // Info button is suppressed when the model carries nothing useful to show —
   // avoids dead buttons on minimal catalog entries. A URL/urlSources counts
   // as "useful info" because the Details modal renders the download sources
@@ -75,23 +96,40 @@ function CatalogRow({
   const hasInfo = !!(
     model.description || model.reference || model.base
     || model.url || (model.urlSources && model.urlSources.length > 0)
+    || enrichment?.trigger_words?.length || enrichment?.tags?.length
   );
   // Show the in-flight state when either a live WS download arrived OR the
   // catalog row carries `downloading: true` (pre-populated at download-start).
   const isDownloading = !!download || !!model.downloading;
 
+  // Thumbnail fallback: local preview (only when sidecar advertises one) ->
+  // remote thumbnail -> nothing. Without the sidecar guard, every row hits the
+  // server with /models/preview/... 404 — wasteful and noisy in the console.
+  const hasLocalPreview = !!model.enrichment?.preview_local_path;
+  const localPreviewSrc = hasLocalPreview && model.save_path && model.filename
+    ? modelPreviewUrl(model.save_path, model.filename)
+    : null;
+  const [thumbSrc, setThumbSrc] = useState<string | null>(localPreviewSrc ?? model.thumbnail ?? null);
+
   return (
     <div className="flex items-center gap-3 py-2.5 px-4 hover:bg-muted">
-      {model.thumbnail ? (
+      {thumbSrc ? (
         <img
-          src={model.thumbnail}
+          src={thumbSrc}
           alt=""
           width={32}
           height={32}
           loading="lazy"
           decoding="async"
           className="w-8 h-8 rounded object-cover ring-1 ring-border bg-muted shrink-0"
-          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+          style={shouldBlur ? { filter: 'blur(8px)' } : undefined}
+          onError={() => {
+            if (thumbSrc === localPreviewSrc && model.thumbnail) {
+              setThumbSrc(model.thumbnail);
+            } else {
+              setThumbSrc(null);
+            }
+          }}
         />
       ) : null}
       <div className="flex-1 min-w-0">
@@ -140,6 +178,12 @@ function CatalogRow({
           )}
           {isRequired && selectedWorkflow && (
             <Badge variant="warning">Required</Badge>
+          )}
+          {enrichment?.favorite && (
+            <Star className="w-3 h-3 text-warning fill-warning" aria-label="Favorited" />
+          )}
+          {twCount > 0 && (
+            <Badge variant="neutral" className="!text-[10px]">{twCount} trigger{twCount !== 1 ? 's' : ''}</Badge>
           )}
         </div>
         {model.error && !isDownloading && !model.installed && (

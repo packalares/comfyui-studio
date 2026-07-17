@@ -34,9 +34,11 @@ import * as path from 'path';
 import type { CatalogModel } from '../../contracts/catalog.contract.js';
 import {
   canonicalFolderName, classifyFolder, findFileOnDisk, getKnownFolders,
+  validateSavePath,
 } from './folderRegistry.js';
 import { canonicalType } from './typeMap.js';
 import { logger } from '../../lib/logger.js';
+import { normalizeModelFilename } from '../models/identity.js';
 
 export interface CanonicalizeResult {
   entry: Partial<CatalogModel>;
@@ -86,7 +88,7 @@ export function canonicalizeSync(
   }
 
   if (entry.filename) {
-    const normalized = entry.filename.replace(/\\/g, '/');
+    const normalized = normalizeModelFilename(entry.filename);
     const lastSlash = normalized.lastIndexOf('/');
     if (lastSlash >= 0) {
       const prefix = normalized.slice(0, lastSlash).replace(/^models\//, '');
@@ -112,10 +114,14 @@ export function canonicalizeSync(
   }
 
   if (entry.save_path) {
-    const canonical = canonicalFolderName(entry.save_path);
-    if (canonical !== entry.save_path) {
-      notes.push(`save_path alias: ${entry.save_path} → ${canonical}`);
-      entry.save_path = canonical;
+    // Validate against the type's registered folder list. If the save_path
+    // names a folder ComfyUI actually scans for this type, keep it as-is
+    // (allows legitimate subfolder organization like `loras/Flux1Dev`).
+    // Otherwise fall back to the canonical folder for the type.
+    const validated = validateSavePath(entry.save_path, entry.type);
+    if (validated !== entry.save_path) {
+      notes.push(`save_path validate: ${entry.save_path} → ${validated}`);
+      entry.save_path = validated;
     }
   }
 
@@ -173,7 +179,7 @@ export async function canonicalize(
 
   // 1c. Normalize separators + split prefix/basename.
   if (entry.filename) {
-    const normalized = entry.filename.replace(/\\/g, '/');
+    const normalized = normalizeModelFilename(entry.filename);
     const lastSlash = normalized.lastIndexOf('/');
     if (lastSlash >= 0) {
       const prefix = normalized.slice(0, lastSlash).replace(/^models\//, '');
@@ -189,12 +195,12 @@ export async function canonicalize(
     }
   }
 
-  // ── 2. save_path canonicalization (alias + classify) ─────────────────────
+  // ── 2. save_path validation (against type's registered folders) ─────────
   if (entry.save_path) {
-    const canonical = canonicalFolderName(entry.save_path);
-    if (canonical !== entry.save_path) {
-      notes.push(`save_path alias: ${entry.save_path} → ${canonical}`);
-      entry.save_path = canonical;
+    const validated = validateSavePath(entry.save_path, entry.type);
+    if (validated !== entry.save_path) {
+      notes.push(`save_path validate: ${entry.save_path} → ${validated}`);
+      entry.save_path = validated;
     }
   }
 
