@@ -108,6 +108,14 @@ export const DownloadHistoryItemSchema = z.object({
 });
 export type DownloadHistoryItem = z.infer<typeof DownloadHistoryItemSchema>;
 
+export const InstallResultSchema = z.object({
+  success: z.literal(true),
+  taskId: z.string(),
+  message: z.string().optional(),
+  alreadyActive: z.boolean().optional(),
+});
+export type InstallResult = z.infer<typeof InstallResultSchema>;
+
 export const DownloadCustomResultSchema = z.object({
   success: z.literal(true),
   taskId: z.string(),
@@ -234,6 +242,9 @@ export const CancelBodySchema = z.object({
   message: 'taskId or modelName required',
 });
 
+const InstallBodySchema = z.object({ source: z.string().optional() });
+const InstallParamsSchema = z.object({ modelName: z.string().min(1) });
+
 const HistoryQuerySchema = z.object({
   page: z.coerce.number().int().positive().optional(),
   pageSize: z.coerce.number().int().positive().max(100).optional(),
@@ -300,6 +311,16 @@ export const modelsRoutes = {
     auth: { required: true, scopes: ['models:write'] as const },
     tags: ['models'],
     summary: 'Cancel an active download by taskId or modelName',
+  },
+  install: {
+    method: 'POST' as const,
+    path: '/models/install/:modelName',
+    params: InstallParamsSchema,
+    body: InstallBodySchema,
+    response: InstallResultSchema,
+    auth: { required: true, scopes: ['models:install'] as const },
+    tags: ['models'],
+    summary: 'Start a catalog model install by name',
   },
   downloadHistory: {
     method: 'GET' as const,

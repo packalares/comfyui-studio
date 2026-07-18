@@ -73,7 +73,7 @@ vi.mock('../../src/services/gpu/scheduler.js', () => ({
   submitGpuJob: (...args: unknown[]) => mockSubmitGpuJob(...args),
 }));
 
-vi.mock('../../src/services/comfyui/jobBridge.js', () => ({
+vi.mock('../../src/services/videoboard/comfyJobBridge.js', () => ({
   getBridgeClientId: () => mockGetBridgeClientId(),
   trackComfyPrompt: vi.fn(async () => {}),
 }));

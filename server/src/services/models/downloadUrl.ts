@@ -34,6 +34,15 @@ export interface CatalogModelEntry {
 
 // ── URL builders ─────────────────────────────────────────────────────────────
 
+export class NoDownloadSourceError extends Error {
+  modelName: string;
+  constructor(modelName: string) {
+    super(`No download URL available for ${modelName}. Add a URL in catalog or paste one manually.`);
+    this.name = 'NoDownloadSourceError';
+    this.modelName = modelName;
+  }
+}
+
 /**
  * Build the preferred download URL. Honours `source` (hf | mirror | cdn).
  * If the catalog entry stores URL as a plain string, the `hf -> hf-mirror.com`

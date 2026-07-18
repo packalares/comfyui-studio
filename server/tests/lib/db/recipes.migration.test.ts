@@ -42,15 +42,11 @@ describe('recipes migration (v32)', () => {
     }
   });
 
-  it('schema version is current (>=32)', () => {
-    // Recipes migration was introduced at v32; SCHEMA_VERSION keeps moving
-    // up as new migrations land (v33 added templates.template_presets).
-    // Assert it never moved backwards rather than pinning a specific number
-    // every new migration has to bump here.
+  it('schema version is 32', () => {
     const fix = makeFreshDbFixture();
     try {
       const version = getSchemaVersion();
-      expect(version).toBeGreaterThanOrEqual(32);
+      expect(version).toBe(32);
     } finally {
       fix.cleanup();
     }
