@@ -27,6 +27,10 @@ export interface StudioEventPayloads {
   'plugin:enabled':         { pluginId: string };
   /** Emitted after a model sidecar has been written (enrichment complete). */
   'model:enriched':         { filename: string; save_path: string; absPath: string };
+  /** Capability pack (ACE-Step, AI-Toolkit, ...) finished installing. */
+  'pack:installed':         { packId: string };
+  /** Capability pack was uninstalled / flagged not-installed. */
+  'pack:removed':           { packId: string };
 }
 
 export type StudioEventName = keyof StudioEventPayloads;

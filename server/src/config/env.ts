@@ -155,6 +155,43 @@ const LAUNCHER = {
   THUMB_CACHE_MAX_AGE_DAYS: readNumber(process.env.THUMB_CACHE_MAX_AGE_DAYS, 30),
   /** Thumbnail cache size cap (bytes). Over-cap => LRU unlink till under. */
   THUMB_CACHE_MAX_BYTES: readNumber(process.env.THUMB_CACHE_MAX_BYTES, 500 * 1024 * 1024),
+  /**
+   * ACE-Step FastAPI base URL. `services/aceStep/process.ts` always binds the
+   * child process to loopback 127.0.0.1:8000 (see `ACESTEP_HOST`/`ACESTEP_PORT`
+   * there); this env var lets the HTTP client (`services/ace/acestep.ts`) point
+   * at a different instance (e.g. a remote/dev backend) without touching the
+   * spawn logic. Default matches the hardcoded spawn target.
+   */
+  ACESTEP_API_URL: process.env.ACESTEP_API_URL ?? 'http://127.0.0.1:8000',
+  /**
+   * Python interpreter for `data/ace/whisper_cli.py` (batch lyrics
+   * transcription via faster-whisper) and `data/ace/get_limits.py` (GPU
+   * tier probe). Today the `ace-step` pack's pip installer (registry.ts)
+   * installs `faster-whisper` into the SAME site-packages as ACE-Step
+   * itself (no dedicated venv), so the default is the plain `python3` on
+   * PATH. Overridable in case a future pack revision splits Whisper into
+   * its own venv (mirroring ace-step-ui's Dockerfile, which used a
+   * dedicated `.venv`).
+   */
+  ACE_WHISPER_PYTHON_PATH: process.env.ACE_WHISPER_PYTHON_PATH || 'python3',
+  /**
+   * FALLBACK Python interpreter for `data/ace/indextts2_infer.py` (IndexTTS2
+   * voice-clone inference), used only when no dedicated venv is available.
+   *
+   * The `ace-step` pack installer (`services/packs/registry.ts`'s
+   * `venvComponents` + `services/packs/install.ts`'s `ensureVenvComponent`)
+   * provisions a SEPARATE venv for IndexTTS2 via plain `python3 -m venv`
+   * (upstream pins torch==2.8/transformers==4.52/numpy==1.26, which conflict
+   * with ACE-Step's own pins in the main `--user` site) — mirroring
+   * ace-step-ui's Dockerfile, which used a dedicated uv-managed venv.
+   * `services/ace/indextts2.ts`'s `resolveIndexTts2Python()` is the single
+   * resolution point: it prefers that venv's `bin/python` (derived from the
+   * registry, not hardcoded) whenever it actually exists on disk, and treats
+   * this var as an explicit operator override otherwise. If NEITHER the venv
+   * nor this override is present, it throws a clear "install the ace-step
+   * pack" error instead of spawning a `python3` that will ImportError.
+   */
+  ACE_TTS_PYTHON_PATH: process.env.ACE_TTS_PYTHON_PATH || 'python3',
 } as const;
 
 export const env = { ...STUDIO, ...LAUNCHER } as const;
@@ -182,6 +219,19 @@ export function currentProcessEnv(): NodeJS.ProcessEnv {
  */
 export function currentSqliteOverride(): string | undefined {
   return process.env.STUDIO_SQLITE_PATH;
+}
+
+/**
+ * Read whether the operator EXPLICITLY set `ACE_TTS_PYTHON_PATH`, distinct
+ * from `env.ACE_TTS_PYTHON_PATH`'s `|| 'python3'` default. `services/ace/
+ * indextts2.ts`'s `resolveIndexTts2Python()` uses this to decide whether a
+ * missing dedicated IndexTTS2 venv (see `services/packs/registry.ts`'s
+ * `venvComponents`) should surface a clear "install the ace-step pack"
+ * error, or defer to an operator-supplied interpreter it has no way to
+ * validate (e.g. a hand-rolled venv this codebase doesn't know about).
+ */
+export function aceTtsPythonPathOverride(): string | undefined {
+  return process.env.ACE_TTS_PYTHON_PATH || undefined;
 }
 
 /**

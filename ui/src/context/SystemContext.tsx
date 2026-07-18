@@ -23,6 +23,13 @@ export interface SystemContextType {
   chat: ChatSettingsView | null;
   personality: PersonalitySummary | null;
   dashboardSummary: DashboardSummary | null;
+  /**
+   * Capability-pack gate: `{'ace-step': true, 'ai-toolkit': false}`.
+   * Populated from `GET /api/packs` on boot; a pack id absent from the map
+   * (rather than explicitly `false`) should still be treated as "not
+   * installed" by callers — see `useApp().capabilities`.
+   */
+  capabilities: Record<string, boolean>;
   // Internal setters/refs exposed to sibling providers (Ws, façade).
   _setConnected: React.Dispatch<React.SetStateAction<boolean>>;
   _setMonitorStats: React.Dispatch<React.SetStateAction<MonitorStats | null>>;
@@ -40,6 +47,7 @@ export interface SystemContextType {
   _setChat: React.Dispatch<React.SetStateAction<ChatSettingsView | null>>;
   _setPersonality: React.Dispatch<React.SetStateAction<PersonalitySummary | null>>;
   _setDashboardSummary: React.Dispatch<React.SetStateAction<DashboardSummary | null>>;
+  _setCapabilities: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   _systemStatsRef: React.MutableRefObject<SystemStats | null>;
 }
 
@@ -63,6 +71,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
   const [chat, setChat] = useState<ChatSettingsView | null>(null);
   const [personality, setPersonality] = useState<PersonalitySummary | null>(null);
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
+  const [capabilities, setCapabilities] = useState<Record<string, boolean>>({});
   const systemStatsRef = useRef<SystemStats | null>(null);
 
   return (
@@ -84,6 +93,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
         chat,
         personality,
         dashboardSummary,
+        capabilities,
         _setConnected: setConnected,
         _setMonitorStats: setMonitorStats,
         _setSystemStats: setSystemStats,
@@ -100,6 +110,7 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
         _setChat: setChat,
         _setPersonality: setPersonality,
         _setDashboardSummary: setDashboardSummary,
+        _setCapabilities: setCapabilities,
         _systemStatsRef: systemStatsRef,
       }}
     >

@@ -14,10 +14,13 @@ const PluginsInstalled = lazy(() => import('./pages/plugins/Installed'));
 const PluginsHistory = lazy(() => import('./pages/plugins/History'));
 const PluginsPythonDependencies = lazy(() => import('./pages/plugins/python/Dependencies'));
 const PluginsPythonPackages = lazy(() => import('./pages/plugins/python/Packages'));
+const Packs = lazy(() => import('./pages/Packs'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Videoboard = lazy(() => import('./pages/Videoboard'));
 const VideoboardProject = lazy(() => import('./pages/VideoboardProject'));
 const Characters = lazy(() => import('./pages/Characters'));
+const Music = lazy(() => import('./pages/music/Music'));
+const TrainLora = lazy(() => import('./pages/TrainLora'));
 
 // Route-level Suspense fallback. Cached lazy chunks resolve in <50ms; flashing
 // a spinner for them looks like a bug. Delay the reveal so only genuinely slow
@@ -77,6 +80,12 @@ function App() {
             <Route path="civitai/workflows" element={<Navigate to="/templates?source=civitai" replace />} />
             <Route path="civitai/*" element={<Navigate to="/plugins/installed" replace />} />
           </Route>
+          {/* Splat route, same reasoning as /studio/* — Music owns its own
+              Create/Library sub-routes via a nested <Routes> so tab clicks
+              don't remount the page (and the player bar/audio element). */}
+          <Route path="/music/*" element={<Music />} />
+          <Route path="/train-lora" element={<TrainLora />} />
+          <Route path="/packs" element={<Packs />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/videoboard" element={<Videoboard />} />
           <Route path="/videoboard/characters" element={<Characters />} />

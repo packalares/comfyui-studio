@@ -43,6 +43,15 @@ import llm from './llm.routes.js';
 import jobs from './jobs.routes.js';
 import promptRegistry from './promptRegistry.routes.js';
 import enhancer from './enhancer.routes.js';
+import packs from './packs.routes.js';
+import aceGenerate from './ace/generate.routes.js';
+import aceSongs from './ace/songs.routes.js';
+import aceLyrics from './ace/lyrics.routes.js';
+import aceTraining from './ace/training.routes.js';
+import aceLora from './ace/lora.routes.js';
+import aceTts from './ace/tts.routes.js';
+import aceReferenceTrack from './ace/referenceTrack.routes.js';
+import aiToolkit from './aiToolkit.routes.js';
 
 const router = Router();
 
@@ -87,5 +96,14 @@ router.use(llm);
 router.use(jobs);
 router.use(promptRegistry);
 router.use(enhancer);
+router.use(packs);
+router.use(aceGenerate);
+router.use(aceSongs);
+router.use(aceLyrics);
+router.use(aceTraining);
+router.use(aceLora);
+router.use(aceTts);
+router.use(aceReferenceTrack);
+router.use(aiToolkit);
 
 export default router;

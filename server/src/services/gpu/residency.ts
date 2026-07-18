@@ -6,6 +6,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getComfyUIUrl } from '../comfyui/api.js';
 import { getOllamaUrl } from '../settings/index.js';
+import { getAceStepProcessService } from '../aceStep/process.js';
 import { logger } from '../../lib/logger.js';
 import type { GpuTenant } from './taskTypes.js';
 
@@ -144,6 +145,31 @@ export async function unloadComfy(): Promise<void> {
 }
 
 /**
+ * Evict the ACE-Step FastAPI backend by stopping its child process. This is
+ * the simplest correct way to free its VRAM today.
+ *
+ * TODO: ACE-Step doesn't yet expose a lightweight `/free`-style unload
+ * endpoint the way ComfyUI does (see `unloadComfy` above) — so every
+ * re-entry into the `ace-step` tenant currently pays a full cold model
+ * reload. If/when the FastAPI backend grows a "drop weights, keep server up"
+ * endpoint, swap this for a POST to it instead of a full process stop.
+ */
+export async function unloadAceStep(): Promise<void> {
+  try {
+    const result = await getAceStepProcessService().stopAceStep();
+    if (!result.success) {
+      logger.warn('[residency] ace-step stop returned failure', { message: result.message });
+    } else {
+      logger.info('[residency] ace-step stopped');
+    }
+  } catch (err) {
+    logger.warn('[residency] ace-step stop failed', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
  * Best-effort wait for VRAM to drop after an unload. Uses nvidia-smi when
  * available; falls back to a 1.5s fixed delay. Never throws.
  */
@@ -186,9 +212,48 @@ export async function waitForVramDrop(
  * Unloads the current tenant and optionally waits for VRAM to drop.
  */
 export async function ensureResident(tenant: GpuTenant): Promise<void> {
-  if (currentTenant === tenant) return;
+  if (currentTenant === tenant) {
+    // Bookkeeping says we're already resident — but for `ace-step` that is NOT
+    // sufficient. The FastAPI child can die on its own (native segfault, OOM
+    // kill) while `currentTenant` still reads 'ace-step'. Without this check
+    // every later job short-circuits here, never calls startAceStep(), and
+    // talks to a dead backend forever (ECONNREFUSED on 127.0.0.1:8000) until
+    // some unrelated tenant switch happens to reset residency.
+    // Gate on the process handle, NOT a health probe. `attachExit` nulls
+    // `aceProcess` the moment the child dies (see aceStep/process.ts), so
+    // `getPid() === null` is a definitive "it's gone" signal with no false
+    // positives. `isAceStepRunning()` additionally issues an HTTP /health
+    // request, which can fail transiently while the backend is alive but busy
+    // (model load, long GC pause) — restarting on that would tear down a
+    // healthy backend and force a needless full cold model reload.
+    if (tenant === 'ace-step' && getAceStepProcessService().getPid() === null) {
+      logger.warn('[residency] ace-step marked resident but process is gone; restarting');
+      const result = await getAceStepProcessService().startAceStep();
+      if (!result.success) {
+        logger.warn('[residency] ace-step restart failed; proceeding anyway', {
+          message: result.message,
+        });
+      }
+    }
+    return;
+  }
 
   logger.info('[residency] switching tenant', { from: currentTenant, to: tenant });
+
+  if (tenant === 'oneshot') {
+    // One-shot exclusive GPU jobs (image-LoRA training, TTS, Whisper) need the
+    // entire 24GB card. Unconditionally evict every other backend rather than
+    // trusting `currentTenant` bookkeeping alone — each unload helper is a safe
+    // no-op when its backend has nothing loaded. No persistent server to start
+    // for this tenant: the caller spawns its own one-shot python process once
+    // residency is granted.
+    await unloadOllama();
+    await unloadComfy();
+    await unloadAceStep();
+    await waitForVramDrop();
+    currentTenant = tenant;
+    return;
+  }
 
   if (currentTenant === 'ollama') {
     await unloadOllama();
@@ -196,6 +261,19 @@ export async function ensureResident(tenant: GpuTenant): Promise<void> {
   } else if (currentTenant === 'comfy') {
     await unloadComfy();
     await waitForVramDrop();
+  } else if (currentTenant === 'ace-step') {
+    await unloadAceStep();
+    await waitForVramDrop();
+  }
+  // currentTenant === 'oneshot' or 'none': nothing resident to evict.
+
+  if (tenant === 'ace-step') {
+    const result = await getAceStepProcessService().startAceStep();
+    if (!result.success) {
+      logger.warn('[residency] ace-step start failed; proceeding anyway', {
+        message: result.message,
+      });
+    }
   }
 
   currentTenant = tenant;

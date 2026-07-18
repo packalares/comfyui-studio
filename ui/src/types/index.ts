@@ -483,6 +483,34 @@ export interface DashboardSummary {
   pluginHistory: PluginHistoryEntry[];
 }
 
+/* =================================================================
+ * Capability packs
+ *
+ * Mirrors server's PackSchema (contracts/packs.contract.ts) and
+ * PackTaskProgress (services/packs/install.ts).
+ * ================================================================= */
+
+export type PackId = 'ace-step' | 'ai-toolkit';
+
+export interface Pack {
+  id: PackId;
+  label: string;
+  description: string;
+  installed: boolean;
+  version: string | null;
+  installedAt: number | null;
+}
+
+export interface PackTaskProgress {
+  taskId: string;
+  packId: string;
+  type: 'install' | 'uninstall';
+  progress: number;
+  completed: boolean;
+  message?: string;
+  logs: string[];
+}
+
 // Mirrors server's InstalledPackage (packages.service.ts:10-13).
 export interface PythonPackage {
   name: string;

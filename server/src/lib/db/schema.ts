@@ -76,7 +76,48 @@
 // previewUrl, published, tool) so it stays cheap to ship in the bundle.
 // Migration `applyTemplatePresetsMigration` (PRAGMA-guarded ALTER) keeps
 // existing DBs safe.
-export const SCHEMA_VERSION = 33;
+//
+// Schema v34 adds the `packs` table for the capability-pack subsystem
+// (optional heavy features like ACE-Step music or AI-Toolkit training whose
+// pip deps + models install on demand into the persistent volume). Each row
+// is just the durable install-state record (installed flag, version,
+// install timestamp) keyed by pack id; the pack's static metadata (label,
+// description, pip deps, model list) lives in the in-code registry at
+// `services/packs/registry.ts`, not the DB. Migration `applyPacksMigration`
+// (CREATE TABLE IF NOT EXISTS) keeps existing DBs safe — no data loss.
+//
+// Schema v35 adds the ACE-Step music generation tables: `ace_songs` (song
+// library), `ace_generation_jobs` (async job tracking against the ACE-Step
+// FastAPI task id), `ace_playlists` + `ace_playlist_songs` (local playlists).
+// Ported from ace-step-ui's `server/src/db/migrate.ts` as SINGLE-USER: no
+// `user_id` scoping and no social layer (comments/follows/likes/public-private
+// visibility) — see the header comment in
+// `migrations/0005_ace_music.ts` for the full rationale. Migration
+// `applyAceMusicMigration` (CREATE TABLE IF NOT EXISTS) keeps existing DBs
+// safe — no data loss.
+//
+// Schema v36 adds the ACE-Step training/LoRA/TTS/reference-track tables:
+// `ace_training_datasets` (index over dataset JSON files built by the
+// training panel), `ace_training_runs` (persisted LoRA training-run
+// history — ACE-Step's FastAPI only tracks the current run in memory),
+// `ace_stem_jobs` + `ace_tts_jobs` (persisted job status/progress/log,
+// replacing ace-step-ui's in-memory `stemJobs.ts` / `ttsJobs.ts` Maps), and
+// `ace_reference_tracks` (uploaded reference/source audio with optional
+// Whisper-transcribed lyrics, ported from ace-step-ui's Postgres-style
+// `reference_tracks` — SINGLE-USER here, so `user_id` scoping is dropped).
+// See the header comment in `migrations/0006_ace_training.ts` for the full
+// rationale. Migration `applyAceTrainingMigration` (CREATE TABLE IF NOT
+// EXISTS) keeps existing DBs safe — no data loss.
+//
+// Schema v37 adds `ai_toolkit_jobs` — the image-LoRA training job table for
+// the AI-Toolkit (ostris/ai-toolkit) capability pack: one row per training
+// run (name, base model, dataset path, full training config, status,
+// progress, output path, error, timestamps). SINGLE-USER: no `user_id`
+// column, same rationale as the ACE-Step training tables above. See the
+// header comment in `migrations/0007_ai_toolkit.ts` for the full rationale.
+// Migration `applyAiToolkitMigration` (CREATE TABLE IF NOT EXISTS) keeps
+// existing DBs safe — no data loss.
+export const SCHEMA_VERSION = 37;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_version (

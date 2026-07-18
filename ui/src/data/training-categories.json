@@ -1,0 +1,462 @@
+{
+  "outputRoot": "/app/ACE-Step-1.5/lora_output",
+  "categories": [
+    {
+      "id": "voice",
+      "displayName": "Voice / Vocalist",
+      "description": "Capture a singer's voice. Vocals are isolated automatically (Mel-Roformer) and Whisper transcribes the clean stems. Training runs on the isolated vocals with a unique persona trigger word baked into every caption.",
+      "icon": "Mic",
+      "preprocessing": {
+        "enabled": true,
+        "model": "vocals_mel_band_roformer.ckpt",
+        "keepStems": ["vocals"],
+        "extraArgs": {
+          "mdxc_segment_size": 256,
+          "use_autocast": true
+        }
+      },
+      "autoLabel": {
+        "skipMetas": true,
+        "transcribeLyrics": true,
+        "formatLyrics": false,
+        "customTag": "__PERSONA_TRIGGER__",
+        "tagPosition": "prepend"
+      },
+      "training": {
+        "rank": 128,
+        "alpha": 256,
+        "dropout": 0.05,
+        "learningRate": 0.0002,
+        "epochs": 3000,
+        "batchSize": 1,
+        "gradientAccumulation": 2,
+        "saveEvery": 500,
+        "outputSubdir": "voice"
+      },
+      "dataset": {
+        "minSamples": 8,
+        "recommendedSamples": 30,
+        "minSampleSeconds": 4,
+        "maxSampleSeconds": 30,
+        "instructions": "Upload 8-30 full songs by the target singer. Captions are auto-generated, with a unique trigger word (e.g. nicolaevoice) prepended to every caption — write that trigger in your prompt at generation time to activate the voice."
+      }
+    },
+    {
+      "id": "instrument",
+      "displayName": "Specific Instrument",
+      "description": "Train a LoRA on the timbre and articulation of one instrument. Stems are extracted from full tracks before training.",
+      "icon": "Guitar",
+      "preprocessing": {
+        "enabled": true,
+        "model": "htdemucs_6s.yaml",
+        "keepStems": ["other"],
+        "fallbackModel": "htdemucs_ft.yaml"
+      },
+      "autoLabel": {
+        "skipMetas": false,
+        "transcribeLyrics": false,
+        "formatLyrics": false,
+        "customTag": "solo instrument, ",
+        "tagPosition": "prepend"
+      },
+      "training": {
+        "rank": 128,
+        "alpha": 192,
+        "dropout": 0.08,
+        "learningRate": 0.00025,
+        "epochs": 2400,
+        "batchSize": 1,
+        "gradientAccumulation": 2,
+        "saveEvery": 400,
+        "outputSubdir": "instrument"
+      },
+      "dataset": {
+        "minSamples": 10,
+        "recommendedSamples": 30,
+        "minSampleSeconds": 6,
+        "maxSampleSeconds": 30,
+        "instructions": "Upload tracks where the target instrument is prominent. Pick a sub-type below — the matching stem will be isolated automatically."
+      },
+      "subTypes": [
+        {
+          "id": "drums",
+          "displayName": "Drums",
+          "icon": "Drum",
+          "description": "Full drum kit timbre and groove (kick, snare, hats, toms, cymbals together).",
+          "preprocessing": {
+            "enabled": true,
+            "model": "model_scnet_ep_36_sdr_10.0891.ckpt",
+            "keepStems": ["drums"],
+            "fallbackModel": "htdemucs_ft.yaml"
+          },
+          "training": {
+            "rank": 96,
+            "alpha": 192,
+            "epochs": 2000,
+            "outputSubdir": "instrument/drums"
+          },
+          "dataset": {
+            "minSamples": 10,
+            "recommendedSamples": 25,
+            "minSampleSeconds": 4,
+            "maxSampleSeconds": 20,
+            "instructions": "Upload full songs with prominent drums. Loops are fine. The drum stem will be isolated automatically."
+          }
+        },
+        {
+          "id": "bass",
+          "displayName": "Bass",
+          "icon": "Waves",
+          "description": "Bass guitar, synth bass or sub-bass timbre and pocket.",
+          "preprocessing": {
+            "enabled": true,
+            "model": "htdemucs_6s.yaml",
+            "keepStems": ["bass"]
+          },
+          "training": {
+            "rank": 96,
+            "alpha": 192,
+            "epochs": 2000,
+            "outputSubdir": "instrument/bass"
+          }
+        },
+        {
+          "id": "guitar",
+          "displayName": "Guitar",
+          "icon": "Guitar",
+          "description": "Electric or acoustic guitar tone, riffs and articulation.",
+          "preprocessing": {
+            "enabled": true,
+            "model": "htdemucs_6s.yaml",
+            "keepStems": ["guitar"]
+          },
+          "training": {
+            "rank": 128,
+            "alpha": 192,
+            "epochs": 2400,
+            "outputSubdir": "instrument/guitar"
+          }
+        },
+        {
+          "id": "piano",
+          "displayName": "Piano",
+          "icon": "Piano",
+          "description": "Acoustic or electric piano timbre and playing style.",
+          "preprocessing": {
+            "enabled": true,
+            "model": "htdemucs_6s.yaml",
+            "keepStems": ["piano"]
+          },
+          "training": {
+            "rank": 128,
+            "alpha": 192,
+            "epochs": 2400,
+            "outputSubdir": "instrument/piano"
+          }
+        },
+        {
+          "id": "synth",
+          "displayName": "Synth",
+          "icon": "AudioWaveform",
+          "description": "Lead, pad or pluck synthesizer timbres extracted from the 'other' stem.",
+          "preprocessing": {
+            "enabled": true,
+            "model": "htdemucs_6s.yaml",
+            "keepStems": ["other"]
+          },
+          "training": {
+            "rank": 96,
+            "alpha": 192,
+            "epochs": 2200,
+            "outputSubdir": "instrument/synth"
+          }
+        },
+        {
+          "id": "other",
+          "displayName": "Other Instrument",
+          "icon": "Music",
+          "description": "Any other instrument captured from the 'other' stem (strings, brass, woodwind, fx, etc.).",
+          "preprocessing": {
+            "enabled": true,
+            "model": "htdemucs_6s.yaml",
+            "keepStems": ["other"]
+          },
+          "training": {
+            "rank": 96,
+            "alpha": 192,
+            "epochs": 2200,
+            "outputSubdir": "instrument/other"
+          }
+        }
+      ]
+    },
+    {
+      "id": "drum_component",
+      "displayName": "Drum Component (Advanced)",
+      "description": "Train on a single drum element (kick, snare, hihat). Drums are isolated, then split into components via larsnet.",
+      "icon": "Drum",
+      "preprocessing": {
+        "enabled": true,
+        "model": "model_scnet_ep_36_sdr_10.0891.ckpt",
+        "keepStems": ["drums"],
+        "chain": ["model_scnet_ep_36_sdr_10.0891.ckpt", "larsnet"],
+        "fallbackModel": "htdemucs_ft.yaml"
+      },
+      "autoLabel": {
+        "skipMetas": true,
+        "transcribeLyrics": false,
+        "formatLyrics": false,
+        "customTag": "drum component, ",
+        "tagPosition": "prepend"
+      },
+      "training": {
+        "rank": 64,
+        "alpha": 128,
+        "dropout": 0.1,
+        "learningRate": 0.0003,
+        "epochs": 1800,
+        "batchSize": 1,
+        "gradientAccumulation": 2,
+        "saveEvery": 300,
+        "outputSubdir": "drum_component"
+      },
+      "dataset": {
+        "minSamples": 12,
+        "recommendedSamples": 40,
+        "minSampleSeconds": 2,
+        "maxSampleSeconds": 12,
+        "instructions": "Upload tracks or loops featuring the target drum component. The drum stem will be isolated, then split per component."
+      },
+      "subTypes": [
+        {
+          "id": "kick",
+          "displayName": "Kick Drum",
+          "icon": "CircleDot",
+          "description": "Kick drum thump and tone — split from the drum stem with larsnet.",
+          "preprocessing": {
+            "enabled": true,
+            "model": "model_scnet_ep_36_sdr_10.0891.ckpt",
+            "keepStems": ["kick"],
+            "chain": ["model_scnet_ep_36_sdr_10.0891.ckpt", "larsnet"],
+            "fallbackModel": "htdemucs_ft.yaml"
+          },
+          "training": {
+            "outputSubdir": "drum_component/kick"
+          }
+        },
+        {
+          "id": "snare",
+          "displayName": "Snare",
+          "icon": "Disc3",
+          "description": "Snare crack and body — split from the drum stem with larsnet.",
+          "preprocessing": {
+            "enabled": true,
+            "model": "model_scnet_ep_36_sdr_10.0891.ckpt",
+            "keepStems": ["snare"],
+            "chain": ["model_scnet_ep_36_sdr_10.0891.ckpt", "larsnet"],
+            "fallbackModel": "htdemucs_ft.yaml"
+          },
+          "training": {
+            "outputSubdir": "drum_component/snare"
+          }
+        },
+        {
+          "id": "hihat",
+          "displayName": "Hi-Hat",
+          "icon": "Disc",
+          "description": "Closed/open hi-hats and metallic top-end — split from the drum stem with larsnet.",
+          "preprocessing": {
+            "enabled": true,
+            "model": "model_scnet_ep_36_sdr_10.0891.ckpt",
+            "keepStems": ["hihat"],
+            "chain": ["model_scnet_ep_36_sdr_10.0891.ckpt", "larsnet"],
+            "fallbackModel": "htdemucs_ft.yaml"
+          },
+          "training": {
+            "outputSubdir": "drum_component/hihat"
+          }
+        }
+      ]
+    },
+    {
+      "id": "instrumental",
+      "displayName": "Instrumental Track",
+      "description": "Train on full instrumentals with vocals removed — useful for production-style or beat LoRAs.",
+      "icon": "Music2",
+      "preprocessing": {
+        "enabled": true,
+        "model": "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+        "keepStems": ["instrumental"]
+      },
+      "autoLabel": {
+        "skipMetas": true,
+        "transcribeLyrics": false,
+        "formatLyrics": false,
+        "customTag": "instrumental, ",
+        "tagPosition": "prepend"
+      },
+      "training": {
+        "rank": 96,
+        "alpha": 192,
+        "dropout": 0.1,
+        "learningRate": 0.0003,
+        "epochs": 1500,
+        "batchSize": 1,
+        "gradientAccumulation": 2,
+        "saveEvery": 300,
+        "outputSubdir": "instrumental"
+      },
+      "dataset": {
+        "minSamples": 10,
+        "recommendedSamples": 30,
+        "minSampleSeconds": 15,
+        "maxSampleSeconds": 60,
+        "instructions": "Upload full songs — vocals will be removed automatically and the instrumental stem used for training. Aim for 20-30 tracks of similar production style."
+      }
+    },
+    {
+      "id": "genre",
+      "displayName": "Genre / Era",
+      "description": "Capture the overall sound of a genre or era (e.g. 80s synthwave, lo-fi hip hop). No stem extraction — full mixes are used.",
+      "icon": "Disc3",
+      "preprocessing": {
+        "enabled": false,
+        "model": "",
+        "keepStems": []
+      },
+      "autoLabel": {
+        "skipMetas": false,
+        "transcribeLyrics": false,
+        "formatLyrics": true,
+        "customTag": "",
+        "tagPosition": "append"
+      },
+      "training": {
+        "rank": 64,
+        "alpha": 128,
+        "dropout": 0.1,
+        "learningRate": 0.0003,
+        "epochs": 800,
+        "batchSize": 1,
+        "gradientAccumulation": 2,
+        "saveEvery": 200,
+        "outputSubdir": "genre"
+      },
+      "dataset": {
+        "minSamples": 15,
+        "recommendedSamples": 50,
+        "minSampleSeconds": 20,
+        "maxSampleSeconds": 60,
+        "instructions": "Upload 30-60 full tracks that share a clear genre or era. Variety within the genre helps the LoRA generalize."
+      }
+    },
+    {
+      "id": "mood",
+      "displayName": "Mood / Vibe",
+      "description": "Train on tracks that share an emotional vibe — melancholic, euphoric, dark, dreamy, etc.",
+      "icon": "Heart",
+      "preprocessing": {
+        "enabled": false,
+        "model": "",
+        "keepStems": []
+      },
+      "autoLabel": {
+        "skipMetas": false,
+        "transcribeLyrics": false,
+        "formatLyrics": true,
+        "customTag": "",
+        "tagPosition": "append"
+      },
+      "training": {
+        "rank": 64,
+        "alpha": 96,
+        "dropout": 0.12,
+        "learningRate": 0.0003,
+        "epochs": 600,
+        "batchSize": 1,
+        "gradientAccumulation": 2,
+        "saveEvery": 150,
+        "outputSubdir": "mood"
+      },
+      "dataset": {
+        "minSamples": 12,
+        "recommendedSamples": 40,
+        "minSampleSeconds": 20,
+        "maxSampleSeconds": 60,
+        "instructions": "Upload tracks across multiple genres that all share the target mood. 25-50 samples is plenty."
+      }
+    },
+    {
+      "id": "producer",
+      "displayName": "Producer / Mix Sound",
+      "description": "Capture a producer's signature mixing style — drum bus character, reverb, saturation, stereo width.",
+      "icon": "Sliders",
+      "preprocessing": {
+        "enabled": false,
+        "model": "",
+        "keepStems": []
+      },
+      "autoLabel": {
+        "skipMetas": false,
+        "transcribeLyrics": false,
+        "formatLyrics": true,
+        "customTag": "produced by, ",
+        "tagPosition": "prepend"
+      },
+      "training": {
+        "rank": 96,
+        "alpha": 128,
+        "dropout": 0.1,
+        "learningRate": 0.00028,
+        "epochs": 1200,
+        "batchSize": 1,
+        "gradientAccumulation": 2,
+        "saveEvery": 250,
+        "outputSubdir": "producer"
+      },
+      "dataset": {
+        "minSamples": 12,
+        "recommendedSamples": 35,
+        "minSampleSeconds": 20,
+        "maxSampleSeconds": 60,
+        "instructions": "Upload tracks produced by the target producer (or that share a target mix character). 25-40 tracks recommended."
+      }
+    },
+    {
+      "id": "groove",
+      "displayName": "BPM / Groove",
+      "description": "Train on a specific tempo and rhythmic feel — half-time, swing, four-on-the-floor, etc.",
+      "icon": "Activity",
+      "preprocessing": {
+        "enabled": false,
+        "model": "",
+        "keepStems": []
+      },
+      "autoLabel": {
+        "skipMetas": false,
+        "transcribeLyrics": false,
+        "formatLyrics": false,
+        "customTag": "",
+        "tagPosition": "append"
+      },
+      "training": {
+        "rank": 64,
+        "alpha": 96,
+        "dropout": 0.1,
+        "learningRate": 0.0003,
+        "epochs": 700,
+        "batchSize": 1,
+        "gradientAccumulation": 2,
+        "saveEvery": 175,
+        "outputSubdir": "groove"
+      },
+      "dataset": {
+        "minSamples": 12,
+        "recommendedSamples": 30,
+        "minSampleSeconds": 15,
+        "maxSampleSeconds": 45,
+        "instructions": "Upload tracks at the target BPM and feel. Auto-label will tag BPM/key automatically — review them if accuracy matters."
+      }
+    }
+  ]
+}

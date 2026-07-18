@@ -2,8 +2,9 @@ import { Fragment, useEffect, useState, type ComponentType } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Compass, Wand2, Image, Box, Package, Settings,
-  MessageSquare, ChevronRight, Film,
+  MessageSquare, ChevronRight, Film, PackagePlus, Music, GraduationCap,
 } from 'lucide-react';
+import { useApp } from '../../context/AppContext';
 import {
   Sidebar, SidebarHeader, SidebarContent, SidebarFooter,
   SidebarGroup, SidebarGroupContent, SidebarMenu, SidebarMenuItem,
@@ -36,6 +37,10 @@ interface NavLinkItem {
   icon: ComponentType<{ className?: string }>;
   end?: boolean;
   children?: SubLink[];
+  /** Only render this item once `capabilities[requiresPack]` is true — gates
+   *  nav entries for optional heavy features (see pages/Packs.tsx). Items
+   *  without this field are always shown. */
+  requiresPack?: string;
 }
 
 // Three groups, separated only by a dotted hairline (no eyebrow labels —
@@ -55,6 +60,11 @@ const linkSections: { label: string; items: NavLinkItem[] }[] = [
       { to: '/studio', label: 'Studio', icon: Wand2 },
       { to: '/chat', label: 'Chat', icon: MessageSquare },
       { to: '/gallery', label: 'Gallery', icon: Image },
+      // Gated on the `ace-step` capability pack — hidden until installed
+      // (see Packs.tsx / services/packs/registry.ts).
+      { to: '/music', label: 'Music', icon: Music, requiresPack: 'ace-step' },
+      // Gated on the `ai-toolkit` capability pack — hidden until installed.
+      { to: '/train-lora', label: 'Train LoRA', icon: GraduationCap, requiresPack: 'ai-toolkit' },
       {
         to: '/videoboard',
         label: 'Videoboard',
@@ -106,6 +116,9 @@ const linkSections: { label: string; items: NavLinkItem[] }[] = [
           { to: '/plugins/python/packages', label: 'Packages' },
         ],
       },
+      // Always visible (no `requiresPack`) — this is where the optional
+      // heavy features below get installed in the first place.
+      { to: '/packs', label: 'Packs', icon: PackagePlus },
       { to: '/settings', label: 'Settings', icon: Settings },
     ],
   },
@@ -125,6 +138,7 @@ const ROW_POLISH =
 export default function AppSidebar() {
   const { pathname } = useLocation();
   const { isMobile, openMobile, setOpenMobile } = useSidebar();
+  const { capabilities } = useApp();
   // Auto-close the mobile sheet on every route change. Catches every
   // navigation path (NavLink, programmatic navigate, deep link) without
   // wiring an onClick on each individual link.
@@ -145,27 +159,35 @@ export default function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent className="gap-1">
-        {linkSections.map((section, i) => (
-          <Fragment key={section.label}>
-            {/* Dashed, inset hairline between groups — short dashes, doesn't
-                touch the rail edges. */}
-            {i > 0 && (
-              <div
-                aria-hidden
-                className="mx-3 border-t border-dashed border-sidebar-border/70 group-data-[collapsible=icon]:mx-2"
-              />
-            )}
-            <SidebarGroup className="py-1">
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {section.items.map((link) => (
-                    <NavRow key={link.to} link={link} />
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          </Fragment>
-        ))}
+        {linkSections.map((section, i) => {
+          // Gate items that declare `requiresPack` on the boot-time
+          // capabilities map; ungated items (the vast majority) always show.
+          const items = section.items.filter(
+            (link) => !link.requiresPack || capabilities[link.requiresPack],
+          );
+          if (items.length === 0) return null;
+          return (
+            <Fragment key={section.label}>
+              {/* Dashed, inset hairline between groups — short dashes, doesn't
+                  touch the rail edges. */}
+              {i > 0 && (
+                <div
+                  aria-hidden
+                  className="mx-3 border-t border-dashed border-sidebar-border/70 group-data-[collapsible=icon]:mx-2"
+                />
+              )}
+              <SidebarGroup className="py-1">
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {items.map((link) => (
+                      <NavRow key={link.to} link={link} />
+                    ))}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            </Fragment>
+          );
+        })}
       </SidebarContent>
 
       {/* Subtle top border so the GPU / running / control cards don't blend

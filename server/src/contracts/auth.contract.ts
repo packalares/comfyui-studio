@@ -35,6 +35,7 @@ export const SCOPES = [
   'system:write',
   'settings:read',
   'settings:write',
+  'packs:install',
   'ws:connect',
   'admin:keys',
   'admin:all',

@@ -28,6 +28,22 @@ import { env, currentSqliteOverride } from './env.js';
 const STUDIO_CONFIG_ROOT = path.join(os.homedir(), '.config', 'comfyui-studio');
 const RUNTIME_STATE_DIR = path.join(STUDIO_CONFIG_ROOT, 'runtime');
 
+// ACE-Step music feature: all mutable, user-generated data (generated song
+// audio, uploaded reference/source audio, training datasets, downloaded
+// lyrics-LLM GGUF weights) lives under this one runtime-state subdir. This is
+// deliberately separate from `services/packs/registry.ts`'s
+// `~/.local/share/comfy-packs/ace-step/` tree, which holds the PACK's own
+// pip-installed deps + auto-downloaded DiT/whisper/IndexTTS2 checkpoints —
+// that root is package-manager-owned install state, this one is user data.
+const ACE_MUSIC_ROOT = path.join(RUNTIME_STATE_DIR, 'ace-music');
+
+// Image-LoRA training (ostris/ai-toolkit) feature: user datasets, generated
+// per-job YAML configs, and the trainer's own output tree. Deliberately
+// separate from `services/packs/registry.ts`'s `AI_TOOLKIT_DIR`, which is the
+// pip/git-managed SOURCE CHECKOUT (package-manager-owned install state) —
+// same split `ACE_MUSIC_ROOT` documents above for the `ace-step` pack.
+const AI_TOOLKIT_ROOT = path.join(RUNTIME_STATE_DIR, 'ai-toolkit');
+
 // Resolve `server/data/` relative to this file so bundled JSONs can be
 // located at runtime without relying on CWD. `config/paths.ts` lives at
 // `server/src/config/paths.ts`; `../..` climbs to `server/`.
@@ -169,6 +185,100 @@ export const paths = {
       ? override
       : path.join(RUNTIME_STATE_DIR, 'studio.db');
   },
+  /**
+   * Generated song audio output (flac/mp3/wav files ACE-Step produces,
+   * downloaded and persisted by `services/ace/storage.ts`). Served back to
+   * the UI via a route-level path, never exposed as a static mount.
+   */
+  aceAudioDir: path.join(ACE_MUSIC_ROOT, 'audio'),
+  /**
+   * Uploaded reference/source audio (cover mode, audio2audio, extract-codes)
+   * — user-supplied input files, distinct from `aceAudioDir`'s generated
+   * output.
+   */
+  aceReferencesDir: path.join(ACE_MUSIC_ROOT, 'references'),
+  /** Training datasets for the LoRA fine-tuning pipeline. */
+  aceDatasetsDir: path.join(ACE_MUSIC_ROOT, 'datasets'),
+  /**
+   * audio-separator's own auto-downloaded model cache (`--model_file_dir`).
+   * Unlike the `ace-step` pack's fixed model list (registry.ts — DiT
+   * checkpoints, Whisper, IndexTTS2, all pinned HF repo ids resolved at
+   * install time), audio-separator pulls whichever stem-separation model the
+   * caller names from its own upstream registry the first time it's used —
+   * so this is user-mutable runtime cache state, not a pack-declared install,
+   * same reasoning as `aceLyricsModelsDir`.
+   */
+  aceStemSeparatorModelDir: path.join(ACE_MUSIC_ROOT, 'stem-separator-models'),
+  /**
+   * Downloaded lyrics-LLM GGUF weights (user-selected from a small catalog,
+   * not part of the `ace-step` pack's auto-installed model list).
+   */
+  aceLyricsModelsDir: path.join(ACE_MUSIC_ROOT, 'lyrics-models'),
+  /**
+   * Bundled read-only lyrics-generation script (llama-cpp-python, CPU-only
+   * inference — see `routes/ace/lyrics.routes.ts` for why it never touches
+   * the GPU scheduler). Ships with the image; never written to.
+   */
+  aceLyricsScript: path.join(BUNDLED_DATA_DIR, 'ace', 'lyrics_generate.py'),
+  /**
+   * Raw per-dataset audio uploads for the LoRA training pipeline, prior to
+   * `build-dataset` scanning them into a dataset JSON. Mirrors ace-step-ui's
+   * `config.datasets.uploadsDir` (there: `<ACE-Step checkout>/datasets/uploads`).
+   * comfy has no ACE-Step source checkout to nest under — `ace-step` is a
+   * plain pip package here — so this lives under comfy's own ACE_MUSIC_ROOT.
+   */
+  aceDatasetUploadsDir: path.join(ACE_MUSIC_ROOT, 'dataset-uploads'),
+  /**
+   * Root for trained LoRA adapter output directories
+   * (`<this>/<runId>/final/adapter/adapter_config.json` once a run
+   * completes). Passed as `lora_output_dir` to ACE-Step's
+   * `/v1/training/start`; also the default root `routes/ace/training.routes.ts`
+   * walks for `GET /lora-checkpoints`.
+   */
+  aceLoraOutputDir: path.join(ACE_MUSIC_ROOT, 'lora-output'),
+  /**
+   * Voice-clone TTS (IndexTTS2) output WAVs, served the same way generated
+   * song audio is (see `services/ace/storage.ts`'s `output` kind) but kept
+   * in its own subdir since TTS clips aren't songs.
+   */
+  aceTtsOutputDir: path.join(ACE_MUSIC_ROOT, 'tts'),
+  /**
+   * Bundled read-only Whisper batch-transcription script (faster-whisper).
+   * Writes `<basename>.txt` + `<basename>.lang.txt` companions next to each
+   * input file — picked up by `build-dataset`. Ships with the image.
+   */
+  aceWhisperScript: path.join(BUNDLED_DATA_DIR, 'ace', 'whisper_cli.py'),
+  /**
+   * Bundled read-only IndexTTS2 voice-clone inference script. Invoked as a
+   * subprocess by `services/ace/indextts2.ts`. Ships with the image.
+   */
+  aceIndexTts2Script: path.join(BUNDLED_DATA_DIR, 'ace', 'indextts2_infer.py'),
+  /**
+   * Bundled read-only GPU-tier probe script (`acestep.gpu_config`) — reports
+   * max generation duration/batch size for the current card. Ships with the
+   * image.
+   */
+  aceGetLimitsScript: path.join(BUNDLED_DATA_DIR, 'ace', 'get_limits.py'),
+  /**
+   * Root for image-LoRA training datasets: one subdirectory per dataset,
+   * each holding the uploaded images + sibling `<basename>.txt` caption
+   * files (ai-toolkit's own convention — see `services/aiToolkit/config.ts`).
+   */
+  aiToolkitDatasetsDir: path.join(AI_TOOLKIT_ROOT, 'datasets'),
+  /**
+   * Generated per-job ai-toolkit YAML configs (`services/aiToolkit/config.ts`
+   * writes one file here per training run before spawning `run.py`). Kept
+   * around after the run for debugging, not cleaned up automatically.
+   */
+  aiToolkitConfigsDir: path.join(AI_TOOLKIT_ROOT, 'configs'),
+  /**
+   * ai-toolkit's `training_folder` — the root every job's `save_root`
+   * (`<this>/<jobName>/<jobName>.safetensors`) is written under. The
+   * finished LoRA is copied from here into ComfyUI's `models/loras/` once a
+   * run succeeds (see `services/aiToolkit/lorasDir.ts`); this tree is kept
+   * as the durable "raw trainer output" record.
+   */
+  aiToolkitOutputDir: path.join(AI_TOOLKIT_ROOT, 'output'),
 } as const;
 
 export type Paths = typeof paths;

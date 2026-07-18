@@ -6,11 +6,31 @@
 // generously per-task; the goal is to break leaks, not bound real work.
 
 export const TASK_TYPES = {
-  'llm-chat':       { tenant: 'ollama' as const, priority: 10, maxRuntimeMs: 10 * 60 * 1000 },
-  'llm-generate':   { tenant: 'ollama' as const, priority: 10, maxRuntimeMs: 10 * 60 * 1000 },
-  'llm-embeddings': { tenant: 'ollama' as const, priority: 10, maxRuntimeMs:  2 * 60 * 1000 },
-  'comfy-generate': { tenant: 'comfy'  as const, priority: 20, maxRuntimeMs: 45 * 60 * 1000 },
+  'llm-chat':          { tenant: 'ollama'    as const, priority: 10, maxRuntimeMs: 10 * 60 * 1000 },
+  'llm-generate':      { tenant: 'ollama'    as const, priority: 10, maxRuntimeMs: 10 * 60 * 1000 },
+  'llm-embeddings':    { tenant: 'ollama'    as const, priority: 10, maxRuntimeMs:  2 * 60 * 1000 },
+  'comfy-generate':    { tenant: 'comfy'     as const, priority: 20, maxRuntimeMs: 45 * 60 * 1000 },
+  'ace-step-generate': { tenant: 'ace-step'  as const, priority: 20, maxRuntimeMs: 30 * 60 * 1000 },
+  // TTS (IndexTTS2) and Whisper run as separate-venv one-shot python processes
+  // that cannot coexist with the ACE-Step FastAPI in VRAM, so they use the
+  // evict-all 'oneshot' tenant (whole-card, no persistent server).
+  'ace-tts':           { tenant: 'oneshot'   as const, priority: 25, maxRuntimeMs: 10 * 60 * 1000 },
+  'ace-whisper':       { tenant: 'oneshot'   as const, priority: 25, maxRuntimeMs: 20 * 60 * 1000 },
+  // audio-separator CLI (BS/Mel-Roformer, Demucs, MDX) — server-side stem
+  // extraction for training-data preprocessing. Shares the evict-all
+  // 'oneshot' tenant with ace-tts/ace-whisper (same one-shot-python shape);
+  // it's a distinct task type so its own maxRuntimeMs (a full dataset can
+  // take a while) doesn't have to match Whisper's.
+  'ace-stem-separate': { tenant: 'oneshot'   as const, priority: 25, maxRuntimeMs: 30 * 60 * 1000 },
+  // maxRuntimeMs: 0 => uncapped (long-running training jobs; the watchdog
+  // only guards against leaked slots, not real work durations).
+  // ace-train runs through the ACE-Step FastAPI (preprocess/init/train REST
+  // routes), so it stays on the 'ace-step' tenant (FastAPI resident).
+  'ace-train':         { tenant: 'ace-step'  as const, priority: 30, maxRuntimeMs: 0 },
+  'image-lora-train':  { tenant: 'oneshot'   as const, priority: 30, maxRuntimeMs: 0 },
 } as const;
 
 export type TaskType = keyof typeof TASK_TYPES;
-export type GpuTenant = 'ollama' | 'comfy' | 'none';
+// 'oneshot' = any evict-all exclusive one-shot GPU job with no persistent
+// server (image-LoRA training, TTS, Whisper).
+export type GpuTenant = 'ollama' | 'comfy' | 'ace-step' | 'oneshot' | 'none';

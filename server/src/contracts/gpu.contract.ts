@@ -5,7 +5,7 @@ import { z } from 'zod';
 export const ActiveJobSchema = z.object({
   jobId: z.string(),
   taskType: z.string(),
-  tenant: z.enum(['ollama', 'comfy', 'none']),
+  tenant: z.enum(['ollama', 'comfy', 'ace-step', 'oneshot', 'none']),
   priority: z.number(),
   startedAt: z.number(),
 });
@@ -13,7 +13,7 @@ export const ActiveJobSchema = z.object({
 export const QueueEntrySchema = z.object({
   jobId: z.string(),
   taskType: z.string(),
-  tenant: z.enum(['ollama', 'comfy', 'none']),
+  tenant: z.enum(['ollama', 'comfy', 'ace-step', 'oneshot', 'none']),
   priority: z.number(),
   enqueuedAt: z.number(),
 });
@@ -29,7 +29,7 @@ export const ComfyBridgeStateSchema = z.object({
 });
 
 export const SchedulerSnapshotSchema = z.object({
-  residency: z.enum(['ollama', 'comfy', 'none']),
+  residency: z.enum(['ollama', 'comfy', 'ace-step', 'oneshot', 'none']),
   active: ActiveJobSchema.nullable(),
   queue: z.array(QueueEntrySchema),
   comfy: ComfyBridgeStateSchema,

@@ -16,6 +16,8 @@ import type {
   DashboardSummary,
   PythonPackage,
   PluginDependencyReport,
+  Pack,
+  PackTaskProgress,
   CivitaiModelSummary,
   CivitaiDownloadInfo,
   StagedImportManifest,
@@ -1016,6 +1018,28 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ id }),
     }),
+
+  // ---- Capability packs ----
+  // See server/src/routes/packs.routes.ts
+
+  /** GET /packs — registry merged with installed state. */
+  getPacks: () => fetchJson<{ items: Pack[] }>('/packs'),
+
+  /** POST /packs/:id/install — kick off pip+model install, fire-and-forget. */
+  installPack: (id: string) =>
+    fetchJson<{ taskId: string }>(`/packs/${encodeURIComponent(id)}/install`, {
+      method: 'POST',
+    }),
+
+  /** POST /packs/:id/uninstall — flip install state off. */
+  uninstallPack: (id: string) =>
+    fetchJson<{ taskId: string }>(`/packs/${encodeURIComponent(id)}/uninstall`, {
+      method: 'POST',
+    }),
+
+  /** GET /packs/progress/:taskId — poll install/uninstall progress. */
+  getPackProgress: (taskId: string) =>
+    fetchJson<PackTaskProgress>(`/packs/progress/${encodeURIComponent(taskId)}`),
 
   // ---- Python / pip ----
   // See server/src/routes/python.routes.ts

@@ -76,12 +76,18 @@ interface AppContextType {
   network: NetworkConfigView | null;
   chat: ChatSettingsView | null;
   dashboardSummary: DashboardSummary | null;
+  /** Capability-pack gate — see `SystemContextType.capabilities`. */
+  capabilities: Record<string, boolean>;
   downloads: Record<string, DownloadState>;
   progress: LiveProgress | null;
   activePromptId: string | null;
   refreshTemplates: () => Promise<void>;
   refreshSystem: () => Promise<void>;
   refreshGallery: () => Promise<void>;
+  /** Re-fetch `/api/packs` and update `capabilities` — call after an
+   *  install/uninstall completes so the sidebar gate updates without a
+   *  full page reload. */
+  refreshPacks: () => Promise<void>;
   updateSettings: (settings: Partial<AppSettings>) => void;
   submitGeneration: (
     templateName: string,
@@ -137,6 +143,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setChat,
     _setPersonality,
     _setDashboardSummary,
+    _setCapabilities,
     _systemStatsRef,
   } = system;
   const { _setGalleryTotal, _setRecentGallery } = catalog;
@@ -240,10 +247,24 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
     _setConnected,
   ]);
 
+  // Boot-time capability-pack fetch — decoupled from `/api/system` (owned by
+  // a different workstream) so this gate can land without touching that
+  // payload. Failure just leaves every pack ungated (capabilities stays {}),
+  // matching the "absent = not installed" contract on the map.
+  const refreshPacks = useCallback(async () => {
+    try {
+      const { items } = await api.getPacks();
+      _setCapabilities(Object.fromEntries(items.map((p) => [p.id, p.installed])));
+    } catch (err) {
+      console.error('Failed to fetch capability packs:', err);
+    }
+  }, [_setCapabilities]);
+
   // Kick off the initial system fetch; individual slice providers already handle
   // their own token-status fetches.
   useEffect(() => {
     refreshSystem().finally(() => system._setLoading(false));
+    void refreshPacks();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -704,12 +725,14 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       network: system.network,
       chat: system.chat,
       dashboardSummary: system.dashboardSummary,
+      capabilities: system.capabilities,
       downloads: jobs.downloads,
       progress: jobs.progress,
       activePromptId: jobs.activePromptId,
       refreshTemplates: catalog.refreshTemplates,
       refreshSystem,
       refreshGallery: catalog.refreshGallery,
+      refreshPacks,
       updateSettings: settings.updateSettings,
       submitGeneration: jobs.submitGeneration,
       cancelRunning: jobs.cancelRunning,
@@ -740,6 +763,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       system.network,
       system.chat,
       system.dashboardSummary,
+      system.capabilities,
       jobs.queueStatus,
       jobs.currentJob,
       jobs.downloads,
@@ -752,6 +776,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       settings.settings,
       settings.updateSettings,
       refreshSystem,
+      refreshPacks,
       gpuSnapshot,
       livePreviewUrl,
     ],
