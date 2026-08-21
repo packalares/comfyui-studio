@@ -21,8 +21,10 @@ import { applyRecipesMigration } from './migrations/0002_recipes.js';
 import { applyTemplatePresetsMigration } from './migrations/0003_template_presets.js';
 import { applyPacksMigration } from './migrations/0004_packs.js';
 import { applyAceMusicMigration } from './migrations/0005_ace_music.js';
+import { applyAceSongsGalleryMigration } from './migrations/0009_ace_songs_gallery.js';
 import { applyAceTrainingMigration } from './migrations/0006_ace_training.js';
 import { applyAiToolkitMigration } from './migrations/0007_ai_toolkit.js';
+import { applyPackModelsMigration } from './migrations/0008_pack_models.js';
 import { workflowHash } from '../workflowHash.js';
 import { extractMetadata, type ApiPrompt } from '../../services/gallery/extract.js';
 
@@ -868,8 +870,10 @@ function openAndInit(dbPath: string): DB {
   applyTemplatePresetsMigration(db);
   applyPacksMigration(db);
   applyAceMusicMigration(db);
+  applyAceSongsGalleryMigration(db);
   applyAceTrainingMigration(db);
   applyAiToolkitMigration(db);
+  applyPackModelsMigration(db);
   const row = db.prepare('SELECT version FROM schema_version LIMIT 1').get() as
     | { version: number } | undefined;
   if (!row) {

@@ -25,6 +25,27 @@
 // Idempotent: CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS are
 // safe to re-run. No data loss on existing DBs. Follows the pattern of
 // 0002_recipes.ts so connection.ts can call it from openAndInit.
+//
+// RETROACTIVE EDIT (migration 0009): `ace_songs` originally also declared
+// `audio_url` / `duration` / `favorite` (+ an `idx_ace_songs_favorite`
+// index) — see migration 0009's header comment for why those moved to
+// `gallery`. Unlike a plain ALTER-based reshape, leaving those declared here
+// was not just stale — it was actively broken: this function runs on EVERY
+// boot (not once), and `CREATE INDEX IF NOT EXISTS idx_ace_songs_favorite ON
+// ace_songs(favorite)` throws `no such column: favorite` on any boot after
+// 0009 has already dropped that column from a real table. Since zero songs
+// had ever been generated against the original shape (0009 asserts the
+// table is empty before reshaping it — no real deployment ever depended on
+// this exact CREATE TABLE), those three columns and the index are removed
+// here rather than left in place to crash every second boot. `gallery_id`
+// itself is still added by 0009, not here — this file only stops declaring
+// the columns gallery now owns.
+//
+// If you're reading this while debugging a *different* future reshape of a
+// migrations/000N_*.ts-owned table: this is the exception, not the rule —
+// prefer a new migration + ALTER/backfill over editing a shipped one. It was
+// only safe here because 0009's own header comment documents (and asserts)
+// that no real data ever depended on the original shape.
 
 import type Database from 'better-sqlite3';
 
@@ -42,20 +63,16 @@ export function applyAceMusicMigration(db: Database.Database): void {
       style              TEXT,
       caption            TEXT,
       cover_url          TEXT,
-      audio_url          TEXT,
-      duration           INTEGER,
       bpm                INTEGER,
       key_scale          TEXT,
       time_signature     TEXT,
       tags_json          TEXT NOT NULL DEFAULT '[]',
-      favorite           INTEGER NOT NULL DEFAULT 0,
       generation_params_json TEXT,
       generation_job_id  TEXT,
       created_at         INTEGER NOT NULL,
       updated_at         INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_ace_songs_created_at ON ace_songs(created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_ace_songs_favorite   ON ace_songs(favorite);
 
     CREATE TABLE IF NOT EXISTS ace_generation_jobs (
       id               TEXT PRIMARY KEY,

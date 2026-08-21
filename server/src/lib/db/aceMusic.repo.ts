@@ -1,5 +1,23 @@
 // Repository for the ACE-Step music tables added in migration 0005
-// (`ace_songs`, `ace_generation_jobs`, `ace_playlists`, `ace_playlist_songs`).
+// (`ace_songs`, `ace_generation_jobs`, `ace_playlists`, `ace_playlist_songs`),
+// reshaped by migration 0009 so `ace_songs` is a metadata sidecar of
+// `gallery` rather than a parallel silo.
+//
+// `ace_songs` no longer stores `audio_url` / `duration` / `favorite` — those
+// live exclusively on the joined `gallery` row (`gallery.url`,
+// `gallery.mediaDurationMs`, `gallery.favorite`), reached via
+// `ace_songs.gallery_id`. Every query below JOINs the two tables (INNER JOIN
+// is safe: the FK is NOT NULL and `ON DELETE CASCADE` guarantees a song row
+// never outlives its gallery row). The wire `SongRow` shape below is
+// unchanged from before the reshape — `audioUrl`/`duration`/`favorite` are
+// still plain fields on it, just sourced from the join instead of local
+// columns — so API consumers (routes, UI) don't need to know the join
+// happened.
+//
+// Favorite/delete are NOT done here — they mutate the `gallery` row (see
+// `services/gallery/service.ts`'s `setFavorite`/`removeItem`, called from
+// `routes/ace/songs.routes.ts`) so the cascade + single-source-of-truth
+// invariant holds. This repo only ever writes `ace_songs`' own columns.
 //
 // Single-user: no `user_id` column, no ownership checks — every row belongs
 // to the one implicit local owner. See the migration file's header comment
@@ -7,6 +25,8 @@
 
 import type Database from 'better-sqlite3';
 import { getDb } from './connection.js';
+import * as galleryRepo from './gallery.repo.js';
+import type { GalleryRow } from './gallery.repo.js';
 
 // ---------------------------------------------------------------------------
 // Songs
@@ -14,6 +34,11 @@ import { getDb } from './connection.js';
 
 export interface SongRow {
   id: string;
+  /** FK to `gallery.id` — the media file's single source of truth. Not part
+   *  of the historical wire shape; routes may surface it if a future UI
+   *  needs it, but today's consumers resolve favorite/delete through the
+   *  song id alone (see `routes/ace/songs.routes.ts`). */
+  galleryId: string;
   title: string;
   lyrics: string | null;
   style: string | null;
@@ -34,23 +59,39 @@ export interface SongRow {
 
 interface SongDbRow {
   id: string;
+  gallery_id: string;
   title: string;
   lyrics: string | null;
   style: string | null;
   caption: string | null;
   cover_url: string | null;
-  audio_url: string | null;
-  duration: number | null;
   bpm: number | null;
   key_scale: string | null;
   time_signature: string | null;
   tags_json: string;
-  favorite: number;
   generation_params_json: string | null;
   generation_job_id: string | null;
   created_at: number;
   updated_at: number;
+  // Joined from `gallery` (aliased in SELECT — see SONG_SELECT below).
+  gallery_url: string | null;
+  gallery_media_duration_ms: number | null;
+  gallery_favorite: number;
 }
+
+/** Every song query selects through this JOIN so the three gallery-owned
+ *  fields (url/duration/favorite) are always sourced live rather than risking
+ *  a stale copy. */
+const SONG_SELECT = `
+  SELECT
+    s.id, s.gallery_id, s.title, s.lyrics, s.style, s.caption, s.cover_url,
+    s.bpm, s.key_scale, s.time_signature, s.tags_json,
+    s.generation_params_json, s.generation_job_id, s.created_at, s.updated_at,
+    g.url AS gallery_url, g.mediaDurationMs AS gallery_media_duration_ms,
+    g.favorite AS gallery_favorite
+  FROM ace_songs s
+  JOIN gallery g ON g.id = s.gallery_id
+`;
 
 function parseJsonArray(raw: string | null): string[] {
   if (!raw) return [];
@@ -77,18 +118,29 @@ function parseJsonObject(raw: string | null): Record<string, unknown> | null {
 function rowToSong(r: SongDbRow): SongRow {
   return {
     id: r.id,
+    galleryId: r.gallery_id,
     title: r.title,
     lyrics: r.lyrics,
     style: r.style,
     caption: r.caption,
     coverUrl: r.cover_url,
-    audioUrl: r.audio_url,
-    duration: r.duration,
-    bpm: r.bpm,
+    audioUrl: r.gallery_url,
+    // gallery.mediaDurationMs is milliseconds (ffprobe-measured, the actual
+    // file's real duration); the wire `Song.duration` field is seconds
+    // (matches ACE-Step's own `audio_duration` param and
+    // `pages/music/format.ts`'s formatDuration). Round rather than floor so
+    // e.g. 29.6s of real audio doesn't display as a suspicious "29".
+    duration: r.gallery_media_duration_ms != null ? Math.round(r.gallery_media_duration_ms / 1000) : null,
+    // Defensive coercion, not decoration: rows written before the "N/A" fix
+    // hold the STRING "N/A" in this INTEGER column (SQLite is dynamically
+    // typed and stored it verbatim). Returning that raw fails `SongSchema`
+    // client-side — "Response envelope failed schema validation" — for the
+    // whole song list, not just the offending row.
+    bpm: typeof r.bpm === 'number' ? r.bpm : (Number.isFinite(Number(r.bpm)) && r.bpm !== null && r.bpm !== '' ? Number(r.bpm) : null),
     keyScale: r.key_scale,
     timeSignature: r.time_signature,
     tags: parseJsonArray(r.tags_json),
-    favorite: r.favorite === 1,
+    favorite: r.gallery_favorite === 1,
     generationParams: parseJsonObject(r.generation_params_json),
     generationJobId: r.generation_job_id,
     createdAt: r.created_at,
@@ -98,13 +150,17 @@ function rowToSong(r: SongDbRow): SongRow {
 
 export interface NewSongInput {
   id: string;
+  /** The gallery row to insert alongside this song, in the same transaction
+   *  — see `services/gallery/service.ts` / `services/gallery/diskSweep.ts`
+   *  for the field conventions a `GalleryRow` should follow (this repo just
+   *  reuses `gallery.repo.ts`'s own insert path, it doesn't hand-roll the
+   *  gallery INSERT). */
+  galleryRow: GalleryRow;
   title: string;
   lyrics?: string | null;
   style?: string | null;
   caption?: string | null;
   coverUrl?: string | null;
-  audioUrl?: string | null;
-  duration?: number | null;
   bpm?: number | null;
   keyScale?: string | null;
   timeSignature?: string | null;
@@ -113,40 +169,46 @@ export interface NewSongInput {
   generationJobId?: string | null;
 }
 
+/** Insert the gallery row and the `ace_songs` sidecar row in one transaction
+ *  — a song never exists without its gallery row (and vice versa isn't
+ *  possible either, since nothing else references `ace_songs`). */
 export function insertSong(input: NewSongInput, db: Database.Database = getDb()): SongRow {
   const now = Date.now();
-  db.prepare(`
-    INSERT INTO ace_songs
-      (id, title, lyrics, style, caption, cover_url, audio_url, duration, bpm,
-       key_scale, time_signature, tags_json, favorite, generation_params_json,
-       generation_job_id, created_at, updated_at)
-    VALUES
-      (@id, @title, @lyrics, @style, @caption, @cover_url, @audio_url, @duration, @bpm,
-       @key_scale, @time_signature, @tags_json, 0, @generation_params_json,
-       @generation_job_id, @created_at, @updated_at)
-  `).run({
-    id: input.id,
-    title: input.title,
-    lyrics: input.lyrics ?? null,
-    style: input.style ?? null,
-    caption: input.caption ?? null,
-    cover_url: input.coverUrl ?? null,
-    audio_url: input.audioUrl ?? null,
-    duration: input.duration ?? null,
-    bpm: input.bpm ?? null,
-    key_scale: input.keyScale ?? null,
-    time_signature: input.timeSignature ?? null,
-    tags_json: JSON.stringify(input.tags ?? []),
-    generation_params_json: input.generationParams ? JSON.stringify(input.generationParams) : null,
-    generation_job_id: input.generationJobId ?? null,
-    created_at: now,
-    updated_at: now,
+  const tx = db.transaction(() => {
+    galleryRepo.insertGalleryRow(input.galleryRow, db);
+    db.prepare(`
+      INSERT INTO ace_songs
+        (id, gallery_id, title, lyrics, style, caption, cover_url, bpm,
+         key_scale, time_signature, tags_json, generation_params_json,
+         generation_job_id, created_at, updated_at)
+      VALUES
+        (@id, @gallery_id, @title, @lyrics, @style, @caption, @cover_url, @bpm,
+         @key_scale, @time_signature, @tags_json, @generation_params_json,
+         @generation_job_id, @created_at, @updated_at)
+    `).run({
+      id: input.id,
+      gallery_id: input.galleryRow.id,
+      title: input.title,
+      lyrics: input.lyrics ?? null,
+      style: input.style ?? null,
+      caption: input.caption ?? null,
+      cover_url: input.coverUrl ?? null,
+      bpm: input.bpm ?? null,
+      key_scale: input.keyScale ?? null,
+      time_signature: input.timeSignature ?? null,
+      tags_json: JSON.stringify(input.tags ?? []),
+      generation_params_json: input.generationParams ? JSON.stringify(input.generationParams) : null,
+      generation_job_id: input.generationJobId ?? null,
+      created_at: now,
+      updated_at: now,
+    });
   });
+  tx();
   return getSong(input.id, db)!;
 }
 
 export function getSong(id: string, db: Database.Database = getDb()): SongRow | null {
-  const row = db.prepare('SELECT * FROM ace_songs WHERE id = ?').get(id) as SongDbRow | undefined;
+  const row = db.prepare(`${SONG_SELECT} WHERE s.id = ?`).get(id) as SongDbRow | undefined;
   return row ? rowToSong(row) : null;
 }
 
@@ -159,13 +221,13 @@ export interface SongListOptions {
 export function listSongs(opts: SongListOptions = {}, db: Database.Database = getDb()): SongRow[] {
   const clauses: string[] = [];
   const params: unknown[] = [];
-  if (opts.favoriteOnly) clauses.push('favorite = 1');
+  if (opts.favoriteOnly) clauses.push('g.favorite = 1');
   const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
   const limit = opts.limit && opts.limit > 0 ? Math.min(opts.limit, 200) : 100;
   const offset = opts.offset && opts.offset > 0 ? opts.offset : 0;
   params.push(limit, offset);
   const rows = db.prepare(
-    `SELECT * FROM ace_songs ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    `${SONG_SELECT} ${where} ORDER BY s.created_at DESC LIMIT ? OFFSET ?`,
   ).all(...params) as SongDbRow[];
   return rows.map(rowToSong);
 }
@@ -199,34 +261,17 @@ export function updateSong(
   return getSong(id, db);
 }
 
-export function setSongFavorite(
-  id: string,
-  favorite: boolean,
-  db: Database.Database = getDb(),
-): SongRow | null {
-  db.prepare('UPDATE ace_songs SET favorite = ?, updated_at = ? WHERE id = ?')
-    .run(favorite ? 1 : 0, Date.now(), id);
-  return getSong(id, db);
-}
-
-/** Returns the row's `audio_url`/`cover_url` (pre-delete) so the caller can
- *  clean up storage, then removes the row. Null if no such song. */
-export function deleteSong(
-  id: string,
-  db: Database.Database = getDb(),
-): { audioUrl: string | null; coverUrl: string | null } | null {
-  const row = db.prepare('SELECT audio_url, cover_url FROM ace_songs WHERE id = ?')
-    .get(id) as { audio_url: string | null; cover_url: string | null } | undefined;
-  if (!row) return null;
-  db.prepare('DELETE FROM ace_songs WHERE id = ?').run(id);
-  return { audioUrl: row.audio_url, coverUrl: row.cover_url };
-}
+// Favorite/delete are intentionally NOT repo functions here anymore — both
+// now operate on the `gallery` row (`services/gallery/service.ts`'s
+// `setFavorite`/`removeItem`), called directly from
+// `routes/ace/songs.routes.ts`. Deleting the gallery row cascades to delete
+// this sidecar row via the `gallery_id` FK's `ON DELETE CASCADE`.
 
 // ---------------------------------------------------------------------------
 // Generation jobs
 // ---------------------------------------------------------------------------
 
-export type GenerationJobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+export type GenerationJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 export interface GenerationJobRow {
   id: string;

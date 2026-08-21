@@ -117,7 +117,34 @@
 // header comment in `migrations/0007_ai_toolkit.ts` for the full rationale.
 // Migration `applyAiToolkitMigration` (CREATE TABLE IF NOT EXISTS) keeps
 // existing DBs safe — no data loss.
-export const SCHEMA_VERSION = 37;
+//
+// Schema v38 adds `pack_models` + `pack_settings` — per-install deviations
+// from `services/packs/registry.ts`'s static model catalog (which model ids
+// are selected, any repo_override, and download lifecycle state: absent ->
+// downloading -> downloaded|failed), plus a generic per-pack settings k/v
+// table. A model/pack with no row simply falls back to the registry's
+// declared default — these tables never duplicate the registry's data, only
+// override it. Companion to the new `services/packs/modelPaths.ts`
+// destination resolver, which moved pack model downloads out of
+// `~/.local/share/comfy-packs` (invisible to comfy's own model catalog) into
+// comfy's managed `models/` tree. See the header comment in
+// `migrations/0008_pack_models.ts` for the full rationale. Migration
+// `applyPackModelsMigration` (CREATE TABLE IF NOT EXISTS) keeps existing DBs
+// safe — no data loss.
+//
+// Schema v39 turns `ace_songs` into a metadata sidecar of `gallery` instead
+// of a parallel silo: generated song audio now lands in
+// `paths.comfyOutputDir/ace-step/` (covered by the gallery's disk-sweep and
+// normal output backups) and gets a `gallery` row inserted in the same
+// transaction as its `ace_songs` row. `ace_songs.gallery_id` FKs to
+// `gallery(id) ON DELETE CASCADE`; `audio_url`, `duration`, and `favorite`
+// are dropped from `ace_songs` since the gallery now owns them exclusively
+// (`favorite` previously existed on both tables and could disagree — only
+// `gallery.favorite` survives). No songs had ever been generated when this
+// landed, so it's a clean reshape with no backfill; see the header comment
+// in `migrations/0009_ace_songs_gallery.ts` for the full rationale and the
+// safety check that refuses to drop data if the table isn't actually empty.
+export const SCHEMA_VERSION = 39;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_version (

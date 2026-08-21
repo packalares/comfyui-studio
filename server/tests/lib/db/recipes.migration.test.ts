@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { makeFreshDbFixture } from './_helpers.js';
 import { getDb } from '../../../src/lib/db/connection.js';
 import { getSchemaVersion } from '../../../src/lib/db/connection.js';
+import { SCHEMA_VERSION } from '../../../src/lib/db/schema.js';
 
 describe('recipes migration (v32)', () => {
   it('creates the recipes table with expected columns', () => {
@@ -42,11 +43,15 @@ describe('recipes migration (v32)', () => {
     }
   });
 
-  it('schema version is 32', () => {
+  // Asserts against the SCHEMA_VERSION constant rather than a literal: the
+  // point is that migrating a fresh DB lands on the *declared* version, which
+  // stays true as migrations are added. This previously hardcoded `32` and had
+  // been failing since a later migration bumped the constant past it.
+  it('migrates a fresh db to the current schema version', () => {
     const fix = makeFreshDbFixture();
     try {
       const version = getSchemaVersion();
-      expect(version).toBe(32);
+      expect(version).toBe(SCHEMA_VERSION);
     } finally {
       fix.cleanup();
     }
