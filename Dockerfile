@@ -8,7 +8,7 @@
 #
 # Pick which to build with `--target prod` or `--target dev`.
 
-ARG BASE_IMAGE=docker.io/beclab/comfyui:v0.24.0-build106
+ARG BASE_IMAGE=docker.io/beclab/comfyui:v0.33.1-build129
 
 # ======================================================================
 # Stage: frontend-build — throwaway; we only need its dist/.
@@ -33,14 +33,13 @@ RUN npm run build
 
 # ======================================================================
 # Stage: studio-server-build — compile TS → dist, prune dev deps.
-# `nodejs24-devel` is required because `better-sqlite3` is a native C++
-# addon and does not yet publish prebuilt binaries for Node 24 —
-# `npm ci` falls back to building from source via node-gyp, which needs
-# the headers at `/usr/include/node24/common.gypi`.
+# The v0.33 base ships Node 20 + npm, and better-sqlite3 ^11 publishes a
+# prebuilt binary for Node 20 (ABI 115), so `npm ci` fetches it directly — no
+# node-gyp/source build and no *-devel headers required. (The previous base ran
+# Node 24, which had no prebuilt and forced a source build via nodejs24-devel;
+# that package isn't available in this base anyway.)
 # ======================================================================
 FROM ${BASE_IMAGE} AS studio-server-build
-RUN zypper --non-interactive --no-refresh install -y nodejs24-devel \
-  && zypper clean -a
 WORKDIR /build/studio-server
 COPY server/package.json server/package-lock.json ./
 RUN npm ci --include=dev
@@ -61,10 +60,14 @@ RUN rm -rf /app/server /app/dist/spa
 # System libs needed by custom_nodes that bind to C libraries:
 #   libturbojpeg0  — APZmedia-comfyui-fast-image-save (TurboJPEG encoder)
 #   libportaudio2  — ComfyUI_AudioTools + TTS Audio Suite (PortAudio runtime)
-RUN zypper --non-interactive --no-refresh install -y \
-      libturbojpeg0 \
-      libportaudio2 \
-  && zypper clean -a
+# Base is Rocky Linux 10 (RHEL family). Its /usr/bin/dnf shebang points at the
+# base's swapped-in Python 3.13, which has no dnf module, so drive dnf through
+# the system python3.12 that still does. turbojpeg (-> libturbojpeg.so.0) is in
+# the CRB repo and portaudio (-> libportaudio.so.2) in EPEL; CRB ships disabled,
+# so enable it just for this transaction.
+RUN python3.12 /usr/bin/dnf install -y epel-release \
+  && python3.12 /usr/bin/dnf install -y --enablerepo=crb turbojpeg portaudio \
+  && python3.12 /usr/bin/dnf clean all
 
 # Python runtime dependencies (torch, xformers, flash_attn, nunchaku,
 # transformers, audio-separator, ...) are installed at pod start by
@@ -79,12 +82,12 @@ RUN zypper --non-interactive --no-refresh install -y \
 # breaks every diffusers consumer when left in place. cv2 lives across
 # three conflicting variants (-python, -python-headless, -contrib-python-
 # headless) that overwrite each other and leave ximgproc empty.
-RUN rm -rf /usr/local/lib64/python3.12/site-packages/xformers* \
-           /usr/local/lib64/python3.12/site-packages/flash_attn* \
-           /usr/local/lib64/python3.12/site-packages/cv2* \
-           /usr/local/lib/python3.12/site-packages/xformers* \
-           /usr/local/lib/python3.12/site-packages/flash_attn* \
-           /usr/local/lib/python3.12/site-packages/cv2* 2>/dev/null || true
+RUN rm -rf /usr/local/lib64/python3.*/site-packages/xformers* \
+           /usr/local/lib64/python3.*/site-packages/flash_attn* \
+           /usr/local/lib64/python3.*/site-packages/cv2* \
+           /usr/local/lib/python3.*/site-packages/xformers* \
+           /usr/local/lib/python3.*/site-packages/flash_attn* \
+           /usr/local/lib/python3.*/site-packages/cv2* 2>/dev/null || true
 
 # extra_help_file.yaml: ComfyUI's launcher logs "File not found" if this
 # optional YAML is missing. Empty stub silences the line; lives at
@@ -121,18 +124,21 @@ CMD ["/app/start.sh"]
 # Stage: dev — source + dev deps + tsx + vite, ready for hot-reload.
 #   Intended to be run with `STUDIO_MODE=dev`, optionally with host source
 #   bind-mounted over /studio to live-edit from your laptop.
-#   `nodejs24-devel` is kept around so an in-pod `npm rebuild` (triggered
-#   when the hostPath-mounted node_modules mismatches the container arch)
-#   can rebuild `better-sqlite3` without failing on missing headers.
+#   The base ships Node 20 + npm and better-sqlite3 ^11 has a Node 20 prebuilt,
+#   so `npm ci` / an in-pod `npm rebuild` need no headers or compiler.
 # ======================================================================
 FROM ${BASE_IMAGE} AS dev
-# nodejs24-devel: needed for native rebuild of better-sqlite3 in-pod.
 # libturbojpeg0 / libportaudio2: same custom_node C bindings as prod stage.
-RUN zypper --non-interactive --no-refresh install -y \
-      nodejs24-devel \
-      libturbojpeg0 \
-      libportaudio2 \
-  && zypper clean -a
+# (No nodejs*-devel — the base's Node 20 + a better-sqlite3 Node-20 prebuilt
+# mean npm never has to compile the native addon.)
+# Base is Rocky Linux 10 (RHEL family). Its /usr/bin/dnf shebang points at the
+# base's swapped-in Python 3.13, which has no dnf module, so drive dnf through
+# the system python3.12 that still does. turbojpeg (-> libturbojpeg.so.0) is in
+# the CRB repo and portaudio (-> libportaudio.so.2) in EPEL; CRB ships disabled,
+# so enable it just for this transaction.
+RUN python3.12 /usr/bin/dnf install -y epel-release \
+  && python3.12 /usr/bin/dnf install -y --enablerepo=crb turbojpeg portaudio \
+  && python3.12 /usr/bin/dnf clean all
 
 # Drop the baked-in launcher & old SPA.
 RUN rm -rf /app/server /app/dist/spa

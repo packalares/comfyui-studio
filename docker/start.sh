@@ -25,42 +25,51 @@ git config --global --add safe.directory '*' 2>/dev/null || true
 #
 # Marker file bumps every time the install list materially changes — bumping
 # forces re-run on the next pod start.
-STUDIO_DEPS_MARKER=/root/.local/.studio-deps-installed-v2
+STUDIO_DEPS_MARKER=/root/.local/.studio-deps-installed-v3
 if [ ! -f "$STUDIO_DEPS_MARKER" ]; then
   echo "[studio-deps] First-boot install starting…"
   mkdir -p /root/.local
 
   # ---- Cleanup of stale base-image/prior-install packages -----------------
-  # Base image ships xformers 0.0.35 which expects torch.distributed.GroupName
-  # (removed in torch 2.8). Plus prior CI builds may have left a torch-2.8
-  # flash_attn .so at /usr/local/lib64 that ABI-mismatches with anything else.
-  # Three opencv-* variants share the cv2 namespace and overwrite each other,
-  # leaving ximgproc empty (kills LayerStyle's guidedFilter nodes).
+  # Strip the base image's bundled xformers/flash_attn plus the three opencv-*
+  # variants that share the cv2 namespace and overwrite each other (leaving
+  # ximgproc empty, which kills LayerStyle's guidedFilter nodes). The rm globs
+  # use `python3.*` rather than a hardcoded version so they survive the base's
+  # Python — the v0.33 base is Python 3.13; older bases were 3.12.
   pip3 uninstall -y xformers torchao opencv-python opencv-python-headless \
                     opencv-contrib-python opencv-contrib-python-headless 2>/dev/null || true
-  rm -rf /usr/local/lib64/python3.12/site-packages/xformers* \
-         /usr/local/lib64/python3.12/site-packages/flash_attn* \
-         /usr/local/lib64/python3.12/site-packages/cv2* \
-         /usr/local/lib/python3.12/site-packages/xformers* \
-         /usr/local/lib/python3.12/site-packages/flash_attn* \
-         /usr/local/lib/python3.12/site-packages/cv2* 2>/dev/null || true
-  # ---- Torch stack (cu128 for Blackwell sm_120) ---------------------------
-  # WITH deps so the matching nvidia-cuda-runtime-cu12 12.8.x wheels come along
-  # — torch loads its CUDA libs from those wheels, no host CUDA upgrade needed.
-  pip3 install --no-cache-dir \
-    torch==2.10.0+cu128 torchvision==0.25.0+cu128 torchaudio==2.10.0+cu128 \
-    --index-url https://download.pytorch.org/whl/cu128
+  rm -rf /usr/local/lib64/python3.*/site-packages/xformers* \
+         /usr/local/lib64/python3.*/site-packages/flash_attn* \
+         /usr/local/lib64/python3.*/site-packages/cv2* \
+         /usr/local/lib/python3.*/site-packages/xformers* \
+         /usr/local/lib/python3.*/site-packages/flash_attn* \
+         /usr/local/lib/python3.*/site-packages/cv2* 2>/dev/null || true
 
-  # ---- Prebuilt extension wheels (must match torch 2.10 + cu12.8) ---------
+  # ---- Torch stack --------------------------------------------------------
+  # The v0.33 base ALREADY ships torch 2.11.0+cu130 (CUDA 13, Blackwell sm_120)
+  # with matching torchvision/torchaudio and bundled CUDA-13 runtime wheels, so
+  # we deliberately DO NOT reinstall torch here. (Older bases shipped an
+  # incompatible torch 2.8 that had to be replaced — this one is exactly what
+  # we want.) Everything below installs --no-deps against this base torch.
+
+  # ---- Prebuilt extension wheels (must match torch 2.11 + cu13.0 + cp313) --
+  # nunchaku: SVDQuant 4-bit runtime, a HARD dependency of ComfyUI-nunchaku
+  # (quantized FLUX / Qwen-Image nodes hard-fail without it). This dev wheel is
+  # the only cu13/torch2.11/cp313/linux build published — swap to a stable
+  # release once one ships.
   pip3 install --no-cache-dir --no-deps \
-    https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.1/flash_attn-2.8.1+cu12torch2.10cxx11abiTRUE-cp312-cp312-linux_x86_64.whl
-  pip3 install --no-cache-dir --no-deps \
-    https://github.com/nunchaku-tech/nunchaku/releases/download/v1.2.1/nunchaku-1.2.1+cu12.8torch2.10-cp312-cp312-linux_x86_64.whl
-  # xformers — abi3 wheel from PyTorch's cu128 index. 0.0.34 is the last
-  # version that uses cp39-abi3 (forward-compatible on cp312); 0.0.35 is
-  # py39-none and its CUDA kernels were built for cp310 → won't load here.
-  pip3 install --no-cache-dir xformers==0.0.34 \
-    --index-url https://download.pytorch.org/whl/cu128
+    https://github.com/nunchaku-ai/nunchaku/releases/download/v1.3.0dev20260213/nunchaku-1.3.0.dev20260213+cu13.0torch2.11-cp313-cp313-linux_x86_64.whl
+  # flash-attn: NOT installed on this base — no prebuilt cu13/torch2.11/cp313/
+  # linux wheel exists yet, and building from source takes 30+ min and OOMs.
+  # It is only an OPTIONAL faster-attention backend: the nodes that use it
+  # (KJNodes GGUF loaders, Florence2, seedvr2_videoupscaler) fall back to
+  # sdpa/sage attention when absent. Re-add a wheel here once upstream ships
+  # cu13torch2.11...cp313-linux.
+  # xformers: abi3 wheel from PyTorch's cu130 index (cp39-abi3 → forward-
+  # compatible on cp313). Provides memory-efficient attention for nodes that
+  # request it.
+  pip3 install --no-cache-dir xformers \
+    --index-url https://download.pytorch.org/whl/cu130
 
   # ---- Custom-node deps (split runs to dodge pip resolver depth) ----------
   pip3 install --no-cache-dir \
@@ -85,11 +94,11 @@ if [ ! -f "$STUDIO_DEPS_MARKER" ]; then
   pip3 install --no-cache-dir \
     ml_dtypes==0.5.4 audio-separator
   # facenet-pytorch 2.6.0 hard-pins `torch<2.3.0`. With deps, pip resolves
-  # that by downgrading our cu128 torch to 2.2.2+cu121. --no-deps installs
+  # that by downgrading our cu13.0 torch to 2.2.2+cu121. --no-deps installs
   # the package itself; it uses our existing torch at runtime.
   pip3 install --no-cache-dir --no-deps facenet-pytorch
   # ChatterBox TTS / Higgs Audio 2 engine packages — declared `torch` dep
-  # conflicts with our cu128 install if resolved normally; --no-deps installs
+  # conflicts with our cu13.0 install if resolved normally; --no-deps installs
   # the package and trusts the existing torch.
   pip3 install --no-cache-dir --no-deps \
     s3tokenizer==0.0.2 descript-audio-codec
