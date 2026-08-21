@@ -13,7 +13,7 @@ import { Slider } from '../../components/ui/slider';
 import { Checkbox } from '../../components/ui/checkbox';
 import { Spinner } from '../../components/ui/spinner';
 import {
-  SelectField, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectLabel, SelectSeparator,
+  SelectField, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel, SelectSeparator,
 } from '../../components/forms/SelectField';
 import * as api from '../../services/aiToolkit';
 import type { AiToolkitArch, HfBaseModelPreset, LocalBaseModel } from '../../services/aiToolkit';
@@ -160,17 +160,23 @@ export default function TrainForm({ datasetName, onStarted }: TrainFormProps) {
               <SelectContent>
                 {localModels.length > 0 && (
                   <>
-                    <SelectLabel>Installed checkpoints</SelectLabel>
-                    {localModels.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>{m.id}</SelectItem>
-                    ))}
+                    {/* Radix requires SelectLabel to live inside a SelectGroup;
+                        without it the Select throws and the page fails to render. */}
+                    <SelectGroup>
+                      <SelectLabel>Installed checkpoints</SelectLabel>
+                      {localModels.map((m) => (
+                        <SelectItem key={m.id} value={m.id}>{m.id}</SelectItem>
+                      ))}
+                    </SelectGroup>
                     <SelectSeparator />
                   </>
                 )}
-                <SelectLabel>HuggingFace presets</SelectLabel>
-                {presets.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>{p.label}{p.note ? ` (${p.note})` : ''}</SelectItem>
-                ))}
+                <SelectGroup>
+                  <SelectLabel>HuggingFace presets</SelectLabel>
+                  {presets.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.label}{p.note ? ` (${p.note})` : ''}</SelectItem>
+                  ))}
+                </SelectGroup>
                 <SelectSeparator />
                 <SelectItem value="__custom__">Custom HuggingFace repo id…</SelectItem>
               </SelectContent>

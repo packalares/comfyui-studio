@@ -27,6 +27,13 @@ import type { TtsStatus } from '../../types/ace';
 const MAX_TEXT = 5000;
 const EMOTION_LABELS = ['Happy', 'Angry', 'Sad', 'Afraid', 'Disgust', 'Sad-Low', 'Surprise', 'Calm'];
 
+// Remembers the in-flight TTS jobId across a page reload — same rationale as
+// `CreateTab.tsx`'s `ACTIVE_JOB_STORAGE_KEY`: there's no list endpoint, so
+// this is the minimal bookkeeping needed to know which job to reconcile
+// against; `GET /ace/tts/status/:jobId` (via `api.pollTtsStatus`) remains
+// the source of truth.
+const ACTIVE_JOB_STORAGE_KEY = 'comfy:ace:tts:activeJobId';
+
 type EmotionMode = 'none' | 'audio' | 'text' | 'vector';
 
 export function TtsTab() {
@@ -98,6 +105,43 @@ export function TtsTab() {
 
   const canGenerate = !!refFile && text.trim().length > 0 && !submitting && job?.status !== 'running' && job?.status !== 'queued';
 
+  // Shared by a fresh submit and the mount-time reconciliation effect below.
+  const handleJobUpdate = useCallback((j: TtsStatus) => {
+    setJob(j);
+    if (j.status === 'completed' || j.status === 'failed') {
+      localStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
+    }
+    if (j.status === 'failed') setErrorMsg(j.error || 'Generation failed');
+  }, []);
+
+  // Refresh must not lose track of an in-flight job — see
+  // `CreateTab.tsx`'s matching effect for the full rationale. A job that
+  // already finished while this tab was closed is intentionally not
+  // resurrected here (no stale error toast on load); only a still-running
+  // job resumes live tracking.
+  useEffect(() => {
+    const storedJobId = localStorage.getItem(ACTIVE_JOB_STORAGE_KEY);
+    if (!storedJobId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const status = await api.getTtsStatus(storedJobId);
+        if (cancelled) return;
+        if (status.status === 'completed' || status.status === 'failed') {
+          localStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
+          return;
+        }
+        setJob(status);
+        pollRef.current?.cancel();
+        pollRef.current = api.pollTtsStatus(storedJobId, handleJobUpdate);
+      } catch {
+        localStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleGenerate = async () => {
     if (!refFile || !text.trim()) return;
     setErrorMsg(null);
@@ -115,14 +159,12 @@ export function TtsTab() {
         seed: !randomSeed && seed.trim() ? Number(seed.trim()) : undefined,
         intervalSilence,
       });
+      localStorage.setItem(ACTIVE_JOB_STORAGE_KEY, jobId);
       setJob({
         id: jobId, status: 'running', progress: 0.05, log: [], createdAt: Date.now(), updatedAt: Date.now(),
       });
       pollRef.current?.cancel();
-      pollRef.current = api.pollTtsStatus(jobId, (j) => {
-        setJob(j);
-        if (j.status === 'failed') setErrorMsg(j.error || 'Generation failed');
-      });
+      pollRef.current = api.pollTtsStatus(jobId, handleJobUpdate);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Generation failed';
       setErrorMsg(message);
@@ -134,6 +176,7 @@ export function TtsTab() {
 
   const resetForm = () => {
     pollRef.current?.cancel();
+    localStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
     setJob(null);
     setErrorMsg(null);
     setResultPlaying(false);

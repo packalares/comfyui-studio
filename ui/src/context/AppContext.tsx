@@ -16,6 +16,10 @@ import { api } from '../services/comfyui';
 import type { NetworkConfigView, ChatSettingsView } from '../services/comfyui';
 import { chatEvents } from '../services/chatEvents';
 import { videoboardEvents } from '../services/videoboardEvents';
+import { packEvents } from '../services/packEvents';
+import { aceEvents, type AceTrainingEvent } from '../services/aceEvents';
+import { loraTrainEvents } from '../services/loraTrainEvents';
+import { setWsConnected as setWsConnectedGlobal } from '../services/wsStatus';
 import type {
   JobRecord as VbJobRecord,
   Shot as VbShot,
@@ -28,6 +32,9 @@ import type {
   ChatSuggestionsPayload,
   ModelPullProgressPayload, ModelPullDonePayload, ModelPullErrorPayload,
 } from '../services/chatEvents';
+import type { PackTaskProgress } from '../types';
+import type { GenerationStatusResponse, TtsStatus } from '../types/ace';
+import type { AiToolkitJob } from '../services/aiToolkit';
 import { SystemProvider, useSystem } from './SystemContext';
 import { CatalogProvider, useCatalog } from './CatalogContext';
 import { JobsProvider, useJobs, type LiveProgress } from './JobsContext';
@@ -64,6 +71,12 @@ interface AppContextType {
   settings: AppSettings;
   currentJob: GenerationJob | null;
   connected: boolean;
+  /** True while the shared page-level `/ws` socket itself is open (distinct
+   *  from `connected`, which reflects ComfyUI reachability). Every WS-pushed
+   *  flow (pack installs, ACE-Step generation/TTS/training, AI-Toolkit
+   *  training) uses this to decide whether to fall back to REST polling —
+   *  see e.g. `services/ace.ts`'s `pollGenerationStatus`. */
+  wsConnected: boolean;
   loading: boolean;
   launcherStatus: LauncherStatus | null;
   apiKeyConfigured: boolean;
@@ -155,6 +168,10 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
   // at a time. Cleared when a job terminates so the right panel stops
   // showing the last frame of a finished run.
   const [livePreviewUrl, setLivePreviewUrl] = useState<string | null>(null);
+  // Raw socket-open flag — flips true on `ws.onopen`, false on close. Every
+  // WS-first/poll-fallback flow reads this (via `useApp().wsConnected`) to
+  // decide whether its own fallback poll loop should be active.
+  const [wsConnected, setWsConnected] = useState(false);
   const {
     _setQueueStatus,
     _setDownloads,
@@ -292,6 +309,8 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       // Binary frames arrive as ArrayBuffer (default would be Blob). Cheaper
       // to slice the 8-byte header off an ArrayBuffer than to stream a Blob.
       ws.binaryType = 'arraybuffer';
+
+      ws.onopen = () => { setWsConnected(true); setWsConnectedGlobal(true); };
 
       ws.onmessage = (event) => {
         if (event.data instanceof ArrayBuffer) {
@@ -615,6 +634,19 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
               projectId: msg.projectId as string,
               analysis: msg.analysis as VbAnalysis,
             });
+          } else if (msg.type === 'pack:progress') {
+            packEvents.dispatchProgress(msg.data as PackTaskProgress);
+          } else if (msg.type === 'ace:generation') {
+            aceEvents.dispatchGeneration(msg.data as GenerationStatusResponse);
+          } else if (msg.type === 'ace:tts') {
+            aceEvents.dispatchTts(msg.data as TtsStatus);
+          } else if (msg.type === 'ace:training') {
+            aceEvents.dispatchTraining(msg.data as AceTrainingEvent);
+          } else if (msg.type === 'lora:training') {
+            loraTrainEvents.dispatchJob(msg.data as AiToolkitJob);
+          } else if (msg.type === 'lora:training:log') {
+            const d = msg.data as { jobId: string; line: string };
+            loraTrainEvents.dispatchLog(d);
           } else if (msg.type === 'crystools.monitor') {
             const d = msg.data as {
               cpu_utilization?: number;
@@ -670,6 +702,8 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       };
 
       ws.onclose = () => {
+        setWsConnected(false);
+        setWsConnectedGlobal(false);
         if (closed) return;
         scheduleTimer(connectWs, 3000);
       };
@@ -713,6 +747,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       settings: settings.settings,
       currentJob: jobs.currentJob,
       connected: system.connected,
+      wsConnected,
       loading: system.loading,
       launcherStatus: system.launcherStatus,
       apiKeyConfigured: system.apiKeyConfigured,
@@ -751,6 +786,7 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
       system.systemStats,
       system.monitorStats,
       system.connected,
+      wsConnected,
       system.loading,
       system.launcherStatus,
       system.apiKeyConfigured,

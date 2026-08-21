@@ -15,6 +15,7 @@ const PluginsHistory = lazy(() => import('./pages/plugins/History'));
 const PluginsPythonDependencies = lazy(() => import('./pages/plugins/python/Dependencies'));
 const PluginsPythonPackages = lazy(() => import('./pages/plugins/python/Packages'));
 const Packs = lazy(() => import('./pages/Packs'));
+const PackSettings = lazy(() => import('./pages/packs/PackSettings'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Videoboard = lazy(() => import('./pages/Videoboard'));
 const VideoboardProject = lazy(() => import('./pages/VideoboardProject'));
@@ -86,6 +87,7 @@ function App() {
           <Route path="/music/*" element={<Music />} />
           <Route path="/train-lora" element={<TrainLora />} />
           <Route path="/packs" element={<Packs />} />
+          <Route path="/packs/:id/settings" element={<PackSettings />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/videoboard" element={<Videoboard />} />
           <Route path="/videoboard/characters" element={<Characters />} />

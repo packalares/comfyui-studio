@@ -11,6 +11,8 @@ import { Badge, type BadgeVariant } from '../../components/ui/badge';
 import { cn } from '../../lib/utils';
 import * as api from '../../services/aiToolkit';
 import type { AiToolkitJob, AiToolkitJobStatus } from '../../services/aiToolkit';
+import { useApp } from '../../context/AppContext';
+import { loraTrainEvents } from '../../services/loraTrainEvents';
 
 const STATUS_META: Record<AiToolkitJobStatus, { label: string; variant: BadgeVariant; icon: typeof Clock }> = {
   queued: { label: 'Queued', variant: 'neutral', icon: Clock },
@@ -35,10 +37,21 @@ export default function JobsPanel({ refreshSignal, selectedJobId, onSelectJob }:
   const [logs, setLogs] = useState<string[]>([]);
   const [cancelling, setCancelling] = useState(false);
   const logScrollRef = useRef<HTMLDivElement>(null);
+  const { wsConnected } = useApp();
+  const wsConnectedRef = useRef(wsConnected);
+  wsConnectedRef.current = wsConnected;
 
+  // Job list: `services/aiToolkit/train.ts` pushes a fresh row over WS
+  // (`{type:'lora:training', data}`) on every status/progress change — patch
+  // it into the list instead of refetching the whole thing. `GET
+  // /ai-toolkit/jobs` is still fetched once whenever `refreshSignal` bumps
+  // (new job started) or on mount (reconciliation — also covers a page
+  // reload, since the list itself, unlike a single jobId, needs no
+  // client-side memory to reconstruct), and on an interval as a fallback
+  // while the socket is down.
   useEffect(() => {
     let cancelled = false;
-    const tick = async () => {
+    const fetchOnce = async () => {
       try {
         const items = await api.listTrainingJobs(50);
         if (!cancelled) setJobs(items);
@@ -47,18 +60,37 @@ export default function JobsPanel({ refreshSignal, selectedJobId, onSelectJob }:
         // on every missed poll.
       }
     };
-    void tick();
-    const id = setInterval(() => void tick(), LIST_POLL_MS);
-    return () => { cancelled = true; clearInterval(id); };
+    void fetchOnce();
+
+    const unsubscribe = loraTrainEvents.onJob((job) => {
+      if (cancelled) return;
+      setJobs((prev) => {
+        const idx = prev.findIndex((j) => j.id === job.id);
+        if (idx === -1) return [job, ...prev];
+        const next = [...prev];
+        next[idx] = job;
+        return next;
+      });
+    });
+
+    const id = setInterval(() => {
+      if (!wsConnectedRef.current) void fetchOnce();
+    }, LIST_POLL_MS);
+    return () => { cancelled = true; unsubscribe(); clearInterval(id); };
   }, [refreshSignal]);
 
   const selectedJob = jobs.find((j) => j.id === selectedJobId) ?? null;
   const isLive = selectedJob?.status === 'queued' || selectedJob?.status === 'running';
 
+  // Log tail: `train.ts` pushes one `{type:'lora:training:log', data:{jobId,
+  // line}}` frame per new log line — append rather than refetching the
+  // whole tail. `GET /ai-toolkit/jobs/:id/logs` is still fetched once on
+  // selection (reconciliation) and on an interval as a fallback while the
+  // socket is down and the job is still live.
   useEffect(() => {
     if (!selectedJobId) { setLogs([]); return; }
     let cancelled = false;
-    const tick = async () => {
+    const fetchOnce = async () => {
       try {
         const lines = await api.getTrainingJobLogs(selectedJobId);
         if (!cancelled) setLogs(lines);
@@ -66,10 +98,18 @@ export default function JobsPanel({ refreshSignal, selectedJobId, onSelectJob }:
         // transient
       }
     };
-    void tick();
-    if (!isLive) return () => { cancelled = true; };
-    const id = setInterval(() => void tick(), LOG_POLL_MS);
-    return () => { cancelled = true; clearInterval(id); };
+    void fetchOnce();
+
+    const unsubscribe = loraTrainEvents.onLog(({ jobId, line }) => {
+      if (cancelled || jobId !== selectedJobId) return;
+      setLogs((prev) => [...prev, line]);
+    });
+
+    if (!isLive) return () => { cancelled = true; unsubscribe(); };
+    const id = setInterval(() => {
+      if (!wsConnectedRef.current) void fetchOnce();
+    }, LOG_POLL_MS);
+    return () => { cancelled = true; unsubscribe(); clearInterval(id); };
   }, [selectedJobId, isLive]);
 
   useEffect(() => {

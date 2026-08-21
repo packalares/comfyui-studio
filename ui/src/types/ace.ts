@@ -3,6 +3,13 @@
 // kept as plain TS interfaces (rather than importing `z.infer<...>` types)
 // so this file has zero runtime dependency on the server package, matching
 // how the rest of `ui/src/types` is authored.
+//
+// EXCEPTION: `GenerationParams` is derived from the contract via `import
+// type`, which emits nothing and so preserves that property. See the comment
+// on it — hand-mirroring that particular shape caused real, silent bugs.
+
+import type { z } from 'zod';
+import type { GenerationParamsSchema } from '@server/contracts/ace/generate.contract';
 
 // ---------------------------------------------------------------------------
 // Generation
@@ -11,45 +18,30 @@
 export type AudioFormat = 'mp3' | 'flac' | 'wav32';
 export type InferMethod = 'ode' | 'sde';
 
-/** Body of `POST /api/ace/generate`. Only the fields the Create tab actually
- *  drives are required here — everything else is optional passthrough for
- *  future expert-mode UI (cover/audio2audio, repainting, LM sampling knobs,
- *  etc. — see the Music page TODOs). */
-export interface GenerationParams {
-  customMode: boolean;
-  songDescription?: string;
-  lyrics: string;
-  style: string;
-  title: string;
-  instrumental: boolean;
-  vocalLanguage?: string;
-  duration?: number;
-  bpm?: number;
-  keyScale?: string;
-  timeSignature?: string;
-  inferenceSteps?: number;
-  guidanceScale?: number;
-  batchSize?: number;
-  randomSeed?: boolean;
-  seed?: number;
-  thinking?: boolean;
-  enhance?: boolean;
-  audioFormat?: AudioFormat;
-  inferMethod?: InferMethod;
-  shift?: number;
-  referenceAudioUrl?: string;
-  sourceAudioUrl?: string;
-  audioCodes?: string;
-  repaintingStart?: number;
-  repaintingEnd?: number;
-  instruction?: string;
-  audioCoverStrength?: number;
-  coverNoiseStrength?: number;
-  taskType?: string;
-  ditModel?: string;
-}
+/**
+ * Body of `POST /api/ace/generate` — DERIVED from the server contract, never
+ * hand-maintained.
+ *
+ * This was previously a hand-written interface listing "only the fields the
+ * Create tab actually drives". That drifted, silently, and it was the root
+ * cause of a whole class of bug: `trackName` and `completeTrackClasses` were
+ * missing here, so Extract/Lego/Continue could not send the structured values
+ * ACE-Step actually reads, and nothing failed to compile. The mismatch was
+ * invisible because `services/ace.ts` cast the body
+ * (`params as z.infer<typeof GenerationParamsSchema>`) on the way out, which
+ * threw away the one check that would have caught it.
+ *
+ * Deriving it means the compiler now enforces both directions: a field the
+ * contract accepts is automatically visible to the UI, and a field the UI
+ * invents is an error rather than a request key ACE-Step silently drops.
+ *
+ * `import type` keeps this file free of any runtime dependency on the server
+ * package, which is the property the header above cares about — that rule was
+ * about emitted code, not about type identity.
+ */
+export type GenerationParams = z.infer<typeof GenerationParamsSchema>;
 
-export type GenerationJobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+export type GenerationJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 export interface GenerateSubmitResponse {
   jobId: string;
@@ -81,6 +73,13 @@ export interface AceModelInfo {
   name: string;
   is_active: boolean;
   is_preloaded: boolean;
+  /** Registry's `default: true` checkpoint (xl-turbo) — preselected ahead of
+   *  alphabetical order, which would otherwise pick xl-base. */
+  is_default: boolean;
+  /** The checkpoint's own `config.json` `is_turbo` flag, as ACE-Step reads it.
+   *  Null when unreadable. Drives which generation modes are offered — see
+   *  `pages/music/generationModes.ts`. */
+  is_turbo: boolean | null;
 }
 
 export interface SimpleGenerateResult {
@@ -116,6 +115,9 @@ export interface UploadAudioResult {
 
 export interface Song {
   id: string;
+  /** Owning gallery row — artwork comes from `/api/thumbnail/<galleryId>`.
+   *  See `SongArtwork`. */
+  galleryId: string;
   title: string;
   lyrics: string | null;
   style: string | null;
@@ -160,14 +162,6 @@ export interface Playlist {
 // ---------------------------------------------------------------------------
 // Lyrics
 // ---------------------------------------------------------------------------
-
-export interface LyricsModel {
-  id: string;
-  name: string;
-  description: string;
-  size: string;
-  downloaded: boolean;
-}
 
 export interface LyricsGenerateBody {
   genre?: string;

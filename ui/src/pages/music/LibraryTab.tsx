@@ -1,52 +1,92 @@
-// Library — song list, favorites, and playlists. Ported from ace-step-ui's
-// `LibraryView.tsx` + `SongList.tsx`, rebuilt on comfy's Tabs/Card/Input.
+// Library — a gallery of your songs, not a settings table. Ported from
+// ace-step-ui's `LibraryView.tsx` + `SongList.tsx`, rebuilt on comfy's
+// Tabs/Card/Input primitives and the app's established gallery-tile visual
+// language (see `SongCard.tsx` / `components/cards/GalleryTile.tsx`).
+//
+// Grid of `SongCard` tiles at `sm:` and up; a plain `SongRow` list below
+// that (narrow viewports — a multi-column grid doesn't have room to breathe
+// on a phone-width screen, so it collapses to a list there instead).
 
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Music, Plus, Search, Trash2 } from 'lucide-react';
+import {
+  ArrowLeft, Heart, ListMusic, Music, Plus, Search, Sparkles, Trash2,
+} from 'lucide-react';
+import { NavLink } from 'react-router-dom';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../components/ui/tabs';
 import { Spinner } from '../../components/ui/spinner';
 import { AlbumCover } from './AlbumCover';
+import { SongCard } from './SongCard';
 import { SongRow } from './SongRow';
 import { useMusic } from './MusicContext';
 import { getPlaylist } from '../../services/ace';
 import type { Playlist, Song } from '../../types/ace';
 
-function SongListPanel({
-  songs, emptyLabel,
-}: { songs: Song[]; emptyLabel: string }) {
+/** Responsive song collection: a `SongCard` gallery grid at `sm:` and up,
+ *  a `SongRow` list below that. Both branches render (one hidden via CSS,
+ *  not unmounted) so the layout doesn't pop on resize. */
+function SongCollection({
+  songs, emptyIcon: EmptyIcon = Music, emptyTitle, emptyHint, emptyAction,
+}: {
+  songs: Song[];
+  emptyIcon?: typeof Music;
+  emptyTitle: string;
+  emptyHint?: string;
+  emptyAction?: React.ReactNode;
+}) {
   const {
     currentSong, isPlaying, playSong, toggleFavorite, openAddToPlaylist, renameSong, removeSong,
   } = useMusic();
 
   if (songs.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-2 py-16 text-center text-sm text-muted-foreground">
-        <Music className="h-8 w-8 opacity-40" />
-        {emptyLabel}
+      <div className="flex flex-col items-center gap-2 py-16 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+          <EmptyIcon className="h-5 w-5" />
+        </div>
+        <h3 className="text-sm font-semibold text-foreground">{emptyTitle}</h3>
+        {emptyHint && <p className="max-w-xs text-xs text-muted-foreground">{emptyHint}</p>}
+        {emptyAction}
       </div>
     );
   }
 
   return (
-    <div className="space-y-0.5">
-      {songs.map((song, idx) => (
-        <SongRow
-          key={song.id}
-          song={song}
-          index={idx}
-          isCurrent={currentSong?.id === song.id}
-          isPlaying={isPlaying}
-          onPlay={() => playSong(song, songs)}
-          onToggleFavorite={() => void toggleFavorite(song)}
-          onAddToPlaylist={() => openAddToPlaylist(song)}
-          onRename={(title) => void renameSong(song, title)}
-          onDelete={() => void removeSong(song)}
-        />
-      ))}
-    </div>
+    <>
+      <div className="hidden gap-4 sm:grid sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        {songs.map((song) => (
+          <SongCard
+            key={song.id}
+            song={song}
+            isCurrent={currentSong?.id === song.id}
+            isPlaying={isPlaying}
+            onPlay={() => playSong(song, songs)}
+            onToggleFavorite={() => void toggleFavorite(song)}
+            onAddToPlaylist={() => openAddToPlaylist(song)}
+            onRename={(title) => void renameSong(song, title)}
+            onDelete={() => void removeSong(song)}
+          />
+        ))}
+      </div>
+      <div className="space-y-0.5 sm:hidden">
+        {songs.map((song, idx) => (
+          <SongRow
+            key={song.id}
+            song={song}
+            index={idx}
+            isCurrent={currentSong?.id === song.id}
+            isPlaying={isPlaying}
+            onPlay={() => playSong(song, songs)}
+            onToggleFavorite={() => void toggleFavorite(song)}
+            onAddToPlaylist={() => openAddToPlaylist(song)}
+            onRename={(title) => void renameSong(song, title)}
+            onDelete={() => void removeSong(song)}
+          />
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -151,6 +191,8 @@ export function LibraryTab() {
     );
   }
 
+  const firstRunEmpty = !songsLoading && songs.length === 0;
+
   return (
     <Card>
       <CardContent className="space-y-4 pt-4">
@@ -162,71 +204,100 @@ export function LibraryTab() {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search your songs…"
               className="pl-8"
+              disabled={firstRunEmpty}
             />
           </div>
         </div>
 
-        <Tabs defaultValue="all">
-          <div className="flex items-center justify-between">
-            <TabsList>
-              <TabsTrigger value="all">All songs</TabsTrigger>
-              <TabsTrigger value="favorites">Favorites</TabsTrigger>
-              <TabsTrigger value="playlists">Playlists</TabsTrigger>
-            </TabsList>
-            <Button variant="secondary" size="sm" onClick={openCreatePlaylist}>
-              <Plus className="h-3.5 w-3.5" /> New playlist
+        {firstRunEmpty ? (
+          <div className="flex flex-col items-center gap-3 py-20 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-brand/10 text-brand">
+              <Music className="h-6 w-6" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Your library is empty</h2>
+              <p className="mx-auto mt-1 max-w-xs text-xs text-muted-foreground">
+                Generate your first song and it'll land here automatically — playable the moment it's ready.
+              </p>
+            </div>
+            <Button asChild className="mt-1">
+              <NavLink to="/music/create">
+                <Sparkles className="h-3.5 w-3.5" /> Create a song
+              </NavLink>
             </Button>
           </div>
+        ) : (
+          <Tabs defaultValue="all">
+            <div className="flex items-center justify-between gap-2">
+              <TabsList>
+                <TabsTrigger value="all">All songs</TabsTrigger>
+                <TabsTrigger value="favorites">Favorites</TabsTrigger>
+                <TabsTrigger value="playlists">Playlists</TabsTrigger>
+              </TabsList>
+              <Button variant="secondary" size="sm" onClick={openCreatePlaylist}>
+                <Plus className="h-3.5 w-3.5" /> New playlist
+              </Button>
+            </div>
 
-          <TabsContent value="all" className="mt-3">
-            {songsLoading ? (
-              <div className="flex justify-center py-10"><Spinner size="lg" /></div>
-            ) : (
-              <SongListPanel songs={filtered} emptyLabel="No songs yet. Head to Create to make your first one." />
-            )}
-          </TabsContent>
+            <TabsContent value="all" className="mt-4">
+              {songsLoading ? (
+                <div className="flex justify-center py-10"><Spinner size="lg" /></div>
+              ) : (
+                <SongCollection
+                  songs={filtered}
+                  emptyTitle="No matches"
+                  emptyHint="Nothing in your library matches that search."
+                />
+              )}
+            </TabsContent>
 
-          <TabsContent value="favorites" className="mt-3">
-            <SongListPanel songs={favorites} emptyLabel="No favorites yet — tap the heart on a song to pin it here." />
-          </TabsContent>
+            <TabsContent value="favorites" className="mt-4">
+              <SongCollection
+                songs={favorites}
+                emptyIcon={Heart}
+                emptyTitle="No favorites yet"
+                emptyHint="Tap the heart on a song to pin it here."
+              />
+            </TabsContent>
 
-          <TabsContent value="playlists" className="mt-3">
-            {playlistsLoading ? (
-              <div className="flex justify-center py-10"><Spinner size="lg" /></div>
-            ) : playlists.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 py-16 text-center text-sm text-muted-foreground">
-                <Music className="h-8 w-8 opacity-40" />
-                No playlists yet.
-                <Button variant="secondary" size="sm" onClick={openCreatePlaylist}>
-                  <Plus className="h-3.5 w-3.5" /> New playlist
-                </Button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-                {playlists.map((playlist) => (
-                  <button
-                    key={playlist.id}
-                    type="button"
-                    className="group rounded-lg border border-border p-3 text-left transition-colors hover:bg-muted"
-                    onClick={() => setSelectedPlaylist(playlist)}
-                  >
-                    <div className="mb-3 aspect-square overflow-hidden rounded-md">
-                      {playlist.coverUrl ? (
-                        <img src={playlist.coverUrl} alt="" className="h-full w-full object-cover" />
-                      ) : (
-                        <AlbumCover seed={playlist.id} size="full" />
-                      )}
-                    </div>
-                    <div className="truncate text-sm font-medium text-foreground">{playlist.name}</div>
-                    <div className="truncate text-xs text-muted-foreground">
-                      {playlist.description || 'Playlist'}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
+            <TabsContent value="playlists" className="mt-4">
+              {playlistsLoading ? (
+                <div className="flex justify-center py-10"><Spinner size="lg" /></div>
+              ) : playlists.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 py-16 text-center text-sm text-muted-foreground">
+                  <ListMusic className="h-8 w-8 opacity-40" />
+                  No playlists yet.
+                  <Button variant="secondary" size="sm" onClick={openCreatePlaylist}>
+                    <Plus className="h-3.5 w-3.5" /> New playlist
+                  </Button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                  {playlists.map((playlist) => (
+                    <button
+                      key={playlist.id}
+                      type="button"
+                      className="group rounded-lg border border-border p-3 text-left transition-colors hover:bg-muted"
+                      onClick={() => setSelectedPlaylist(playlist)}
+                    >
+                      <div className="mb-3 aspect-square overflow-hidden rounded-md">
+                        {playlist.coverUrl ? (
+                          <img src={playlist.coverUrl} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <AlbumCover seed={playlist.id} size="full" />
+                        )}
+                      </div>
+                      <div className="truncate text-sm font-medium text-foreground">{playlist.name}</div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        {playlist.description || 'Playlist'}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        )}
       </CardContent>
     </Card>
   );

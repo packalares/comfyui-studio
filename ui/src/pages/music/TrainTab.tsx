@@ -31,6 +31,8 @@ import {
 } from '../../components/forms/SelectField';
 import { cn } from '../../lib/utils';
 import * as api from '../../services/ace';
+import { aceEvents } from '../../services/aceEvents';
+import { useApp } from '../../context/AppContext';
 import { TrainingCategorySelector } from './TrainingCategorySelector';
 import { useTrainingCategory, type ResolvedCategoryConfig, type TrainingCategoryId } from './trainingCategories';
 import type { TrainingSample } from '../../types/ace';
@@ -114,46 +116,132 @@ function looksDone(raw: Record<string, unknown>): { done: boolean; failed: boole
   return { done: done && !failed, failed, text: parts.join(' · ') || (done ? 'Done' : 'Working…') };
 }
 
-async function pollGeneric(
+/** Conservative "is ACE-Step's FastAPI definitely mid-task right now" check —
+ *  mirrors the server's own `looksActive` (`routes/ace/training.routes.ts`)
+ *  rather than the fuzzier `looksDone` above. Used only to decide whether to
+ *  auto-resume watching a status on mount (reconciliation): unlike
+ *  `looksDone` (which treats "no recognizable field" as "still going" —
+ *  fine for a loop that's about to actively watch it), a false positive here
+ *  would show a "training in progress" banner over nothing, so this only
+ *  answers yes when an explicit boolean flag says so. */
+function looksActiveRaw(raw: Record<string, unknown>): boolean {
+  const d = (raw.data ?? raw) as Record<string, unknown>;
+  const flags = ['is_processing', 'is_running', 'processing', 'running', 'is_active', 'is_training'];
+  return flags.some((k) => d[k] === true);
+}
+
+/**
+ * Watches one ACE-Step training-pipeline status (`kind`) until it reaches a
+ * terminal state, or the caller cancels via `isCancelled`.
+ *
+ * The server already polls ACE-Step's FastAPI on an interval to know when to
+ * release the GPU slot (`pollUntilInactive` in
+ * `routes/ace/training.routes.ts`) and now pushes each fetch over WS as
+ * `{type:'ace:training', data:{kind, raw}}` — this subscribes to that
+ * instead of running its own `fetchStatus` poll loop for the common case.
+ * `fetchStatus` (the same REST status route as before) is still used once
+ * immediately for reconciliation and, while the socket is down/reconnecting,
+ * as a bounded fallback poll (same iteration cap as the old `pollGeneric`,
+ * so a permanently-dead socket still times out rather than looping forever).
+ */
+function watchTraining(
+  kind: 'preprocess' | 'autoLabel' | 'train',
   fetchStatus: () => Promise<Record<string, unknown>>,
   onTick: (text: string) => void,
   maxIterations: number,
   intervalMs: number,
   // Checked every iteration so the loop stops when the component unmounts.
-  // The training poll runs up to 3600 x 5s (~5h); without this, navigating
-  // away leaves it running to completion, calling onTick -> setState on an
-  // unmounted component the whole time.
-  isCancelled: () => boolean = () => false,
+  // The training watch can run for hours/days; without this, navigating away
+  // leaves the fallback poll (and the WS subscription) running indefinitely,
+  // calling onTick -> setState on an unmounted component.
+  isCancelled: () => boolean,
+  wsConnectedRef: { current: boolean },
 ): Promise<{ ok: boolean; error?: string; cancelled?: boolean }> {
-  for (let i = 0; i < maxIterations; i += 1) {
-    await new Promise((r) => setTimeout(r, intervalMs));
-    if (isCancelled()) return { ok: false, cancelled: true };
-    let raw: Record<string, unknown>;
-    try {
-      raw = await fetchStatus();
-    } catch {
-      continue;
-    }
-    if (isCancelled()) return { ok: false, cancelled: true };
-    const { done, failed, text } = looksDone(raw);
-    onTick(text);
-    if (failed) {
-      const d = (raw.data ?? raw) as Record<string, unknown>;
-      return { ok: false, error: typeof d.error === 'string' ? d.error : text };
-    }
-    if (done) return { ok: true };
-  }
-  return { ok: false, error: 'Timed out waiting for completion' };
+  return new Promise((resolve) => {
+    let settled = false;
+    let iterations = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const finish = (result: { ok: boolean; error?: string; cancelled?: boolean }) => {
+      if (settled) return;
+      settled = true;
+      unsubscribe();
+      if (timer) clearTimeout(timer);
+      resolve(result);
+    };
+
+    const handleRaw = (raw: Record<string, unknown>) => {
+      if (settled) return;
+      if (isCancelled()) { finish({ ok: false, cancelled: true }); return; }
+      const { done, failed, text } = looksDone(raw);
+      onTick(text);
+      if (failed) {
+        const d = (raw.data ?? raw) as Record<string, unknown>;
+        finish({ ok: false, error: typeof d.error === 'string' ? d.error : text });
+        return;
+      }
+      if (done) finish({ ok: true });
+    };
+
+    const unsubscribe = aceEvents.onTraining((event) => {
+      if (event.kind === 'whisper' || event.kind !== kind) return;
+      handleRaw(event.raw);
+    });
+
+    const scheduleFallback = () => {
+      if (settled) return;
+      timer = setTimeout(() => {
+        void (async () => {
+          if (settled) return;
+          if (isCancelled()) { finish({ ok: false, cancelled: true }); return; }
+          iterations += 1;
+          if (iterations > maxIterations) {
+            finish({ ok: false, error: 'Timed out waiting for completion' });
+            return;
+          }
+          if (!wsConnectedRef.current) {
+            try {
+              handleRaw(await fetchStatus());
+            } catch {
+              // transient — keep polling
+            }
+          }
+          scheduleFallback();
+        })();
+      }, intervalMs);
+    };
+
+    // Reconciliation — always fetch once immediately (regardless of socket
+    // state) so a caller that just attached sees current state without
+    // waiting for the next push.
+    void (async () => {
+      if (settled) return;
+      try {
+        handleRaw(await fetchStatus());
+      } catch {
+        // transient — the fallback loop below will retry
+      }
+    })();
+
+    scheduleFallback();
+  });
 }
 
 export function TrainTab() {
-  // Flipped on unmount; every pollGeneric loop checks it each iteration so
-  // long-running training polls don't outlive the component.
+  // Flipped on unmount; every watchTraining loop checks it each iteration so
+  // long-running training watches don't outlive the component.
   const cancelledRef = useRef(false);
   useEffect(() => {
     cancelledRef.current = false;
     return () => { cancelledRef.current = true; };
   }, []);
+
+  // Mirrors the shared page-level WS's open/closed state — watchTraining's
+  // fallback poll only does real network work while this is false (socket
+  // down/reconnecting); when true it relies on the `ace:training` WS push.
+  const { wsConnected } = useApp();
+  const wsConnectedRef = useRef(wsConnected);
+  wsConnectedRef.current = wsConnected;
   const {
     categories, category: selectedCategory, subType: selectedSubType, config: categoryConfig,
     allInstrumental: derivedAllInstrumental, setCategory, setSubType, buildOutputDir, outputRoot,
@@ -461,7 +549,7 @@ export function TrainTab() {
         return;
       }
       setAutoLabelStatus(`Labeling samples… (0/${result.total ?? '?'})`);
-      const outcome = await pollGeneric(api.getAutoLabelStatus, setAutoLabelStatus, 120, 5000, () => cancelledRef.current);
+      const outcome = await watchTraining('autoLabel', api.getAutoLabelStatus, setAutoLabelStatus, 120, 5000, () => cancelledRef.current, wsConnectedRef);
       if (outcome.cancelled) return;
       if (outcome.ok) {
         setAutoLabelStatus('Done labeling.');
@@ -520,7 +608,7 @@ export function TrainTab() {
         return;
       }
       setPreprocessStatus('Preprocessing audio samples…');
-      const outcome = await pollGeneric(api.getPreprocessStatus, setPreprocessStatus, 360, 5000, () => cancelledRef.current);
+      const outcome = await watchTraining('preprocess', api.getPreprocessStatus, setPreprocessStatus, 360, 5000, () => cancelledRef.current, wsConnectedRef);
       if (outcome.cancelled) return;
       if (outcome.ok) {
         setPreprocessStatus('Preprocessing complete!');
@@ -537,6 +625,27 @@ export function TrainTab() {
   }, [datasetPath, preprocessOutputDir, markStep, advanceToNext]);
 
   // ---- Training ---------------------------------------------------------
+  // Shared by a fresh "Start training" click and the mount-time
+  // reconciliation effect below, so a run that completes while this
+  // component is actually mounted (either way) gets the same
+  // toast/markStep treatment.
+  const awaitTrainingCompletion = useCallback(async () => {
+    try {
+      const outcome = await watchTraining('train', api.getTrainingStatus, setTrainingProgress, 3600, 5000, () => cancelledRef.current, wsConnectedRef);
+      if (outcome.cancelled) return;
+      if (outcome.ok) {
+        setTrainingProgress('Training complete!');
+        markStep('train');
+        toast.success('LoRA training complete', { description: 'Find it in the persona picker on the Create tab.' });
+      } else {
+        setTrainingProgress(`Training failed: ${outcome.error}`);
+        toast.error('Training failed', { description: outcome.error });
+      }
+    } finally {
+      setIsTraining(false);
+    }
+  }, [markStep]);
+
   const handleStartTraining = useCallback(async () => {
     setIsTraining(true);
     setTrainingProgress('Starting training…');
@@ -551,22 +660,37 @@ export function TrainTab() {
         outputDir: trainingParams.outputDir.trim() || undefined,
         resumeCheckpoint: trainingParams.resumeCheckpoint.trim() || null,
       });
-      const outcome = await pollGeneric(api.getTrainingStatus, setTrainingProgress, 3600, 5000, () => cancelledRef.current);
-      if (outcome.cancelled) return;
-      if (outcome.ok) {
-        setTrainingProgress('Training complete!');
-        markStep('train');
-        toast.success('LoRA training complete', { description: 'Find it in the persona picker on the Create tab.' });
-      } else {
-        setTrainingProgress(`Training failed: ${outcome.error}`);
-        toast.error('Training failed', { description: outcome.error });
-      }
+      await awaitTrainingCompletion();
     } catch (err) {
       setTrainingProgress(`Error: ${err instanceof Error ? err.message : 'Failed'}`);
-    } finally {
       setIsTraining(false);
     }
-  }, [uploadDatasetName, trainingParams, markStep]);
+  }, [uploadDatasetName, trainingParams, awaitTrainingCompletion]);
+
+  // Refresh must not lose track of an in-flight training run — unlike a
+  // per-job id (generation/TTS), ACE-Step's training-status endpoint is a
+  // singleton (one run at a time), so no client-side bookkeeping is needed
+  // to know *what* to reconcile against: just ask it once on mount. Uses the
+  // conservative `looksActiveRaw` check (not the fuzzier `looksDone` the
+  // ongoing watch itself uses) so an idle/unknown-shape response never shows
+  // a false "training in progress" banner.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await api.getTrainingStatus();
+        if (cancelled || !looksActiveRaw(raw)) return;
+        setIsTraining(true);
+        setTrainingProgress('Reconnected to an in-progress training run…');
+        void awaitTrainingCompletion();
+      } catch {
+        // best-effort — worst case, a resumed run just doesn't show its
+        // progress card until the user revisits the Train step manually.
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleStopTraining = useCallback(async () => {
     try {

@@ -58,11 +58,15 @@ function MusicTabs() {
       isActive && 'is-active',
     );
   return (
+    // Absolute paths, NOT relative. A relative `to="create"` resolves against
+    // the CURRENT location rather than this page's base, so from
+    // /music/create clicking Library gave /music/create/library, then Create
+    // gave /music/create/library/create ... compounding on every click.
     <div className="tab-strip" role="tablist">
-      <NavLink to="create" className={tabClass}>Create</NavLink>
-      <NavLink to="library" className={tabClass}>Library</NavLink>
-      <NavLink to="train" className={tabClass}>Train</NavLink>
-      <NavLink to="tts" className={tabClass}>TTS</NavLink>
+      <NavLink to="/music/create" className={tabClass}>Create</NavLink>
+      <NavLink to="/music/library" className={tabClass}>Library</NavLink>
+      <NavLink to="/music/train" className={tabClass}>Train</NavLink>
+      <NavLink to="/music/tts" className={tabClass}>TTS</NavLink>
     </div>
   );
 }
@@ -77,7 +81,7 @@ export default function Music() {
       <PageSubbar title="Music" description="Text-to-song generation powered by ACE-Step" right={<MusicTabs />} />
       <div className="p-4 sm:p-6">
         <Routes>
-          <Route index element={<Navigate to="create" replace />} />
+          <Route index element={<Navigate to="/music/create" replace />} />
           <Route path="create" element={<CreateTab />} />
           <Route path="library" element={<LibraryTab />} />
           <Route
@@ -88,7 +92,7 @@ export default function Music() {
             path="tts"
             element={<Suspense fallback={<TabFallback />}><TtsTab /></Suspense>}
           />
-          <Route path="*" element={<Navigate to="create" replace />} />
+          <Route path="*" element={<Navigate to="/music/create" replace />} />
         </Routes>
       </div>
       <PlayerBar />

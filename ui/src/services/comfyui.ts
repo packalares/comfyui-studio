@@ -18,6 +18,8 @@ import type {
   PluginDependencyReport,
   Pack,
   PackTaskProgress,
+  PackSettings,
+  PackSettingsPatch,
   CivitaiModelSummary,
   CivitaiDownloadInfo,
   StagedImportManifest,
@@ -1040,6 +1042,37 @@ export const api = {
   /** GET /packs/progress/:taskId — poll install/uninstall progress. */
   getPackProgress: (taskId: string) =>
     fetchJson<PackTaskProgress>(`/packs/progress/${encodeURIComponent(taskId)}`),
+
+  /** GET /packs/tasks — every in-flight (or just-completed) install/uninstall
+   *  task. Mount-time reconciliation for `Packs.tsx`: the `packId -> taskId`
+   *  map only ever lived in React state, so a refresh needs this to resume
+   *  tracking anything still running server-side. */
+  listActivePackTasks: () => fetchJson<{ items: PackTaskProgress[] }>('/packs/tasks'),
+
+  /** GET /packs/:id/settings — model catalog + settings (registry merged with DB state). */
+  getPackSettings: (id: string) =>
+    fetchJson<PackSettings>(`/packs/${encodeURIComponent(id)}/settings`),
+
+  /** PATCH /packs/:id/settings — set model selection / repo overrides / settings. */
+  updatePackSettings: (id: string, patch: PackSettingsPatch) =>
+    fetchJson<PackSettings>(`/packs/${encodeURIComponent(id)}/settings`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+
+  /** POST /packs/:id/models/:modelId/download — download one model now, fire-and-forget. */
+  downloadPackModel: (id: string, modelId: string) =>
+    fetchJson<{ taskId: string }>(
+      `/packs/${encodeURIComponent(id)}/models/${encodeURIComponent(modelId)}/download`,
+      { method: 'POST' },
+    ),
+
+  /** DELETE /packs/:id/models/:modelId — delete a downloaded model from disk, mark absent. */
+  removePackModel: (id: string, modelId: string) =>
+    fetchJson<{ dest: string; removed: boolean }>(
+      `/packs/${encodeURIComponent(id)}/models/${encodeURIComponent(modelId)}`,
+      { method: 'DELETE' },
+    ),
 
   // ---- Python / pip ----
   // See server/src/routes/python.routes.ts

@@ -504,11 +504,65 @@ export interface Pack {
 export interface PackTaskProgress {
   taskId: string;
   packId: string;
-  type: 'install' | 'uninstall';
+  type: 'install' | 'uninstall' | 'model-download';
   progress: number;
   completed: boolean;
   message?: string;
   logs: string[];
+}
+
+/* -----------------------------------------------------------------
+ * Per-pack settings (selectable models + overrides)
+ *
+ * Mirrors server's PackModelSettingsSchema / PackSettingsResponseSchema
+ * (contracts/packs.contract.ts) and PackModelDef (services/packs/registry.ts).
+ * ----------------------------------------------------------------- */
+
+export type PackModelKind = 'checkpoint' | 'whisper' | 'tts' | 'llm' | 'lm';
+
+export type PackModelState = 'absent' | 'downloading' | 'downloaded' | 'failed';
+
+export interface PackModelSettings {
+  id: string;
+  label: string;
+  description: string;
+  kind: PackModelKind;
+  sizeGb: number;
+  defaultRepo: string;
+  effectiveRepo: string;
+  repoOverride: string | null;
+  defaultSelected: boolean;
+  selected: boolean;
+  state: PackModelState;
+  dest: string;
+  sizeBytes: number | null;
+  downloadedAt: number | null;
+}
+
+/** Mirrors server's `PackSettingDefSchema` (contracts/packs.contract.ts) /
+ *  `PackSettingDef` (services/packs/registry.ts). */
+export interface PackSettingDef {
+  key: string;
+  label: string;
+  description: string;
+  tooltip: string;
+  kind: 'ollama-model' | 'text' | 'textarea';
+  placeholder?: string;
+  /** `textarea` only: the code-level default this setting overrides. Lets the
+   *  editor start pre-filled with the shipped text and offer a reset. */
+  defaultValue?: string;
+}
+
+export interface PackSettings {
+  packId: PackId;
+  models: PackModelSettings[];
+  settings: Record<string, string>;
+  settingDefs: PackSettingDef[];
+}
+
+export interface PackSettingsPatch {
+  models?: Record<string, { selected?: boolean | null; repoOverride?: string | null }>;
+  settings?: Record<string, string | null>;
 }
 
 // Mirrors server's InstalledPackage (packages.service.ts:10-13).

@@ -7,21 +7,15 @@ import { useState } from 'react';
 import {
   Play, Pause, Heart, MoreHorizontal, ListPlus, Pencil, Trash2, Download,
 } from 'lucide-react';
-import { AlbumCover } from './AlbumCover';
+import { SongArtwork } from './SongArtwork';
 import { Button } from '../../components/ui/button';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu';
 import { Input } from '../../components/ui/input';
 import { cn } from '../../lib/utils';
+import { formatDuration } from './format';
 import type { Song } from '../../types/ace';
-
-function formatDuration(seconds: number | null): string {
-  if (!seconds || !Number.isFinite(seconds) || seconds <= 0) return '--:--';
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
 
 export interface SongRowProps {
   song: Song;
@@ -69,11 +63,7 @@ export function SongRow({
         </span>
       )}
 
-      {song.coverUrl ? (
-        <img src={song.coverUrl} alt="" className="h-10 w-10 shrink-0 rounded object-cover" />
-      ) : (
-        <AlbumCover seed={song.id} size="sm" />
-      )}
+      <SongArtwork song={song} size="sm" className="h-10 w-10 shrink-0 rounded object-cover" />
 
       <div className="min-w-0 flex-1">
         {editing ? (

@@ -12,11 +12,19 @@
 import { z } from 'zod';
 import { apiCall } from '../api/client.js';
 import { ApiClientError } from '../api/error.js';
+import { aceEvents } from './aceEvents.js';
+import { isWsConnected } from './wsStatus.js';
 import {
   GenerationParamsSchema,
   GenerateSubmitResponseSchema,
+  AnalyzeBodySchema,
+  AnalyzeResponseSchema,
+  StemsBodySchema,
+  StemsResponseSchema,
   GenerationStatusParamsSchema,
   GenerationStatusResponseSchema,
+  GenerationCancelParamsSchema,
+  GenerationCancelResponseSchema,
   ModelsListResponseSchema,
   SimpleGenerateBodySchema,
   SimpleGenerateResponseSchema,
@@ -25,6 +33,8 @@ import {
   FormatBodySchema,
   FormatResponseSchema,
   UploadAudioResponseSchema,
+  GpuStatusResponseSchema,
+  AutoUnloadBodySchema,
 } from '@server/contracts/ace/generate.contract';
 import {
   SongSchema,
@@ -43,7 +53,6 @@ import {
   PlaylistSongParamsSchema,
 } from '@server/contracts/ace/songs.contract';
 import {
-  LyricsModelsListResponseSchema,
   LyricsGenerateBodySchema,
   LyricsGenerateResponseSchema,
 } from '@server/contracts/ace/lyrics.contract';
@@ -108,7 +117,6 @@ import type {
   SongListQuery,
   SongUpdateBody,
   Playlist,
-  LyricsModel,
   LyricsGenerateBody,
   DatasetBuildResult,
   UploadTrainingAudioResult,
@@ -144,12 +152,36 @@ const submitSpec = {
   auth: { required: true, scopes: ['generate:write'] },
 } as const;
 
+const analyzeSpec = {
+  method: 'POST',
+  path: '/ace/analyze',
+  body: AnalyzeBodySchema,
+  response: AnalyzeResponseSchema,
+  auth: { required: true, scopes: ['generate:write'] },
+} as const;
+
+const stemsSpec = {
+  method: 'POST',
+  path: '/ace/stems',
+  body: StemsBodySchema,
+  response: StemsResponseSchema,
+  auth: { required: true, scopes: ['generate:write'] },
+} as const;
+
 const statusSpec = {
   method: 'GET',
   path: '/ace/generate/status/:jobId',
   params: GenerationStatusParamsSchema,
   response: GenerationStatusResponseSchema,
   auth: { required: true, scopes: ['system:read'] },
+} as const;
+
+const cancelSpec = {
+  method: 'POST',
+  path: '/ace/generate/cancel/:jobId',
+  params: GenerationCancelParamsSchema,
+  response: GenerationCancelResponseSchema,
+  auth: { required: true, scopes: ['generate:write'] },
 } as const;
 
 const modelsSpec = {
@@ -180,6 +212,21 @@ const formatSpec = {
   path: '/ace/generate/format',
   body: FormatBodySchema,
   response: FormatResponseSchema,
+  auth: { required: true, scopes: ['generate:write'] },
+} as const;
+
+const gpuStatusSpec = {
+  method: 'GET',
+  path: '/ace/generate/gpu/status',
+  response: GpuStatusResponseSchema,
+  auth: { required: true, scopes: ['system:read'] },
+} as const;
+
+const autoUnloadSpec = {
+  method: 'POST',
+  path: '/ace/generate/gpu/auto-unload',
+  body: AutoUnloadBodySchema,
+  response: GpuStatusResponseSchema,
   auth: { required: true, scopes: ['generate:write'] },
 } as const;
 
@@ -271,13 +318,6 @@ const playlistRemoveSongSpec = {
   params: PlaylistSongParamsSchema,
   response: PlaylistGetResponseSchema,
   auth: { required: true, scopes: ['gallery:write'] },
-} as const;
-
-const lyricsModelsSpec = {
-  method: 'GET',
-  path: '/ace/lyrics/models',
-  response: LyricsModelsListResponseSchema,
-  auth: { required: true, scopes: ['system:read'] },
 } as const;
 
 const lyricsGenerateSpec = {
@@ -502,11 +542,50 @@ export function defaultGenerationParams(): GenerationParams {
   };
 }
 
+// No cast: `GenerationParams` IS the contract's inferred type now, so a
+// mismatch is a compile error instead of a silently-dropped request key.
 export const submitGeneration = (params: GenerationParams): Promise<GenerateSubmitResponse> =>
-  apiCall(submitSpec, { body: params as z.infer<typeof GenerationParamsSchema> });
+  apiCall(submitSpec, { body: params });
+
+/** Capture a track's style as ACE-Step audio codes. Synchronous — resolves
+ *  with the codes rather than a job id, since there's no audio to wait for. */
+export const analyzeAudio = (
+  sourceAudioUrl: string,
+  ditModel?: string,
+): Promise<{
+  audioCodes: string;
+  codeCount: number;
+  bpm?: number;
+  keyScale?: string;
+  timeSignature?: string;
+  duration?: number;
+  genre?: string;
+  caption?: string;
+  lyrics?: string;
+  language?: string;
+}> =>
+  apiCall(analyzeSpec, { body: { sourceAudioUrl, ditModel } });
+
+/** Real stem separation (Roformer/Demucs) — isolates what's in the recording,
+ *  unlike the model's generative `extract` task. Slow: minutes, not seconds. */
+export const separateStems = (
+  sourceAudioUrl: string,
+  model?: string,
+): Promise<{ stems: { name: string; url: string }[] }> =>
+  apiCall(stemsSpec, { body: { sourceAudioUrl, model } });
 
 export const getGenerationStatus = (jobId: string): Promise<GenerationStatusResponse> =>
   apiCall(statusSpec, { params: { jobId } });
+
+/** Cancel a queued or running generation job. Queued jobs never occupy a GPU
+ *  slot; running jobs stop being tracked (ACE-Step itself has no cancel/stop
+ *  endpoint for a generation task — see the server-side comment above
+ *  `pollUntilTerminal` in `routes/ace/generate.routes.ts` — so the GPU keeps
+ *  computing, comfy just stops waiting on the result). The server marks the
+ *  job `cancelled` and pushes that over the same `ace:generation` WS channel
+ *  `pollGenerationStatus` already subscribes to. */
+export const cancelGeneration = (jobId: string): Promise<{ jobId: string; cancelled: boolean }> =>
+  apiCall(cancelSpec, { params: { jobId } });
 
 export const listModels = (): Promise<AceModelInfo[]> =>
   apiCall(modelsSpec, {}).then((r) => r.models);
@@ -530,10 +609,39 @@ export const formatInput = (body: {
   temperature?: number;
 }): Promise<FormatResult> => apiCall(formatSpec, { body });
 
-/** Poll `GET /ace/generate/status/:jobId` on a fixed interval until the job
- *  reaches a terminal state (succeeded/failed), or the caller aborts via the
- *  returned `cancel()`. `onUpdate` fires on every poll tick (including the
- *  first) so the UI can render queue position / progress / stage. */
+/** ACE-Step GPU residency status — is the FastAPI backend running, how long
+ *  has it been idle, and what's the configured idle-unload timeout.
+ *  Mirrors server's `GpuStatusResponseSchema`. */
+export interface AceStepGpuStatus {
+  running: boolean;
+  tenant: 'ollama' | 'comfy' | 'ace-step' | 'oneshot' | 'none';
+  idleMinutes: number | null;
+  timeoutMinutes: number | null;
+}
+
+export const getAceStepGpuStatus = (): Promise<AceStepGpuStatus> =>
+  apiCall(gpuStatusSpec, {});
+
+/** Set (or clear, via `minutes: null`) the ACE-Step idle-unload timeout. `0`
+ *  disables idle-eviction entirely. */
+export const setAceStepAutoUnload = (minutes: number | null): Promise<AceStepGpuStatus> =>
+  apiCall(autoUnloadSpec, { body: { minutes } });
+
+/** Track a generation job until it reaches a terminal state (succeeded/
+ *  failed), or the caller aborts via the returned `cancel()`.
+ *
+ * The server pushes `{type:'ace:generation', data}` over the shared WS on
+ * every status change (`routes/ace/generate.routes.ts`) — this subscribes to
+ * that instead of polling `GET /ace/generate/status/:jobId` on a fixed
+ * interval. The REST endpoint is still used once immediately
+ * (reconciliation — covers state the caller doesn't have yet, e.g. right
+ * after a page reload) and as a fallback poll while the socket is down/
+ * reconnecting (`isWsConnected()`), so a dropped connection degrades to the
+ * old polling behaviour rather than hanging. `onUpdate` fires on every
+ * update (push or poll) so the UI can render queue position / progress /
+ * stage; callers must call `cancel()` on unmount so an abandoned job's
+ * updates don't keep firing toasts / auto-playing audio after the caller
+ * has moved on. */
 export function pollGenerationStatus(
   jobId: string,
   onUpdate: (status: GenerationStatusResponse) => void,
@@ -541,32 +649,69 @@ export function pollGenerationStatus(
 ): { cancel: () => void } {
   const intervalMs = opts.intervalMs ?? 2000;
   let cancelled = false;
+  let done = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
-  const tick = async (): Promise<void> => {
-    if (cancelled) return;
-    try {
-      const status = await getGenerationStatus(jobId);
-      if (cancelled) return;
-      onUpdate(status);
-      if (status.status === 'succeeded' || status.status === 'failed') return;
-    } catch (err) {
-      if (cancelled) return;
-      // Transient network hiccup — surface as a failed-looking update but
-      // keep polling; a real 404 (job gone) would keep 404ing forever, so
-      // cap retries implicitly by treating repeated ApiClientError as fatal.
-      if (err instanceof ApiClientError && err.status === 404) {
-        onUpdate({ jobId, status: 'failed', error: 'Job not found' });
-        return;
-      }
-    }
-    timer = setTimeout(() => void tick(), intervalMs);
+  const finish = (status: GenerationStatusResponse): void => {
+    if (cancelled || done) return;
+    done = true;
+    onUpdate(status);
   };
 
-  void tick();
+  const isTerminal = (status: GenerationStatusResponse): boolean =>
+    status.status === 'succeeded' || status.status === 'failed' || status.status === 'cancelled';
+
+  const fetchOnce = async (): Promise<void> => {
+    if (cancelled || done) return;
+    try {
+      const status = await getGenerationStatus(jobId);
+      if (cancelled || done) return;
+      if (isTerminal(status)) {
+        finish(status);
+      } else {
+        onUpdate(status);
+      }
+    } catch (err) {
+      if (cancelled || done) return;
+      // A real 404 (job gone) is terminal — anything else is a transient
+      // network hiccup the fallback loop below will retry.
+      if (err instanceof ApiClientError && err.status === 404) {
+        finish({ jobId, status: 'failed', error: 'Job not found' });
+      }
+    }
+  };
+
+  // Reconciliation — always fetch once immediately, regardless of socket
+  // state, so a caller that just attached (fresh submit, or resuming
+  // tracking after a page reload) sees current state without waiting for
+  // the next push.
+  void fetchOnce();
+
+  const unsubscribe = aceEvents.onGeneration((status) => {
+    if (cancelled || done || status.jobId !== jobId) return;
+    if (isTerminal(status)) {
+      finish(status);
+    } else {
+      onUpdate(status);
+    }
+  });
+
+  // Fallback poll — only does real work while the shared WS is down; once it
+  // reconnects, push takes back over and this loop just idles until unmount.
+  const scheduleFallback = (): void => {
+    if (cancelled || done) return;
+    timer = setTimeout(() => {
+      if (cancelled || done) return;
+      if (!isWsConnected()) void fetchOnce();
+      scheduleFallback();
+    }, intervalMs);
+  };
+  scheduleFallback();
+
   return {
     cancel: () => {
       cancelled = true;
+      unsubscribe();
       if (timer) clearTimeout(timer);
     },
   };
@@ -647,9 +792,6 @@ export const removeSongFromPlaylist = (id: string, songId: string): Promise<{ pl
 // ---------------------------------------------------------------------------
 // Lyrics
 // ---------------------------------------------------------------------------
-
-export const listLyricsModels = (): Promise<LyricsModel[]> =>
-  apiCall(lyricsModelsSpec, {}).then((r) => r.models);
 
 export const generateLyrics = (body: LyricsGenerateBody): Promise<string> =>
   apiCall(lyricsGenerateSpec, { body }).then((r) => r.lyrics);
@@ -897,8 +1039,13 @@ export async function submitTtsClone(body: TtsCloneBody): Promise<{ jobId: strin
 export const getTtsStatus = (jobId: string): Promise<TtsStatus> =>
   apiCall(ttsStatusSpec, { params: { jobId } }) as Promise<TtsStatus>;
 
-/** Poll `GET /ace/tts/status/:jobId` until it reaches a terminal state.
- *  Mirrors `pollGenerationStatus` above. */
+/** Track a voice-clone TTS job until it reaches a terminal state. Mirrors
+ *  `pollGenerationStatus` above: subscribes to the WS push
+ *  (`{type:'ace:tts', data}`, emitted by `services/ace/ttsJobs.ts` on every
+ *  update) instead of polling `GET /ace/tts/status/:jobId` on a fixed
+ *  interval, using that same REST endpoint once for reconciliation and as a
+ *  fallback while the socket is down. Callers must call the returned
+ *  `cancel()` on unmount. */
 export function pollTtsStatus(
   jobId: string,
   onUpdate: (status: TtsStatus) => void,
@@ -906,32 +1053,61 @@ export function pollTtsStatus(
 ): { cancel: () => void } {
   const intervalMs = opts.intervalMs ?? 1500;
   let cancelled = false;
+  let done = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
-  const tick = async (): Promise<void> => {
-    if (cancelled) return;
+  const finish = (status: TtsStatus): void => {
+    if (cancelled || done) return;
+    done = true;
+    onUpdate(status);
+  };
+
+  const fetchOnce = async (): Promise<void> => {
+    if (cancelled || done) return;
     try {
       const status = await getTtsStatus(jobId);
-      if (cancelled) return;
-      onUpdate(status);
-      if (status.status === 'completed' || status.status === 'failed') return;
+      if (cancelled || done) return;
+      if (status.status === 'completed' || status.status === 'failed') {
+        finish(status);
+      } else {
+        onUpdate(status);
+      }
     } catch (err) {
-      if (cancelled) return;
+      if (cancelled || done) return;
       if (err instanceof ApiClientError && err.status === 404) {
-        onUpdate({
+        finish({
           id: jobId, status: 'failed', progress: 0, log: [], error: 'Job not found',
           createdAt: Date.now(), updatedAt: Date.now(),
         });
-        return;
       }
     }
-    timer = setTimeout(() => void tick(), intervalMs);
   };
 
-  void tick();
+  void fetchOnce();
+
+  const unsubscribe = aceEvents.onTts((status) => {
+    if (cancelled || done || status.id !== jobId) return;
+    if (status.status === 'completed' || status.status === 'failed') {
+      finish(status);
+    } else {
+      onUpdate(status);
+    }
+  });
+
+  const scheduleFallback = (): void => {
+    if (cancelled || done) return;
+    timer = setTimeout(() => {
+      if (cancelled || done) return;
+      if (!isWsConnected()) void fetchOnce();
+      scheduleFallback();
+    }, intervalMs);
+  };
+  scheduleFallback();
+
   return {
     cancel: () => {
       cancelled = true;
+      unsubscribe();
       if (timer) clearTimeout(timer);
     },
   };
