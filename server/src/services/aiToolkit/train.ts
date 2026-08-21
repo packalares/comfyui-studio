@@ -25,7 +25,7 @@ import { spawn, type ChildProcess } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { currentProcessEnv, env } from '../../config/env.js';
+import { currentProcessEnv } from '../../config/env.js';
 import { paths } from '../../config/paths.js';
 import { logger } from '../../lib/logger.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../lib/errors.js';
@@ -33,7 +33,7 @@ import { submitGpuJob } from '../gpu/scheduler.js';
 import { LogService } from '../comfyui/process.js';
 import * as repo from '../../lib/db/aiToolkit.repo.js';
 import type { AiToolkitJobRow } from '../../lib/db/aiToolkit.repo.js';
-import { AI_TOOLKIT_DIR } from '../packs/registry.js';
+import { AI_TOOLKIT_DIR, resolvePackPython } from '../packs/registry.js';
 import { resolveBaseModelPath } from './baseModels.js';
 import { resolveComfyLorasDir } from './lorasDir.js';
 import { countImages, datasetDir } from './datasets.js';
@@ -41,10 +41,6 @@ import { sanitizeIdentifier } from './util.js';
 import {
   writeAiToolkitConfig, resolveTrainedLoraPath, type AiToolkitArch,
 } from './config.js';
-
-function python(): string {
-  return env.PYTHON_PATH || 'python3';
-}
 
 export interface StartTrainingInput {
   name: string;
@@ -76,6 +72,35 @@ interface RuntimeState {
 // same trade-off `ace_training_runs` documents).
 const runtime = new Map<string, RuntimeState>();
 
+// WS broadcast hub — mirrors `services/ace/broadcaster.ts`'s setter pattern.
+// Wired once at boot (`setAiToolkitBroadcaster(broadcast)` in `index.ts`).
+// `JobsPanel.tsx` subscribes to `lora:training` (job row) and
+// `lora:training:log` (one new log line) instead of polling
+// `GET /ai-toolkit/jobs` + `GET /ai-toolkit/jobs/:id/logs` on fixed intervals.
+let broadcaster: ((message: object) => void) | null = null;
+
+export function setAiToolkitBroadcaster(fn: ((message: object) => void) | null): void {
+  broadcaster = fn;
+}
+
+function broadcastJob(job: AiToolkitJobRow | null): void {
+  if (job && broadcaster) broadcaster({ type: 'lora:training', data: job });
+}
+
+function broadcastLog(jobId: string, line: string): void {
+  if (broadcaster) broadcaster({ type: 'lora:training:log', data: { jobId, line } });
+}
+
+/** Wraps `repo.updateAiToolkitJob` so every status/progress write also
+ *  pushes the fresh row over WS. Kept local (rather than pushed into the
+ *  repo layer) so the repo stays a pure DB module, matching every other
+ *  `lib/db/*.repo.ts` in this codebase. */
+function updateJob(jobId: string, patch: repo.AiToolkitJobUpdateInput): AiToolkitJobRow | null {
+  const job = repo.updateAiToolkitJob(jobId, patch);
+  broadcastJob(job);
+  return job;
+}
+
 const RUNTIME_TTL_MS = 10 * 60 * 1000;
 const SIGKILL_GRACE_MS = 10_000;
 
@@ -85,19 +110,34 @@ const SIGKILL_GRACE_MS = 10_000;
 // doesn't depend on the exact desc text.
 const PROGRESS_RE = /(\d+)%\|[^|]*\|\s*(\d+)\/(\d+)/;
 
-function ensureAiToolkitInstalled(): void {
+/**
+ * Verify the ai-toolkit pack is fully installed — both the source checkout
+ * (`run.py` on disk) AND the `main` venv component its deps were
+ * pip-installed into (`services/packs/registry.ts`). Returns the venv's
+ * interpreter path so callers don't have to resolve it a second time.
+ * Rethrows `resolvePackPython`'s clear "install the pack" error as a
+ * `ConflictError` (matching the missing-checkout case below) rather than
+ * letting a raw Error surface with the wrong HTTP status.
+ */
+function ensureAiToolkitInstalled(): string {
   const runScript = path.join(AI_TOOLKIT_DIR, 'run.py');
   if (!fs.existsSync(runScript)) {
     throw new ConflictError('The ai-toolkit capability pack is not installed yet — install it from Packs first');
   }
+  try {
+    return resolvePackPython('ai-toolkit', 'main', 'LoRA training (ai-toolkit)');
+  } catch (err) {
+    throw new ConflictError(err instanceof Error ? err.message : String(err));
+  }
 }
 
-/** Spawns `run.py <configPath>`, streams stdout/stderr into `log`, and
- *  parses tqdm progress lines to keep the DB row's step/progress live. */
-function runAiToolkitProcess(jobId: string, configPath: string, log: LogService): Promise<void> {
+/** Spawns `run.py <configPath>` under the ai-toolkit pack's `main` venv
+ *  interpreter, streams stdout/stderr into `log`, and parses tqdm progress
+ *  lines to keep the DB row's step/progress live. */
+function runAiToolkitProcess(jobId: string, configPath: string, log: LogService, pythonBin: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const runScript = path.join(AI_TOOLKIT_DIR, 'run.py');
-    const child = spawn(python(), [runScript, configPath], {
+    const child = spawn(pythonBin, [runScript, configPath], {
       cwd: AI_TOOLKIT_DIR,
       env: currentProcessEnv(),
       shell: false,
@@ -110,7 +150,8 @@ function runAiToolkitProcess(jobId: string, configPath: string, log: LogService)
     let lastStep = -1;
     const pumpLine = (line: string) => {
       if (!line) return;
-      log.addLog(line);
+      const entry = log.addLog(line);
+      broadcastLog(jobId, entry);
       const m = PROGRESS_RE.exec(line);
       if (!m) return;
       const step = parseInt(m[2], 10);
@@ -118,7 +159,7 @@ function runAiToolkitProcess(jobId: string, configPath: string, log: LogService)
       if (!Number.isFinite(step) || step === lastStep) return;
       lastStep = step;
       const progress = total > 0 ? Math.min(100, Math.round((step / total) * 100)) : 0;
-      repo.updateAiToolkitJob(jobId, {
+      updateJob(jobId, {
         step,
         ...(total > 0 ? { totalSteps: total } : {}),
         progress,
@@ -197,7 +238,7 @@ function validateInput(input: StartTrainingInput): void {
  *  run happens in the background once the GPU scheduler grants the
  *  `image-lora-train` slot (see `services/gpu/taskTypes.ts`). */
 export function startTrainingJob(input: StartTrainingInput): { jobId: string } {
-  ensureAiToolkitInstalled();
+  const pythonBin = ensureAiToolkitInstalled();
   validateInput(input);
 
   const displayName = sanitizeIdentifier(input.name, 'lora');
@@ -232,39 +273,40 @@ export function startTrainingJob(input: StartTrainingInput): { jobId: string } {
   };
   const configPath = writeAiToolkitConfig(paths.aiToolkitConfigsDir, jobId, configInput);
 
-  repo.insertAiToolkitJob({
+  const inserted = repo.insertAiToolkitJob({
     id: jobId,
     name: displayName,
     baseModel: input.baseModel,
     datasetPath: dsDir,
     config: { ...configInput, configPath },
   });
-  repo.updateAiToolkitJob(jobId, { totalSteps: input.steps });
+  broadcastJob(inserted);
+  updateJob(jobId, { totalSteps: input.steps });
 
   const controller = new AbortController();
   const log = new LogService();
   runtime.set(jobId, { controller, child: null, log, cancelRequested: false });
-  log.addLog(`Queued training job "${displayName}" (config: ${configJobName})`);
+  broadcastLog(jobId, log.addLog(`Queued training job "${displayName}" (config: ${configJobName})`));
 
   void submitGpuJob('image-lora-train', async (release) => {
     try {
-      repo.updateAiToolkitJob(jobId, { status: 'running', startedAt: Date.now() });
-      log.addLog('GPU slot granted — starting run.py');
-      await runAiToolkitProcess(jobId, configPath, log);
+      updateJob(jobId, { status: 'running', startedAt: Date.now() });
+      broadcastLog(jobId, log.addLog('GPU slot granted — starting run.py'));
+      await runAiToolkitProcess(jobId, configPath, log, pythonBin);
 
       const loraPath = resolveTrainedLoraPath(paths.aiToolkitOutputDir, configJobName);
       if (!loraPath) throw new Error('Training finished but no LoRA output file was found on disk');
       const installedPath = installLoraIntoComfy(loraPath, configJobName);
-      log.addLog(`LoRA installed into ComfyUI loras dir: ${path.basename(installedPath)}`);
-      repo.updateAiToolkitJob(jobId, {
+      broadcastLog(jobId, log.addLog(`LoRA installed into ComfyUI loras dir: ${path.basename(installedPath)}`));
+      updateJob(jobId, {
         status: 'succeeded', progress: 100, outputPath: installedPath, finishedAt: Date.now(),
       });
     } catch (err) {
       const rt = runtime.get(jobId);
       const cancelled = rt?.cancelRequested === true;
       const message = err instanceof Error ? err.message : String(err);
-      log.addLog(`Training ${cancelled ? 'cancelled' : 'failed'}: ${message}`, !cancelled);
-      repo.updateAiToolkitJob(jobId, {
+      broadcastLog(jobId, log.addLog(`Training ${cancelled ? 'cancelled' : 'failed'}: ${message}`, !cancelled));
+      updateJob(jobId, {
         status: cancelled ? 'cancelled' : 'failed',
         error: cancelled ? null : message,
         finishedAt: Date.now(),
@@ -289,7 +331,7 @@ export function startTrainingJob(input: StartTrainingInput): { jobId: string } {
     const message = err instanceof Error ? err.message : String(err);
     if (job && job.status === 'queued') {
       const cancelled = runtime.get(jobId)?.cancelRequested === true;
-      repo.updateAiToolkitJob(jobId, {
+      updateJob(jobId, {
         status: cancelled ? 'cancelled' : 'failed',
         error: cancelled ? null : message,
         finishedAt: Date.now(),
@@ -320,7 +362,7 @@ export function cancelTrainingJob(jobId: string): CancelResult {
     // Runtime state already gone (e.g. server restarted mid-run) — force the
     // DB row terminal so the UI isn't stuck polling a job nothing will ever
     // finish.
-    repo.updateAiToolkitJob(jobId, { status: 'cancelled', finishedAt: Date.now() });
+    updateJob(jobId, { status: 'cancelled', finishedAt: Date.now() });
     return 'cancelled';
   }
 

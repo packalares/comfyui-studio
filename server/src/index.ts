@@ -19,6 +19,9 @@ import { setOllamaPullBus } from './services/downloads/ollamaPullAdapter.js';
 import { setChatBroadcaster } from './services/chat/broadcaster.js';
 import { setVideoboardBroadcaster } from './services/videoboard/jobTracker.js';
 import { setVideoboardRouteBroadcaster } from './routes/videoboard.routes.js';
+import { setPackBroadcaster } from './services/packs/install.js';
+import { setAceBroadcaster } from './services/ace/broadcaster.js';
+import { setAiToolkitBroadcaster } from './services/aiToolkit/train.js';
 import { sweepStaleUploads } from './routes/upload.routes.js';
 import * as promptSnapshotsRepo from './lib/db/promptSnapshots.repo.js';
 import { getStatus as getLocalComfyUIStatus } from './services/comfyui/status.js';
@@ -259,6 +262,13 @@ setChatBroadcaster(broadcast);
 // Videoboard job tracker + route stubs broadcast WS events through this.
 setVideoboardBroadcaster(broadcast);
 setVideoboardRouteBroadcaster(broadcast);
+// Capability-pack install/uninstall progress (Packs.tsx).
+setPackBroadcaster(broadcast);
+// ACE-Step music generation / voice-clone TTS / LoRA training progress
+// (music page's Create/Tts/Train tabs).
+setAceBroadcaster(broadcast);
+// AI-Toolkit image-LoRA training progress + live log tail (JobsPanel.tsx).
+setAiToolkitBroadcaster(broadcast);
 
 // ---- Queue & gallery broadcasts ----
 // Triggered by ComfyUI WS events. Debounced so bursts of messages (e.g. per-node

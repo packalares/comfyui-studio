@@ -186,15 +186,12 @@ export const paths = {
       : path.join(RUNTIME_STATE_DIR, 'studio.db');
   },
   /**
-   * Generated song audio output (flac/mp3/wav files ACE-Step produces,
-   * downloaded and persisted by `services/ace/storage.ts`). Served back to
-   * the UI via a route-level path, never exposed as a static mount.
-   */
-  aceAudioDir: path.join(ACE_MUSIC_ROOT, 'audio'),
-  /**
    * Uploaded reference/source audio (cover mode, audio2audio, extract-codes)
-   * — user-supplied input files, distinct from `aceAudioDir`'s generated
-   * output.
+   * — user-supplied input files. Generated song output is NOT stored under
+   * `ACE_MUSIC_ROOT` any more — it's written straight into ComfyUI's own
+   * output tree (`comfyOutputDir`/ace-step/) so the gallery's disk-sweep and
+   * the operator's normal output backups cover it too; see
+   * `services/ace/storage.ts`'s `saveGeneratedAudioToOutput`.
    */
   aceReferencesDir: path.join(ACE_MUSIC_ROOT, 'references'),
   /** Training datasets for the LoRA fine-tuning pipeline. */

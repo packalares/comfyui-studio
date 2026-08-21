@@ -250,13 +250,7 @@ const statusRoute = defineRoute({
 }, ({ params, ok }) => {
   const job = ttsJobs.getJob(params.jobId);
   if (!job) throw new NotFoundError('Job not found');
-  const result = job.result as { audioUrl?: unknown; durationSeconds?: unknown } | null;
-  return ok({
-    ...job,
-    result: result && typeof result.audioUrl === 'string' && typeof result.durationSeconds === 'number'
-      ? { audioUrl: result.audioUrl, durationSeconds: result.durationSeconds }
-      : null,
-  });
+  return ok(ttsJobs.toStatusView(job));
 });
 
 // ---------------------------------------------------------------------------

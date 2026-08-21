@@ -53,6 +53,21 @@ const STUDIO = {
   WS_ORIGIN: process.env.WS_ORIGIN,
   /** Logger threshold: error | warn | info | debug. Default info. */
   LOG_LEVEL: process.env.LOG_LEVEL ?? 'info',
+  /**
+   * GPU scheduler idle-eviction timers (`services/gpu/scheduler.ts`'s
+   * `armIdleEvictIfNeeded`). When the scheduler goes idle (no active job, no
+   * queue) on a given tenant for this long, that tenant is unloaded to free
+   * VRAM for whichever tenant needs it next.
+   *
+   * Ollama's reload is cheap (~30-50s), so it defaults short. ACE-Step's
+   * cold start reloads its full ~19 GB checkpoint, so evicting it too
+   * eagerly is worse than just holding the VRAM — default is minutes, not
+   * seconds. Both configurable so an operator can tune for their own
+   * usage pattern / VRAM budget.
+   */
+  OLLAMA_IDLE_EVICT_MS: readNumber(process.env.OLLAMA_IDLE_EVICT_MS, 60 * 1000),
+  /** Default 12 minutes — see `OLLAMA_IDLE_EVICT_MS`'s doc comment above. */
+  ACE_STEP_IDLE_EVICT_MS: readNumber(process.env.ACE_STEP_IDLE_EVICT_MS, 12 * 60 * 1000),
 } as const;
 
 // --- ComfyUI + system integration vars (consumed by services/*) ---
@@ -164,32 +179,39 @@ const LAUNCHER = {
    */
   ACESTEP_API_URL: process.env.ACESTEP_API_URL ?? 'http://127.0.0.1:8000',
   /**
-   * Python interpreter for `data/ace/whisper_cli.py` (batch lyrics
-   * transcription via faster-whisper) and `data/ace/get_limits.py` (GPU
-   * tier probe). Today the `ace-step` pack's pip installer (registry.ts)
-   * installs `faster-whisper` into the SAME site-packages as ACE-Step
-   * itself (no dedicated venv), so the default is the plain `python3` on
-   * PATH. Overridable in case a future pack revision splits Whisper into
-   * its own venv (mirroring ace-step-ui's Dockerfile, which used a
-   * dedicated `.venv`).
+   * OPERATOR OVERRIDE for the Python interpreter used by
+   * `data/ace/whisper_cli.py` (batch lyrics transcription via
+   * faster-whisper). `faster-whisper` is pip-installed into the `ace-step`
+   * pack's dedicated `main` venv (`services/packs/registry.ts`'s
+   * `venvComponents` + `services/packs/install.ts`'s `ensureVenvComponent`)
+   * — fully isolated from any shared site, not the plain `python3` on PATH.
+   * `services/ace/audioSeparator.ts`'s `resolveWhisperPython()` is the
+   * single resolution point: it resolves that venv's `bin/python` via
+   * `resolvePackPython('ace-step', 'main', ...)` (registry-derived, not
+   * hardcoded) by default, and only honors this var when the operator has
+   * explicitly set it (e.g. a hand-rolled venv this codebase doesn't track)
+   * — see `aceWhisperPythonPathOverride()` below. Left unset (`''`) rather
+   * than defaulting to `'python3'` so that "operator set it" is
+   * distinguishable from "unset".
    */
-  ACE_WHISPER_PYTHON_PATH: process.env.ACE_WHISPER_PYTHON_PATH || 'python3',
+  ACE_WHISPER_PYTHON_PATH: process.env.ACE_WHISPER_PYTHON_PATH ?? '',
   /**
-   * FALLBACK Python interpreter for `data/ace/indextts2_infer.py` (IndexTTS2
-   * voice-clone inference), used only when no dedicated venv is available.
+   * OPERATOR OVERRIDE for the Python interpreter used by
+   * `data/ace/indextts2_infer.py` (IndexTTS2 voice-clone inference).
    *
    * The `ace-step` pack installer (`services/packs/registry.ts`'s
    * `venvComponents` + `services/packs/install.ts`'s `ensureVenvComponent`)
-   * provisions a SEPARATE venv for IndexTTS2 via plain `python3 -m venv`
-   * (upstream pins torch==2.8/transformers==4.52/numpy==1.26, which conflict
-   * with ACE-Step's own pins in the main `--user` site) — mirroring
-   * ace-step-ui's Dockerfile, which used a dedicated uv-managed venv.
-   * `services/ace/indextts2.ts`'s `resolveIndexTts2Python()` is the single
-   * resolution point: it prefers that venv's `bin/python` (derived from the
-   * registry, not hardcoded) whenever it actually exists on disk, and treats
-   * this var as an explicit operator override otherwise. If NEITHER the venv
-   * nor this override is present, it throws a clear "install the ace-step
-   * pack" error instead of spawning a `python3` that will ImportError.
+   * provisions a SEPARATE `indextts2` venv (with `--system-site-packages`)
+   * for IndexTTS2 (upstream pins torch==2.8/transformers==4.52/
+   * numpy==1.26, which conflict with ACE-Step's own `main`-component pins)
+   * — mirroring ace-step-ui's Dockerfile, which used a dedicated uv-managed
+   * venv. `services/ace/indextts2.ts`'s `resolveIndexTts2Python()` is the
+   * single resolution point: it prefers that venv's `bin/python` (resolved
+   * via `resolvePackPython('ace-step', 'indextts2', ...)`, registry-derived
+   * not hardcoded) whenever it actually exists on disk, and treats this var
+   * as an explicit operator override otherwise. If NEITHER the venv nor this
+   * override is present, it throws a clear "install the ace-step pack"
+   * error instead of spawning a `python3` that will ImportError.
    */
   ACE_TTS_PYTHON_PATH: process.env.ACE_TTS_PYTHON_PATH || 'python3',
 } as const;
@@ -232,6 +254,18 @@ export function currentSqliteOverride(): string | undefined {
  */
 export function aceTtsPythonPathOverride(): string | undefined {
   return process.env.ACE_TTS_PYTHON_PATH || undefined;
+}
+
+/**
+ * Read whether the operator EXPLICITLY set `ACE_WHISPER_PYTHON_PATH`.
+ * `services/ace/audioSeparator.ts`'s `resolveWhisperPython()` uses this the
+ * same way `resolveIndexTts2Python()` uses `aceTtsPythonPathOverride()`: an
+ * explicit override wins, otherwise the `ace-step` pack's `main` venv
+ * (resolved live from the registry) is used, and a genuinely missing venv
+ * throws a clear "install the ace-step pack" error.
+ */
+export function aceWhisperPythonPathOverride(): string | undefined {
+  return process.env.ACE_WHISPER_PYTHON_PATH || undefined;
 }
 
 /**

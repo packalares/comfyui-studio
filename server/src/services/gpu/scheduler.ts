@@ -12,16 +12,40 @@
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { logger } from '../../lib/logger.js';
-import { ensureResident, forceSetTenant, getCurrentTenant, unloadOllama } from './residency.js';
+import { env } from '../../config/env.js';
+import { ensureResident, forceSetTenant, getCurrentTenant, unloadAceStep, unloadOllama } from './residency.js';
 import type { GpuTenant, TaskType } from './taskTypes.js';
 import { TASK_TYPES } from './taskTypes.js';
 
-// How long the scheduler stays idle on a tenant before unloading it.
-// Currently only applies to `ollama` — comfy is already evicted on tenant
-// switch via the queue-idle guard in unloadComfy(), and the warm-cache
-// benefit isn't symmetric (ollama reload ~30-50s; comfy cold-start much
-// heavier, so we keep it warm until something explicitly needs the slot).
-const OLLAMA_IDLE_EVICT_MS = 60 * 1000;
+// How long the scheduler stays idle on a tenant before unloading it —
+// env-configurable (`OLLAMA_IDLE_EVICT_MS` / `ACE_STEP_IDLE_EVICT_MS`, see
+// config/env.ts for defaults + rationale). Only tenants listed here are
+// idle-evicted at all: `comfy` is already evicted on tenant switch via the
+// queue-idle guard in unloadComfy(), `oneshot` has no persistent server to
+// evict, and `none` is already unloaded by definition.
+const IDLE_EVICT_MS: Partial<Record<GpuTenant, number>> = {
+  ollama: env.OLLAMA_IDLE_EVICT_MS,
+  'ace-step': env.ACE_STEP_IDLE_EVICT_MS,
+};
+
+async function unloadTenant(tenant: GpuTenant): Promise<void> {
+  if (tenant === 'ollama') { await unloadOllama(); return; }
+  if (tenant === 'ace-step') { await unloadAceStep(); return; }
+}
+
+/** Idle-eviction status for one tenant — what `GET /ace/generate/gpu/status`
+ *  surfaces (running? idle minutes? configured timeout?). */
+export interface TenantIdleStatus {
+  tenant: GpuTenant;
+  /** `null` when this tenant isn't the currently-resident one (idle
+   *  tracking only applies to the active tenant), or when it's actively
+   *  running a job right now. */
+  idleSinceMs: number | null;
+  idleMs: number | null;
+  /** Configured idle-evict timeout for this tenant, or `null` if this
+   *  tenant is never idle-evicted (e.g. `comfy`, `oneshot`). */
+  timeoutMs: number | null;
+}
 
 // ---- Public types ----
 
@@ -90,10 +114,24 @@ class GpuScheduler {
   // Callback that release()s the active job. Wired in runJob() so
   // forceReleaseActive() can trigger it from outside the runJob closure.
   private slotReleaser: (() => void) | null = null;
-  // Idle-evict timer. When the scheduler goes idle on `ollama`, start a
-  // timer; if no new job arrives by OLLAMA_IDLE_EVICT_MS, unload Ollama so
+  // Idle-evict timer. When the scheduler goes idle on a tenant listed in
+  // `IDLE_EVICT_MS` (currently `ollama`, `ace-step`), start a timer; if no
+  // new job arrives before that tenant's configured timeout, unload it so
   // VRAM is recovered. Reset on every drain / submit.
-  private ollamaIdleEvictTimer: NodeJS.Timeout | null = null;
+  private idleEvictTimer: NodeJS.Timeout | null = null;
+  // Timestamp the scheduler most recently became fully idle (no active slot,
+  // empty queue) on the CURRENTLY resident tenant. `null` while busy or
+  // while the resident tenant has no configured idle-evict timeout.
+  // Exposed via `getIdleStatus()` so `GET /ace/generate/gpu/status` can show
+  // "idle for N minutes" without re-deriving it.
+  private idleSince: number | null = null;
+  // Per-tenant runtime override of `IDLE_EVICT_MS`, set via
+  // `setIdleEvictOverrideMs()` (backs `POST /ace/generate/gpu/auto-unload`,
+  // porting ace-step-ui's `autoUnloadMinutes`). NOT persisted — matches
+  // ace-step-ui's in-memory-only behaviour; resets to the env default
+  // (`IDLE_EVICT_MS`) on process restart. `0` means "disabled" (never
+  // idle-evict this tenant); absent means "use the env default".
+  private readonly idleEvictOverrideMs = new Map<GpuTenant, number>();
 
   onStateChange(listener: () => void): void {
     this.emitter.on('state', listener);
@@ -222,42 +260,92 @@ class GpuScheduler {
   }
 
   private cancelIdleEvict(): void {
-    if (this.ollamaIdleEvictTimer) {
-      clearTimeout(this.ollamaIdleEvictTimer);
-      this.ollamaIdleEvictTimer = null;
+    if (this.idleEvictTimer) {
+      clearTimeout(this.idleEvictTimer);
+      this.idleEvictTimer = null;
     }
   }
 
+  /** Effective idle-evict timeout for `tenant`: the runtime override if one
+   *  is set (`0` meaning explicitly disabled), else the env-configured
+   *  default from `IDLE_EVICT_MS`, else `undefined` (never evicted). */
+  private effectiveIdleEvictMs(tenant: GpuTenant): number | undefined {
+    const override = this.idleEvictOverrideMs.get(tenant);
+    if (override !== undefined) return override > 0 ? override : undefined;
+    return IDLE_EVICT_MS[tenant];
+  }
+
+  /**
+   * Runtime override for `tenant`'s idle-evict timeout — backs
+   * `POST /ace/generate/gpu/auto-unload`. `ms: null` clears the override
+   * (revert to the env default); `ms: 0` disables idle-eviction for this
+   * tenant entirely; any positive value replaces the timeout. Re-evaluates
+   * immediately so shortening the timeout while already idle re-arms
+   * against the new value instead of waiting for the next job to drain.
+   */
+  setIdleEvictOverrideMs(tenant: GpuTenant, ms: number | null): void {
+    if (ms === null) this.idleEvictOverrideMs.delete(tenant);
+    else this.idleEvictOverrideMs.set(tenant, Math.max(0, ms));
+    this.armIdleEvictIfNeeded();
+    this.emit();
+  }
+
+  /** Idle-eviction status for `tenant` (default: whichever tenant is
+   *  currently resident) — `GET /ace/generate/gpu/status` surfaces this so
+   *  the UI can show "running? idle minutes? configured timeout?". */
+  getIdleStatus(tenant: GpuTenant = getCurrentTenant()): TenantIdleStatus {
+    const isCurrent = tenant === getCurrentTenant();
+    const idleSinceMs = isCurrent ? this.idleSince : null;
+    return {
+      tenant,
+      idleSinceMs,
+      idleMs: idleSinceMs !== null ? Date.now() - idleSinceMs : null,
+      timeoutMs: this.effectiveIdleEvictMs(tenant) ?? null,
+    };
+  }
+
   // Arm the idle-evict timer when (and only when) the scheduler is fully
-  // idle AND the current tenant is `ollama`. Re-armed by drain() / release().
-  private armOllamaIdleEvictIfNeeded(): void {
+  // idle AND the current tenant has a configured `IDLE_EVICT_MS` entry.
+  // Re-armed by drain() / release(). Generalises the ollama-only version of
+  // this (`armOllamaIdleEvictIfNeeded`) to any tenant in that map — `ace-step`
+  // is the second one (see config/env.ts's `ACE_STEP_IDLE_EVICT_MS`).
+  private armIdleEvictIfNeeded(): void {
     this.cancelIdleEvict();
-    if (this.slot !== null) return;
-    if (this.queue.length > 0) return;
-    if (getCurrentTenant() !== 'ollama') return;
-    this.ollamaIdleEvictTimer = setTimeout(() => {
-      this.ollamaIdleEvictTimer = null;
-      // Re-check just-in-time: a job could have arrived between the timer
-      // firing and the macrotask running.
-      if (this.slot !== null) return;
-      if (this.queue.length > 0) return;
-      if (getCurrentTenant() !== 'ollama') return;
-      logger.info('[scheduler] ollama idle for OLLAMA_IDLE_EVICT_MS, unloading', {
-        idleMs: OLLAMA_IDLE_EVICT_MS,
+    if (this.slot !== null || this.queue.length > 0) {
+      this.idleSince = null;
+      return;
+    }
+    if (this.idleSince === null) this.idleSince = Date.now();
+
+    const tenant = getCurrentTenant();
+    const evictMs = this.effectiveIdleEvictMs(tenant);
+    if (!evictMs) return;
+
+    this.idleEvictTimer = setTimeout(() => {
+      this.idleEvictTimer = null;
+      // Re-check just-in-time: a job could have arrived, or residency could
+      // have switched, between the timer firing and the macrotask running.
+      if (this.slot !== null || this.queue.length > 0) return;
+      if (getCurrentTenant() !== tenant) return;
+      logger.info(`[scheduler] ${tenant} idle for its configured timeout, unloading`, {
+        tenant,
+        idleMs: evictMs,
       });
       void (async () => {
         try {
-          await unloadOllama();
+          await unloadTenant(tenant);
           forceSetTenant('none');
+          this.idleSince = null;
           this.emit();
         } catch (err) {
-          logger.warn('[scheduler] idle-evict unloadOllama failed', {
+          logger.warn('[scheduler] idle-evict unload failed', {
+            tenant,
             error: err instanceof Error ? err.message : String(err),
           });
         }
       })();
-    }, OLLAMA_IDLE_EVICT_MS);
-    this.ollamaIdleEvictTimer.unref?.();
+    }, evictMs);
+    this.idleEvictTimer.unref?.();
   }
 
   private drain(): void {
@@ -266,9 +354,10 @@ class GpuScheduler {
     this.cancelIdleEvict();
     if (this.slot !== null) return;
     if (this.queue.length === 0) {
-      this.armOllamaIdleEvictIfNeeded();
+      this.armIdleEvictIfNeeded();
       return;
     }
+    this.idleSince = null;
 
     const job = this.queue.shift()!;
 

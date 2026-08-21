@@ -1,92 +1,43 @@
-// ACE-Step lyrics-generation routes.
-// GET  /api/ace/lyrics/models   — list the small GGUF lyrics-model catalog + on-disk status. Scope: system:read.
-// POST /api/ace/lyrics/generate — generate lyrics from genre/topic/mood.      Scope: generate:write.
+// ACE-Step lyrics-generation route.
+// POST /api/ace/lyrics/generate — generate lyrics from genre/topic/mood.  Scope: generate:write.
 //
-// GPU-scheduler decision: `data/ace/lyrics_generate.py` loads its GGUF model
-// via llama-cpp-python with `n_gpu_layers=0` hardcoded (CPU-only inference —
-// see the script). It never touches VRAM, so it does NOT contend with
-// ACE-Step/ComfyUI/Ollama for the GPU slot and is deliberately NOT wrapped in
-// `submitGpuJob`. If a future model swap moves this to GPU offload, add a
-// `submitGpuJob('oneshot', ...)` wrap (llama-cpp can't share VRAM with a
-// resident ACE-Step/ComfyUI process any better than TTS/Whisper do).
+// Previously ran `data/ace/lyrics_generate.py` via llama-cpp-python (a
+// CPU-only local GGUF model — a second LLM stack duplicating infrastructure
+// comfy already has). Now delegates to Ollama via `services/ace/
+// ollamaAssist.ts`, scheduled through the same `submitGpuJob('llm-chat', ...)`
+// slot every other ollama consumer uses (routes/llm.routes.ts). The GGUF
+// model catalog + `GET /ace/lyrics/models` listing route (never wired up for
+// download in the first place — see the removed TODO) were retired
+// alongside it; `data/ace/lyrics_generate.py` is left on disk, superseded,
+// in case a future agent wants the reference implementation.
 
 import { Router } from 'express';
-import fs from 'fs';
-import path from 'path';
 import { defineRoute } from '../../lib/defineRoute.js';
-import { ValidationError, InternalError } from '../../lib/errors.js';
-import { run } from '../../lib/exec.js';
-import { paths } from '../../config/paths.js';
+import * as packModelsRepo from '../../lib/db/packModels.repo.js';
+import { DEFAULT_LYRICS_SYSTEM_PROMPT } from '../../services/ace/prompts.js';
+import { InternalError } from '../../lib/errors.js';
+import { ollamaChat, resolveLyricsModel } from '../../services/ace/ollamaAssist.js';
 import {
-  LyricsModelsListResponseSchema,
   LyricsGenerateBodySchema,
   LyricsGenerateResponseSchema,
 } from '../../contracts/ace/lyrics.contract.js';
 
-interface LyricsModelCatalogEntry {
-  id: string;
-  name: string;
-  description: string;
-  size: string;
-  repo: string;
-  filename: string;
-}
-
-// Small, curated catalog — mirrors ace-step-ui's LYRICS_MODEL_CATALOG.
-// Downloading these (HF hub pull) is not wired up yet; see the TODO below.
-const LYRICS_MODEL_CATALOG: LyricsModelCatalogEntry[] = [
-  {
-    id: 'llama-song-stream-3b-q4',
-    name: 'Song Stream 3B (Q4)',
-    description: 'Fast, good quality lyrics generation',
-    size: '2.0 GB',
-    repo: 'prithivMLmods/Llama-Song-Stream-3B-Instruct-GGUF',
-    filename: 'Llama-Song-Stream-3B-Instruct.Q4_K_M.gguf',
-  },
-  {
-    id: 'llama-song-stream-3b-q8',
-    name: 'Song Stream 3B (Q8)',
-    description: 'Higher quality, uses more RAM',
-    size: '3.5 GB',
-    repo: 'prithivMLmods/Llama-Song-Stream-3B-Instruct-GGUF',
-    filename: 'Llama-Song-Stream-3B-Instruct.Q8_0.gguf',
-  },
-];
-
-function getModelPath(modelId: string): string | null {
-  const entry = LYRICS_MODEL_CATALOG.find((m) => m.id === modelId);
-  if (!entry) return null;
-  return path.join(paths.aceLyricsModelsDir, entry.filename);
-}
-
-function isModelDownloaded(modelId: string): boolean {
-  const modelPath = getModelPath(modelId);
-  return !!modelPath && fs.existsSync(modelPath);
-}
-
-function getFirstDownloadedModel(): string | null {
-  for (const m of LYRICS_MODEL_CATALOG) {
-    if (isModelDownloaded(m.id)) return m.id;
-  }
-  return null;
-}
-
-interface LyricsScriptArgs {
-  action: 'generate';
-  model_path: string;
-  genre?: string;
-  language?: string;
-  topic?: string;
-  mood?: string;
-  structure?: string;
+/** Effective lyrics system prompt: the `lyrics.systemPrompt` pack setting when
+ *  an operator has customised it, else the shipped default. Read per-request
+ *  (not cached) so an edit in Settings takes effect on the next generation
+ *  without a restart. */
+function lyricsSystemPrompt(): string {
+  const custom = packModelsRepo.getSetting('ace-step', 'lyrics.systemPrompt');
+  return custom && custom.trim() ? custom : DEFAULT_LYRICS_SYSTEM_PROMPT;
 }
 
 /**
- * Run `lyrics_generate.py` argv-only (the whole args object is JSON-encoded
- * into a single argv element — never shell-interpolated). Returns the parsed
- * `{ lyrics }` payload, or null if no model is downloaded / the script fails.
- * Exported so `routes/ace/generate.routes.ts`'s Simple-mode orchestration can
- * reuse this instead of re-implementing the spawn.
+ * Generate song lyrics via Ollama. Returns `null` (never throws) when no
+ * ollama model is configured/installed or the completion otherwise fails —
+ * callers (this file's route, `generate.routes.ts`'s Simple-mode
+ * orchestration) degrade to no-lyrics rather than failing the whole request.
+ * Exported so `routes/ace/generate.routes.ts` can reuse this instead of
+ * re-implementing the ollama call.
  */
 export async function generateLyrics(args: {
   genre?: string;
@@ -94,52 +45,24 @@ export async function generateLyrics(args: {
   topic?: string;
   mood?: string;
   structure?: string;
+  /** Explicit ollama model override — normally omitted; resolved from the
+   *  `llm.lyricsModel` pack setting (falling back to the first installed
+   *  ollama model) when absent. */
   modelId?: string;
 }): Promise<string | null> {
-  const resolvedModelId = args.modelId || getFirstDownloadedModel();
-  if (!resolvedModelId) return null;
-  const modelPath = getModelPath(resolvedModelId);
-  if (!modelPath || !fs.existsSync(modelPath)) return null;
+  const model = args.modelId || await resolveLyricsModel();
+  if (!model) return null;
 
-  const scriptArgs: LyricsScriptArgs = {
-    action: 'generate',
-    model_path: modelPath,
-    genre: args.genre || '',
-    language: args.language || 'english',
-    topic: args.topic || '',
-    mood: args.mood || '',
-    structure: args.structure || '',
-  };
+  const parts: string[] = [];
+  if (args.genre) parts.push(`Genre: ${args.genre}`);
+  if (args.language) parts.push(`Language: ${args.language}`);
+  if (args.mood) parts.push(`Mood: ${args.mood}`);
+  if (args.topic) parts.push(`Topic: ${args.topic}`);
+  if (args.structure) parts.push(`Structure: ${args.structure}`);
+  const userPrompt = `Write song lyrics with the following specifications:\n${parts.join('\n')}`;
 
-  const result = await run('python3', [paths.aceLyricsScript, JSON.stringify(scriptArgs)], {
-    timeoutMs: 120_000,
-  });
-  if (result.timedOut || result.code !== 0) return null;
-  try {
-    const parsed = JSON.parse(result.stdout.trim()) as { lyrics?: string };
-    return parsed.lyrics ?? null;
-  } catch {
-    return null;
-  }
+  return ollamaChat(model, lyricsSystemPrompt(), userPrompt, { temperature: 0.8, maxTokens: 1024 });
 }
-
-const modelsRoute = defineRoute({
-  method: 'GET',
-  path: '/ace/lyrics/models',
-  response: LyricsModelsListResponseSchema,
-  auth: { required: true, scopes: ['system:read'] },
-  tags: ['ace'],
-  summary: 'List the lyrics-LLM catalog and on-disk download status',
-}, ({ ok }) => {
-  const models = LYRICS_MODEL_CATALOG.map((m) => ({
-    id: m.id,
-    name: m.name,
-    description: m.description,
-    size: m.size,
-    downloaded: isModelDownloaded(m.id),
-  }));
-  return ok({ models });
-});
 
 const generateRoute = defineRoute({
   method: 'POST',
@@ -148,31 +71,19 @@ const generateRoute = defineRoute({
   response: LyricsGenerateResponseSchema,
   auth: { required: true, scopes: ['generate:write'] },
   tags: ['ace'],
-  summary: 'Generate song lyrics from genre/topic/mood via the local GGUF lyrics model',
+  summary: 'Generate song lyrics from genre/topic/mood via Ollama',
 }, async ({ body, ok }) => {
-  const resolvedModelId = body.modelId || getFirstDownloadedModel();
-  if (!resolvedModelId) {
-    throw new ValidationError('No lyrics model downloaded yet.');
-  }
-  const modelPath = getModelPath(resolvedModelId);
-  if (!modelPath || !fs.existsSync(modelPath)) {
-    throw new ValidationError(`Model ${resolvedModelId} is not downloaded.`);
-  }
-
-  const lyrics = await generateLyrics({ ...body, modelId: resolvedModelId });
-  if (lyrics === null) {
-    throw new InternalError('Lyrics generation failed');
+  const lyrics = await generateLyrics(body);
+  if (!lyrics) {
+    throw new InternalError(
+      'Lyrics generation failed. No reachable Ollama model — pull one from Models → Ollama, '
+      + 'or set one explicitly under this pack’s settings (llm.lyricsModel).',
+    );
   }
   return ok({ lyrics });
 });
 
 const router = Router();
-[modelsRoute, generateRoute].forEach((r) => r.register(router));
+[generateRoute].forEach((r) => r.register(router));
 
 export default router;
-
-// TODO(later agent / follow-up): model download is not wired up yet — the
-// catalog above lists `repo`/`filename` (HF hub coordinates) but there's no
-// route to trigger `hf_hub_download` into `paths.aceLyricsModelsDir` the way
-// ace-step-ui's `POST /lyrics/models/download` did. Until that lands, a
-// lyrics model has to be placed on disk manually.

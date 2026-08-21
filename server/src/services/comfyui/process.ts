@@ -233,13 +233,20 @@ export class LogService implements ComfyUILogStore {
   private recentLogs: string[] = [];
   private resetLogs: string[] = [];
 
-  addLog(message: string, isError: boolean = false): void {
+  // Returns the formatted (timestamped) entry so callers that need to relay
+  // the exact line elsewhere (e.g. `services/aiToolkit/train.ts` broadcasting
+  // it over WS) don't have to reconstruct the same formatting. `void`-typed
+  // callers (this class `implements ComfyUILogStore`, whose interface
+  // declares `addLog(...): void`) simply ignore the return value — TS allows
+  // a non-void-returning method to satisfy a void-returning interface member.
+  addLog(message: string, isError: boolean = false): string {
     const ts = new Date().toISOString();
     const entry = `[${ts}] ${isError ? 'ERROR: ' : ''}${message}`;
     this.recentLogs.push(entry);
     if (this.recentLogs.length > MAX_LOG_ENTRIES) this.recentLogs.shift();
     if (isError) logger.error(message);
     else logger.info(message);
+    return entry;
   }
 
   addResetLog(message: string, isError: boolean = false): void {

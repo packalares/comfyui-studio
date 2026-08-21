@@ -11,6 +11,12 @@ export const TASK_TYPES = {
   'llm-embeddings':    { tenant: 'ollama'    as const, priority: 10, maxRuntimeMs:  2 * 60 * 1000 },
   'comfy-generate':    { tenant: 'comfy'     as const, priority: 20, maxRuntimeMs: 45 * 60 * 1000 },
   'ace-step-generate': { tenant: 'ace-step'  as const, priority: 20, maxRuntimeMs: 30 * 60 * 1000 },
+  // ACE-Step's `/format_input` prompt/lyrics formatter. Same tenant as
+  // generation (it's the same resident LM), but a HIGHER priority and a short
+  // cap: it's an interactive click that returns in seconds, so it should slot
+  // in ahead of a queued 30-minute batch rather than block behind one. Sharing
+  // the tenant means it never triggers an evict/reload cycle of its own.
+  'ace-step-format':   { tenant: 'ace-step'  as const, priority: 10, maxRuntimeMs: 2 * 60 * 1000 },
   // TTS (IndexTTS2) and Whisper run as separate-venv one-shot python processes
   // that cannot coexist with the ACE-Step FastAPI in VRAM, so they use the
   // evict-all 'oneshot' tenant (whole-card, no persistent server).

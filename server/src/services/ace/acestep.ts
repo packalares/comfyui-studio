@@ -11,16 +11,35 @@
 //   - The in-memory job queue (`activeJobs`/`jobQueue`/`processQueue`) —
 //     comfy's GPU scheduler (`submitGpuJob('ace-step-generate', ...)`) IS the
 //     queue now; see `routes/ace/generate.routes.ts`.
-//   - `resolveAudioPath`'s copy-to-`/tmp` step — ace-step-ui needed that
-//     because its ACE-Step process could be a separate container with a
-//     different mount namespace. Here `getAceStepProcessService` spawns
-//     `python3` as a plain child of this same Node process (see
-//     `services/aceStep/process.ts`), so it shares comfy's filesystem
-//     namespace and can read any absolute path directly — no copy needed.
+//
+// NOT dropped, despite an earlier attempt:
+//   - The copy-to-`/tmp` step was also dropped when this was first ported,
+//     on the reasoning that ace-step-ui only needed it
+//     because its ACE-Step could be a separate container with a different
+//     mount namespace, whereas ours is a plain child process sharing this
+//     filesystem. That reasoning was WRONG and the step is restored below
+//     (`stageAudioForAceStep`): the copy is not about filesystem visibility,
+//     it's about ACE-Step's own security guard. `api/http/
+//     release_task_audio_paths.py` rejects ANY absolute path that does not
+//     resolve inside the system temp dir:
+//
+//         if is_in_temp: return requested_path
+//         if os.path.isabs(path):
+//             raise HTTPException(400, "absolute audio file paths are not allowed")
+//
+//     Sharing a namespace doesn't help — the guard is a policy check, not an
+//     access check. Passing a real `/root/ComfyUI/output/...` path fails with
+//     a 400 every time.
 
-import { existsSync } from 'fs';
+import fs, { existsSync } from 'fs';
+import os from 'os';
+import path from 'path';
+import { createHash } from 'crypto';
 import { env } from '../../config/env.js';
+import { paths } from '../../config/paths.js';
+import { safeResolve } from '../../lib/fs.js';
 import { UpstreamUnavailableError } from '../../lib/errors.js';
+import { logger } from '../../lib/logger.js';
 
 function apiBase(): string {
   return env.ACESTEP_API_URL;
@@ -92,6 +111,11 @@ export interface GenerationParams {
   referenceAudioUrl?: string;
   sourceAudioUrl?: string;
   audioCodes?: string;
+  extractCodesOnly?: boolean;
+  /** Deeper analysis: codes PLUS an LM pass that names bpm/key/genre/caption.
+   *  Needs the LM handler resident, so it can fail where `extractCodesOnly`
+   *  succeeds — callers should be ready to fall back. */
+  fullAnalysisOnly?: boolean;
   repaintingStart?: number;
   repaintingEnd?: number;
   instruction?: string;
@@ -137,10 +161,133 @@ export function resolveReferenceAudioPath(
   audioUrlOrPath: string,
   resolveLocalUrl: (url: string) => string | null,
 ): string | null {
+  const resolved = resolveAudioSource(audioUrlOrPath, resolveLocalUrl);
+  return resolved ? stageAudioForAceStep(resolved) : null;
+}
+
+/** Resolve the caller's reference to a real absolute path on this filesystem,
+ *  before the temp-staging step. Split out so the staging policy and the
+ *  URL-form handling stay separately testable. */
+function resolveAudioSource(
+  audioUrlOrPath: string,
+  resolveLocalUrl: (url: string) => string | null,
+): string | null {
   const localPath = resolveLocalUrl(audioUrlOrPath);
   if (localPath) return existsSync(localPath) ? localPath : null;
+  const viewPath = resolveComfyViewUrl(audioUrlOrPath);
+  if (viewPath) return viewPath;
   if (audioUrlOrPath.startsWith('/') && existsSync(audioUrlOrPath)) return audioUrlOrPath;
   return null;
+}
+
+/** Where staged copies live. A dedicated subdir (rather than tmpdir root)
+ *  keeps them identifiable and lets us prune only our own files. */
+const ACE_AUDIO_STAGE_DIR = path.join(os.tmpdir(), 'comfy-ace-audio');
+
+/** Prune staged copies older than this on each staging call. They're
+ *  disposable — the source of truth is always the original file — but a
+ *  long-running server that never pruned would accumulate a copy per
+ *  generation. */
+const STAGE_TTL_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Copy an audio file into the system temp dir and return the staged path.
+ *
+ * Required by ACE-Step's `release_task` guard (see this module's header): an
+ * absolute path is accepted ONLY if it resolves inside the system temp dir.
+ * Every other absolute path — including a perfectly readable one in comfy's
+ * own output tree — is rejected with 400.
+ *
+ * The staged name is derived from the source path + size + mtime, so:
+ *   - re-generating from the same track reuses one staged copy instead of
+ *     writing a new file per request, and
+ *   - editing the source (same path, new mtime) produces a new staged file
+ *     rather than silently reusing stale audio.
+ *
+ * Falls back to returning the original path if staging fails: that request
+ * will get ACE-Step's 400, which is a clearer failure than pretending the
+ * copy worked.
+ */
+function stageAudioForAceStep(sourcePath: string): string {
+  try {
+    fs.mkdirSync(ACE_AUDIO_STAGE_DIR, { recursive: true, mode: 0o700 });
+    pruneStagedAudio();
+
+    const st = fs.statSync(sourcePath);
+    const key = createHash('sha1')
+      .update(`${sourcePath}:${st.size}:${st.mtimeMs}`)
+      .digest('hex')
+      .slice(0, 16);
+    const staged = path.join(ACE_AUDIO_STAGE_DIR, `${key}${path.extname(sourcePath)}`);
+
+    if (!existsSync(staged)) {
+      // Write to a unique temp name then rename, so a concurrent generation
+      // can never read a half-written file under the final name.
+      const partial = `${staged}.${process.pid}.partial`;
+      fs.copyFileSync(sourcePath, partial);
+      fs.renameSync(partial, staged);
+    }
+    return staged;
+  } catch (err) {
+    logger.warn('[ace-step] failed to stage audio into temp; passing original path', {
+      sourcePath,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return sourcePath;
+  }
+}
+
+function pruneStagedAudio(): void {
+  try {
+    const cutoff = Date.now() - STAGE_TTL_MS;
+    for (const name of fs.readdirSync(ACE_AUDIO_STAGE_DIR)) {
+      const full = path.join(ACE_AUDIO_STAGE_DIR, name);
+      try {
+        if (fs.statSync(full).mtimeMs < cutoff) fs.unlinkSync(full);
+      } catch { /* vanished or busy — skip */ }
+    }
+  } catch { /* stage dir unreadable — staging itself will surface the problem */ }
+}
+
+/**
+ * Resolve one of ComfyUI's own `/api/view?filename=&subfolder=&type=` URLs to
+ * an absolute path.
+ *
+ * Needed because source/reference tracks are picked through comfy's shared
+ * `MediaLibraryModal` (the same picker Studio uses for images), which yields
+ * comfy media refs — and because a generated song's `audioUrl` IS a view URL
+ * now that songs are gallery rows. Without this, "remix one of my own songs"
+ * resolves to null and the request silently loses its source track.
+ *
+ * `type` selects the root: ComfyUI serves `output`/`input`/`temp` from
+ * separate trees. Only output and input are accepted — `temp` is scratch that
+ * can vanish mid-generation. Both components go through `safeResolve` because
+ * `filename`/`subfolder` arrive from the client and must not escape the root
+ * via `../`.
+ */
+function resolveComfyViewUrl(raw: string): string | null {
+  if (!raw.startsWith('/api/view?') && !raw.startsWith('/view?')) return null;
+  let q: URLSearchParams;
+  try {
+    q = new URL(raw, 'http://localhost').searchParams;
+  } catch {
+    return null;
+  }
+  const filename = q.get('filename');
+  if (!filename) return null;
+  const type = q.get('type') || 'output';
+  const root = type === 'input' ? paths.comfyInputDir
+    : type === 'output' ? paths.comfyOutputDir
+      : null;
+  if (!root) return null;
+  try {
+    const abs = safeResolve(root, q.get('subfolder') || '', filename);
+    return existsSync(abs) ? abs : null;
+  } catch {
+    // safeResolve throws on traversal attempts — treat as unresolvable rather
+    // than surfacing a path error into a generation request.
+    return null;
+  }
 }
 
 function buildReleaseTaskBody(
@@ -199,35 +346,76 @@ function buildReleaseTaskBody(
     lm_top_p: params.lmTopP ?? 0.9,
     lm_negative_prompt: params.lmNegativePrompt || 'NO USER INPUT',
 
-    use_cot_metas: useCot ? (params.useCotMetas ?? true) : false,
+    // NOTE: `use_cot_metas` is NOT an API field and was removed — see the
+    // "not accepted" list at the bottom of this object.
     use_cot_caption: useCot ? (params.useCotCaption ?? true) : false,
     use_cot_language: useCot ? (params.useCotLanguage ?? true) : false,
-    use_constrained_decoding: true,
+    // `constrained_decoding`, not `use_constrained_decoding`
+    // (`release_task_models.py:111`). Harmless in practice — the value we sent
+    // matched the API's own default — but it was never actually being read.
+    constrained_decoding: true,
     constrained_decoding_debug: params.constrainedDecodingDebug ?? false,
     allow_lm_batch: params.allowLmBatch ?? true,
-    lm_batch_chunk_size: params.lmBatchChunkSize ?? 8,
 
     use_adg: params.useAdg ?? false,
     cfg_interval_start: params.cfgIntervalStart ?? 0.0,
     cfg_interval_end: params.cfgIntervalEnd ?? 1.0,
-    custom_timesteps: params.customTimesteps || '',
+    // `timesteps`, not `custom_timesteps`. See the note on `track_classes`
+    // below — same class of bug, same silent failure.
+    timesteps: params.customTimesteps || '',
 
     audio_format: params.audioFormat || 'flac',
-    mp3_bitrate: params.mp3Bitrate || '192k',
-    mp3_sample_rate: params.mp3SampleRate || 48000,
-    enable_normalization: params.enableNormalization ?? true,
-    normalization_db: params.normalizationDb ?? -1.0,
-    fade_in_duration: params.fadeInDuration ?? 0.0,
-    fade_out_duration: params.fadeOutDuration ?? 0.0,
 
-    get_scores: params.getScores ?? false,
-    get_lrc: params.getLrc ?? false,
-    score_scale: params.scoreScale ?? 0.5,
-
-    audio_codes: params.audioCodes || '',
+    // `audio_code_string`, not `audio_codes`.
+    audio_code_string: params.audioCodes || '',
+    // Analysis path: returns codes for `src_audio_path` instead of audio.
+    // Upstream requires src audio to be set and raises if it isn't
+    // (`api/job_analysis_runtime.py`), so the route validates that first.
+    extract_codes_only: params.extractCodesOnly ?? false,
+    full_analysis_only: params.fullAnalysisOnly ?? false,
     track_name: params.trackName || null,
-    complete_track_classes: params.completeTrackClasses || [],
+    /**
+     * `track_classes` — NOT `complete_track_classes`.
+     *
+     * ACE-Step's request model is a Pydantic model that silently ignores
+     * unknown keys, so the misnamed version was accepted with a 200 and then
+     * dropped on the floor. Continue mode's instrument selection therefore did
+     * nothing at all, in a way that looked like the model ignoring the request
+     * rather than a typo one layer up. Worth remembering when adding fields
+     * here: a wrong name fails silently, never loudly.
+     */
+    track_classes: params.completeTrackClasses || [],
     model: params.ditModel || null,
+
+    /*
+     * NOT SENT — verified against `api/http/release_task_models.py` (59 fields)
+     * by diffing every key in this object against it.
+     *
+     * These were previously sent and silently discarded: Pydantic ignores
+     * unknown keys, so they cost nothing but read as working features to
+     * anyone maintaining this. Removed rather than left in place, because a
+     * request key that looks wired and isn't is exactly how this file
+     * accumulated `audio_codes` / `complete_track_classes` / `custom_timesteps`
+     * bugs in the first place.
+     *
+     *   use_cot_metas              — no such field
+     *   lm_batch_chunk_size        — no such field
+     *   mp3_bitrate, mp3_sample_rate,
+     *   enable_normalization, normalization_db,
+     *   fade_in_duration, fade_out_duration
+     *                              — post-processing is NOT controllable over
+     *                                HTTP; ACE-Step applies its own
+     *   get_scores, get_lrc, score_scale
+     *                              — scoring/LRC output not exposed by the API
+     *
+     * The API accepts these and we do not currently send them, which is a
+     * capability gap rather than a bug: `global_caption`, `chunk_mask_mode`,
+     * `repaint_latent_crossfade_frames`, `repaint_wav_crossfade_sec`,
+     * `analysis_only`, `use_tiled_decode`, `lm_model_path`, `lm_backend`,
+     * `is_format_caption`, `lm_repetition_penalty`. The two repaint crossfade
+     * knobs are the ones most likely to be worth wiring — they control the
+     * boundary blend that makes a repainted section splice cleanly.
+     */
   };
 }
 
@@ -255,6 +443,15 @@ export interface TaskQueryResult {
   progress: number;
   stage: string;
   audioFileUrls: string[]; // ACE-Step-side URLs like /v1/audio?path=...
+  /** Set only by the `extract_codes_only` analysis path. */
+  audioCodes?: string;
+  /** Set only by `full_analysis_only` — the LM's description of the track. */
+  analysis?: {
+    genre?: string;
+    caption?: string;
+    lyrics?: string;
+    language?: string;
+  };
   error?: string;
   duration?: number;
   bpm?: number;
@@ -274,6 +471,20 @@ interface QueryResultItem {
   progress?: number;
   stage?: string;
   error?: string;
+  /** Only present on the analysis path (`extract_codes_only`), where
+   *  `api/job_analysis_runtime.py` returns codes and an EMPTY `audio_paths`
+   *  instead of generated audio. */
+  audio_codes?: string;
+  /** `full_analysis_only` extras — the LM's reading of the track, returned at
+   *  the TOP level of the analysis dict rather than inside `metas`. */
+  bpm?: number;
+  keyscale?: string;
+  timesignature?: string;
+  duration?: number;
+  genre?: string | string[];
+  prompt?: string;
+  lyrics?: string;
+  language?: string;
   metas?: {
     duration?: number;
     bpm?: number;
@@ -293,9 +504,16 @@ export async function queryTask(taskId: string): Promise<TaskQueryResult | null>
   const job = data[0];
   let resultItems: QueryResultItem[] = [];
   try {
-    resultItems = typeof job.result === 'string'
-      ? JSON.parse(job.result) as QueryResultItem[]
-      : (job.result as QueryResultItem[] | undefined) ?? [];
+    const parsed: unknown = typeof job.result === 'string'
+      ? JSON.parse(job.result)
+      : job.result;
+    // The generation path returns an ARRAY of per-file items; the analysis
+    // path (`extract_codes_only`) returns a single OBJECT with `audio_codes`
+    // and no files. Normalising to an array here keeps one polling routine
+    // for both rather than forking `queryTask` by request kind.
+    if (Array.isArray(parsed)) resultItems = parsed as QueryResultItem[];
+    else if (parsed && typeof parsed === 'object') resultItems = [parsed as QueryResultItem];
+    else resultItems = [];
   } catch {
     resultItems = [];
   }
@@ -309,10 +527,25 @@ export async function queryTask(taskId: string): Promise<TaskQueryResult | null>
       progress: 1,
       stage: 'Done',
       audioFileUrls,
-      duration: metas.duration,
-      bpm: metas.bpm,
-      keyScale: metas.keyscale,
-      timeSignature: metas.timesignature,
+      audioCodes: resultItems.find((r) => !!r.audio_codes)?.audio_codes,
+      analysis: (() => {
+        const a = resultItems.find((r) => r.prompt || r.genre || r.lyrics);
+        if (!a) return undefined;
+        return {
+          // `genre` comes back as either a string or a list depending on what
+          // the LM emitted; normalise so the UI renders one thing.
+          genre: Array.isArray(a.genre) ? a.genre.join(', ') : a.genre,
+          caption: a.prompt,
+          lyrics: a.lyrics,
+          language: a.language,
+        };
+      })(),
+      // Generation puts these inside `metas`; `full_analysis_only` returns
+      // them at the top level of its dict. Check both rather than forking.
+      duration: metas.duration ?? resultItems[0]?.duration,
+      bpm: metas.bpm ?? resultItems[0]?.bpm,
+      keyScale: metas.keyscale ?? resultItems[0]?.keyscale,
+      timeSignature: metas.timesignature ?? resultItems[0]?.timesignature,
       raw: job,
     };
   }

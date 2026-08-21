@@ -1,4 +1,14 @@
-"""Lyrics generation using Llama Song Stream 3B via llama-cpp-python."""
+"""Lyrics generation using Llama Song Stream 3B via llama-cpp-python.
+
+SUPERSEDED: no longer invoked. `routes/ace/lyrics.routes.ts` and
+`routes/ace/generate.routes.ts`'s `random-description` route now call
+Ollama directly (see `services/ace/ollamaAssist.ts`) instead of shelling out
+to this script's CPU-only llama-cpp-python GGUF model — comfy already runs
+Ollama (`services/gpu/scheduler.ts`, `routes/llm.routes.ts`), so this was a
+second, duplicate local-LLM stack. `llama-cpp-python` was removed from the
+`ace-step` pack's `main` venv `pipPackages` (`services/packs/registry.ts`)
+accordingly. Left on disk only as a reference implementation.
+"""
 import sys
 import json
 import os

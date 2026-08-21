@@ -1,42 +1,78 @@
 <!doctype html>
 <html>
 <body>
-<ul>
-<li x-test-model class="card">
-  <a href="/library/llama3.3">
-    <h2 x-test-model-title title="llama3.3">llama3.3</h2>
+<ul role="list" class="grid grid-cols-1">
+<li class="flex items-baseline border-b border-neutral-200 py-6">
+  <a href="/library/llama3.3" class="group w-full space-y-5">
+    <div title="llama3.3" class="flex flex-col">
+      <h2 class="truncate text-xl font-medium">
+        <div class="flex space-x-2 items-center">
+          <span class="group-hover:underline truncate">llama3.3</span>
+        </div>
+      </h2>
+      <p class="max-w-lg break-words text-neutral-800 text-md">Meta's latest 70B parameter model.</p>
+    </div>
+    <div class="flex flex-col space-y-2">
+      <div class="flex flex-wrap space-x-2">
+        <span class="inline-flex items-center rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-600">tools</span>
+        <span class="inline-flex items-center rounded-md bg-[#ddf4ff] px-2 py-0.5 text-xs font-medium text-blue-600">70b</span>
+      </div>
+      <p class="my-4 flex space-x-5 text-[13px] font-medium text-neutral-500">
+        <span class="flex items-center"><svg></svg><span>12.5M</span><span class="hidden sm:flex">&nbsp;Pulls</span></span>
+        <span class="flex items-center"><svg></svg><span>17</span><span class="hidden sm:flex">&nbsp;Tags</span></span>
+        <span class="flex items-center"><svg></svg><span class="hidden sm:flex">Updated&nbsp;</span><span>2 weeks ago</span></span>
+      </p>
+    </div>
   </a>
-  <p class="max-w-lg text-sm">Meta's latest 70B parameter model.</p>
-  <span x-test-pull-count>12.5M</span>
-  <span x-test-tag-count>17</span>
-  <span x-test-updated>2 weeks ago</span>
-  <span x-test-size>70b</span>
-  <span x-test-capability>tools</span>
 </li>
-<li x-test-model class="card">
-  <a href="/library/qwen2.5">
-    <h2 x-test-model-title title="qwen2.5">qwen2.5</h2>
+<li class="flex items-baseline border-b border-neutral-200 py-6">
+  <a href="/library/qwen2.5" class="group w-full space-y-5">
+    <div title="qwen2.5" class="flex flex-col">
+      <h2 class="truncate text-xl font-medium">
+        <div class="flex space-x-2 items-center">
+          <span class="group-hover:underline truncate">qwen2.5</span>
+        </div>
+      </h2>
+      <p class="max-w-lg break-words text-neutral-800 text-md">Alibaba Qwen 2.5 family with multilingual support.</p>
+    </div>
+    <div class="flex flex-col space-y-2">
+      <div class="flex flex-wrap space-x-2">
+        <span class="inline-flex items-center rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-600">tools</span>
+        <span class="inline-flex items-center rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-600">vision</span>
+        <span class="inline-flex items-center rounded-md bg-[#ddf4ff] px-2 py-0.5 text-xs font-medium text-blue-600">0.5b</span>
+        <span class="inline-flex items-center rounded-md bg-[#ddf4ff] px-2 py-0.5 text-xs font-medium text-blue-600">1.5b</span>
+        <span class="inline-flex items-center rounded-md bg-[#ddf4ff] px-2 py-0.5 text-xs font-medium text-blue-600">7b</span>
+        <span class="inline-flex items-center rounded-md bg-[#ddf4ff] px-2 py-0.5 text-xs font-medium text-blue-600">72b</span>
+      </div>
+      <p class="my-4 flex space-x-5 text-[13px] font-medium text-neutral-500">
+        <span class="flex items-center"><svg></svg><span>3.2M</span><span class="hidden sm:flex">&nbsp;Pulls</span></span>
+        <span class="flex items-center"><svg></svg><span>40</span><span class="hidden sm:flex">&nbsp;Tags</span></span>
+        <span class="flex items-center"><svg></svg><span class="hidden sm:flex">Updated&nbsp;</span><span>1 month ago</span></span>
+      </p>
+    </div>
   </a>
-  <p class="max-w-lg text-sm">Alibaba Qwen 2.5 family with multilingual support.</p>
-  <span x-test-pull-count>3.2M</span>
-  <span x-test-tag-count>40</span>
-  <span x-test-updated>1 month ago</span>
-  <span x-test-size>0.5b</span>
-  <span x-test-size>1.5b</span>
-  <span x-test-size>7b</span>
-  <span x-test-size>72b</span>
-  <span x-test-capability>tools</span>
-  <span x-test-capability>vision</span>
 </li>
-<li x-test-model class="card">
-  <a href="/library/mistral-small">
-    <h2 x-test-model-title title="mistral-small">mistral-small</h2>
+<li class="flex items-baseline border-b border-neutral-200 py-6">
+  <a href="/library/mistral-small" class="group w-full space-y-5">
+    <div title="mistral-small" class="flex flex-col">
+      <h2 class="truncate text-xl font-medium">
+        <div class="flex space-x-2 items-center">
+          <span class="group-hover:underline truncate">mistral-small</span>
+        </div>
+      </h2>
+      <p class="max-w-lg break-words text-neutral-800 text-md">Mistral Small &amp; nimble.</p>
+    </div>
+    <div class="flex flex-col space-y-2">
+      <div class="flex flex-wrap space-x-2">
+        <span class="inline-flex items-center rounded-md bg-[#ddf4ff] px-2 py-0.5 text-xs font-medium text-blue-600">22b</span>
+      </div>
+      <p class="my-4 flex space-x-5 text-[13px] font-medium text-neutral-500">
+        <span class="flex items-center"><svg></svg><span>500K</span><span class="hidden sm:flex">&nbsp;Pulls</span></span>
+        <span class="flex items-center"><svg></svg><span>8</span><span class="hidden sm:flex">&nbsp;Tags</span></span>
+        <span class="flex items-center"><svg></svg><span class="hidden sm:flex">Updated&nbsp;</span><span>3 days ago</span></span>
+      </p>
+    </div>
   </a>
-  <p class="max-w-lg text-sm">Mistral Small &amp; nimble.</p>
-  <span x-test-pull-count>500K</span>
-  <span x-test-tag-count>8</span>
-  <span x-test-updated>3 days ago</span>
-  <span x-test-size>22b</span>
 </li>
 </ul>
 </body>

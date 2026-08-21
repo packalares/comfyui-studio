@@ -58,7 +58,9 @@ import * as aceStep from '../../services/ace/acestep.js';
 import * as audioSeparator from '../../services/ace/audioSeparator.js';
 import * as stemJobs from '../../services/ace/stemJobs.js';
 import * as aceTrainingRepo from '../../lib/db/aceTraining.repo.js';
+import { broadcastAce } from '../../services/ace/broadcaster.js';
 import { PACKS } from '../../services/packs/registry.js';
+import { effectiveDest, effectiveRepo } from '../../services/packs/settings.js';
 import {
   UploadTrainingAudioResponseSchema,
   TranscribeUploadsBodySchema,
@@ -134,6 +136,22 @@ type TranscribeJobState = {
 const transcribeJobs = new Map<string, TranscribeJobState>();
 const TRANSCRIBE_LOG_TAIL = 200;
 const TRANSCRIBE_JOB_TTL_MS = 30 * 60 * 1000;
+
+/** Push a `{type:'ace:training', data:{kind:'whisper', ...}}` frame whenever
+ *  a whisper batch-transcription job changes — mirrors the shape
+ *  `GET /transcribe-uploads-status` returns so a client that reconciles via
+ *  that route on mount and then subscribes to this broadcast never sees a
+ *  shape mismatch. */
+function broadcastTranscribeJob(datasetName: string, job: TranscribeJobState): void {
+  broadcastAce('ace:training', {
+    kind: 'whisper',
+    datasetName,
+    status: job.status,
+    dir: job.dir,
+    error: job.error,
+    lines: job.lines.slice(-TRANSCRIBE_LOG_TAIL),
+  });
+}
 
 /** Dataset/persona names become filesystem path components (upload folder,
  *  dataset JSON filename). Strip everything except a safe identifier charset
@@ -289,13 +307,32 @@ function looksActive(status: Record<string, unknown>): boolean {
   return flags.some((k) => d[k] === true);
 }
 
+/** `kind` tags every push as `{type:'ace:training', data:{kind, raw}}` so
+ *  `TrainTab` can subscribe once and route by `kind` instead of running
+ *  three separate polling loops (`pollGeneric` against preprocess-status /
+ *  auto-label-status / training-status). This loop already fetches the
+ *  FastAPI status on an interval to know when to release the GPU slot —
+ *  broadcasting each fetch here (deduped against the previous one so an
+ *  unchanged snapshot doesn't spam a frame) means the client no longer needs
+ *  its own poll loop for the common case; `GET` the same status route once
+ *  on mount / after a dropped socket remains the fallback + reconciliation
+ *  path. */
 async function pollUntilInactive(
   fetchStatus: () => Promise<Record<string, unknown>>,
   maxWaitMs: number,
   settleDelayMs = 2000,
   pollIntervalMs = 3000,
+  kind?: 'preprocess' | 'autoLabel' | 'train',
 ): Promise<void> {
   const deadline = Date.now() + maxWaitMs;
+  let lastJson = '';
+  const broadcastStatus = (raw: Record<string, unknown>): void => {
+    if (!kind) return;
+    const json = JSON.stringify(raw);
+    if (json === lastJson) return;
+    lastJson = json;
+    broadcastAce('ace:training', { kind, raw });
+  };
   // Give the FastAPI task a moment to actually start before checking —
   // otherwise a not-yet-started task looks identical to a finished one.
   await new Promise((r) => setTimeout(r, settleDelayMs));
@@ -306,7 +343,10 @@ async function pollUntilInactive(
     } catch {
       // Transient — FastAPI may be mid-restart; keep polling.
     }
-    if (status && !looksActive(status)) return;
+    if (status) {
+      broadcastStatus(status);
+      if (!looksActive(status)) return;
+    }
     await new Promise((r) => setTimeout(r, pollIntervalMs));
   }
   logger.warn('[ace-training] pollUntilInactive hit its max-wait ceiling; releasing anyway', { maxWaitMs });
@@ -434,9 +474,11 @@ const transcribeUploadsRoute = defineRoute({
     status: 'running', dir: audioDir, startedAt: Date.now(), lines: [],
   };
   transcribeJobs.set(datasetName, job);
+  broadcastTranscribeJob(datasetName, job);
 
   const finish = (patch: Partial<TranscribeJobState>): void => {
     Object.assign(job, patch, { finishedAt: Date.now() });
+    broadcastTranscribeJob(datasetName, job);
     // Keep the terminal state around long enough for a mid-poll client to
     // observe it, then drop it so the map can't grow without bound.
     setTimeout(() => {
@@ -450,6 +492,7 @@ const transcribeUploadsRoute = defineRoute({
         logger.info(`[whisper] ${line}`);
         job.lines.push(line);
         if (job.lines.length > TRANSCRIBE_LOG_TAIL) job.lines.shift();
+        broadcastTranscribeJob(datasetName, job);
       });
       finish({ status: 'succeeded' });
     } catch (err) {
@@ -644,7 +687,7 @@ const preprocessRoute = defineRoute({
     try {
       const started = await aceStep.preprocessDatasetAsync(datasetPath, outputDir);
       resolveRoute({ task_id: started.taskId, status: started.status });
-      await pollUntilInactive(() => aceStep.getPreprocessStatus(), PREPROCESS_MAX_WAIT_MS);
+      await pollUntilInactive(() => aceStep.getPreprocessStatus(), PREPROCESS_MAX_WAIT_MS, undefined, undefined, 'preprocess');
     } catch (err) {
       resolveRoute(Promise.reject(err));
     } finally {
@@ -685,7 +728,7 @@ const autoLabelRoute = defineRoute({
     try {
       const started = await aceStep.autoLabelDatasetAsync(body);
       resolveRoute({ task_id: started.taskId, total: started.total, status: started.status });
-      await pollUntilInactive(() => aceStep.getAutoLabelStatus(), AUTO_LABEL_MAX_WAIT_MS);
+      await pollUntilInactive(() => aceStep.getAutoLabelStatus(), AUTO_LABEL_MAX_WAIT_MS, undefined, undefined, 'autoLabel');
     } catch (err) {
       resolveRoute(Promise.reject(err));
     } finally {
@@ -744,10 +787,11 @@ const checkpointsRoute = defineRoute({
   tags: ['ace'],
   summary: 'List installed ACE-Step DiT checkpoints available to train against',
 }, ({ ok }) => {
-  const checkpointModels = PACKS['ace-step'].models.filter((m) => m.dest.includes(`${path.sep}checkpoints${path.sep}`));
+  const checkpointModels = PACKS['ace-step'].models.filter((m) => m.kind === 'checkpoint');
   const checkpoints = checkpointModels
-    .filter((m) => fs.existsSync(m.dest) && fs.statSync(m.dest).isDirectory())
-    .map((m) => path.basename(m.dest));
+    .map((m) => effectiveDest('ace-step', m.id, m.kind, effectiveRepo('ace-step', m.id, m.repo)))
+    .filter((dest) => fs.existsSync(dest) && fs.statSync(dest).isDirectory())
+    .map((dest) => path.basename(dest));
   // ace-step-ui separately listed `acestep-v15-*` config directories; every
   // fixed checkpoint dest here already matches that naming convention, so
   // the two lists are equivalent in comfy's case.
@@ -961,7 +1005,7 @@ const startTrainingRoute = defineRoute({
       });
       const status = typeof raw.status === 'string' ? raw.status : undefined;
       resolveRoute({ runId, status, raw });
-      await pollUntilInactive(() => aceStep.getTrainingStatus(), TRAINING_MAX_WAIT_MS);
+      await pollUntilInactive(() => aceStep.getTrainingStatus(), TRAINING_MAX_WAIT_MS, undefined, undefined, 'train');
       aceTrainingRepo.updateTrainingRun(runId, { status: 'succeeded', finishedAt: Date.now() });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

@@ -81,39 +81,59 @@ function attr(html: string, name: string): string {
   return m ? decodeEntities(m[1]) : '';
 }
 
-function collect(html: string, attrName: string): string[] {
+/** Text of every `<span>` inside `card` whose open tag contains `classToken`
+ *  (a regex fragment, so `#`/`[`/`]` in a Tailwind arbitrary value must be
+ *  pre-escaped by the caller). Ollama's badges carry no semantic markers —
+ *  only their colour classes distinguish a capability chip from a size chip —
+ *  so we key off those. */
+function collectSpans(card: string, classToken: string): string[] {
   const out: string[] = [];
-  const re = new RegExp(`${attrName}[^>]*>\\s*([^<]+)<`, 'g');
+  const re = new RegExp(`<span[^>]*${classToken}[^>]*>([^<]+)</span>`, 'g');
   let m: RegExpExecArray | null;
-  while ((m = re.exec(html)) !== null) {
+  while ((m = re.exec(card)) !== null) {
     const txt = decodeEntities(m[1]).trim();
     if (txt.length > 0) out.push(txt);
   }
   return out;
 }
 
+/**
+ * Parse the ollama.com/library index into model rows.
+ *
+ * HISTORY: this originally keyed off `x-test-*` attributes (`x-test-model`,
+ * `x-test-capability`, `x-test-size`, …). Ollama removed every one of those
+ * from the library page around mid-2026, so the old parser silently matched
+ * zero cards — which tripped `scrapeLibraryOnce`'s `< LIBRARY_MIN_CARDS`
+ * guard and made every refresh a no-op, freezing the cached table. There is
+ * no test hook in the new markup, so we key off the structural Tailwind
+ * classes instead:
+ *   - each card is `<a href="/library/<name>" class="group …"> … </a>`
+ *   - description is the `max-w-lg` paragraph
+ *   - capability chips are `bg-indigo-50` spans; size chips are `bg-[#ddf4ff]`
+ *   - pulls / tags / updated live in the `my-4` stats paragraph as
+ *     "<n> Pulls", "<n> Tags", "Updated <relative time>"
+ * These are load-bearing on Ollama's CSS, so a future redesign can break this
+ * again — the `LIBRARY_MIN_CARDS` guard is what turns that into "stale cache"
+ * rather than "wiped cache".
+ */
 export function parseLibraryHtml(html: string): OllamaLibraryModel[] {
   const out: OllamaLibraryModel[] = [];
-  const cardRe = /<li[^>]*\bx-test-model\b[^>]*>([\s\S]*?)<\/li>/g;
+  const cardRe = /<a[^>]*href="\/library\/([^"#?]+)"[^>]*class="group[^"]*"[^>]*>([\s\S]*?)<\/a>/g;
   let m: RegExpExecArray | null;
   while ((m = cardRe.exec(html)) !== null) {
-    const card = m[1];
-    const hrefMatch = /<a[^>]*href="\/library\/([^"#?]+)"/.exec(card);
-    const name = hrefMatch ? decodeEntities(hrefMatch[1]) : '';
+    const name = decodeEntities(m[1]);
+    const card = m[2];
     if (!name) continue;
-    const titleAttr = attr(card, 'x-test-model-title') || attr(card, 'title');
-    const titleTagMatch = /<[^>]*x-test-model-title[^>]*>([\s\S]*?)<\/[^>]*>/.exec(card);
-    const title = titleAttr || (titleTagMatch ? stripTags(titleTagMatch[1]) : name);
+    const title = attr(card, 'title') || name;
     const descMatch = /<p[^>]*class="[^"]*max-w-lg[^"]*"[^>]*>([\s\S]*?)<\/p>/.exec(card);
     const description = descMatch ? stripTags(descMatch[1]) : '';
-    const pullsMatch = /<[^>]*x-test-pull-count[^>]*>([\s\S]*?)<\/[^>]*>/.exec(card);
-    const pulls = pullsMatch ? stripTags(pullsMatch[1]) : '';
-    const tagMatch = /<[^>]*x-test-tag-count[^>]*>([\s\S]*?)<\/[^>]*>/.exec(card);
-    const tagCount = tagMatch ? stripTags(tagMatch[1]) : '';
-    const updMatch = /<[^>]*x-test-updated[^>]*>([\s\S]*?)<\/[^>]*>/.exec(card);
-    const updated = updMatch ? stripTags(updMatch[1]) : '';
-    const sizes = collect(card, 'x-test-size');
-    const capabilities = collect(card, 'x-test-capability');
+    const capabilities = collectSpans(card, 'bg-indigo-50');
+    const sizes = collectSpans(card, 'bg-\\[#ddf4ff\\]');
+    const statMatch = /<p[^>]*class="[^"]*my-4[^"]*"[^>]*>([\s\S]*?)<\/p>/.exec(card);
+    const stats = statMatch ? stripTags(statMatch[1]) : '';
+    const pulls = (/([\d.]+[KMB]?)\s+Pulls/i.exec(stats) ?? [])[1] ?? '';
+    const tagCount = (/(\d+)\s+Tags?/i.exec(stats) ?? [])[1] ?? '';
+    const updated = (/Updated\s+(.+)$/i.exec(stats) ?? [])[1] ?? '';
     out.push({ name, title, description, pulls, tagCount, updated, sizes, capabilities });
   }
   return out;
@@ -202,13 +222,30 @@ export interface ListLibraryResult {
 }
 
 /**
+ * Serve the cached catalog if it's still fresh, otherwise re-scrape in the
+ * background (stale-while-revalidate) — the next read gets the new rows.
+ * Without this the table only ever refreshed on an empty DB or the manual
+ * Refresh button, so a cache seeded once would silently miss every model
+ * Ollama published afterward (this is exactly how the table sat frozen for
+ * ~2.5 months). 24h keeps upstream load negligible while never being more
+ * than a day behind. Note it is deliberately NOT the fetch age but the age
+ * of the freshest row we have — `lastFetchedAt` is stamped by `replaceAll`.
+ */
+const LIBRARY_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
  * Paginated read from the `ollama_library` table. If the table is empty
  * (fresh install / freshly migrated DB) we run one seed scrape so the
- * caller doesn't get an empty list on first use.
+ * caller doesn't get an empty list on first use; if it's merely stale we
+ * revalidate in the background and serve what we have now.
  */
 export async function getOllamaLibrary(opts: ListLibraryOpts = {}): Promise<ListLibraryResult> {
   if (repo.count() === 0) {
     await refreshOllamaLibrary();
+  } else if (Date.now() - repo.lastFetchedAt() > LIBRARY_TTL_MS) {
+    // Fire-and-forget: don't make this reader wait on the network. The
+    // in-flight guard in refreshOllamaLibrary dedupes concurrent triggers.
+    void refreshOllamaLibrary().catch(() => {});
   }
   const page = Math.max(1, opts.page ?? 1);
   const pageSize = Math.max(1, Math.min(200, opts.pageSize ?? 50));

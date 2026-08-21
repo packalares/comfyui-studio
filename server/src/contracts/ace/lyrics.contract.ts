@@ -1,24 +1,13 @@
-// Zod schemas for the lyrics-generation routes: GET /api/ace/lyrics/models,
-// POST /api/ace/lyrics/generate.
+// Zod schemas for the lyrics-generation route: POST /api/ace/lyrics/generate.
 //
-// Generation runs `data/ace/lyrics_generate.py` (llama-cpp-python, GGUF
-// model) via `lib/exec.run` — CPU-only (`n_gpu_layers=0` hardcoded in the
-// script), so these routes do NOT go through the GPU scheduler. See
-// `routes/ace/lyrics.routes.ts` for the decision writeup.
+// Generation is an Ollama chat completion (services/ace/ollamaAssist.ts),
+// scheduled through the `llm-chat` GPU slot (services/gpu/scheduler.ts) —
+// see `routes/ace/lyrics.routes.ts` for the decision writeup. The GGUF
+// model-catalog schemas that used to live here (`LyricsModelSchema` /
+// `LyricsModelsListResponseSchema`, for the retired llama-cpp-python path)
+// were removed along with `GET /ace/lyrics/models`.
 
 import { z } from 'zod';
-
-export const LyricsModelSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string(),
-  size: z.string(),
-  downloaded: z.boolean(),
-});
-
-export const LyricsModelsListResponseSchema = z.object({
-  models: z.array(LyricsModelSchema),
-});
 
 export const LyricsGenerateBodySchema = z.object({
   genre: z.string().optional(),
@@ -26,6 +15,9 @@ export const LyricsGenerateBodySchema = z.object({
   topic: z.string().optional(),
   mood: z.string().optional(),
   structure: z.string().optional(),
+  /** Explicit Ollama model override. Normally omitted — resolved server-side
+   *  from the `llm.lyricsModel` pack setting (falling back to the first
+   *  installed Ollama model). */
   modelId: z.string().optional(),
 });
 

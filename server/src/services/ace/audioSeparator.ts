@@ -30,14 +30,38 @@
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, unlink } from 'fs/promises';
-import os from 'os';
 import path from 'path';
-import { currentProcessEnv, env } from '../../config/env.js';
+import { aceWhisperPythonPathOverride, currentProcessEnv } from '../../config/env.js';
 import { paths } from '../../config/paths.js';
+import { getVenvComponent, resolvePackPython, resolveVenvBin } from '../packs/registry.js';
 
 const WHISPER_CLI = paths.aceWhisperScript;
 const MODEL_DIR = paths.aceStemSeparatorModelDir;
-const CLI_BINARY = 'audio-separator'; // pip console-script entry point, installed by the ace-step pack.
+
+/**
+ * `audio-separator` console-script entry point, pip-installed into the
+ * `ace-step` pack's `main` venv (`services/packs/registry.ts`). Resolved at
+ * call time (not module load, since the pack may not be installed yet) via
+ * `resolveVenvBin` — this spawns the venv's OWN copy directly rather than
+ * relying on a bare command name being on `PATH`, and throws a clear
+ * "install the ace-step pack" error if the venv is missing.
+ */
+function resolveAudioSeparatorBin(): string {
+  return resolveVenvBin('ace-step', 'main', 'audio-separator', 'Stem separation (audio-separator)');
+}
+
+/**
+ * Resolve the Python interpreter for `whisper_cli.py` (faster-whisper batch
+ * transcription). An explicit `ACE_WHISPER_PYTHON_PATH` override wins (e.g.
+ * a hand-rolled venv this codebase doesn't track); otherwise resolves the
+ * `ace-step` pack's `main` venv (registry-derived, not hardcoded), throwing
+ * a clear "install the ace-step pack" error if it hasn't been provisioned.
+ */
+function resolveWhisperPython(): string {
+  const override = aceWhisperPythonPathOverride();
+  if (override) return override;
+  return resolvePackPython('ace-step', 'main', 'Lyrics transcription (faster-whisper)');
+}
 
 export interface SeparateOptions {
   inputPaths: string[];                 // absolute file paths
@@ -120,7 +144,7 @@ function runOnce(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const args = buildArgs(input, model, outputDir, extra, keepStems);
-    const proc = spawn(CLI_BINARY, args, { stdio: ['ignore', 'pipe', 'pipe'], shell: false, env: currentProcessEnv() });
+    const proc = spawn(resolveAudioSeparatorBin(), args, { stdio: ['ignore', 'pipe', 'pipe'], shell: false, env: currentProcessEnv() });
 
     let lastPct = -1;
     const pumpLine = (line: string) => {
@@ -214,8 +238,12 @@ function isChainSupported(_chain: string[]): boolean {
 /**
  * Resolve the standalone CUDA-12 cuBLAS/cuDNN lib dirs pip-installed by the
  * `nvidia-cublas-cu12` / `nvidia-cudnn-cu12` packages (see
- * `services/packs/registry.ts`), so they can be prepended to
- * `LD_LIBRARY_PATH` when spawning `whisper_cli.py`.
+ * `services/packs/registry.ts`'s `ace-step` `main` component), so they can
+ * be prepended to `LD_LIBRARY_PATH` when spawning `whisper_cli.py`. These
+ * packages now live inside the `main` venv's OWN site-packages (never a
+ * shared `~/.local` site), so this searches `<venvDir>/lib/pythonX.Y/
+ * site-packages/nvidia/{cublas,cudnn}/lib` instead of the old shared-site
+ * path.
  *
  * TODO: this whole workaround exists because ace-step-ui's base image was
  * CUDA 13 while faster-whisper's CTranslate2 backend is only built against
@@ -227,18 +255,20 @@ function isChainSupported(_chain: string[]): boolean {
  * comfy's actual runtime image.
  */
 async function resolveCuda12LibPaths(): Promise<string[]> {
-  const userSiteLib = path.join(os.homedir(), '.local', 'lib');
+  const component = getVenvComponent('ace-step', 'main');
+  if (!component) return [];
+  const venvSiteLib = path.join(component.venvDir, 'lib');
   let pyDirs: string[] = [];
   try {
-    pyDirs = (await readdir(userSiteLib)).filter(d => d.startsWith('python3.'));
+    pyDirs = (await readdir(venvSiteLib)).filter(d => d.startsWith('python3.'));
   } catch {
     return [];
   }
   const candidates: string[] = [];
   for (const pyDir of pyDirs) {
     candidates.push(
-      path.join(userSiteLib, pyDir, 'site-packages', 'nvidia', 'cublas', 'lib'),
-      path.join(userSiteLib, pyDir, 'site-packages', 'nvidia', 'cudnn', 'lib'),
+      path.join(venvSiteLib, pyDir, 'site-packages', 'nvidia', 'cublas', 'lib'),
+      path.join(venvSiteLib, pyDir, 'site-packages', 'nvidia', 'cudnn', 'lib'),
     );
   }
   return candidates.filter(p => existsSync(p));
@@ -267,7 +297,7 @@ export async function runWhisperBatch(
   const ldPath = [...cuda12Libs, baseEnv.LD_LIBRARY_PATH ?? ''].filter(Boolean).join(':');
 
   return new Promise((resolve, reject) => {
-    const proc = spawn(env.ACE_WHISPER_PYTHON_PATH, [WHISPER_CLI, inputDir], {
+    const proc = spawn(resolveWhisperPython(), [WHISPER_CLI, inputDir], {
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: false,
       env: { ...baseEnv, LD_LIBRARY_PATH: ldPath },

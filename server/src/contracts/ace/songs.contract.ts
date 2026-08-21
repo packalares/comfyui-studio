@@ -10,6 +10,12 @@ import { z } from 'zod';
 
 export const SongSchema = z.object({
   id: z.string(),
+  /** Owning `gallery` row. Exposed because the client builds artwork URLs
+   *  from it (`/api/thumbnail/<galleryId>`) — comfy's thumbnail service keys
+   *  off the gallery id, and it resolves audio through a real pipeline
+   *  (embedded cover art -> Pexels -> Picsum -> static SVG) rather than the
+   *  seeded-colour placeholder the music page used to draw locally. */
+  galleryId: z.string(),
   title: z.string(),
   lyrics: z.string().nullable(),
   style: z.string().nullable(),

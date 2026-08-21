@@ -42,9 +42,10 @@ describe('parseLibraryHtml', () => {
   });
 
   it('skips cards missing a /library/<name> href', () => {
+    // A non-library link must not match; only the /library/<name> card counts.
     const html = `
-      <li x-test-model><a href="/other/path"><h2 x-test-model-title>x</h2></a></li>
-      <li x-test-model><a href="/library/keep"><h2 x-test-model-title>k</h2></a></li>
+      <a href="/other/path" class="group"><span>x</span></a>
+      <a href="/library/keep" class="group w-full space-y-5"><div title="keep"><span class="group-hover:underline truncate">keep</span></div></a>
     `;
     const out = parseLibraryHtml(html);
     expect(out.length).toBe(1);

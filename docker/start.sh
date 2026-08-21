@@ -64,7 +64,24 @@ if [ ! -f "$STUDIO_DEPS_MARKER" ]; then
 
   # ---- Custom-node deps (split runs to dodge pip resolver depth) ----------
   pip3 install --no-cache-dir \
-    transformers==4.57.6 torchcrepe comfyui-manager opencv-contrib-python packaging
+    transformers==4.57.6 torchcrepe comfyui-manager packaging
+
+  # protobuf: onnx's generated code requires runtime >= 6.31.1 (gencode 6.31.1).
+  # Left unpinned, pip resolves this to 5.29.6, which makes `import insightface`
+  # die with a protobuf VersionError and breaks InstantID / FaceAnalysis.
+  # Nothing in the tree declares a protobuf constraint, so without an explicit
+  # pin whether insightface works is pure luck.
+  #
+  # opencv: every constraint in the tree is a LOWER bound (albumentations
+  # >=4.9.0.80, ultralytics >=4.6.0, SAM-2 >=4.7.0), so an unpinned install now
+  # resolves to 5.0.x — a major version bump that would land silently on a
+  # rebuild. Custom nodes call cv2 APIs directly without declaring versions, so
+  # pin the 4.x line this deployment has actually been running.
+  pip3 install --no-cache-dir \
+    protobuf==7.35.1 \
+    opencv-contrib-python==4.13.0.92 \
+    opencv-python==4.11.0.86 \
+    opencv-python-headless==4.11.0.86
   pip3 install --no-cache-dir \
     ml_dtypes==0.5.4 audio-separator
   # facenet-pytorch 2.6.0 hard-pins `torch<2.3.0`. With deps, pip resolves

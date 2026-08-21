@@ -18,10 +18,10 @@
 // does not touch GPU residency itself.
 
 import { spawn } from 'child_process';
-import fs from 'fs';
 import { aceTtsPythonPathOverride, currentProcessEnv } from '../../config/env.js';
 import { paths } from '../../config/paths.js';
-import { getVenvComponent, venvPythonBin, PACKS } from '../packs/registry.js';
+import { resolvePackPython, PACKS } from '../packs/registry.js';
+import { effectiveDest, effectiveRepo } from '../packs/settings.js';
 
 export interface CloneOptions {
   refAudioPath: string;
@@ -46,9 +46,14 @@ export interface CloneResult {
 }
 
 /** IndexTTS2 model weights downloaded by the `ace-step` pack installer
- *  (see `services/packs/registry.ts`'s `models` list — `IndexTeam/IndexTTS-2`). */
+ *  (see `services/packs/registry.ts`'s `models` list — `IndexTeam/IndexTTS-2`).
+ *  Resolved through the same repo-override-aware helper the installer uses
+ *  (`services/packs/settings.ts`) rather than a static `dest` field, since
+ *  the destination is now derived from `kind` + the effective repo id. */
 function resolvePackModelDir(): string | undefined {
-  return PACKS['ace-step'].models.find((m) => m.dest.includes('indextts2'))?.dest;
+  const model = PACKS['ace-step'].models.find((m) => m.kind === 'tts');
+  if (!model) return undefined;
+  return effectiveDest('ace-step', model.id, model.kind, effectiveRepo('ace-step', model.id, model.repo));
 }
 
 /**
@@ -57,9 +62,10 @@ function resolvePackModelDir(): string | undefined {
  * Resolution order:
  *   1. An explicit `ACE_TTS_PYTHON_PATH` override — the operator knows best
  *      (e.g. a hand-rolled venv this codebase doesn't track).
- *   2. The `ace-step` pack's dedicated `indextts2` venv (see
- *      `services/packs/registry.ts`'s `venvComponents`), IF it has actually
- *      been provisioned on disk — install may not have run yet.
+ *   2. The `ace-step` pack's dedicated `indextts2` venv component (see
+ *      `services/packs/registry.ts`'s `venvComponents`), resolved via
+ *      `resolvePackPython`, IF it has actually been provisioned on disk —
+ *      install may not have run yet.
  *   3. Otherwise: throw. Silently falling back to plain `python3` would just
  *      trade this clear, actionable error for an opaque `ImportError: No
  *      module named 'indextts'` surfacing deep inside the spawned child.
@@ -67,14 +73,7 @@ function resolvePackModelDir(): string | undefined {
 export function resolveIndexTts2Python(): string {
   const override = aceTtsPythonPathOverride();
   if (override) return override;
-  const component = getVenvComponent('ace-step', 'indextts2');
-  const venvPython = component ? venvPythonBin(component) : undefined;
-  if (venvPython && fs.existsSync(venvPython)) return venvPython;
-  throw new Error(
-    'Voice-clone TTS (IndexTTS2) is unavailable: its dedicated Python venv'
-    + (venvPython ? ` (${venvPython})` : '')
-    + ' was not found. Install the ace-step pack to enable TTS.',
-  );
+  return resolvePackPython('ace-step', 'indextts2', 'Voice-clone TTS (IndexTTS2)');
 }
 
 /**

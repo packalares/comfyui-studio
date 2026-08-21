@@ -6,9 +6,16 @@
 // per-user ownership checks). None of that applies to a single-user local
 // studio — this port is a straight local library: list/get/update/delete +
 // a `favorite` pin, plus simple unordered playlists. Audio is served from
-// `GET /api/ace/audio/output/:key` (minted by `services/ace/storage.ts`,
-// registered in `routes/ace/generate.routes.ts`) — there is no separate
-// per-song audio-proxy route here since the stored URL already points at it.
+// the gallery's `/api/view` (the song IS a gallery row — see migration 0009
+// and `routes/ace/generate.routes.ts`'s `persistGeneratedSongs`).
+//
+// Favorite and delete are NOT plain `ace_songs` UPDATE/DELETE statements
+// any more — `gallery.favorite` is now the single source of truth for the
+// star, and deleting a song means deleting its `gallery` row (which cascades
+// to the `ace_songs` sidecar row via `gallery_id ... ON DELETE CASCADE`, and
+// also removes the file on disk + broadcasts the gallery-mutation WS event) —
+// so both routes below call into `services/gallery/service.ts` rather than
+// `aceMusicRepo`.
 //
 // Comments/likes/follows/public-discover feeds/stem extraction are NOT
 // ported — see the migration 0005 header comment and this agent's final
@@ -19,6 +26,7 @@ import { Router } from 'express';
 import { defineRoute } from '../../lib/defineRoute.js';
 import { NotFoundError, ValidationError } from '../../lib/errors.js';
 import * as aceMusicRepo from '../../lib/db/aceMusic.repo.js';
+import * as galleryService from '../../services/gallery/service.js';
 import * as storage from '../../services/ace/storage.js';
 import {
   SongListQuerySchema,
@@ -99,8 +107,15 @@ const favoriteRoute = defineRoute({
   tags: ['ace'],
   summary: 'Pin/unpin a song as favorite',
 }, ({ params, body, ok }) => {
-  if (!aceMusicRepo.getSong(params.id)) throw new NotFoundError('Song not found');
-  const song = aceMusicRepo.setSongFavorite(params.id, body.favorite);
+  const existing = aceMusicRepo.getSong(params.id);
+  if (!existing) throw new NotFoundError('Song not found');
+  // `gallery.favorite` is the single source of truth for the star (see
+  // migration 0009's header comment) — `ace_songs` no longer has its own
+  // copy of this flag.
+  if (!galleryService.setFavorite(existing.galleryId, body.favorite)) {
+    throw new NotFoundError('Song not found');
+  }
+  const song = aceMusicRepo.getSong(params.id);
   if (!song) throw new NotFoundError('Song not found');
   return ok({ song });
 });
@@ -114,13 +129,15 @@ const deleteRoute = defineRoute({
   tags: ['ace'],
   summary: 'Delete a song (and its stored audio file, if any)',
 }, async ({ params, ok }) => {
-  const deleted = aceMusicRepo.deleteSong(params.id);
-  if (!deleted) throw new NotFoundError('Song not found');
-  if (deleted.audioUrl) {
-    await storage.deleteAudioByUrl(deleted.audioUrl).catch(() => { /* best-effort */ });
-  }
-  if (deleted.coverUrl) {
-    await storage.deleteAudioByUrl(deleted.coverUrl).catch(() => { /* best-effort */ });
+  const existing = aceMusicRepo.getSong(params.id);
+  if (!existing) throw new NotFoundError('Song not found');
+  // Deleting the gallery row removes the file on disk and cascades to
+  // delete the `ace_songs` sidecar row via `gallery_id ... ON DELETE
+  // CASCADE` — there is no separate `ace_songs` DELETE to issue.
+  const result = galleryService.removeItem(existing.galleryId);
+  if (!result.removed) throw new NotFoundError('Song not found');
+  if (existing.coverUrl) {
+    await storage.deleteAudioByUrl(existing.coverUrl).catch(() => { /* best-effort */ });
   }
   return ok({ success: true });
 });

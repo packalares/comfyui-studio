@@ -42,6 +42,16 @@ const READDIR_WHITELIST = [
   '/services/templates/dependencyCheck',
   // ComfyUI process management (reads log dirs):
   '/services/comfyui/process',
+  // Pack model destination resolution owns the "is this pack model already on
+  // disk?" check (`looksDownloaded`). It does NOT enumerate model directories
+  // to build a listing — that is the model manager's job and this file never
+  // does it. It stats ONE already-resolved destination path to decide whether
+  // to skip a multi-GB re-download, so there is nothing for the manager to
+  // bypass. It only trips this rule because the check moved here from
+  // `services/packs/install.ts` (which never referenced COMFYUI_PATH, so it
+  // failed condition (b)) to sit next to the path derivation both the
+  // installer and the settings view share.
+  '/services/packs/modelPaths',
 ];
 
 function isWhitelisted(absPath: string): boolean {
