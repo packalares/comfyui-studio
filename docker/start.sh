@@ -103,6 +103,14 @@ if [ ! -f "$STUDIO_DEPS_MARKER" ]; then
   pip3 install --no-cache-dir --no-deps \
     s3tokenizer==0.0.2 descript-audio-codec
 
+  # ---- Custom-node Python deps missing on this base's Python --------------
+  # The base's Python (3.13 on the v0.33 base) does NOT carry the deps that
+  # custom nodes installed under the previous base's Python 3.12 — those live
+  # in /root/.local/lib/python3.12 and are invisible to 3.13. natsort is
+  # imported at ComfyUI startup by ComfyUI-Lora-Manager, so its absence crashes
+  # the entire ComfyUI boot. Add others here as they surface at runtime.
+  pip3 install --no-cache-dir natsort
+
   # ---- Custom-node source patches (idempotent) ----------------------------
   # jags_audiotools ships `libs/_init_.py` (single underscores) — Python only
   # recognizes `__init__.py`. Without the rename the package never registers.
@@ -132,6 +140,15 @@ if [ "${STUDIO_MODE}" = "dev" ]; then
   # probe for the actual binary and re-run install if it's missing.
   (cd /studio/ui       && [ -x node_modules/.bin/vite ] || (rm -rf node_modules && npm install))
   (cd /studio/server   && [ -x node_modules/.bin/tsx  ] || (rm -rf node_modules && npm install --include=dev))
+
+  # better-sqlite3 is a native addon pinned to the Node ABI. The hostPath
+  # node_modules may have been built for a different Node major (the old base
+  # shipped Node 24; the v0.33 base ships Node 20) → it then fails to load with
+  # a NODE_MODULE_VERSION mismatch and the server crash-loops on every DB open.
+  # Probe it and rebuild (fetches the matching prebuilt — no compiler needed)
+  # only when it won't load.
+  (cd /studio/server && node -e 'require("better-sqlite3")' 2>/dev/null) \
+    || (cd /studio/server && echo "[studio] better-sqlite3 ABI mismatch — rebuilding for $(node -v)" && npm rebuild better-sqlite3)
 
   (cd /studio/server   && npx tsx watch src/index.ts             > /app/logs/studio.log    2>&1) &
   (cd /studio/ui       && npx vite --host 0.0.0.0 --port 3001    > /app/logs/vite.log      2>&1) &
