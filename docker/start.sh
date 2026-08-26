@@ -129,6 +129,19 @@ if [ ! -f "$STUDIO_DEPS_MARKER" ]; then
   if [ -f "$WAS_CFG" ]; then
     python3 -c "import json,sys; p='$WAS_CFG'; d=json.load(open(p)); d['ffmpeg_bin_path']='/usr/bin/ffmpeg'; json.dump(d,open(p,'w'),indent=2)" || true
   fi
+  # ComfyUI-LTXVideo/pyramid_blending.py does
+  #   `from kornia.geometry.transform.pyramid import (..., pad)`
+  # but this base's kornia (0.8.3) removed `pad` from that module -> ImportError
+  # aborts the ENTIRE LTXVideo node pack at load (all LTXV nodes vanish). kornia's
+  # `pad` was only an alias for torch.nn.functional.pad, which the file already
+  # imports as `F`. Drop the dead import symbol and route its two call sites
+  # (`= pad(` on the padding helpers) through F.pad. Guarded on the stale import
+  # line so it's a no-op once patched (idempotent across reboots/rebuilds).
+  LTXV_PB=/root/ComfyUI/custom_nodes/ComfyUI-LTXVideo/pyramid_blending.py
+  if [ -f "$LTXV_PB" ] && grep -qE '^[[:space:]]*pad,[[:space:]]*$' "$LTXV_PB"; then
+    sed -i '/^[[:space:]]*pad,[[:space:]]*$/d' "$LTXV_PB"
+    sed -i 's/= pad(/= F.pad(/g' "$LTXV_PB"
+  fi
 
   touch "$STUDIO_DEPS_MARKER"
   echo "[studio-deps] First-boot install done."
