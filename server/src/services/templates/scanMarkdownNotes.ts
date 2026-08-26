@@ -20,9 +20,13 @@ function pushMatches(out: Set<string>, value: unknown): void {
   }
 }
 
-/** URLs inside markdown sometimes end with `.` / `,` / `)` / `]`. */
+/** URLs inside markdown sometimes end with `.` / `,` / `)` / `]`. Trimmed with
+ *  a linear scan (no backtracking regex). */
+const TRAILING_PUNCT = new Set([')', '.', ',', ';', ':', '!', '?', ']']);
 function stripTrailingPunct(url: string): string {
-  return url.replace(/[).,;:!?\]]+$/, '');
+  let end = url.length;
+  while (end > 0 && TRAILING_PUNCT.has(url[end - 1])) end--;
+  return url.slice(0, end);
 }
 
 function isNoteClass(value: unknown): boolean {

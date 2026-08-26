@@ -422,7 +422,7 @@ router.post(
   (req: Request, res: Response, next: NextFunction) => {
     try {
       const files = req.files as Express.Multer.File[] | undefined;
-      if (!files || files.length === 0) throw new ValidationError('No audio files uploaded');
+      if (!Array.isArray(files) || files.length === 0) throw new ValidationError('No audio files uploaded');
       const datasetName = sanitizeName((req.body as Record<string, unknown>)?.datasetName as string | undefined);
       const uploadDir = safeResolve(paths.aceDatasetUploadsDir, datasetName);
       res.json({

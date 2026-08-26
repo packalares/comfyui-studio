@@ -12,6 +12,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import multer, { MulterError } from 'multer';
 import { env } from '../config/env.js';
 import { paths } from '../config/paths.js';
+import { safeResolve } from '../lib/fs.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { logger } from '../lib/logger.js';
@@ -125,10 +126,10 @@ router.post(
         throw new ValidationError(`extension ${ext || '(none)'} not allowed for kind ${kind}`);
       }
       const subfolder = subfolderForKind(kind);
-      const destDir = path.join(env.COMFYUI_PATH, 'input', subfolder);
+      const destDir = safeResolve(env.COMFYUI_PATH, 'input', subfolder);
       fs.mkdirSync(destDir, { recursive: true });
       const safeName = uniqueName(destDir, path.basename(file.originalname));
-      const destAbs = path.join(destDir, safeName);
+      const destAbs = safeResolve(destDir, safeName);
       fs.renameSync(file.path, destAbs);
       const stat = fs.statSync(destAbs);
       res.json({

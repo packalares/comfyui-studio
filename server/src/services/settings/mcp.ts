@@ -41,7 +41,8 @@ function save(next: ExtendedSettings): void {
 export function slugifyServerName(name: string, fallbackId?: string): string {
   const slug = name.toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+    .replace(/^-+/, '')
+    .replace(/-+$/, '');
   if (slug.length > 0) return slug;
   if (fallbackId) return `srv-${fallbackId.slice(0, 8)}`;
   return 'srv';

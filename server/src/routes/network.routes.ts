@@ -49,7 +49,9 @@ const setSystemConfigRoute = defineRoute({
   tags: ['system'],
   summary: 'Set a network/system config value by key',
 }, ({ params, body, ok }) => {
-  const setter = SETTERS[params.key];
+  // Own-property lookup only — otherwise `params.key` could resolve to an
+  // inherited method (e.g. `toString`) and get invoked as a setter.
+  const setter = Object.hasOwn(SETTERS, params.key) ? SETTERS[params.key] : undefined;
   if (!setter) throw new NotFoundError(`unknown system config key: ${params.key}`);
   const result = setter(body.value);
   if (!result.success) throw new ValidationError(result.message);

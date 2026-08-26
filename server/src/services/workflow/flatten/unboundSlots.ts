@@ -63,7 +63,12 @@ export function fillUnboundSlotLiterals(
   const wrapperWidgetVals = (wrapper.widgets_values || []) as unknown[];
   const slotToTarget = slotToFirstTarget(sgNodes, sgLinks);
 
-  for (let slot = 0; slot < sgInputDefs.length; slot++) {
+  // Bound the scan: sgInputDefs comes from the submitted workflow, so a crafted
+  // subgraph could inflate it and turn this O(n) loop (with an inner findIndex)
+  // quadratic. Real subgraphs have a handful of input slots.
+  const SLOT_SCAN_CAP = 4096;
+  const slotCount = Math.min(sgInputDefs.length, SLOT_SCAN_CAP);
+  for (let slot = 0; slot < slotCount; slot++) {
     if (innerInputSubs.has(slot)) continue;
     const target = slotToTarget.get(slot);
     if (!target) continue;

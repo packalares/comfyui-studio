@@ -7,6 +7,7 @@
 import { createWriteStream, createReadStream, unlinkSync } from 'fs';
 import sharp from 'sharp';
 import { env } from '../../../config/env.js';
+import { assertPublicHttpUrl } from '../../../lib/ssrfGuard.js';
 import { hostIsAllowed } from '../../../lib/security.js';
 import {
   cachePathForKey, localFileKey, peekCached, publishTmp, remoteUrlKey,
@@ -69,6 +70,7 @@ async function fetchBytes(url: string): Promise<Buffer> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
+    await assertPublicHttpUrl(url); // SSRF barrier before fetching a remote image
     const res = await fetch(url, {
       headers: { 'User-Agent': USER_AGENT },
       signal: controller.signal,

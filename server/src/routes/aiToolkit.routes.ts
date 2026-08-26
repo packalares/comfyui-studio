@@ -168,7 +168,7 @@ router.post(
   (req: Request, res: Response, next: NextFunction) => {
     try {
       const files = req.files as Express.Multer.File[] | undefined;
-      if (!files || files.length === 0) throw new ValidationError('No files uploaded');
+      if (!Array.isArray(files) || files.length === 0) throw new ValidationError('No files uploaded');
       const name = sanitizeIdentifier(Array.isArray(req.params.name) ? req.params.name[0] : req.params.name);
       const dir = safeResolve(paths.aiToolkitDatasetsDir, name);
       const onDisk = fs.readdirSync(dir);

@@ -62,17 +62,24 @@ export function parseRelativeAgoSeconds(s: string): number {
 }
 
 function decodeEntities(s: string): string {
+  // Decode `&amp;` LAST so an already-escaped `&amp;lt;` decodes to the literal
+  // `&lt;` rather than being double-unescaped into `<`.
   return s
-    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, ' ');
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&');
 }
 
 function stripTags(html: string): string {
-  return decodeEntities(html.replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim();
+  // Loop until stable so overlapping/nested constructs (e.g. `<scr<b>ipt>`)
+  // can't survive a single pass.
+  let prev: string;
+  let out = html;
+  do { prev = out; out = out.replace(/<[^>]*>/g, ''); } while (out !== prev);
+  return decodeEntities(out).replace(/\s+/g, ' ').trim();
 }
 
 function attr(html: string, name: string): string {

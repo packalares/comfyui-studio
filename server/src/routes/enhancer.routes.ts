@@ -28,6 +28,7 @@ import { Router } from 'express';
 import path from 'node:path';
 import { readFile, readdir } from 'node:fs/promises';
 import { paths } from '../config/paths.js';
+import { safeResolve } from '../lib/fs.js';
 import { logger } from '../lib/logger.js';
 
 const router = Router();
@@ -118,7 +119,7 @@ router.get('/enhancer/profiles/:id', async (req, res) => {
     return;
   }
   try {
-    const raw = await readFile(path.join(PROFILES_DIR, `${id}.json`), 'utf8');
+    const raw = await readFile(safeResolve(PROFILES_DIR, `${id}.json`), 'utf8');
     res.type('application/json').send(raw);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {

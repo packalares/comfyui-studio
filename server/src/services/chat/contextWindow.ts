@@ -73,7 +73,9 @@ const cache = new Map<string, CacheEntry>();
  * neither of which we want as a runtime dep just for a meter.
  */
 export function estimateTokens(text: string): number {
-  if (!text) return 0;
+  // Guard non-strings: a tampered query/body param can arrive as an array
+  // (e.g. `?text[]=a&text[]=b`), on which `.length`/`.split` misbehave.
+  if (typeof text !== 'string' || !text) return 0;
   const chars = Math.ceil(text.length / 4);
   const words = text.trim().split(/\s+/).filter(Boolean).length;
   const wordEstimate = Math.ceil(words * 1.3);

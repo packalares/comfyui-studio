@@ -18,7 +18,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { randomBytes } from 'crypto';
+import { randomInt } from 'crypto';
 import { paths } from '../../config/paths.js';
 import { safeResolve } from '../../lib/fs.js';
 import { logger } from '../../lib/logger.js';
@@ -48,10 +48,10 @@ export interface RawPresetImport {
 
 function newId(used: Set<string>): string {
   while (true) {
-    const bytes = randomBytes(10);
     let out = '';
     for (let i = 0; i < 10; i++) {
-      out += ALPHABET[bytes[i] % ALPHABET.length];
+      // randomInt is rejection-sampled — no modulo bias across ALPHABET.
+      out += ALPHABET[randomInt(ALPHABET.length)];
     }
     if (!used.has(out)) {
       used.add(out);

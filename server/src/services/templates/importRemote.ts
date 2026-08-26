@@ -5,6 +5,7 @@
 // outbound URL, 20 MB payload cap (matches the zip upload limit).
 
 import { env } from '../../config/env.js';
+import { assertPublicHttpUrl } from '../../lib/ssrfGuard.js';
 import {
   IMPORT_LIMITS, newStagedImport, storeStaging,
   type StagedImport, type StagedWorkflowEntry,
@@ -49,6 +50,7 @@ async function fetchWithTimeout(url: string, headers: Record<string, string>): P
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
   try {
+    await assertPublicHttpUrl(url); // SSRF barrier at the sink (belt-and-suspenders with the URL allow-list)
     return await fetch(url, { signal: ctrl.signal, headers });
   } finally {
     clearTimeout(timer);

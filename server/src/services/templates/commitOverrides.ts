@@ -144,6 +144,11 @@ export async function resolveModelForStaging(
   // filename may differ when the URL points at a mirror or a versioned
   // tarball, and we need the catalog key to match the workflow's widget.
   const fileName = input.missingFileName || resolved.fileName;
+  // fileName indexes wf.resolvedModels / wf.modelLoaderClasses below; reject
+  // prototype-polluting keys before any dynamic assignment.
+  if (fileName === '__proto__' || fileName === 'constructor' || fileName === 'prototype') {
+    throw new ResolverError('RESOLVER_FAILED', `Unsafe model filename: ${fileName}`);
+  }
   const loaderClass = wf.modelLoaderClasses?.[fileName];
   upsertFromResolved(resolved, fileName, loaderClass);
   if (!wf.resolvedModels) wf.resolvedModels = {};

@@ -142,7 +142,12 @@ export function validateHfUrl(
 ): { isValid: boolean; fileName: string; error?: string } {
   try {
     const url = new URL(hfUrl);
-    if (!url.hostname.includes('huggingface.co') && !url.hostname.includes('hf-mirror.com')) {
+    // Exact-host / dot-boundary suffix match — `.includes()` would accept
+    // `huggingface.co.evil.com` and `evil-huggingface.co`.
+    const host = url.hostname.toLowerCase();
+    const hostAllowed = host === 'huggingface.co' || host.endsWith('.huggingface.co')
+      || host === 'hf-mirror.com' || host.endsWith('.hf-mirror.com');
+    if (!hostAllowed) {
       return { isValid: false, fileName: '', error: 'Only Hugging Face URLs are supported' };
     }
     const pathParts = url.pathname.split('/');

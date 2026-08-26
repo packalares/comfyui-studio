@@ -3,7 +3,7 @@
 // fallback for any other public direct-download URL. Each resolver section
 // is independent; they share the ResolvedModel type.
 
-import { promises as dns } from 'node:dns';
+import { isPrivateHost, assertPublicHttpUrl } from '../../lib/ssrfGuard.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
 import { getGithubAuthHeaders } from '../../lib/http.js';
@@ -151,6 +151,7 @@ interface HeadOutcome { status: number; sizeBytes?: number }
 
 async function headSize(url: string): Promise<HeadOutcome> {
   try {
+    await assertPublicHttpUrl(url); // SSRF barrier before the outbound HEAD
     const res = await fetch(url, {
       method: 'HEAD',
       headers: hfAuthHeaders(),
@@ -629,34 +630,8 @@ export async function resolveGoogleDriveUrl(url: string): Promise<ResolvedModel 
 // Bypasses are blocked because the resolver runs server-side inside the
 // Studio pod, where "localhost" / pod-internal IPs reach other services.
 
-const PRIVATE_IPV4_RE = /^(?:127\.|10\.|192\.168\.|169\.254\.|0\.0\.0\.0$|::1$)/;
-function isPrivateLiteralIp(host: string): boolean {
-  if (host === '0.0.0.0' || host === '::1' || host === '127.0.0.1') return true;
-  if (PRIVATE_IPV4_RE.test(host)) return true;
-  const m172 = host.match(/^172\.(\d+)\./);
-  if (m172) {
-    const second = parseInt(m172[1], 10);
-    if (second >= 16 && second <= 31) return true;
-  }
-  if (/^f[cd][0-9a-f]{2}:/i.test(host)) return true; // fc00::/7 unique-local
-  if (/^fe80::/i.test(host)) return true;            // link-local
-  return false;
-}
-
-async function isPrivateHost(hostname: string): Promise<boolean> {
-  const lc = hostname.toLowerCase();
-  if (lc === 'localhost' || lc.endsWith('.localhost')) return true;
-  if (isPrivateLiteralIp(lc)) return true;
-  // DNS-resolve to catch rebind attacks (`evil.com` → `127.0.0.1`).
-  try {
-    const { address } = await dns.lookup(lc);
-    return isPrivateLiteralIp(address.toLowerCase());
-  } catch {
-    // DNS failure: caller's HEAD will fail anyway. Treat as "not private"
-    // here so a transient DNS hiccup doesn't masquerade as SSRF rejection.
-    return false;
-  }
-}
+// `isPrivateHost` / `assertPublicHttpUrl` now live in ../../lib/ssrfGuard.ts
+// so every URL-fetching path shares one SSRF barrier.
 
 const REJECT_CONTENT_TYPES = [
   'text/html', 'application/xhtml+xml', 'text/plain',

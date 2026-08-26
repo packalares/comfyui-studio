@@ -4,29 +4,33 @@
 import path from 'path';
 import fs from 'fs';
 import { paths } from '../../config/paths.js';
+import { safeResolve } from '../../lib/fs.js';
 
 function videoboardRoot(): string {
   return path.join(paths.runtimeStateDir, 'videoboard');
 }
 
+// projectId / charId / ext arrive from request params or upload filenames, so
+// every path they compose runs through `safeResolve` — it throws if the
+// result escapes the videoboard root (path-traversal guard).
 export function projectDir(projectId: string): string {
-  return path.join(videoboardRoot(), projectId);
+  return safeResolve(videoboardRoot(), projectId);
 }
 
 export function audioPath(projectId: string, ext: string): string {
-  return path.join(projectDir(projectId), `audio.${ext}`);
+  return safeResolve(projectDir(projectId), `audio.${ext}`);
 }
 
 export function analysisJsonPath(projectId: string): string {
-  return path.join(projectDir(projectId), 'analysis.json');
+  return safeResolve(projectDir(projectId), 'analysis.json');
 }
 
 export function characterDir(charId: string): string {
-  return path.join(videoboardRoot(), 'characters', charId);
+  return safeResolve(videoboardRoot(), 'characters', charId);
 }
 
 export function characterRefPhotoPath(charId: string, n: number, ext: string): string {
-  return path.join(characterDir(charId), `ref-${n}.${ext}`);
+  return safeResolve(characterDir(charId), `ref-${n}.${ext}`);
 }
 
 export function ensureProjectDir(projectId: string): void {

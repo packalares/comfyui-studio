@@ -237,7 +237,7 @@ export function deleteUserWorkflow(name: string): boolean {
     // the no-leftovers-on-disk rule promised by the import-hook contract.
     // `force: true` keeps this a no-op when there's no preset folder.
     try {
-      const presetsDir = path.join(DIR(), name);
+      const presetsDir = safeResolve(DIR(), name); // guard: name must not escape DIR()
       fs.rmSync(presetsDir, { recursive: true, force: true });
     } catch (err) {
       logger.warn('preset folder cascade-delete failed', { name, error: String(err) });

@@ -32,8 +32,11 @@ const ALLOWED_TAGS = new Set([
 ]);
 
 function sanitizeHtml(raw: string): string {
-  // Strip script/style/iframe bodies entirely.
-  let s = raw.replace(/<(script|style|iframe)[^>]*>[\s\S]*?<\/\1>/gi, '');
+  // Strip script/style/iframe bodies entirely, looping until stable so a
+  // reforming construct (e.g. `<scr<script>ipt>`) can't survive one pass.
+  let s = raw;
+  let prev: string;
+  do { prev = s; s = s.replace(/<(script|style|iframe)[^>]*>[\s\S]*?<\/\1>/gi, ''); } while (s !== prev);
   // Rewrite every tag, filtering attributes.
   s = s.replace(/<\/?([a-z][a-z0-9]*)\b([^>]*)>/gi, (match, tag: string, attrs: string) => {
     const name = tag.toLowerCase();

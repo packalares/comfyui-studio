@@ -515,7 +515,9 @@ export function downsizeCivitaiImageUrl(url: string, width: number): string {
   try {
     const u = new URL(url);
     const host = u.hostname.toLowerCase();
-    if (!host.endsWith('image.civitai.com') && !host.endsWith('civitai.com')) return url;
+    // Dot-boundary match — plain endsWith('civitai.com') would accept
+    // `evilcivitai.com`. (image.civitai.com matches the `.civitai.com` suffix.)
+    if (host !== 'civitai.com' && !host.endsWith('.civitai.com')) return url;
     const parts = u.pathname.split('/').filter((p) => p.length > 0);
     if (parts.length === 0) return url;
     const last = parts[parts.length - 1];
