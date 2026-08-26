@@ -12,7 +12,7 @@ import path from 'path';
 import { createReadStream } from 'fs';
 import { spawn } from 'child_process';
 import type { Response } from 'express';
-import sharp from 'sharp';
+import sharp, { type Sharp } from 'sharp';
 import { logger } from '../../lib/logger.js';
 
 // ffmpeg binary path — available in the deploy environment.
@@ -82,7 +82,7 @@ async function streamImageStripped(
   // sharp drops EXIF/XMP/ICC/IPTC by default — no `.withMetadata()` call.
   // Each format re-encode removes the tEXt chunks (PNG) / EXIF UserComment
   // (JPEG/WebP) where ComfyUI embeds the prompt JSON.
-  let pipeline: sharp.Sharp;
+  let pipeline: Sharp;
   if (e === '.png') {
     pipeline = sharp(filePath).png();
   } else if (e === '.jpg' || e === '.jpeg') {

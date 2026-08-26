@@ -21,7 +21,7 @@
     "http-proxy-middleware": "^3.0.7",
     "jszip": "^3.10.1",
     "multer": "^2.2.0",
-    "sharp": "^0.35.0",
+    "sharp": "^0.35.4",
     "swagger-ui-dist": "^5.32.6",
     "undici": "^7.29.0",
     "ws": "^8.21.0",
