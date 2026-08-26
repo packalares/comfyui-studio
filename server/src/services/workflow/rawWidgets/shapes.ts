@@ -14,7 +14,14 @@ export function isWidgetSpec(spec: unknown): boolean {
   if (!Array.isArray(spec) || spec.length === 0) return false;
   const t = spec[0];
   if (Array.isArray(t)) return true; // COMBO list
-  if (typeof t === 'string' && PRIMITIVE_WIDGET_TYPES.has(t)) return true;
+  if (typeof t === 'string') {
+    if (PRIMITIVE_WIDGET_TYPES.has(t)) return true;
+    // ComfyUI 0.33+ MultiType inputs surface as a comma-joined union like
+    // "FLOAT,INT" — still a widget (occupies a widgets_values slot) if any
+    // member is a primitive widget type. Must stay in lockstep with
+    // nodeEmit.getApiWidgetSpecs so both walkers count the same slots.
+    if (t.split(',').some(m => PRIMITIVE_WIDGET_TYPES.has(m))) return true;
+  }
   return false;
 }
 

@@ -89,7 +89,16 @@ export function getApiWidgetSpecs(
       const type = rawType;
       const isWidget =
         WIDGET_PRIMITIVES.has(type) || V3_WIDGET_TYPES.has(type)
-        || !(type === type.toUpperCase());
+        || !(type === type.toUpperCase())
+        // ComfyUI 0.33+ MultiType inputs surface as a comma-joined union of
+        // types (e.g. "FLOAT,INT"). They still occupy a `widgets_values[]`
+        // slot, so if any member is a widget primitive this input IS a widget.
+        // Miscounting it shifts every later widget one slot: LTXVEmptyLatentAudio
+        // `frame_rate` = "FLOAT,INT" was skipped, so `batch_size` read
+        // frame_rate's stored value (25) instead of its own (1) -> the audio
+        // latent came out 25-deep vs the video's 1 and LTXVConcatAVLatent threw
+        // "Expected size 1 but got size 25".
+        || type.split(',').some(t => WIDGET_PRIMITIVES.has(t) || V3_WIDGET_TYPES.has(t));
       if (!isWidget) continue; // uppercase socket type (CLIP, MODEL, VAE, ...)
       out.push({ name, type, cfg });
     }
