@@ -19,7 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Wand2, Eraser, Gauge, AlertTriangle, CheckCircle2,
-  ArrowRight, Image as ImageIcon, Camera as CameraIcon, Sparkles,
+  ArrowRight, Image as ImageIcon, Camera as CameraIcon, Sparkles, Info,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { api } from '../services/comfyui';
@@ -571,7 +571,19 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced, onTem
 
       {/* CAMERA — clickable summary chip that opens the 4-column modal. */}
       <div>
-        <p className="eyebrow mb-2">Camera</p>
+        <div className="mb-2 flex items-center gap-1">
+          <p className="eyebrow">Camera</p>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+            </TooltipTrigger>
+            <TooltipContent className="max-w-[240px]">
+              Camera settings only shape the prompt when you run Enhance — they
+              guide the AI's wording (lens, aperture, film look). They have no
+              effect on a raw generation without Enhance.
+            </TooltipContent>
+          </Tooltip>
+        </div>
         <button
           type="button"
           onClick={() => setCameraOpen(true)}
@@ -589,8 +601,10 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced, onTem
         </button>
       </div>
 
-      {/* REFERENCES — the big slot above hosts references[0] (the "main
-          image" / i2i edit target). The Add-media pill below appends to the
+      {/* REFERENCES — the big slot hosts references[0] (the "main image" /
+          i2i edit target) but is ONLY rendered once a reference is selected;
+          the empty-state entry point is the Add-media pill (which appends, so
+          the first pick lands at index 0). The Add-media pill appends to the
           end; the grid renders references[1..N] so the main never duplicates.
           Each tile is labelled @reference{absoluteIndex+1}. */}
       <div>
@@ -598,10 +612,12 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced, onTem
           <p className="eyebrow">References</p>
           <span className="text-[11px] text-muted-foreground">{references.length}/{MAX_REFS}</span>
         </div>
-        <RefSlot icon={ImageIcon} label="Main image"
-                 item={references[0] ?? null}
-                 onOpen={() => openPickerFor('main')}
-                 onClear={handleClearMain} />
+        {references.length > 0 && (
+          <RefSlot icon={ImageIcon} label="Main image"
+                   item={references[0]}
+                   onOpen={() => openPickerFor('main')}
+                   onClear={handleClearMain} />
+        )}
         <AddMediaPill slots={[
           { kind: 'image',
             active: references.length > 0,
