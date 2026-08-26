@@ -40,9 +40,12 @@ function save(next: ExtendedSettings): void {
  */
 export function slugifyServerName(name: string, fallbackId?: string): string {
   const slug = name.toLowerCase()
+    // Collapse every run of non-alphanumerics to a single '-', so at most one
+    // leading/trailing '-' can remain — single-char trims below then need no
+    // backtracking anchor (`-+$` is polynomial on many '-').
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+/, '')
-    .replace(/-+$/, '');
+    .replace(/^-/, '')
+    .replace(/-$/, '');
   if (slug.length > 0) return slug;
   if (fallbackId) return `srv-${fallbackId.slice(0, 8)}`;
   return 'srv';
