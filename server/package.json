@@ -17,7 +17,7 @@
     "ai": "^6.0.174",
     "better-sqlite3": "^11.10.0",
     "cors": "^2.8.5",
-    "express": "^4.22.2",
+    "express": "^5.2.1",
     "http-proxy-middleware": "^3.0.7",
     "jszip": "^3.10.1",
     "multer": "^2.2.0",
