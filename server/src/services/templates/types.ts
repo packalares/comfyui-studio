@@ -193,6 +193,13 @@ export interface TemplateData {
     mute?: Array<number | string>;
     switchNodeId?: number;
     switchSlot?: number;
+    /** Per-mode attached-media (reference) count guard, enforced client-side
+     *  by the Image/Video builders. Both optional; omitted = no limit. */
+    minMedia?: number;
+    maxMedia?: number;
+    /** When false, the builder hides the prompt box for this mode.
+     *  Omitted/true = prompt shown. */
+    showPrompt?: boolean;
     /**
      * Maps the Easy-mode UI's semantic input names (e.g. "image", "audio",
      * "lastFrame") onto the template's actual form-input keys

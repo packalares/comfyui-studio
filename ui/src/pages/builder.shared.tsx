@@ -43,6 +43,15 @@ export interface BuilderTemplateBundle {
     switchNodeId?: number;
     switchSlot?: number;
     triggers?: string[];
+    /** Per-mode attached-media (reference) count guard. Both optional; omitted
+     *  = no limit. `minMedia` blocks generation until enough media is attached;
+     *  `maxMedia` blocks when too many. General across Image/Video builders
+     *  ("media" = attached references). */
+    minMedia?: number;
+    maxMedia?: number;
+    /** When false, hide the prompt box for this mode (e.g. an image-restore
+     *  mode). Omitted/true = prompt shown. */
+    showPrompt?: boolean;
     /** Per-mode resolution preset table for the Image tab. Each format id
      *  (1:1, 16:9, …) maps to a Standard + HD pixel pair. Picked up by
      *  `pickResolution` and rendered by ImageBuilder's chip row. */
@@ -348,8 +357,11 @@ async function runChatStream(args: {
     }
   }
 
-  // `thinking` is a top-level Ollama chat field, NOT a sampling option.
-  // Forwarded only when the caller opts in (default off).
+  // `think` is Ollama's top-level reasoning switch (NOT a sampling option,
+  // and the field is `think`, not `thinking`). Send it ALWAYS and explicitly:
+  // omitting it lets a default-thinking model (e.g. qwen3.5) fall back to
+  // thinking-ON and stall the enhancer with a long chain-of-thought. Passing
+  // `think: false` actually turns it off.
   //
   // `stream: true` is critical: without streaming, large-context thinking
   // models can take 60-120s to produce, and nginx-ingress's default 60s
@@ -359,8 +371,8 @@ async function runChatStream(args: {
     stream: true,
     messages,
     options: args.options,
+    think: args.thinking,
   };
-  if (args.thinking) body.thinking = true;
 
   const res = await fetch('/api/llm/chat', {
     method: 'POST',
@@ -506,7 +518,7 @@ export function buildImageEnhancerInput(args: {
 // ---- Image mode + resolution helpers ----
 
 /** Quality tiers used by the Image tab's Quality chip. */
-export type QualityTier = 'standard' | 'hd';
+export type QualityTier = 'standard' | 'hd' | '4k';
 
 /** A single mode option as surfaced in the Model chip row.
  *  `name` is the studioMode key (e.g. `t2i_flux_dev`), `label` is the
@@ -572,7 +584,10 @@ export function pickResolution(args: {
   if (!table) return fallback;
   const fmt = table[args.formatId] ?? table['1:1'];
   if (!fmt) return fallback;
-  const dims = fmt[args.qualityId] ?? fmt.standard;
+  // 4K reuses the HD dimensions — it's HD generation + a workflow upscale,
+  // not a native 4K generation size (models degrade past ~2MP).
+  const q = args.qualityId === '4k' ? 'hd' : args.qualityId;
+  const dims = fmt[q] ?? fmt.standard;
   if (!dims) return fallback;
   return { width: dims[0], height: dims[1] };
 }

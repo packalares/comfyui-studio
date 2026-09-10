@@ -214,8 +214,17 @@ export default function VideoBuilder({ registerAction, onSwitchToAdvanced, onTem
     }
     if (duration <= 0 || duration > 60) return 'Duration must be between 1 and 60 seconds';
     if (resolution.width <= 0 || resolution.height <= 0) return 'Invalid resolution';
+    // Per-mode media-count guard (minMedia/maxMedia). "Media" for the Video
+    // tab = the attached reference inputs (image/audio/lastFrame).
+    const modeCfg = bundle.studioModes?.[inferredMode];
+    if (modeCfg) {
+      const n = [imageRef, audioRef, lastFrameRef].filter(Boolean).length;
+      const min = modeCfg.minMedia ?? 0;
+      if (n < min) return `Attach at least ${min} media input${min === 1 ? '' : 's'}`;
+      if (modeCfg.maxMedia != null && n > modeCfg.maxMedia) return `Too many media inputs (max ${modeCfg.maxMedia})`;
+    }
     return null;
-  }, [selectedName, bundle, depCheck, prompt, inferredMode, duration, resolution]);
+  }, [selectedName, bundle, depCheck, prompt, inferredMode, duration, resolution, imageRef, audioRef, lastFrameRef]);
 
   // ---- Prompt enhance via /api/llm/chat ----
   //

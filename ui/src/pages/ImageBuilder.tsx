@@ -53,6 +53,7 @@ import {
 const QUALITY_OPTIONS: Array<{ id: QualityTier; label: string }> = [
   { id: 'standard', label: 'SD' },
   { id: 'hd',       label: 'HD' },
+  { id: '4k',       label: '4K' },
 ];
 
 const MAX_REFS = 8;
@@ -103,7 +104,9 @@ function migratePersistedForm(raw: unknown): PersistedForm | null {
   const r = raw as Record<string, unknown>;
   const legacyQ = typeof r.qualityId === 'string' ? r.qualityId : '1024';
   const qualityId: QualityTier =
-    legacyQ === 'hd' || legacyQ === '2048' ? 'hd' : 'standard';
+    legacyQ === '4k' ? '4k'
+      : legacyQ === 'hd' || legacyQ === '2048' ? 'hd'
+        : 'standard';
   const refs = Array.isArray(r.references)
     ? (r.references as unknown[]).filter((x): x is MediaLibraryItem => {
         return !!x && typeof x === 'object' && typeof (x as MediaLibraryItem).ref === 'string';
@@ -251,7 +254,7 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced, onTem
     () => pickResolution({
       mode: selectedMode ?? '',
       formatId,
-      qualityId,
+      qualityId,   // pickResolution maps 4k -> hd (4K = HD gen + upscale)
       toggles,
       studioModes: bundle?.studioModes,
     }),
@@ -268,8 +271,26 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced, onTem
     if (availableModes.length === 0) return 'Template has no studioModes declared';
     if (!selectedMode) return 'Pick a model';
     if (resolution.width <= 0 || resolution.height <= 0) return 'Invalid resolution';
+    // Per-mode media-count guard (minMedia/maxMedia on studioModes). "Media"
+    // for the Image tab = attached references. Omitted fields = no limit.
+    const modeCfg = bundle.studioModes?.[selectedMode];
+    if (modeCfg) {
+      const n = references.length;
+      const min = modeCfg.minMedia ?? 0;
+      if (n < min) return min === 1 ? 'Attach a reference image' : `Attach at least ${min} references`;
+      if (modeCfg.maxMedia != null && n > modeCfg.maxMedia) {
+        return modeCfg.maxMedia === 1 ? 'Use exactly one reference image' : `Too many references (max ${modeCfg.maxMedia})`;
+      }
+    }
     return null;
-  }, [selectedName, bundle, depCheck, availableModes, selectedMode, resolution]);
+  }, [selectedName, bundle, depCheck, availableModes, selectedMode, resolution, references]);
+
+  // Modes with `showPrompt: false` (e.g. restore) hide the prompt box AND do
+  // not require a prompt to Generate — otherwise the empty prompt would keep
+  // the button disabled forever.
+  const showPrompt = selectedMode
+    ? (bundle?.studioModes?.[selectedMode]?.showPrompt !== false)
+    : true;
 
   // ---- Reference list helpers ----
   // references[0] is the "main image" surfaced in the big slot above the
@@ -407,6 +428,13 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced, onTem
       // key is sent verbatim — the server routes via studioInputMap or the
       // title-search fallback.
       for (const [k, v] of Object.entries(toggles)) inputs[k] = v;
+      // 4K quality: width/height above are the HD size (model generates at HD);
+      // this boolean flags the workflow to run its upscale branch to 4K. Sent
+      // like a prompt_toggle — the template routes `_use_upscale` via
+      // studioInputMap to the upscale switch (same pattern as
+      // `_turbo_mode_enabled`), or the server's title-search fallback matches a
+      // switch node titled "use_upscale".
+      inputs._use_upscale = (qualityId === '4k');
       // Multi-reference: pass an array of `<subfolder>/<filename>` refs.
       // The image workflow's studioInputMap.images is expected to fan these
       // into N LoadImage nodes inside the multi-ref subgraph.
@@ -468,11 +496,11 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced, onTem
     registerAction({
       onSubmit: handleGenerate,
       onReset: handleReset,
-      disabled: !!validationError || !prompt.trim() || generating || !connected,
+      disabled: !!validationError || (showPrompt && !prompt.trim()) || generating || !connected,
       label: generating ? 'Submitting…' : 'Generate',
     });
     return () => registerAction(null);
-  }, [registerAction, handleGenerate, handleReset, validationError, prompt, generating, connected]);
+  }, [registerAction, handleGenerate, handleReset, validationError, prompt, generating, connected, showPrompt]);
 
   // ---- Empty state ----
   if (builderTemplates.length === 0) {
@@ -583,6 +611,15 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced, onTem
               effect on a raw generation without Enhance.
             </TooltipContent>
           </Tooltip>
+          {(cameraLabels.camera || cameraLabels.lens || cameraLabels.focalLength || cameraLabels.aperture) && (
+            <button
+              type="button"
+              onClick={() => setCamera(EMPTY_CAMERA)}
+              className="ml-auto text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Clear
+            </button>
+          )}
         </div>
         <button
           type="button"
@@ -665,7 +702,8 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced, onTem
 
       {/* PROMPT — same card layout as VideoBuilder: textarea + inline
           Enhance / AutoEnhance / Clear in the footer, spinner overlay while
-          enhancing. */}
+          enhancing. Hidden when the active mode sets `showPrompt: false`. */}
+      {showPrompt && (
       <div>
         <p className="eyebrow mb-2">Prompt</p>
         <div className="relative rounded-xl border bg-card">
@@ -724,6 +762,7 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced, onTem
           )}
         </div>
       </div>
+      )}
 
       {/* MODEL · FORMAT · QUALITY single chip row.
           Model on the left (one chip per available mode under the current
@@ -753,7 +792,9 @@ export default function ImageBuilder({ registerAction, onSwitchToAdvanced, onTem
           />
           <ChipSelect
             icon={Gauge}
-            value={`${QUALITY_OPTIONS.find((q) => q.id === qualityId)?.label ?? 'SD'} · ${resolution.width}×${resolution.height}`}
+            value={qualityId === '4k'
+              ? '4K'
+              : `${QUALITY_OPTIONS.find((q) => q.id === qualityId)?.label ?? 'SD'} · ${resolution.width}×${resolution.height}`}
             options={QUALITY_OPTIONS.map((q) => ({ id: q.id, left: q.label, right: '' }))}
             selectedId={qualityId}
             onChange={(id) => setQualityId(id as QualityTier)}
