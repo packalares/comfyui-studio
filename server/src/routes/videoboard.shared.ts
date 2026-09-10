@@ -1,8 +1,8 @@
 // Shared helpers for videoboard sub-routers.
 
 import fs from 'fs';
-import path from 'path';
 import { paths } from '../config/paths.js';
+import { resolveWithin } from '../lib/pathSafe.js';
 
 /** True if a /api/view?... URL resolves to a real file on disk. */
 export function viewUrlPointsToExistingFile(url: string | undefined | null): boolean {
@@ -15,9 +15,8 @@ export function viewUrlPointsToExistingFile(url: string | undefined | null): boo
   const type = p.get('type') ?? 'output';
   const subfolder = p.get('subfolder') ?? '';
   const root = type === 'output' ? paths.comfyOutputDir : paths.comfyInputDir;
-  if (!root) return false;
-  const abs = path.resolve(root, subfolder, filename);
-  if (!abs.startsWith(path.resolve(root) + path.sep)) return false;
+  const abs = resolveWithin(root, subfolder, filename);
+  if (abs == null) return false;
   return fs.existsSync(abs);
 }
 
@@ -34,8 +33,8 @@ export function deleteOrphanedFiles(urls: string[]): void {
       if (!filename) continue;
       if ((params.get('type') ?? 'output') !== 'output') continue;
       const subfolder = params.get('subfolder') ?? '';
-      const abs = path.resolve(outputDir, subfolder, filename);
-      if (!abs.startsWith(path.resolve(outputDir) + path.sep)) continue;
+      const abs = resolveWithin(outputDir, subfolder, filename);
+      if (abs == null) continue;
       if (fs.existsSync(abs)) fs.unlinkSync(abs);
     } catch { /* best-effort */ }
   }

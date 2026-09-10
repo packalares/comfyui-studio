@@ -28,6 +28,7 @@ import { randomUUID } from 'crypto';
 import { currentProcessEnv } from '../../config/env.js';
 import { paths } from '../../config/paths.js';
 import { logger } from '../../lib/logger.js';
+import { resolveWithin } from '../../lib/pathSafe.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../lib/errors.js';
 import { submitGpuJob } from '../gpu/scheduler.js';
 import { LogService } from '../comfyui/process.js';
@@ -203,11 +204,17 @@ function runAiToolkitProcess(jobId: string, configPath: string, log: LogService,
 function installLoraIntoComfy(sourcePath: string, jobName: string): string {
   const lorasDir = resolveComfyLorasDir();
   fs.mkdirSync(lorasDir, { recursive: true, mode: 0o755 });
-  let filename = `${jobName}.safetensors`;
-  let dest = path.join(lorasDir, filename);
-  if (fs.existsSync(dest)) {
-    filename = `${jobName}-${Date.now()}.safetensors`;
-    dest = path.join(lorasDir, filename);
+  // jobName is user-set — strip it to a safe single-component base so it can
+  // never traverse out of loras/ (e.g. a job named "../../evil").
+  const base = path.basename(jobName).replace(/[^\w.-]+/g, '_') || 'lora';
+  let filename = `${base}.safetensors`;
+  let dest = resolveWithin(lorasDir, filename);
+  if (dest && fs.existsSync(dest)) {
+    filename = `${base}-${Date.now()}.safetensors`;
+    dest = resolveWithin(lorasDir, filename);
+  }
+  if (dest == null) {
+    throw new Error(`refusing unsafe LoRA install name derived from job: ${jobName}`);
   }
   fs.copyFileSync(sourcePath, dest);
   return dest;

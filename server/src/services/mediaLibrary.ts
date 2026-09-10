@@ -10,7 +10,7 @@
 import fs from 'fs';
 import path from 'path';
 import { env } from '../config/env.js';
-import { sanitizeSegment } from '../lib/viewPath.js';
+import { resolveWithin, validateFilename } from '../lib/pathSafe.js';
 
 export type MediaKind = 'image' | 'audio' | 'video';
 
@@ -176,19 +176,10 @@ export function listLibrary(kind: MediaKind, scope: Scope = 'input'): LibraryIte
 /** Compose an absolute on-disk path inside input/ for a (subfolder, filename)
  *  pair, refusing anything that escapes input/. Returns null on traversal. */
 export function resolveLibraryPath(subfolder: string, filename: string): string | null {
-  const safeName = sanitizeSegment(filename);
-  if (!safeName) return null;
-  const root = INPUT_DIR();
-  if (!subfolder) {
-    const abs = path.join(root, safeName);
-    return abs.startsWith(root + path.sep) ? abs : null;
-  }
-  const segs = subfolder.split('/')
-    .map(sanitizeSegment)
-    .filter((s): s is string => typeof s === 'string' && s.length > 0);
-  if (segs.length === 0) return null;
-  const abs = path.join(root, ...segs, safeName);
-  return abs.startsWith(root + path.sep) ? abs : null;
+  // A filename must be a single component (no separators); the subfolder may be
+  // nested. Both go through the shared containment guard.
+  if (validateFilename(filename) == null) return null;
+  return resolveWithin(INPUT_DIR(), subfolder, filename);
 }
 
 export function deleteLibraryItem(subfolder: string, filename: string): boolean {

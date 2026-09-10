@@ -35,6 +35,7 @@ import type { Shot, Project } from '../../contracts/videoboard.js';
 import { logger } from '../../lib/logger.js';
 import { collectNodeOutputFiles, detectMediaType, type OutputFile } from '../../lib/mediaType.js';
 import { paths } from '../../config/paths.js';
+import { resolveWithin } from '../../lib/pathSafe.js';
 import { getHistoryForPrompt, deleteQueuedPrompts } from '../comfyui/api.js';
 import { submitTemplate } from '../templates/submitTemplate.js';
 import * as templates from '../templates/index.js';
@@ -116,10 +117,7 @@ function resolveViewToAbs(url: string): string | null {
   const parsed = parseViewUrl(url);
   if (!parsed) return null;
   const root = parsed.type === 'output' ? paths.comfyOutputDir : paths.comfyInputDir;
-  if (!root) return null;
-  const abs = path.resolve(root, parsed.subfolder, parsed.filename);
-  if (!abs.startsWith(path.resolve(root) + path.sep)) return null;
-  return abs;
+  return resolveWithin(root, parsed.subfolder, parsed.filename);
 }
 
 // ---------------------------------------------------------------------------
@@ -141,9 +139,9 @@ function stageImageForInput(
   }
   const ext = path.extname(sourceAbs) || '.png';
   const stagedName = `vbchain_${projectId}_${shotIdx}${ext}`;
-  const stagedAbs = path.resolve(inputDir, stagedName);
-  if (!stagedAbs.startsWith(path.resolve(inputDir) + path.sep)) {
-    throw new Error(`staged path escapes input root: ${stagedAbs}`);
+  const stagedAbs = resolveWithin(inputDir, stagedName);
+  if (stagedAbs == null) {
+    throw new Error(`staged path escapes input root: ${stagedName}`);
   }
   try { fs.unlinkSync(stagedAbs); } catch { /* missing is fine */ }
   try {
@@ -281,9 +279,9 @@ function stageFileForInput(sourceAbs: string, stagedName: string): string {
   if (!fs.existsSync(sourceAbs)) {
     throw new Error(`source missing on disk: ${sourceAbs}`);
   }
-  const stagedAbs = path.resolve(inputDir, stagedName);
-  if (!stagedAbs.startsWith(path.resolve(inputDir) + path.sep)) {
-    throw new Error(`staged path escapes input root: ${stagedAbs}`);
+  const stagedAbs = resolveWithin(inputDir, stagedName);
+  if (stagedAbs == null) {
+    throw new Error(`staged path escapes input root: ${stagedName}`);
   }
   try { fs.unlinkSync(stagedAbs); } catch { /* fine */ }
   try {

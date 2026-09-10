@@ -21,6 +21,7 @@ import type { Shot, Project } from '../../contracts/videoboard.js';
 import { logger } from '../../lib/logger.js';
 import { collectNodeOutputFiles, type OutputFile } from '../../lib/mediaType.js';
 import { paths } from '../../config/paths.js';
+import { resolveWithin } from '../../lib/pathSafe.js';
 import { detectMediaType } from '../../lib/mediaType.js';
 import { getHistoryForPrompt, deleteQueuedPrompts } from '../comfyui/api.js';
 import { submitTemplate } from '../templates/submitTemplate.js';
@@ -126,18 +127,18 @@ function stageImageForInput(
   const parsed = parseViewUrl(shotImageUrl);
   if (!parsed) throw new Error(`unparseable shot image_url: ${shotImageUrl}`);
   const sourceRoot = parsed.type === 'output' ? outputDir : inputDir;
-  const sourceAbs = path.resolve(sourceRoot, parsed.subfolder, parsed.filename);
-  if (!sourceAbs.startsWith(path.resolve(sourceRoot) + path.sep)) {
-    throw new Error(`shot image path escapes source root: ${sourceAbs}`);
+  const sourceAbs = resolveWithin(sourceRoot, parsed.subfolder, parsed.filename);
+  if (sourceAbs == null) {
+    throw new Error(`shot image path escapes source root: ${sourceRoot}`);
   }
   if (!fs.existsSync(sourceAbs)) {
     throw new Error(`shot image not on disk: ${sourceAbs}`);
   }
   const ext = path.extname(parsed.filename) || '.png';
   const stagedName = `vb_${projectId}_${role}_${shotIdx}${ext}`;
-  const stagedAbs = path.resolve(inputDir, stagedName);
-  if (!stagedAbs.startsWith(path.resolve(inputDir) + path.sep)) {
-    throw new Error(`staged path escapes input root: ${stagedAbs}`);
+  const stagedAbs = resolveWithin(inputDir, stagedName);
+  if (stagedAbs == null) {
+    throw new Error(`staged path escapes input root: ${stagedName}`);
   }
   // Overwrite any prior link/copy. Hard-link first (free on same fs); fall
   // back to copy if it fails (cross-fs, permissions).

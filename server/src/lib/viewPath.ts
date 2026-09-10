@@ -10,19 +10,15 @@
 
 import path from 'path';
 import { env } from '../config/env.js';
+import { resolveWithin } from './pathSafe.js';
+
+// sanitizeSegment now lives in the shared pathSafe module; re-exported here so
+// existing importers (view / download routes, mediaLibrary) keep working.
+export { sanitizeSegment } from './pathSafe.js';
 
 export interface ResolvedViewPath {
   absPath: string;
   rootAbs: string;
-}
-
-export function sanitizeSegment(value: string | undefined): string | null {
-  if (value == null) return '';
-  if (typeof value !== 'string') return null;
-  if (value.includes('\0')) return null;
-  if (value.includes('..')) return null;
-  if (value.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(value)) return null;
-  return value;
 }
 
 /**
@@ -39,7 +35,7 @@ export function resolveViewPath(
   ];
   if (!typeDir) return null;
   const rootAbs = path.resolve(root, typeDir);
-  const abs = path.resolve(rootAbs, subfolder || '', filename);
-  if (!abs.startsWith(rootAbs + path.sep) && abs !== rootAbs) return null;
+  const abs = resolveWithin(rootAbs, subfolder, filename);
+  if (abs == null) return null;
   return { absPath: abs, rootAbs };
 }
