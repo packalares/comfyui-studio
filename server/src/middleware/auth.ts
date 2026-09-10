@@ -50,13 +50,22 @@ export function authMiddleware(auth: AuthSpec) {
         return;
       }
 
+      // Requests that arrived through the PUBLIC entrance are stamped by the
+      // front nginx (`X-Studio-Public: 1`); the internal/SSO entrances blank
+      // this header. For stamped requests the forgeable same-origin signal
+      // (Sec-Fetch-Site / Origin) must NOT grant access — only a real Bearer
+      // key does (Path C). This keeps the public /api/llm surface key-only
+      // while the SSO'd UI (unstamped) keeps using the cookie/same-origin path.
+      const publicEntrance = req.headers['x-studio-public'] === '1';
+
       const sig = classifySameOrigin(req.headers);
       const cookie = readSessionCookie(req);
       const cookieOk = matchesMasterKey(cookie);
 
       // Path A — valid cookie. Trust unless the request is explicitly
-      // cross-site (Sec-Fetch-Site present and != 'same-origin').
-      if (cookieOk) {
+      // cross-site (Sec-Fetch-Site present and != 'same-origin'). Never for a
+      // public-entrance request.
+      if (!publicEntrance && cookieOk) {
         if (sig === 'reject') throw new UnauthorizedError();
         trustAsUi(req);
         next();
@@ -66,8 +75,9 @@ export function authMiddleware(auth: AuthSpec) {
       // Path B — no/invalid cookie but the request is verifiably same-origin.
       // Mint a fresh cookie now so subsequent calls take Path A. The cookie
       // is the master key itself; only same-origin requests will ever carry
-      // it back to us (SameSite=Strict).
-      if (sig === 'strong' || sig === 'weak') {
+      // it back to us (SameSite=Strict). Skipped for public-entrance requests
+      // — a forged Sec-Fetch-Site header must not bootstrap trust there.
+      if (!publicEntrance && (sig === 'strong' || sig === 'weak')) {
         setSessionCookie(res);
         trustAsUi(req);
         next();

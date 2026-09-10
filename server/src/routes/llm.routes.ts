@@ -92,12 +92,17 @@ async function proxyToOllama(
   targetPath: string,
   taskType: 'llm-chat' | 'llm-generate' | 'llm-embeddings',
   body: unknown,
+  // Ollama streams by default (stream !== false); OpenAI /v1 does NOT
+  // (stream must be explicitly true). The response framing differs too:
+  // Ollama = NDJSON, OpenAI = SSE (text/event-stream).
+  mode: 'ollama' | 'openai' = 'ollama',
 ): Promise<void> {
   const upstream = getOllamaUrl();
 
   // Detect streaming intent; embeddings endpoint is always non-streaming.
+  const streamField = (body as Record<string, unknown>).stream;
   const isStream = taskType !== 'llm-embeddings'
-    && (body as Record<string, unknown>).stream !== false;
+    && (mode === 'openai' ? streamField === true : streamField !== false);
 
   // For streaming, commit response headers + a newline every 30s WHILE waiting
   // in the GPU queue so intermediate proxies (nginx, cloudflare) don't close
@@ -105,7 +110,7 @@ async function proxyToOllama(
   // no-op event. Cleared the moment the scheduler hands us the slot.
   let queueHeartbeat: NodeJS.Timeout | null = null;
   if (isStream) {
-    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.setHeader('Content-Type', mode === 'openai' ? 'text/event-stream' : 'application/x-ndjson');
     res.setHeader('Transfer-Encoding', 'chunked');
     // Tell nginx (and any reverse proxy honouring the convention) to NOT
     // buffer this response. With default `proxy_buffering on`, nginx-ingress
@@ -272,6 +277,54 @@ router.post(
     const parsed = parseBody(LlmEmbeddingsBodySchema, req.body);
     if (!parsed.ok) { sendJsonError(res, 400, parsed.error); return; }
     await proxyToOllama(req, res, '/api/embeddings', 'llm-embeddings', parsed.data);
+  },
+);
+
+// ---- OpenAI-compatible passthrough (/llm/v1/*) ----
+// Bodies are OpenAI-shaped and forwarded verbatim to Ollama's native OpenAI
+// endpoints. Streaming uses OpenAI semantics (stream:true → SSE). Every
+// GPU-bound call runs through the SAME submitGpuJob queue as /llm/*, so a
+// single GPU is never hammered. The front nginx maps public /v1/* → these.
+
+router.post(
+  '/llm/v1/chat/completions',
+  authMiddleware({ required: true, scopes: ['chat:write'] }),
+  async (req: Request, res: Response) => {
+    if (req.body === null || typeof req.body !== 'object') { sendJsonError(res, 400, 'JSON body required'); return; }
+    await proxyToOllama(req, res, '/v1/chat/completions', 'llm-chat', req.body, 'openai');
+  },
+);
+
+router.post(
+  '/llm/v1/completions',
+  authMiddleware({ required: true, scopes: ['chat:write'] }),
+  async (req: Request, res: Response) => {
+    if (req.body === null || typeof req.body !== 'object') { sendJsonError(res, 400, 'JSON body required'); return; }
+    await proxyToOllama(req, res, '/v1/completions', 'llm-generate', req.body, 'openai');
+  },
+);
+
+router.post(
+  '/llm/v1/embeddings',
+  authMiddleware({ required: true, scopes: ['chat:read'] }),
+  async (req: Request, res: Response) => {
+    if (req.body === null || typeof req.body !== 'object') { sendJsonError(res, 400, 'JSON body required'); return; }
+    await proxyToOllama(req, res, '/v1/embeddings', 'llm-embeddings', req.body, 'openai');
+  },
+);
+
+// Model list is a cheap metadata call — no GPU, so it skips the scheduler.
+router.get(
+  '/llm/v1/models',
+  authMiddleware({ required: true, scopes: ['chat:read'] }),
+  async (_req: Request, res: Response) => {
+    try {
+      const r = await undiciRequest(`${getOllamaUrl()}/v1/models`, { method: 'GET' });
+      const json = await r.body.json();
+      res.status(r.statusCode).json(json);
+    } catch (err) {
+      sendJsonError(res, 502, err instanceof Error ? err.message : String(err));
+    }
   },
 );
 
