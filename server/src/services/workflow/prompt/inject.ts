@@ -56,25 +56,103 @@ export function applyFormInputs(
   }
 }
 
+// A ref in ComfyUI's API prompt is a `[sourceNodeId, slot]` tuple; anything
+// else is a literal. Compare via String() so subgraph-qualified ids like
+// `340:332` and numeric ids both match. `typeof v[0] !== 'boolean'` guards
+// the `[true, 0]`-style literal that a boolean widget could produce.
+function isRef(v: unknown): v is [string | number, number] {
+  return Array.isArray(v) && v.length === 2
+    && (typeof v[0] === 'string' || typeof v[0] === 'number')
+    && typeof v[0] !== 'boolean'
+    && typeof v[1] === 'number';
+}
+
+// Node class_types that merely forward a value straight through, mapped to
+// the input key carrying that value. When such a node is deleted we can
+// rewire its consumers to ITS own upstream source ("reconnect-around")
+// instead of cutting the wire. Extend as real workflows need it.
+const PASSTHROUGH_INPUT: Record<string, string> = {
+  Reroute: 'value',
+};
+
+export interface ScrubResult {
+  /**
+   * Kept nodes whose REQUIRED input was fed by a deleted node and could not
+   * be reconnected around. The ref is dropped anyway (so ComfyUI's error is
+   * clean), but the caller can surface this — it usually means a mode's
+   * `enableGroups`/`mute` config muted a branch a surviving node still needs.
+   */
+  brokenRequired: Array<{ nodeId: string; input: string; wasFedBy: string }>;
+}
+
 /**
- * Strip a node from the API prompt and scrub every reference to it from
- * any other node's inputs. References in ComfyUI's API-prompt format are
- * `[nodeId, slot]` tuples. Dropping the input key (rather than leaving a
- * dangling ref) is what ComfyUI expects — optional sockets accept "not
- * supplied" but not "supplied as dangling link".
+ * Remove `deleted` node ids from the API prompt and fix every surviving
+ * input that referenced one of them. For each such boundary ref, in order:
+ *   1. if the deleted source was a pass-through (see PASSTHROUGH_INPUT),
+ *      rewire the consumer to that node's OWN surviving upstream source;
+ *   2. else drop the input key if it's optional (`isOptional` → true, or no
+ *      predicate given — optional/dynamic sockets accept "not supplied");
+ *   3. else record it in `brokenRequired` and still drop the key.
+ *
+ * Deletion happens AFTER the rewire scan so a pass-through node's upstream
+ * is still readable while reconnecting around it.
+ *
+ * @param isOptional  (classType, inputKey) => is this input optional? Wire
+ *                    to objectInfo (`!(key in schema.input.required)`). When
+ *                    omitted, every dropped ref is treated as optional.
+ */
+export function scrubDeletedRefs(
+  prompt: ApiPrompt,
+  deleted: Set<string>,
+  isOptional?: (classType: string, inputKey: string) => boolean,
+): ScrubResult {
+  const result: ScrubResult = { brokenRequired: [] };
+
+  // Follow a ref landing in `deleted` through deleted pass-through nodes to
+  // the first surviving source, or null if it dead-ends in a non-forwarding
+  // deleted node (cycle-guarded).
+  const resolveThrough = (
+    ref: [string | number, number],
+    seen: Set<string>,
+  ): [string | number, number] | null => {
+    const srcId = String(ref[0]);
+    if (!deleted.has(srcId)) return ref;
+    if (seen.has(srcId)) return null;
+    seen.add(srcId);
+    const src = prompt[srcId];
+    const fwdKey = src ? PASSTHROUGH_INPUT[src.class_type] : undefined;
+    if (!src || !fwdKey) return null;
+    const upstream = src.inputs[fwdKey];
+    return isRef(upstream) ? resolveThrough(upstream, seen) : null;
+  };
+
+  for (const [nodeId, entry] of Object.entries(prompt)) {
+    if (deleted.has(nodeId)) continue; // deleted below; don't rewire its inputs
+    const inputs = entry.inputs;
+    for (const key of Object.keys(inputs)) {
+      const v = inputs[key];
+      if (!isRef(v) || !deleted.has(String(v[0]))) continue;
+      const rewired = resolveThrough(v, new Set());
+      if (rewired) { inputs[key] = rewired; continue; }
+      if (isOptional && !isOptional(entry.class_type, key)) {
+        result.brokenRequired.push({ nodeId, input: key, wasFedBy: String(v[0]) });
+      }
+      delete inputs[key];
+    }
+  }
+
+  for (const id of deleted) delete prompt[id];
+  return result;
+}
+
+/**
+ * Strip a single node from the API prompt and scrub every reference to it.
+ * Thin wrapper over {@link scrubDeletedRefs} for the empty-media-loader case
+ * (the dropped socket is optional, so no `isOptional` predicate is needed).
  */
 function removeNodeAndRefs(prompt: ApiPrompt, nodeId: string): void {
   if (!prompt[nodeId]) return;
-  delete prompt[nodeId];
-  for (const entry of Object.values(prompt)) {
-    const inputs = entry.inputs ?? {};
-    for (const key of Object.keys(inputs)) {
-      const v = inputs[key];
-      if (Array.isArray(v) && v.length === 2 && String(v[0]) === nodeId) {
-        delete inputs[key];
-      }
-    }
-  }
+  scrubDeletedRefs(prompt, new Set([nodeId]));
 }
 
 /**

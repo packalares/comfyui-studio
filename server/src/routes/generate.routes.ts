@@ -8,6 +8,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { defineRoute } from '../lib/defineRoute.js';
 import { NotFoundError, ValidationError, UpstreamUnavailableError } from '../lib/errors.js';
+import { logger } from '../lib/logger.js';
 import * as comfyui from '../services/comfyui/api.js';
 import * as templates from '../services/templates/index.js';
 import { generateFormInputs } from '../services/templates/templates.formInputs.js';
@@ -15,6 +16,7 @@ import type { RawTemplate } from '../services/templates/types.js';
 import { getObjectInfo, workflowToApiPrompt } from '../services/workflow/index.js';
 import { computeFgmMutedNodes } from '../services/workflow/fgmMute.js';
 import { injectEnhancerProbes } from '../services/workflow/prompt/enhancerProbe.js';
+import { scrubDeletedRefs } from '../services/workflow/prompt/inject.js';
 import { schedulePromptWatch } from '../services/gallery/sentry.js';
 import { insertSnapshot } from '../lib/db/promptSnapshots.repo.js';
 import { computeModelFingerprint } from '../services/templates/submitTemplate.js';
@@ -261,8 +263,7 @@ const generateRoute = defineRoute({
       // flattener turns subgraph instance children into compound keys like
       // `340:332`, so we expand each muteId to the bare key + every
       // `${muteId}:*` descendant.
-      const prompt = apiPrompt as Record<string, { inputs?: Record<string, unknown> }>;
-      const promptKeys = Object.keys(prompt);
+      const promptKeys = Object.keys(apiPrompt);
       const toDelete = new Set<string>();
       for (const muteId of combinedMutes) {
         const bareKey = String(muteId);
@@ -271,25 +272,28 @@ const generateRoute = defineRoute({
           if (k === bareKey || k.startsWith(prefix)) toDelete.add(k);
         }
       }
-      for (const k of toDelete) delete prompt[k];
-      // Scrub references to deleted nodes from every survivor's inputs.
-      // ComfyUI input shape: a value is either a literal (string / number /
-      // bool / etc.) OR a [sourceNodeId, slotIndex] tuple. We only strip
-      // the tuple form whose source is in `toDelete`. Dynamic-input nodes
-      // (ImpactSwitch, etc.) accept gaps; required-input nodes won't be
-      // referencing a deleted subgraph in practice because the workflow
-      // author put them on the active side.
-      for (const node of Object.values(prompt)) {
-        const inputs = node.inputs;
-        if (!inputs) continue;
-        for (const [name, val] of Object.entries(inputs)) {
-          if (
-            Array.isArray(val) && val.length === 2
-            && typeof val[0] === 'string' && toDelete.has(val[0])
-          ) {
-            delete inputs[name];
-          }
-        }
+      // Delete the muted nodes and fix every surviving input that referenced
+      // one: reconnect around a muted pass-through (Reroute) where possible,
+      // else drop the (optional) ref, else flag a broken REQUIRED input.
+      // `isOptional` is `!(key in schema.input.required)` — dynamic-input
+      // nodes (ImpactSwitch, etc.) don't declare their slots, so gaps there
+      // read as optional and are dropped silently, as before.
+      const isOptional = (classType: string, key: string): boolean => {
+        const schema = objectInfo[classType] as
+          | { input?: { required?: Record<string, unknown> } }
+          | undefined;
+        const req = schema?.input?.required;
+        return !(req && key in req);
+      };
+      const { brokenRequired } = scrubDeletedRefs(apiPrompt, toDelete, isOptional);
+      if (brokenRequired.length > 0) {
+        // A surviving node still needs a branch this mode muted — almost
+        // always a mis-scoped `enableGroups`/`mute`. Log it; the ref was
+        // dropped so ComfyUI will still fail with a clear "required input
+        // missing" pointing at the offending node.
+        logger.warn('easy-mode mute: dropped a required input feeding a surviving node', {
+          mode, brokenRequired,
+        });
       }
     }
     if (
