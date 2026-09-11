@@ -32,6 +32,8 @@ const ChatResponseSchema = z.object({
   keepAlive: z.string(),
   defaultContextStrategy: z.enum(['sliding', 'auto']),
   defaultThinkMode: z.enum(['on', 'off', 'auto']),
+  llmApiQueueLimit: z.number(),
+  llmMaxInputTokens: z.number(),
   advanced: z.object({
     highWaterPercent: z.number(),
     maxToolSteps: z.number(),
@@ -45,6 +47,9 @@ const ChatResponseSchema = z.object({
 
 const ToolsResponseSchema = z.object({
   searxngUrl: z.string(),
+  doclingUrl: z.string(),
+  doclingFileTypes: z.array(z.string()),
+  doclingMaxUploadMb: z.number(),
   defaultImageTemplate: z.string(),
   enabledMcpTools: z.record(z.string(), z.boolean()),
 });
@@ -72,6 +77,8 @@ function chatSettingsResponse() {
     keepAlive: settings.getChatKeepAlive(),
     defaultContextStrategy: settings.getDefaultContextStrategy(),
     defaultThinkMode: settings.getChatDefaultThinkMode(),
+    llmApiQueueLimit: settings.getLlmApiQueueLimit(),
+    llmMaxInputTokens: settings.getLlmMaxInputTokens(),
     advanced: {
       highWaterPercent: settings.getChatHighWaterPercent(),
       maxToolSteps: settings.getChatMaxToolSteps(),
@@ -87,6 +94,9 @@ function chatSettingsResponse() {
 function toolsSettingsResponse() {
   return {
     searxngUrl: toolsSettings.getSearxngUrl() ?? '',
+    doclingUrl: toolsSettings.getDoclingUrl() ?? '',
+    doclingFileTypes: toolsSettings.getDoclingFileTypes(),
+    doclingMaxUploadMb: toolsSettings.getDoclingMaxUploadMb(),
     defaultImageTemplate: toolsSettings.getDefaultImageTemplate() ?? '',
     enabledMcpTools: toolsSettings.getEnabledMcpTools(),
   };
@@ -169,6 +179,12 @@ const putChatRoute = defineRoute({
   if (body.defaultThinkMode === 'on' || body.defaultThinkMode === 'off' || body.defaultThinkMode === 'auto') {
     settings.setChatDefaultThinkMode(body.defaultThinkMode);
   }
+  if (typeof body.llmApiQueueLimit === 'number') {
+    settings.setLlmApiQueueLimit(Number.isFinite(body.llmApiQueueLimit) ? body.llmApiQueueLimit : null);
+  }
+  if (typeof body.llmMaxInputTokens === 'number') {
+    settings.setLlmMaxInputTokens(Number.isFinite(body.llmMaxInputTokens) ? body.llmMaxInputTokens : null);
+  }
   const adv = body.advanced;
   if (adv) {
     const numOrNull = (v: unknown): number | null =>
@@ -203,6 +219,17 @@ const putToolsRoute = defineRoute({
     if (t.length === 0) toolsSettings.clearSearxngUrl();
     else toolsSettings.setSearxngUrl(t);
   }
+  if (typeof body.doclingUrl === 'string') {
+    const t = body.doclingUrl.trim();
+    if (t.length === 0) toolsSettings.clearDoclingUrl();
+    else toolsSettings.setDoclingUrl(t);
+  }
+  if (Array.isArray(body.doclingFileTypes)) {
+    toolsSettings.setDoclingFileTypes(body.doclingFileTypes);
+  }
+  if (typeof body.doclingMaxUploadMb === 'number' && Number.isFinite(body.doclingMaxUploadMb) && body.doclingMaxUploadMb > 0) {
+    toolsSettings.setDoclingMaxUploadMb(body.doclingMaxUploadMb);
+  }
   if (typeof body.defaultImageTemplate === 'string') {
     const t = body.defaultImageTemplate.trim();
     if (t.length === 0) toolsSettings.clearDefaultImageTemplate();
@@ -233,9 +260,10 @@ const putDownloadsRoute = defineRoute({
 });
 
 const PROBE_TIMEOUT_MS = 4000;
-const SUB_PATH: Record<'ollama' | 'searxng', string> = {
+const SUB_PATH: Record<'ollama' | 'searxng' | 'docling', string> = {
   ollama: '/api/tags',
   searxng: '/search?format=json&q=hello&pageno=1',
+  docling: '/health',
 };
 
 const probeRoute = defineRoute({
@@ -263,6 +291,8 @@ const probeRoute = defineRoute({
     const headers: Record<string, string> = type === 'searxng' ? { Accept: 'application/json' } : {};
     const r = await fetch(probeUrl, { headers, signal: ctrl.signal });
     if (!r.ok) return ok({ ok: false, error: `upstream ${r.status} ${r.statusText}` });
+    // Docling /health returns {"status":"ok"} — a 200 is all we need.
+    if (type === 'docling') return ok({ ok: true });
     if (type === 'searxng') {
       const ct = r.headers.get('content-type') ?? '';
       if (!ct.toLowerCase().includes('json')) {

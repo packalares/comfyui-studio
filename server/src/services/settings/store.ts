@@ -20,6 +20,19 @@ export interface SettingsInternal {
   chatKeepAlive?: string;
   /** Base URL of a SearXNG instance with JSON output enabled. */
   searxngUrl?: string;
+  /** Base URL of a Docling (docling-serve) instance for document parsing.
+   *  Empty/unset = file ingestion on the LLM API is disabled. */
+  doclingUrl?: string;
+  /** Lowercase file extensions (no dot) accepted for Docling ingestion. */
+  doclingFileTypes?: string[];
+  /** Max per-file upload size (MB) accepted before rejection. */
+  doclingMaxUploadMb?: number;
+  /** LLM API backpressure: when the GPU queue depth is >= this, new API
+   *  requests are rejected with a busy error instead of being enqueued. */
+  llmApiQueueLimit?: number;
+  /** LLM API: max combined input tokens (prompt + injected document text).
+   *  Requests over this are rejected; num_ctx is auto-raised up to this cap. */
+  llmMaxInputTokens?: number;
   /** Template used when `generate_image` runs without an explicit template. */
   defaultImageTemplate?: string;
   /** Default context-window management strategy for new conversations. */
@@ -73,6 +86,18 @@ export const DEFAULT_NSFW_BLUR_LEVEL = 1;
 // for normal bulk-install flows but stops runaway loops from accumulating
 // unbounded state.
 export const DEFAULT_DOWNLOADS_MAX_QUEUE = 50;
+
+// ---- Docling / LLM-API file-ingestion defaults ----
+export const DEFAULT_DOCLING_MAX_UPLOAD_MB = 25;
+export const DEFAULT_DOCLING_FILE_TYPES = [
+  'pdf', 'docx', 'pptx', 'xlsx', 'csv', 'md', 'html', 'txt',
+  'png', 'jpg', 'jpeg', 'tiff', 'webp',
+];
+// If the GPU queue already has this many jobs waiting, the LLM API returns a
+// busy error instead of adding more (keeps latency bounded under load).
+export const DEFAULT_LLM_API_QUEUE_LIMIT = 3;
+// Combined prompt + injected-document token budget for one LLM API request.
+export const DEFAULT_LLM_MAX_INPUT_TOKENS = 32000;
 
 let cache: SettingsInternal | null = null;
 

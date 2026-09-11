@@ -38,17 +38,24 @@ export const ChatPatchSchema = z.object({
   keepAlive: z.string().optional(),
   defaultContextStrategy: z.enum(['sliding', 'auto']).optional(),
   defaultThinkMode: z.enum(['on', 'off', 'auto']).optional(),
+  // Public LLM API tunables (queue backpressure + injected-document budget).
+  llmApiQueueLimit: z.number().finite().optional(),
+  llmMaxInputTokens: z.number().finite().optional(),
   advanced: ChatAdvancedPatchSchema.optional(),
 }).partial();
 
 export const ToolsPatchSchema = z.object({
   searxngUrl: z.string().optional(),
+  // Docling document parser (LLM-API file ingestion).
+  doclingUrl: z.string().optional(),
+  doclingFileTypes: z.array(z.string()).optional(),
+  doclingMaxUploadMb: z.number().finite().positive().optional(),
   defaultImageTemplate: z.string().optional(),
   enabledMcpTools: z.record(z.string(), z.boolean()).optional(),
 }).partial();
 
 export const ProbeBodySchema = z.object({
-  type: z.enum(['ollama', 'searxng']),
+  type: z.enum(['ollama', 'searxng', 'docling']),
   url: z.string().min(1),
 });
 

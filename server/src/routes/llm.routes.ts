@@ -13,8 +13,9 @@ import { request as undiciRequest, Agent } from 'undici';
 import { z } from 'zod';
 import { authMiddleware } from '../middleware/auth.js';
 import { registerSpecOnly } from '../lib/defineRoute.js';
-import { getOllamaUrl } from '../services/settings/index.js';
-import { submitGpuJob } from '../services/gpu/scheduler.js';
+import { getOllamaUrl, getLlmApiQueueLimit } from '../services/settings/index.js';
+import { submitGpuJob, scheduler } from '../services/gpu/scheduler.js';
+import { processLlmAttachments, AttachmentError } from '../services/llm/attachments.js';
 import { logger } from '../lib/logger.js';
 import {
   LlmChatBodySchema,
@@ -81,6 +82,18 @@ function sendJsonError(res: Response, status: number, message: string): void {
   }
 }
 
+// Emit an error in the shape the caller expects: OpenAI clients want
+// `{error:{message,type,code}}`; Ollama-native clients want `{error:"..."}`.
+function sendLlmError(
+  res: Response, mode: 'ollama' | 'openai', status: number, code: string, message: string,
+): void {
+  if (res.headersSent) return;
+  const body = mode === 'openai'
+    ? { error: { message, type: code, code } }
+    : { error: message };
+  res.status(status).json(body);
+}
+
 /**
  * Core proxy function. Wraps the upstream Ollama call in a GPU scheduler slot,
  * streams the response byte-for-byte to the client, and aborts upstream on
@@ -97,6 +110,35 @@ async function proxyToOllama(
   // Ollama = NDJSON, OpenAI = SSE (text/event-stream).
   mode: 'ollama' | 'openai' = 'ollama',
 ): Promise<void> {
+  // Only the public API surface (nginx stamps X-Studio-Public) is subject to
+  // backpressure + attachment ingestion; internal UI/enhancer calls pass through.
+  const isPublic = req.header('x-studio-public') === '1';
+
+  // Public backpressure: if the GPU queue is already deep, fail fast with a
+  // busy error instead of piling on. Bounds latency under load.
+  if (isPublic) {
+    const depth = scheduler.snapshot().queue.length;
+    const limit = getLlmApiQueueLimit();
+    if (depth >= limit) {
+      sendLlmError(res, mode, 429, 'server_busy',
+        `Server busy (${depth} request(s) queued). Please retry shortly.`);
+      return;
+    }
+  }
+
+  // Document ingestion: extract any attachments → text via Docling, inject into
+  // the prompt, enforce the input-token budget, and raise num_ctx (native).
+  try {
+    await processLlmAttachments(body, mode);
+  } catch (err) {
+    if (err instanceof AttachmentError) {
+      sendLlmError(res, mode, err.status, err.code, err.message);
+      return;
+    }
+    sendLlmError(res, mode, 500, 'attachment_error', err instanceof Error ? err.message : String(err));
+    return;
+  }
+
   const upstream = getOllamaUrl();
 
   // Detect streaming intent; embeddings endpoint is always non-streaming.

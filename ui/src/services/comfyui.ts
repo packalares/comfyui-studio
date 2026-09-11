@@ -256,6 +256,10 @@ export interface ChatSettingsView {
   keepAlive: string;
   defaultContextStrategy: ChatContextStrategy;
   defaultThinkMode: 'on' | 'off' | 'auto';
+  /** Public LLM API: reject when the GPU queue is at least this deep. */
+  llmApiQueueLimit: number;
+  /** Public LLM API: max combined prompt + injected-document input tokens. */
+  llmMaxInputTokens: number;
   advanced: ChatAdvancedSettings;
   tools: ChatToolsSettings;
   suggestions: ChatSuggestionsView;
@@ -270,6 +274,8 @@ export interface SettingsPatchByKey {
     keepAlive: string;
     defaultContextStrategy: ChatContextStrategy;
     defaultThinkMode: 'on' | 'off' | 'auto';
+    llmApiQueueLimit: number;
+    llmMaxInputTokens: number;
     advanced: Partial<ChatAdvancedSettings>;
   }>;
   tools: ChatToolsSettingsInput;
@@ -286,7 +292,7 @@ export interface SettingsResponseByKey {
   downloads: { maxQueue: number; maxConcurrent: number };
 }
 
-export type ProbeType = 'ollama' | 'searxng';
+export type ProbeType = 'ollama' | 'searxng' | 'docling';
 export type ProbeResult =
   | { ok: true; count?: number; version?: string }
   | { ok: false; error: string };
@@ -1757,6 +1763,12 @@ export interface ChatToolListing {
 
 export interface ChatToolsSettings {
   searxngUrl: string;
+  /** Docling document-parser base URL. Empty = file ingestion disabled. */
+  doclingUrl: string;
+  /** Accepted upload extensions (lowercase, no dot). */
+  doclingFileTypes: string[];
+  /** Max per-file upload size in MB. */
+  doclingMaxUploadMb: number;
   defaultImageTemplate: string;
   /** Resolved chat-composer tool list (replaces /api/chat/tools). Empty when
    *  no integrations are configured / ready. */
@@ -1765,6 +1777,9 @@ export interface ChatToolsSettings {
 
 export interface ChatToolsSettingsInput {
   searxngUrl?: string;
+  doclingUrl?: string;
+  doclingFileTypes?: string[];
+  doclingMaxUploadMb?: number;
   defaultImageTemplate?: string;
 }
 

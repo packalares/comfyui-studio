@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Wrench, Save, Check, Globe, HelpCircle } from 'lucide-react';
+import { Wrench, Save, Check, Globe, HelpCircle, FileText } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { toast } from 'sonner';
 import { api } from '../../services/comfyui';
@@ -19,13 +19,25 @@ import { useTransientFlag } from '../../hooks/useTransientFlag';
 
 interface ToolsState {
   searxngUrl: string;
+  doclingUrl: string;
+  doclingMaxUploadMb: string;
+  doclingFileTypes: string[];
   defaultImageTemplate: string;
 }
 
 const EMPTY_STATE: ToolsState = {
   searxngUrl: '',
+  doclingUrl: '',
+  doclingMaxUploadMb: '25',
+  doclingFileTypes: [],
   defaultImageTemplate: '',
 };
+
+// File types docling-serve can parse — offered as toggles for the accept list.
+const DOCLING_TYPES = [
+  'pdf', 'docx', 'pptx', 'xlsx', 'csv', 'md', 'html', 'txt',
+  'png', 'jpg', 'jpeg', 'tiff', 'webp',
+];
 
 export default function ToolsCard() {
   const app = useApp();
@@ -42,6 +54,9 @@ export default function ToolsCard() {
     if (!live) return;
     setState({
       searxngUrl: live.searxngUrl,
+      doclingUrl: live.doclingUrl ?? '',
+      doclingMaxUploadMb: String(live.doclingMaxUploadMb ?? 25),
+      doclingFileTypes: live.doclingFileTypes ?? [],
       defaultImageTemplate: live.defaultImageTemplate,
     });
   }, [live]);
@@ -60,6 +75,9 @@ export default function ToolsCard() {
     try {
       await api.updateSettings('tools', {
         searxngUrl: state.searxngUrl.trim(),
+        doclingUrl: state.doclingUrl.trim(),
+        doclingFileTypes: state.doclingFileTypes,
+        doclingMaxUploadMb: Math.max(1, Math.floor(Number(state.doclingMaxUploadMb) || 25)),
         defaultImageTemplate: state.defaultImageTemplate.trim(),
       });
       await app.refreshSystem();
@@ -82,6 +100,23 @@ export default function ToolsCard() {
     } else {
       toast.error('SearXNG probe failed', { description: result.error });
     }
+  };
+
+  const handleTestDocling = async () => {
+    const url = state.doclingUrl.trim();
+    if (!url) { toast.error('Set a Docling URL first'); return; }
+    const result = await api.probe('docling', url);
+    if (result.ok) toast.success('Docling OK — service reachable');
+    else toast.error('Docling probe failed', { description: result.error });
+  };
+
+  const toggleType = (t: string) => {
+    setState(s => ({
+      ...s,
+      doclingFileTypes: s.doclingFileTypes.includes(t)
+        ? s.doclingFileTypes.filter(x => x !== t)
+        : [...s.doclingFileTypes, t],
+    }));
   };
 
   return (
@@ -120,6 +155,35 @@ export default function ToolsCard() {
             </Button>
           }
         />
+        <InputField
+          label="Docling URL"
+          tooltip="Enables document attachments on the LLM API + chat. Point at the in-cluster docling-serve, e.g. http://docling.<namespace>.svc.cluster.local:5001. Empty = file uploads disabled."
+          value={state.doclingUrl}
+          onChange={v => setState(s => ({ ...s, doclingUrl: v }))}
+          placeholder="http://docling.user-space-admin.svc.cluster.local:5001"
+          disabled={!loaded}
+          leftIcon={<FileText />}
+          rightSlot={
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={handleTestDocling}
+              disabled={!loaded || state.doclingUrl.trim().length === 0}
+            >
+              Test
+            </Button>
+          }
+        />
+        <InputField
+          label="Max upload size (MB)"
+          tooltip="Files larger than this are rejected before parsing."
+          value={state.doclingMaxUploadMb}
+          onChange={v => setState(s => ({ ...s, doclingMaxUploadMb: v }))}
+          placeholder="25"
+          disabled={!loaded}
+          leftIcon={<FileText />}
+        />
         <div>
           <div className="mb-1 flex items-center gap-1.5">
             <label className="field-label">Default image template</label>
@@ -154,6 +218,46 @@ export default function ToolsCard() {
             </SelectContent>
           </SelectField>
         </div>
+        </div>
+        <div className="mt-3">
+          <div className="mb-1.5 flex items-center gap-1.5">
+            <label className="field-label">Accepted file types</label>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="cursor-help text-muted-foreground transition-colors hover:text-foreground"
+                  aria-label="Accepted file types info"
+                >
+                  <HelpCircle className="h-3 w-3" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                Uploads whose extension isn't selected are rejected (in the caller's Ollama/OpenAI error format). Only applies when Docling is configured.
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {DOCLING_TYPES.map(t => {
+              const on = state.doclingFileTypes.includes(t);
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  disabled={!loaded}
+                  onClick={() => toggleType(t)}
+                  className={
+                    'rounded-md border px-2 py-1 text-xs font-medium transition-colors ' +
+                    (on
+                      ? 'border-brand bg-brand/15 text-brand'
+                      : 'border-border bg-muted text-muted-foreground hover:text-foreground')
+                  }
+                >
+                  {t}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </CardContent>
       <CardFooter>

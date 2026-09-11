@@ -469,6 +469,8 @@ function ChatLlmCard() {
   const [keepAlive, setKeepAlive] = useState('');
   const [defaultStrategy, setDefaultStrategy] = useState<'sliding' | 'auto'>('sliding');
   const [defaultThinkMode, setDefaultThinkMode] = useState<'on' | 'off' | 'auto'>('auto');
+  const [apiQueueLimit, setApiQueueLimit] = useState('3');
+  const [maxInputTokens, setMaxInputTokens] = useState('32000');
   const [busy, setBusy] = useState(false);
   const [saved, markSaved] = useTransientFlag(2000);
   // Holds a failed-probe result so we can offer a "Save anyway" escape hatch
@@ -486,6 +488,8 @@ function ChatLlmCard() {
     setKeepAlive(live.keepAlive);
     if (live.defaultContextStrategy) setDefaultStrategy(live.defaultContextStrategy);
     if (live.defaultThinkMode) setDefaultThinkMode(live.defaultThinkMode);
+    if (typeof live.llmApiQueueLimit === 'number') setApiQueueLimit(String(live.llmApiQueueLimit));
+    if (typeof live.llmMaxInputTokens === 'number') setMaxInputTokens(String(live.llmMaxInputTokens));
   }, [live]);
 
   const persist = async () => {
@@ -495,6 +499,8 @@ function ChatLlmCard() {
       keepAlive: keepAlive.trim(),
       defaultContextStrategy: defaultStrategy,
       defaultThinkMode,
+      llmApiQueueLimit: Math.max(1, Math.floor(Number(apiQueueLimit) || 3)),
+      llmMaxInputTokens: Math.max(1000, Math.floor(Number(maxInputTokens) || 32000)),
     });
     await app.refreshSystem();
     markSaved();
@@ -669,6 +675,24 @@ function ChatLlmCard() {
               </SelectContent>
             </SelectField>
           </div>
+          <InputField
+            label="Public API — busy queue limit"
+            value={apiQueueLimit}
+            onChange={setApiQueueLimit}
+            placeholder="3"
+            disabled={!loaded}
+            tooltip="When the GPU queue already has at least this many jobs waiting, the public LLM API returns a 429 'server busy' instead of enqueuing. Internal chat is never rejected."
+            leftIcon={<Server />}
+          />
+          <InputField
+            label="Public API — max input tokens"
+            value={maxInputTokens}
+            onChange={setMaxInputTokens}
+            placeholder="32000"
+            disabled={!loaded}
+            tooltip="Combined prompt + attached-document token budget for one API request (~4 chars/token). Requests over this are rejected; num_ctx is auto-raised up to this cap on native calls."
+            leftIcon={<Cpu />}
+          />
         </div>
       </CardContent>
       <CardFooter>

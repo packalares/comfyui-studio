@@ -10,6 +10,8 @@ import {
   DEFAULT_CHAT_SMART_SUGGESTIONS,
   DEFAULT_CHAT_DEFAULT_THINK_MODE,
   DEFAULT_DOWNLOADS_MAX_QUEUE,
+  DEFAULT_LLM_API_QUEUE_LIMIT,
+  DEFAULT_LLM_MAX_INPUT_TOKENS,
 } from './store.js';
 
 function readPercent(v: unknown, fallback: number): number {
@@ -123,4 +125,19 @@ export function getDownloadsMaxConcurrent(): number {
 }
 export function setDownloadsMaxConcurrent(v: number | null | undefined): void {
   setNumeric('downloadsMaxConcurrent', v);
+}
+
+// ─── LLM API (public) — queue backpressure + input-token budget ─────────────
+
+export function getLlmApiQueueLimit(): number {
+  return readPositiveInt(_loadInternal().llmApiQueueLimit, DEFAULT_LLM_API_QUEUE_LIMIT);
+}
+export function setLlmApiQueueLimit(v: number | null | undefined): void {
+  setNumeric('llmApiQueueLimit', v);
+}
+export function getLlmMaxInputTokens(): number {
+  return readPositiveInt(_loadInternal().llmMaxInputTokens, DEFAULT_LLM_MAX_INPUT_TOKENS);
+}
+export function setLlmMaxInputTokens(v: number | null | undefined): void {
+  setNumeric('llmMaxInputTokens', v);
 }

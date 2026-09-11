@@ -1,4 +1,7 @@
-import { _loadInternal, _saveInternal, type SettingsInternal } from './store.js';
+import {
+  _loadInternal, _saveInternal, type SettingsInternal,
+  DEFAULT_DOCLING_FILE_TYPES, DEFAULT_DOCLING_MAX_UPLOAD_MB,
+} from './store.js';
 import { stripTrailingSlash } from '../../lib/url.js';
 
 function update(patch: Partial<SettingsInternal>): void {
@@ -34,6 +37,41 @@ export function setSearxngUrl(url: string): void {
 
 export function clearSearxngUrl(): void {
   dropKey('searxngUrl');
+}
+
+// ---- Docling document parser (LLM-API file ingestion) ----
+
+export function getDoclingUrl(): string | undefined {
+  return readTrimmedUrl(_loadInternal().doclingUrl);
+}
+export function setDoclingUrl(url: string): void {
+  update({ doclingUrl: url });
+}
+export function clearDoclingUrl(): void {
+  dropKey('doclingUrl');
+}
+
+/** Accepted extensions (lowercase, no dot). Falls back to the default set. */
+export function getDoclingFileTypes(): string[] {
+  const v = _loadInternal().doclingFileTypes;
+  if (Array.isArray(v) && v.length > 0) {
+    return v.map((s) => String(s).toLowerCase().replace(/^\./, '').trim()).filter(Boolean);
+  }
+  return [...DEFAULT_DOCLING_FILE_TYPES];
+}
+export function setDoclingFileTypes(types: string[]): void {
+  const cleaned = types
+    .map((s) => s.toLowerCase().replace(/^\./, '').trim())
+    .filter(Boolean);
+  update({ doclingFileTypes: Array.from(new Set(cleaned)) });
+}
+
+export function getDoclingMaxUploadMb(): number {
+  const v = _loadInternal().doclingMaxUploadMb;
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : DEFAULT_DOCLING_MAX_UPLOAD_MB;
+}
+export function setDoclingMaxUploadMb(mb: number): void {
+  update({ doclingMaxUploadMb: mb });
 }
 
 export function getDefaultImageTemplate(): string | undefined {

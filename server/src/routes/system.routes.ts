@@ -72,6 +72,8 @@ const systemRoute = defineRoute({
     keepAlive: settings.getChatKeepAlive(),
     defaultContextStrategy: settings.getDefaultContextStrategy(),
     defaultThinkMode: settings.getChatDefaultThinkMode(),
+    llmApiQueueLimit: settings.getLlmApiQueueLimit(),
+    llmMaxInputTokens: settings.getLlmMaxInputTokens(),
     advanced: {
       highWaterPercent: settings.getChatHighWaterPercent(),
       maxToolSteps: settings.getChatMaxToolSteps(),
@@ -83,6 +85,9 @@ const systemRoute = defineRoute({
     },
     tools: {
       searxngUrl: toolsSettings.getSearxngUrl() ?? '',
+      doclingUrl: toolsSettings.getDoclingUrl() ?? '',
+      doclingFileTypes: toolsSettings.getDoclingFileTypes(),
+      doclingMaxUploadMb: toolsSettings.getDoclingMaxUploadMb(),
       defaultImageTemplate: toolsSettings.getDefaultImageTemplate() ?? '',
       enabledMcpTools: toolsSettings.getEnabledMcpTools(),
       mcpToolListings: getMcpToolListings(),
