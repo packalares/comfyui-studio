@@ -43,10 +43,12 @@ function extOf(filename: string): string {
   return i >= 0 ? filename.slice(i + 1).toLowerCase() : '';
 }
 
-// base64 length → decoded byte count (ignores minor padding differences).
+// base64 length → decoded byte count. Padding is at most 2 '=' chars, so we
+// subtract them directly instead of a `/=+$/` regex (which CodeQL flags as a
+// polynomial-ReDoS on large inputs).
 function base64Bytes(b64: string): number {
-  const clean = b64.replace(/=+$/, '');
-  return Math.floor((clean.length * 3) / 4);
+  const pad = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0;
+  return Math.floor((b64.length * 3) / 4) - pad;
 }
 
 type AnyRecord = Record<string, unknown>;

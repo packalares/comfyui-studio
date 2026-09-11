@@ -9,6 +9,7 @@
 
 import { pipeline } from 'node:stream/promises';
 import { Router, type Request, type Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import { request as undiciRequest, Agent } from 'undici';
 import { z } from 'zod';
 import { authMiddleware } from '../middleware/auth.js';
@@ -284,12 +285,30 @@ async function proxyToOllama(
   }
 }
 
+// Rate limiter for the PUBLIC LLM API surface. Internal UI/enhancer calls
+// (no X-Studio-Public stamp) are skipped, so this never throttles in-app chat.
+// Keyed by the API key so one caller can't starve others; complements the
+// GPU-queue backpressure (which bounds concurrency, not request rate).
+const publicLlmLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: (req) => req.header('x-studio-public') !== '1',
+  keyGenerator: (req) => req.header('authorization') ?? 'anon',
+  handler: (req: Request, res: Response) => {
+    const mode: 'ollama' | 'openai' = req.path.includes('/v1/') ? 'openai' : 'ollama';
+    sendLlmError(res, mode, 429, 'rate_limited', 'Rate limit exceeded. Please slow down and retry.');
+  },
+});
+
 const router = Router();
 
 // ---- POST /llm/chat ----
 
 router.post(
   '/llm/chat',
+  publicLlmLimiter,
   authMiddleware({ required: true, scopes: ['chat:write'] }),
   async (req: Request, res: Response) => {
     const parsed = parseBody(LlmChatBodySchema, req.body);
@@ -302,6 +321,7 @@ router.post(
 
 router.post(
   '/llm/generate',
+  publicLlmLimiter,
   authMiddleware({ required: true, scopes: ['chat:write'] }),
   async (req: Request, res: Response) => {
     const parsed = parseBody(LlmGenerateBodySchema, req.body);
@@ -314,6 +334,7 @@ router.post(
 
 router.post(
   '/llm/embeddings',
+  publicLlmLimiter,
   authMiddleware({ required: true, scopes: ['chat:read'] }),
   async (req: Request, res: Response) => {
     const parsed = parseBody(LlmEmbeddingsBodySchema, req.body);
@@ -330,6 +351,7 @@ router.post(
 
 router.post(
   '/llm/v1/chat/completions',
+  publicLlmLimiter,
   authMiddleware({ required: true, scopes: ['chat:write'] }),
   async (req: Request, res: Response) => {
     if (req.body === null || typeof req.body !== 'object') { sendJsonError(res, 400, 'JSON body required'); return; }
@@ -339,6 +361,7 @@ router.post(
 
 router.post(
   '/llm/v1/completions',
+  publicLlmLimiter,
   authMiddleware({ required: true, scopes: ['chat:write'] }),
   async (req: Request, res: Response) => {
     if (req.body === null || typeof req.body !== 'object') { sendJsonError(res, 400, 'JSON body required'); return; }
@@ -348,6 +371,7 @@ router.post(
 
 router.post(
   '/llm/v1/embeddings',
+  publicLlmLimiter,
   authMiddleware({ required: true, scopes: ['chat:read'] }),
   async (req: Request, res: Response) => {
     if (req.body === null || typeof req.body !== 'object') { sendJsonError(res, 400, 'JSON body required'); return; }
@@ -358,6 +382,7 @@ router.post(
 // Model list is a cheap metadata call — no GPU, so it skips the scheduler.
 router.get(
   '/llm/v1/models',
+  publicLlmLimiter,
   authMiddleware({ required: true, scopes: ['chat:read'] }),
   async (_req: Request, res: Response) => {
     try {
