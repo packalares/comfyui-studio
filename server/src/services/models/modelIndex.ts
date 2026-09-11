@@ -8,6 +8,7 @@ import { logger } from '../../lib/logger.js';
 import * as bus from '../../lib/events.js';
 import * as modelFiles from '../../lib/db/modelFiles.repo.js';
 import type { ModelFileRow, RootKind } from '../../lib/db/modelFiles.repo.js';
+import { enrichPending, enrichOne } from './header/enrich.js';
 import { scanDirectory, type ScanInfo, getSharedModelHubRoot } from './installScan.js';
 
 // ── Walker ────────────────────────────────────────────────────────────────────
@@ -108,6 +109,14 @@ export async function rebuildAll(): Promise<RebuildOutcome> {
   const removed = modelFiles.deleteScannedBefore(startedAt);
   const total = modelFiles.countAll();
   logger.info('model index rebuild complete', { added, removed, total });
+  // Parse headers for any new/changed model files (incremental, header-only).
+  try {
+    enrichPending();
+  } catch (err) {
+    logger.warn('model header enrich pass failed', {
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
   return { added, removed, total };
 }
 
@@ -140,6 +149,15 @@ export async function syncOneAbsPath(absPath: string): Promise<void> {
     status: 'complete',
     scanned_at: Date.now(),
   });
+  // Parse this file's header right away so a freshly-downloaded model is
+  // understood without waiting for the next full rebuild.
+  try {
+    enrichOne(absPath, st.size);
+  } catch (err) {
+    logger.warn('model header enrich (single) failed', {
+      absPath, message: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 interface Placement {

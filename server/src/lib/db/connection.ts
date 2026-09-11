@@ -25,6 +25,7 @@ import { applyAceSongsGalleryMigration } from './migrations/0009_ace_songs_galle
 import { applyAceTrainingMigration } from './migrations/0006_ace_training.js';
 import { applyAiToolkitMigration } from './migrations/0007_ai_toolkit.js';
 import { applyPackModelsMigration } from './migrations/0008_pack_models.js';
+import { applyModelHeaderMigration } from './migrations/0010_model_header.js';
 import { workflowHash } from '../workflowHash.js';
 import { extractMetadata, type ApiPrompt } from '../../services/gallery/extract.js';
 
@@ -874,6 +875,7 @@ function openAndInit(dbPath: string): DB {
   applyAceTrainingMigration(db);
   applyAiToolkitMigration(db);
   applyPackModelsMigration(db);
+  applyModelHeaderMigration(db);
   const row = db.prepare('SELECT version FROM schema_version LIMIT 1').get() as
     | { version: number } | undefined;
   if (!row) {

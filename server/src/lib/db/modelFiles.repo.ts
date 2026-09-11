@@ -209,3 +209,71 @@ export function listBySha256(
   ).all(sha256.toLowerCase()) as Record<string, unknown>[];
   return rows.map(rowFromRecord);
 }
+
+// ---- Header-derived model understanding (migration 0010) ----------------
+
+/** Measured facts written by the header-parse enrich pass. */
+export interface ModelHeaderInfo {
+  arch_family: string;
+  arch_source: string;
+  arch_confidence: number;
+  role: string;
+  precision: string;
+  quantization: string | null;
+  param_count: number;
+  is_bundled: boolean;
+  integrity: string;
+  integrity_note?: string | null;
+  signals: string[];
+  header_size: number;
+}
+
+/** Persist header/arch results for one file (keyed by abs_path). */
+export function saveHeaderInfo(
+  absPath: string,
+  info: ModelHeaderInfo,
+  db: Database.Database = getDb(),
+): void {
+  db.prepare(`
+    UPDATE model_files SET
+      arch_family = @arch_family, arch_source = @arch_source, arch_confidence = @arch_confidence,
+      role = @role, precision = @precision, quantization = @quantization, param_count = @param_count,
+      is_bundled = @is_bundled, integrity = @integrity, integrity_note = @integrity_note,
+      signals = @signals, header_size = @header_size, header_scanned_at = @header_scanned_at
+    WHERE abs_path = @abs_path
+  `).run({
+    abs_path: absPath,
+    arch_family: info.arch_family,
+    arch_source: info.arch_source,
+    arch_confidence: info.arch_confidence,
+    role: info.role,
+    precision: info.precision,
+    quantization: info.quantization ?? null,
+    param_count: info.param_count,
+    is_bundled: info.is_bundled ? 1 : 0,
+    integrity: info.integrity,
+    integrity_note: info.integrity_note ?? null,
+    signals: JSON.stringify(info.signals ?? []),
+    header_size: info.header_size,
+    header_scanned_at: Date.now(),
+  });
+}
+
+/**
+ * Files whose header still needs (re)parsing: a header-parsable extension that
+ * has never been scanned, or whose size changed since the last parse. Ordered
+ * cheaply; caller parses + calls saveHeaderInfo.
+ */
+export function listNeedingHeaderScan(
+  limit = 100000,
+  db: Database.Database = getDb(),
+): Array<{ abs_path: string; size: number }> {
+  return db.prepare(`
+    SELECT abs_path, size FROM model_files
+    WHERE (lower(filename) LIKE '%.safetensors'
+        OR lower(filename) LIKE '%.sft'
+        OR lower(filename) LIKE '%.gguf')
+      AND (header_scanned_at IS NULL OR header_size IS NULL OR header_size != size)
+    LIMIT ?
+  `).all(limit) as Array<{ abs_path: string; size: number }>;
+}
