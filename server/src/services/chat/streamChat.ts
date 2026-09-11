@@ -28,6 +28,7 @@ import { computeUsage } from './contextWindow.js';
 import { getEnabledTools, filterEnabledTools, toAiSdkToolMap } from './tools/index.js';
 import { runToolDispatch, type ToolPart } from './toolDispatch.js';
 import { extractAndPersistAttachments } from './attachments.js';
+import { augmentWithDocumentText } from './documentContext.js';
 import { ThinkParser } from './thinkParser.js';
 import { enforceContextStrategy } from './contextEnforce.js';
 import { isLikelyColocated } from './gpuOrchestrator.js';
@@ -217,6 +218,9 @@ async function runStream(args: RunStreamArgs): Promise<void> {
   }, settings.getChatLoadingHintMs());
 
   try {
+    // Extract text from any document attachments (PDF/Office) on the latest
+    // user turn via Docling and inject it before building the Ollama messages.
+    await augmentWithDocumentText(messages, userMsgId);
     let ollamaMessages: OllamaChatMessage[] = convertToOllamaMessages(messages, systemPrompt);
     // Preserve the just-appended user msg + assistant placeholder through
     // any destructive auto-compact so the in-flight turn keeps working.

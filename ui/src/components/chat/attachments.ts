@@ -49,7 +49,11 @@ export const MAX_MEDIA_ATTACHMENT_BYTES = 32 * 1024 * 1024;
 export const MAX_TEXT_INLINE_BYTES = 50 * 1024;
 
 export const ALLOWED_ACCEPT =
-  'image/png,image/jpeg,image/webp,image/gif,.pdf,.txt,.md,.json,.py,.js,.ts,.tsx,.jsx,.html,.css,.csv,.yaml,.yml,.toml,.xml,.log,video/mp4,video/webm,audio/mpeg,audio/wav,audio/ogg,.mp4,.webm,.mp3,.wav,.ogg';
+  'image/png,image/jpeg,image/webp,image/gif,.pdf,.docx,.pptx,.xlsx,.txt,.md,.json,.py,.js,.ts,.tsx,.jsx,.html,.css,.csv,.yaml,.yml,.toml,.xml,.log,video/mp4,video/webm,audio/mpeg,audio/wav,audio/ogg,.mp4,.webm,.mp3,.wav,.ogg';
+
+// Binary document formats parsed server-side via Docling (text-based formats
+// like csv/txt/md are still read inline client-side as `text`).
+const DOC_EXTENSIONS = new Set(['pdf', 'docx', 'pptx', 'xlsx']);
 
 const TEXT_EXTENSIONS = new Set([
   'txt', 'md', 'markdown', 'json', 'py', 'js', 'jsx', 'ts', 'tsx', 'html',
@@ -58,7 +62,7 @@ const TEXT_EXTENSIONS = new Set([
   'ini', 'conf',
 ]);
 
-export type AttachmentKind = 'image' | 'video' | 'audio' | 'text' | 'pdf' | 'unsupported';
+export type AttachmentKind = 'image' | 'video' | 'audio' | 'text' | 'pdf' | 'document' | 'unsupported';
 
 export interface PendingAttachment {
   id: string;
@@ -81,8 +85,9 @@ export function classifyFile(file: File): AttachmentKind {
   if (file.type.startsWith('image/')) return 'image';
   if (file.type.startsWith('video/')) return 'video';
   if (file.type.startsWith('audio/')) return 'audio';
-  if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) return 'pdf';
   const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  // Binary documents (PDF/Office) → parsed server-side via Docling.
+  if (file.type === 'application/pdf' || DOC_EXTENSIONS.has(ext)) return 'document';
   // Extension fallbacks for browsers that don't populate file.type reliably.
   if (VIDEO_EXTENSIONS.has(ext)) return 'video';
   if (AUDIO_EXTENSIONS.has(ext)) return 'audio';
@@ -141,23 +146,23 @@ export async function processFile(file: File): Promise<ProcessResult> {
       : 'File is larger than 20 MB';
     return { ok: false, filename: file.name, reason };
   }
-  if (kind === 'pdf') {
-    // PDF support intentionally deferred — pdfjs-dist would add ~1 MB to the
-    // bundle and require a worker setup. Surface a clear rejection so the
-    // user knows it's not a silent drop.
-    return { ok: false, filename: file.name, reason: 'PDFs are not supported yet — paste the text directly or convert to .txt/.md.' };
-  }
   if (kind === 'unsupported') {
     return { ok: false, filename: file.name, reason: 'Unsupported file type' };
   }
-  if (kind === 'image' || kind === 'video' || kind === 'audio') {
+  if (kind === 'image' || kind === 'video' || kind === 'audio' || kind === 'document') {
     // Determine a sensible MIME fallback when the browser doesn't populate file.type.
     const mimeMap: Record<string, string> = {
       mp4: 'video/mp4', webm: 'video/webm',
       mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg',
+      pdf: 'application/pdf',
+      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     };
     const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-    const fallbackMime = kind === 'image' ? 'image/png' : (mimeMap[ext] ?? (kind === 'video' ? 'video/mp4' : 'audio/mpeg'));
+    const fallbackMime = kind === 'image' ? 'image/png'
+      : kind === 'document' ? (mimeMap[ext] ?? 'application/octet-stream')
+      : (mimeMap[ext] ?? (kind === 'video' ? 'video/mp4' : 'audio/mpeg'));
     try {
       const dataUrl = await readAsDataUrl(file);
       return {
