@@ -88,6 +88,7 @@ const systemRoute = defineRoute({
       doclingUrl: toolsSettings.getDoclingUrl() ?? '',
       doclingFileTypes: toolsSettings.getDoclingFileTypes(),
       doclingMaxUploadMb: toolsSettings.getDoclingMaxUploadMb(),
+      docscannerUrl: toolsSettings.getDocscannerUrl() ?? '',
       defaultImageTemplate: toolsSettings.getDefaultImageTemplate() ?? '',
       enabledMcpTools: toolsSettings.getEnabledMcpTools(),
       mcpToolListings: getMcpToolListings(),

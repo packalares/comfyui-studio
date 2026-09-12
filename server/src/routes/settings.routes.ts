@@ -50,6 +50,7 @@ const ToolsResponseSchema = z.object({
   doclingUrl: z.string(),
   doclingFileTypes: z.array(z.string()),
   doclingMaxUploadMb: z.number(),
+  docscannerUrl: z.string(),
   defaultImageTemplate: z.string(),
   enabledMcpTools: z.record(z.string(), z.boolean()),
 });
@@ -97,6 +98,7 @@ function toolsSettingsResponse() {
     doclingUrl: toolsSettings.getDoclingUrl() ?? '',
     doclingFileTypes: toolsSettings.getDoclingFileTypes(),
     doclingMaxUploadMb: toolsSettings.getDoclingMaxUploadMb(),
+    docscannerUrl: toolsSettings.getDocscannerUrl() ?? '',
     defaultImageTemplate: toolsSettings.getDefaultImageTemplate() ?? '',
     enabledMcpTools: toolsSettings.getEnabledMcpTools(),
   };
@@ -230,6 +232,11 @@ const putToolsRoute = defineRoute({
   if (typeof body.doclingMaxUploadMb === 'number' && Number.isFinite(body.doclingMaxUploadMb) && body.doclingMaxUploadMb > 0) {
     toolsSettings.setDoclingMaxUploadMb(body.doclingMaxUploadMb);
   }
+  if (typeof body.docscannerUrl === 'string') {
+    const t = body.docscannerUrl.trim();
+    if (t.length === 0) toolsSettings.clearDocscannerUrl();
+    else toolsSettings.setDocscannerUrl(t);
+  }
   if (typeof body.defaultImageTemplate === 'string') {
     const t = body.defaultImageTemplate.trim();
     if (t.length === 0) toolsSettings.clearDefaultImageTemplate();
@@ -260,10 +267,11 @@ const putDownloadsRoute = defineRoute({
 });
 
 const PROBE_TIMEOUT_MS = 4000;
-const SUB_PATH: Record<'ollama' | 'searxng' | 'docling', string> = {
+const SUB_PATH: Record<'ollama' | 'searxng' | 'docling' | 'docscanner', string> = {
   ollama: '/api/tags',
   searxng: '/search?format=json&q=hello&pageno=1',
   docling: '/health',
+  docscanner: '/health',
 };
 
 const probeRoute = defineRoute({
@@ -291,8 +299,8 @@ const probeRoute = defineRoute({
     const headers: Record<string, string> = type === 'searxng' ? { Accept: 'application/json' } : {};
     const r = await fetch(probeUrl, { headers, signal: ctrl.signal });
     if (!r.ok) return ok({ ok: false, error: `upstream ${r.status} ${r.statusText}` });
-    // Docling /health returns {"status":"ok"} — a 200 is all we need.
-    if (type === 'docling') return ok({ ok: true });
+    // Docling / docscanner /health return {"status":"ok"} — a 200 is enough.
+    if (type === 'docling' || type === 'docscanner') return ok({ ok: true });
     if (type === 'searxng') {
       const ct = r.headers.get('content-type') ?? '';
       if (!ct.toLowerCase().includes('json')) {

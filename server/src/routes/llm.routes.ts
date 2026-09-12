@@ -14,9 +14,10 @@ import { request as undiciRequest, Agent } from 'undici';
 import { z } from 'zod';
 import { authMiddleware } from '../middleware/auth.js';
 import { registerSpecOnly } from '../lib/defineRoute.js';
-import { getOllamaUrl, getLlmApiQueueLimit } from '../services/settings/index.js';
+import { getOllamaUrl, getLlmApiQueueLimit, getDocscannerUrl } from '../services/settings/index.js';
 import { submitGpuJob, scheduler } from '../services/gpu/scheduler.js';
 import { processLlmAttachments, AttachmentError } from '../services/llm/attachments.js';
+import { parseDocscannerField, scanRequestImages, DocscannerError } from '../services/llm/docscanner.js';
 import { logger } from '../lib/logger.js';
 import {
   LlmChatBodySchema,
@@ -123,6 +124,31 @@ async function proxyToOllama(
     if (depth >= limit) {
       sendLlmError(res, mode, 429, 'server_busy',
         `Server busy (${depth} request(s) queued). Please retry shortly.`);
+      return;
+    }
+  }
+
+  // docscanner: optimize vision images (opt-in via the `docscanner` field +
+  // a configured DocScanner URL). Replaces each image in place; scan_only
+  // returns the cleaned image and skips the model.
+  const ds = parseDocscannerField(body);
+  try { delete (body as Record<string, unknown>).docscanner; } catch { /* frozen? ignore */ }
+  if (ds.enabled && getDocscannerUrl()) {
+    try {
+      const { count, first } = await scanRequestImages(body, ds.config);
+      if (ds.scanOnly) {
+        if (!first) {
+          sendLlmError(res, mode, 400, 'no_image',
+            'docscanner scan_only was requested but no image was found in the request.');
+          return;
+        }
+        if (!res.headersSent) res.status(200).json({ image_b64: first.image_b64, format: first.format });
+        return;
+      }
+      void count;
+    } catch (err) {
+      if (err instanceof DocscannerError) { sendLlmError(res, mode, 502, err.code, err.message); return; }
+      sendLlmError(res, mode, 500, 'docscanner_error', err instanceof Error ? err.message : String(err));
       return;
     }
   }

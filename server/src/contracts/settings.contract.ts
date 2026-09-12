@@ -50,12 +50,14 @@ export const ToolsPatchSchema = z.object({
   doclingUrl: z.string().optional(),
   doclingFileTypes: z.array(z.string()).optional(),
   doclingMaxUploadMb: z.number().finite().positive().optional(),
+  // docscanner image dewarp/cleanup (LLM-API vision preprocessing).
+  docscannerUrl: z.string().optional(),
   defaultImageTemplate: z.string().optional(),
   enabledMcpTools: z.record(z.string(), z.boolean()).optional(),
 }).partial();
 
 export const ProbeBodySchema = z.object({
-  type: z.enum(['ollama', 'searxng', 'docling']),
+  type: z.enum(['ollama', 'searxng', 'docling', 'docscanner']),
   url: z.string().min(1),
 });
 

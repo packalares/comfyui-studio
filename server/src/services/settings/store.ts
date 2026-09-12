@@ -23,6 +23,9 @@ export interface SettingsInternal {
   /** Base URL of a Docling (docling-serve) instance for document parsing.
    *  Empty/unset = file ingestion on the LLM API is disabled. */
   doclingUrl?: string;
+  /** Base URL of a docscanner instance (image dewarp/cleanup for vision).
+   *  Empty/unset = image scanning on the LLM API is disabled. */
+  docscannerUrl?: string;
   /** Lowercase file extensions (no dot) accepted for Docling ingestion. */
   doclingFileTypes?: string[];
   /** Max per-file upload size (MB) accepted before rejection. */
@@ -89,9 +92,9 @@ export const DEFAULT_DOWNLOADS_MAX_QUEUE = 50;
 
 // ---- Docling / LLM-API file-ingestion defaults ----
 export const DEFAULT_DOCLING_MAX_UPLOAD_MB = 25;
+// Images are handled by docscanner (vision), not Docling — documents only.
 export const DEFAULT_DOCLING_FILE_TYPES = [
   'pdf', 'docx', 'pptx', 'xlsx', 'csv', 'md', 'html', 'txt',
-  'png', 'jpg', 'jpeg', 'tiff', 'webp',
 ];
 // If the GPU queue already has this many jobs waiting, the LLM API returns a
 // busy error instead of adding more (keeps latency bounded under load).

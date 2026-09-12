@@ -292,7 +292,7 @@ export interface SettingsResponseByKey {
   downloads: { maxQueue: number; maxConcurrent: number };
 }
 
-export type ProbeType = 'ollama' | 'searxng' | 'docling';
+export type ProbeType = 'ollama' | 'searxng' | 'docling' | 'docscanner';
 export type ProbeResult =
   | { ok: true; count?: number; version?: string }
   | { ok: false; error: string };
@@ -1769,6 +1769,8 @@ export interface ChatToolsSettings {
   doclingFileTypes: string[];
   /** Max per-file upload size in MB. */
   doclingMaxUploadMb: number;
+  /** DocScanner base URL. Empty = image scanning disabled. */
+  docscannerUrl: string;
   defaultImageTemplate: string;
   /** Resolved chat-composer tool list (replaces /api/chat/tools). Empty when
    *  no integrations are configured / ready. */
@@ -1780,6 +1782,7 @@ export interface ChatToolsSettingsInput {
   doclingUrl?: string;
   doclingFileTypes?: string[];
   doclingMaxUploadMb?: number;
+  docscannerUrl?: string;
   defaultImageTemplate?: string;
 }
 

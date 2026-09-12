@@ -74,6 +74,18 @@ export function setDoclingMaxUploadMb(mb: number): void {
   update({ doclingMaxUploadMb: mb });
 }
 
+// ---- docscanner image dewarp/cleanup (LLM-API vision preprocessing) ----
+
+export function getDocscannerUrl(): string | undefined {
+  return readTrimmedUrl(_loadInternal().docscannerUrl);
+}
+export function setDocscannerUrl(url: string): void {
+  update({ docscannerUrl: url });
+}
+export function clearDocscannerUrl(): void {
+  dropKey('docscannerUrl');
+}
+
 export function getDefaultImageTemplate(): string | undefined {
   return readTrimmed(_loadInternal().defaultImageTemplate);
 }

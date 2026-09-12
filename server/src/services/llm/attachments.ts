@@ -43,6 +43,12 @@ function extOf(filename: string): string {
   return i >= 0 ? filename.slice(i + 1).toLowerCase() : '';
 }
 
+// Images are the docscanner's job (vision), never Docling's — skip them here.
+const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tiff', 'tif', 'heic', 'heif']);
+function isImageName(filename: string): boolean {
+  return IMAGE_EXTS.has(extOf(filename));
+}
+
 // base64 length → decoded byte count. Padding is at most 2 '=' chars, so we
 // subtract them directly instead of a `/=+$/` regex (which CodeQL flags as a
 // polynomial-ReDoS on large inputs).
@@ -67,7 +73,7 @@ function fromCustomField(body: AnyRecord): RawAttachment[] {
       || '';
     const filename = typeof o.filename === 'string' && o.filename ? o.filename
       : typeof o.name === 'string' && o.name ? o.name : 'document';
-    if (data) out.push({ filename, base64: stripDataUri(data) });
+    if (data && !isImageName(filename)) out.push({ filename, base64: stripDataUri(data) });
   }
   return out;
 }
@@ -85,9 +91,11 @@ function fromOpenAiParts(body: AnyRecord): RawAttachment[] {
     const kept: ContentPart[] = [];
     for (const part of m.content as ContentPart[]) {
       const isFile = part && (part.type === 'file' || part.type === 'input_file' || part.file?.file_data || part.file_data);
-      if (isFile) {
+      const filename = part?.file?.filename || part?.filename || 'document';
+      // Extract only non-image document files; leave images (and everything
+      // else, incl. image_url parts) in the message for docscanner / the model.
+      if (isFile && !isImageName(filename)) {
         const data = part.file?.file_data || part.file_data || '';
-        const filename = part.file?.filename || part.filename || 'document';
         if (data) out.push({ filename, base64: stripDataUri(data) });
       } else {
         kept.push(part);

@@ -22,6 +22,7 @@ interface ToolsState {
   doclingUrl: string;
   doclingMaxUploadMb: string;
   doclingFileTypes: string[];
+  docscannerUrl: string;
   defaultImageTemplate: string;
 }
 
@@ -30,6 +31,7 @@ const EMPTY_STATE: ToolsState = {
   doclingUrl: '',
   doclingMaxUploadMb: '25',
   doclingFileTypes: [],
+  docscannerUrl: '',
   defaultImageTemplate: '',
 };
 
@@ -57,6 +59,7 @@ export default function ToolsCard() {
       doclingUrl: live.doclingUrl ?? '',
       doclingMaxUploadMb: String(live.doclingMaxUploadMb ?? 25),
       doclingFileTypes: live.doclingFileTypes ?? [],
+      docscannerUrl: live.docscannerUrl ?? '',
       defaultImageTemplate: live.defaultImageTemplate,
     });
   }, [live]);
@@ -78,6 +81,7 @@ export default function ToolsCard() {
         doclingUrl: state.doclingUrl.trim(),
         doclingFileTypes: state.doclingFileTypes,
         doclingMaxUploadMb: Math.max(1, Math.floor(Number(state.doclingMaxUploadMb) || 25)),
+        docscannerUrl: state.docscannerUrl.trim(),
         defaultImageTemplate: state.defaultImageTemplate.trim(),
       });
       await app.refreshSystem();
@@ -108,6 +112,14 @@ export default function ToolsCard() {
     const result = await api.probe('docling', url);
     if (result.ok) toast.success('Docling OK — service reachable');
     else toast.error('Docling probe failed', { description: result.error });
+  };
+
+  const handleTestDocscanner = async () => {
+    const url = state.docscannerUrl.trim();
+    if (!url) { toast.error('Set a DocScanner URL first'); return; }
+    const result = await api.probe('docscanner', url);
+    if (result.ok) toast.success('DocScanner OK — service reachable');
+    else toast.error('DocScanner probe failed', { description: result.error });
   };
 
   const toggleType = (t: string) => {
@@ -183,6 +195,26 @@ export default function ToolsCard() {
           placeholder="25"
           disabled={!loaded}
           leftIcon={<FileText />}
+        />
+        <InputField
+          label="DocScanner URL"
+          tooltip="Enables image dewarp/cleanup for the LLM API. Requests opt in with a docscanner field; images are optimized and replace the original before going to the vision model. Point at the in-cluster docscanner, e.g. http://docscanner.<namespace>.svc.cluster.local:5002. Empty = disabled."
+          value={state.docscannerUrl}
+          onChange={v => setState(s => ({ ...s, docscannerUrl: v }))}
+          placeholder="http://docscanner.user-space-admin.svc.cluster.local:5002"
+          disabled={!loaded}
+          leftIcon={<FileText />}
+          rightSlot={
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={handleTestDocscanner}
+              disabled={!loaded || state.docscannerUrl.trim().length === 0}
+            >
+              Test
+            </Button>
+          }
         />
         <div>
           <div className="mb-1 flex items-center gap-1.5">
