@@ -48,6 +48,9 @@ interface TransportOptions {
   enabledToolsRef: { current: string[] | null };
   /** Mutable ref to the active soul name. `null` means "use server default". */
   soulNameRef: { current: string | null };
+  /** Mutable ref to the composer's "Scan document" control. 'ai' cleans the
+   *  image the vision model reads; 'only' returns the cleaned image (no LLM). */
+  scanModeRef: { current: 'off' | 'ai' | 'only' };
   /** Mutable ref to pre-chat draft overrides (strategy / temperature / format /
    *  thinking / numCtx). Read on each `/chat/start` call so the latest user
    *  choices are forwarded to the server, which only honors them when minting
@@ -87,6 +90,7 @@ export class StudioTransport implements ChatTransport<StudioUIMessage> {
       model: this.opts.modelRef.current,
       messages: wireMessages,
       enabledTools: this.opts.enabledToolsRef.current,
+      scanMode: this.opts.scanModeRef.current,
       initialContextStrategy: drafts.contextStrategy,
       initialThinkMode: drafts.thinkMode,
       initialNumCtx: drafts.numCtx,
@@ -178,6 +182,14 @@ export class StudioTransport implements ChatTransport<StudioUIMessage> {
               dynamic: true,
             });
           }
+        }));
+
+        // Scan-only turns emit a cleaned image with no text. Replay it as an
+        // AI-SDK `file` chunk so useChat appends a FileUIPart the message
+        // thread renders inline — the same shape a rehydrated attachment has.
+        cleanups.push(chatEvents.onFile(({ msgId: id, url, mediaType }) => {
+          if (id !== msgId) return;
+          controller.enqueue({ type: 'file', url, mediaType });
         }));
 
         cleanups.push(chatEvents.onDone(({ msgId: id, stats }) => {

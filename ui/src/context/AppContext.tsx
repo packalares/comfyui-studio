@@ -28,7 +28,7 @@ import type {
 } from '../api/videoboard';
 import type {
   ChatStartPayload, ChatChunkPayload, ChatDonePayload, ChatErrorPayload,
-  ChatStatusPayload, ChatTitlePayload, ChatToolPayload, ChatReasoningPayload,
+  ChatStatusPayload, ChatTitlePayload, ChatToolPayload, ChatFilePayload, ChatReasoningPayload,
   ChatSuggestionsPayload,
   ModelPullProgressPayload, ModelPullDonePayload, ModelPullErrorPayload,
 } from '../services/chatEvents';
@@ -612,6 +612,8 @@ function WsAndFacadeProvider({ children }: { children: React.ReactNode }) {
             chatEvents.dispatchTitle(msg.data as ChatTitlePayload);
           } else if (msg.type === 'chat:tool') {
             chatEvents.dispatchTool(msg.data as ChatToolPayload);
+          } else if (msg.type === 'chat:file') {
+            chatEvents.dispatchFile(msg.data as ChatFilePayload);
           } else if (msg.type === 'chat:suggestions') {
             chatEvents.dispatchSuggestions(msg.data as ChatSuggestionsPayload);
           } else if (msg.type === 'model:pull:progress') {

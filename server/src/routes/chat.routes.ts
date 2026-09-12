@@ -139,6 +139,7 @@ const startRoute = defineRoute(
       systemPrompt: resolvedSystemPrompt,
       keepAlive: settings.getChatKeepAlive(),
       enabledToolFilter,
+      scanMode: body.scanMode ?? 'off',
     });
     return ctx.ok({ conversationId, msgId });
   },

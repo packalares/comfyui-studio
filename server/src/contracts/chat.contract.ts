@@ -73,6 +73,9 @@ export const ChatStartBodySchema = z.object({
   })).min(1),
   soulName: z.string().nullable().optional(),
   enabledTools: z.array(z.string()).nullable().optional(),
+  // Composer "Scan document" control: 'ai' cleans the image the vision model
+  // reads; 'only' returns the cleaned image as the reply (no LLM turn).
+  scanMode: z.enum(['off', 'ai', 'only']).optional(),
   initialContextStrategy: ContextStrategySchema.optional(),
   initialThinkMode: z.enum(['on', 'off']).nullable().optional(),
   initialNumCtx: z.number().nullable().optional(),

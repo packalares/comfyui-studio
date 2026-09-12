@@ -27,8 +27,10 @@ import { generateSuggestions } from './suggestionGenerator.js';
 import { computeUsage } from './contextWindow.js';
 import { getEnabledTools, filterEnabledTools, toAiSdkToolMap } from './tools/index.js';
 import { runToolDispatch, type ToolPart } from './toolDispatch.js';
-import { extractAndPersistAttachments } from './attachments.js';
+import { extractAndPersistAttachments, persistAttachmentBytes } from './attachments.js';
 import { augmentWithDocumentText } from './documentContext.js';
+import { scanChatImages, type ScanMode, type ScannedImage } from './imageScan.js';
+import { DocscannerError } from '../docscanner/client.js';
 import { ThinkParser } from './thinkParser.js';
 import { enforceContextStrategy } from './contextEnforce.js';
 import { isLikelyColocated } from './gpuOrchestrator.js';
@@ -57,6 +59,10 @@ export interface StreamChatInput {
   /** Optional allow-list of tool names the user has enabled in the composer.
    *  null/undefined = use every configured tool (legacy behavior). */
   enabledToolFilter?: readonly string[] | null;
+  /** Composer "Scan document" control. 'ai' cleans the image the vision model
+   *  reads; 'only' returns the cleaned image as the reply (no LLM turn).
+   *  Requires a configured DocScanner URL; defaults to 'off'. */
+  scanMode?: ScanMode;
 }
 
 export interface StreamChatStarted {
@@ -75,6 +81,7 @@ export function startStream(input: StreamChatInput): StreamChatStarted {
   const baseUrl = settings.getOllamaUrl();
   const keepAlive = input.keepAlive ?? settings.getChatKeepAlive();
   const toolFilter = input.enabledToolFilter ?? null;
+  const scanMode: ScanMode = input.scanMode ?? 'off';
   const now = Date.now();
 
   const lastUser = [...messages].reverse().find(m => m.role === 'user');
@@ -123,6 +130,7 @@ export function startStream(input: StreamChatInput): StreamChatStarted {
     msgId, userMsgId, conversationId, baseUrl, model, keepAlive,
     abort, messages: ollamaMessages, systemPrompt: systemPrompt ?? null,
     enabledToolFilter: toolFilter,
+    scanMode,
   });
 
   return { msgId };
@@ -142,12 +150,47 @@ interface RunStreamArgs {
   messages: UIMessage[];
   systemPrompt: string | null;
   enabledToolFilter: readonly string[] | null;
+  scanMode: ScanMode;
+}
+
+/** Minimal telemetry envelope for turns that finish without an Ollama run
+ *  (scan-only). All timing fields are null — there was no model call. */
+function emptyStats(model: string | null) {
+  return {
+    tokens_in: null, tokens_out: null, ms_to_first_token: null,
+    ms_total: null, tokens_per_sec: null, model, load_duration_ms: null,
+  };
+}
+
+/** Persist each cleaned image as an attachment on the assistant row and push
+ *  it to the live UI as a `file` chunk, then finalize the turn — no LLM. */
+function finalizeScanOnly(
+  conversationId: string,
+  msgId: string,
+  images: ScannedImage[],
+): void {
+  const parts: Record<string, unknown>[] = [];
+  for (const img of images) {
+    const buf = Buffer.from(img.base64, 'base64');
+    const { id, url } = persistAttachmentBytes(buf, {
+      conversationId, messageId: msgId, mimeType: img.mediaType,
+      displayName: `scanned.${img.format}`, source: 'tool',
+    });
+    parts.push({ type: 'file', attachmentId: id, name: `scanned.${img.format}` });
+    emitChatEvent({
+      type: 'chat:file',
+      data: { msgId, url, mediaType: img.mediaType, filename: `scanned.${img.format}` },
+    });
+  }
+  repo.updateMessageParts(msgId, JSON.stringify(parts));
+  repo.touchConversation(conversationId, Date.now());
+  emitChatEvent({ type: 'chat:done', data: { msgId, stats: emptyStats(null), usage: null } });
 }
 
 async function runStream(args: RunStreamArgs): Promise<void> {
   const {
     msgId, userMsgId, conversationId, baseUrl, model, keepAlive,
-    abort, messages, systemPrompt, enabledToolFilter,
+    abort, messages, systemPrompt, enabledToolFilter, scanMode,
   } = args;
   const startedAt = Date.now();
   const tracker = { firstTokenAt: 0 };
@@ -221,6 +264,30 @@ async function runStream(args: RunStreamArgs): Promise<void> {
     // Extract text from any document attachments (PDF/Office) on the latest
     // user turn via Docling and inject it before building the Ollama messages.
     await augmentWithDocumentText(messages, userMsgId);
+
+    // Image scanning (docscanner). 'ai' cleans the image the vision model
+    // reads; 'only' returns the cleaned image as the reply with no LLM turn.
+    // Scan-only only short-circuits when an image was actually cleaned, so a
+    // text-only message with the toggle left on still reaches the model.
+    if (scanMode !== 'off') {
+      try {
+        const scan = await scanChatImages(messages, scanMode);
+        if (scanMode === 'only' && scan.scanned > 0) {
+          clearTimeout(loadingTimer);
+          finalizeScanOnly(conversationId, msgId, scan.images);
+          return;
+        }
+      } catch (err) {
+        clearTimeout(loadingTimer);
+        const message = err instanceof DocscannerError
+          ? `Document scan failed: ${err.message}`
+          : (err instanceof Error ? err.message : String(err));
+        logger.warn('chat scan-only failed', { msgId, error: message });
+        emitChatEvent({ type: 'chat:error', data: { msgId, error: message } });
+        return;
+      }
+    }
+
     let ollamaMessages: OllamaChatMessage[] = convertToOllamaMessages(messages, systemPrompt);
     // Preserve the just-appended user msg + assistant placeholder through
     // any destructive auto-compact so the in-flight turn keeps working.

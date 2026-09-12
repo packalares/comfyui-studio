@@ -1428,6 +1428,7 @@ export const api = {
       messages: ChatUIMessage[];
       soulName?: string | null;
       enabledTools?: string[] | null;
+      scanMode?: 'off' | 'ai' | 'only';
       initialContextStrategy?: ChatContextStrategy;
       initialThinkMode?: 'on' | 'off' | null;
       initialNumCtx?: number | null;

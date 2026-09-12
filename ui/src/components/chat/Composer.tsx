@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState, useCallback, type MutableRefObject } from 'react';
 import {
   ArrowUp, StopCircle, Paperclip, X, FileText, Image as ImageIcon, Globe, Code2, Eye,
-  Film, Music,
+  Film, Music, ScanLine,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -30,7 +30,7 @@ import {
 } from './attachments';
 import ChatModelPopover from './ChatModelPopover';
 import SlashMenu from './SlashMenu';
-import type { DraftOverrides } from '../../pages/Chat';
+import type { DraftOverrides, ScanMode } from '../../pages/Chat';
 
 const TOOL_IMAGE = 'generate_image';
 const TOOL_WEB = 'web_search';
@@ -55,6 +55,11 @@ interface Props {
   /** null = no filter (every configured tool). string[] = explicit allow-list. */
   enabledTools: string[] | null;
   onEnabledToolsChange: (next: string[] | null) => void;
+  /** Whether a DocScanner URL is configured — hides the Scan control if not. */
+  scanAvailable?: boolean;
+  /** "Scan document" state: off / clean-for-AI / scan-only (no LLM). */
+  scanMode: ScanMode;
+  onScanModeChange: (next: ScanMode) => void;
   centered?: boolean;
   /** Forwarded to ChatModelPopover. */
   conversationId: string | null;
@@ -70,6 +75,7 @@ export default function Composer({
   webPreviews, onWebPreviewsChange,
   showToolDetails, onShowToolDetailsChange,
   enabledTools, onEnabledToolsChange,
+  scanAvailable = false, scanMode, onScanModeChange,
   centered = false,
   conversationId, initialUsage, usageVersion,
   draftOverrides, onDraftOverrideChange,
@@ -128,7 +134,9 @@ export default function Composer({
     if (busy || !model) return;
     const trimmed = m.text.trim();
     if (!trimmed && attachments.length === 0) return;
-    if (hasImageAttachment && !visionCapable) {
+    // Scan-only returns the cleaned image with no LLM turn, so the model's
+    // vision capability is irrelevant there — only gate the AI-bound paths.
+    if (hasImageAttachment && !visionCapable && scanMode !== 'only') {
       const visionList = listVisionCapableBaseNames(libraryCapabilities).slice(0, 3);
       const hint = visionList.length > 0
         ? `Switch to a vision-capable model (e.g. ${visionList.join(', ')}).`
@@ -361,6 +369,9 @@ export default function Composer({
                   onClick={() => onShowToolDetailsChange(!showToolDetails)}
                   hint="Show tool call parameters and raw JSON output inline"
                 />
+                {scanAvailable && (
+                  <ScanToggle mode={scanMode} onChange={onScanModeChange} />
+                )}
               </PromptInputTools>
               <PromptInputTools>
                 {busy ? (
@@ -449,6 +460,44 @@ function AttachmentChip({ att, onRemove }: ChipProps) {
         <X className="h-3.5 w-3.5" />
       </button>
     </div>
+  );
+}
+
+// 3-state "Scan document" control. Cycles off → clean-for-AI → scan-only.
+// off: photos go to the vision model raw. 'ai': docscanner dewarps/cleans the
+// image the model reads. 'only': returns the cleaned image as the reply, no
+// LLM turn (maps to the API's `docscanner:{ scan_only:true }`).
+const SCAN_CYCLE: Record<ScanMode, ScanMode> = { off: 'ai', ai: 'only', only: 'off' };
+const SCAN_LABEL: Record<ScanMode, string> = { off: 'Scan', ai: 'Scan', only: 'Scan only' };
+const SCAN_HINT: Record<ScanMode, string> = {
+  off: 'Scan document: off. Click to clean attached photos before the AI reads them.',
+  ai: 'Scan → AI: attached photos are dewarped & cleaned, then the model reads the clean scan. Click for scan-only.',
+  only: 'Scan only: return the cleaned image in chat with no AI reply. Click to turn off.',
+};
+
+function ScanToggle({ mode, onChange }: { mode: ScanMode; onChange: (m: ScanMode) => void }) {
+  const active = mode !== 'off';
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => onChange(SCAN_CYCLE[mode])}
+          aria-pressed={active}
+          aria-label={SCAN_LABEL[mode]}
+          className={cn(
+            'inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium cursor-pointer transition-colors',
+            active
+              ? 'bg-brand/10 text-brand hover:bg-brand/20'
+              : 'bg-muted text-foreground hover:bg-secondary',
+          )}
+        >
+          <ScanLine className="h-3.5 w-3.5" />
+          {active && <span className="hidden sm:inline">{SCAN_LABEL[mode]}</span>}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs">{SCAN_HINT[mode]}</TooltipContent>
+    </Tooltip>
   );
 }
 

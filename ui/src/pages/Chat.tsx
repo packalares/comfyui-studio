@@ -43,6 +43,11 @@ export interface DraftOverrides {
   soulName?: string | null;
 }
 
+/** Composer "Scan document" control. 'off' = raw photo to the model;
+ *  'ai' = clean it before the vision model reads it; 'only' = return the
+ *  cleaned image with no LLM turn. */
+export type ScanMode = 'off' | 'ai' | 'only';
+
 // Empty-state pills are read from system context (system.chat.suggestions.emptyState)
 // which the server hydrates from server/data/chat/default_prompts.md.
 
@@ -129,6 +134,22 @@ export default function Chat() {
     if (enabledTools === null) window.localStorage.removeItem('chat:enabledTools');
     else window.localStorage.setItem('chat:enabledTools', JSON.stringify(enabledTools));
   }, [enabledTools]);
+
+  // "Scan document" composer control (docscanner). 'off' sends photos raw;
+  // 'ai' cleans the image the vision model reads; 'only' returns the cleaned
+  // image as the reply with no LLM turn. Persisted like enabledTools; only
+  // shown when a DocScanner URL is configured (Settings → Tools).
+  const docscannerEnabled = Boolean(chatSettings?.tools?.docscannerUrl);
+  const [scanMode, setScanMode] = useState<ScanMode>(() => {
+    if (typeof window === 'undefined') return 'off';
+    const raw = window.localStorage.getItem('chat:scanMode');
+    return raw === 'ai' || raw === 'only' ? raw : 'off';
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (scanMode === 'off') window.localStorage.removeItem('chat:scanMode');
+    else window.localStorage.setItem('chat:scanMode', scanMode);
+  }, [scanMode]);
   // Soul (personality) selection. null = server default. Persisted in
   // localStorage so the user's pick survives page reloads and new-chat
   // sessions. A ref keeps the transport in sync without forcing a recreate.
@@ -180,9 +201,13 @@ export default function Chat() {
   const conversationIdRef = useRef<string | null>(null);
   const modelRef = useRef<string>('');
   const enabledToolsRef = useRef<string[] | null>(null);
+  const scanModeRef = useRef<ScanMode>('off');
   useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId]);
   useEffect(() => { modelRef.current = model; }, [model]);
   useEffect(() => { enabledToolsRef.current = enabledTools; }, [enabledTools]);
+  // Scan is meaningless without the service; force 'off' in the ref when the
+  // URL is cleared so a stale localStorage value can't leak into a request.
+  useEffect(() => { scanModeRef.current = docscannerEnabled ? scanMode : 'off'; }, [scanMode, docscannerEnabled]);
 
   // useChat owns: messages, status, stop, regenerate, setMessages.
   // Transport bridges to Studio's POST /chat/start + chatEvents bus.
@@ -190,6 +215,7 @@ export default function Chat() {
     conversationIdRef,
     modelRef,
     enabledToolsRef,
+    scanModeRef,
     soulNameRef,
     draftOverridesRef,
     onConversationStarted: (cid) => {
@@ -654,6 +680,9 @@ export default function Chat() {
                     onShowToolDetailsChange={setShowToolDetails}
                     enabledTools={enabledTools}
                     onEnabledToolsChange={setEnabledTools}
+                    scanAvailable={docscannerEnabled}
+                    scanMode={scanMode}
+                    onScanModeChange={setScanMode}
                     conversationId={conversationId}
                     initialUsage={initialUsage}
                     usageVersion={usageVersion}
@@ -689,6 +718,9 @@ export default function Chat() {
                   onShowToolDetailsChange={setShowToolDetails}
                   enabledTools={enabledTools}
                   onEnabledToolsChange={setEnabledTools}
+                  scanAvailable={docscannerEnabled}
+                  scanMode={scanMode}
+                  onScanModeChange={setScanMode}
                   conversationId={conversationId}
                   initialUsage={initialUsage}
                   usageVersion={usageVersion}

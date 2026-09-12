@@ -68,6 +68,17 @@ export interface ChatToolPart {
 }
 export interface ChatToolPayload { msgId: string; part: ChatToolPart }
 
+// A complete file part pushed onto the assistant message in flight. Emitted by
+// the server for scan-only turns (docscanner returns a cleaned image and no
+// LLM runs). `url` points at the persisted attachment; the transport replays
+// it as an AI-SDK `file` chunk so the image renders live.
+export interface ChatFilePayload {
+  msgId: string;
+  url: string;
+  mediaType: string;
+  filename?: string;
+}
+
 export interface ChatCompactedPayload { conversationId: string }
 
 export interface ChatSuggestionsPayload {
@@ -115,6 +126,7 @@ interface Bus {
   status: Set<Handler<ChatStatusPayload>>;
   title: Set<Handler<ChatTitlePayload>>;
   tool: Set<Handler<ChatToolPayload>>;
+  file: Set<Handler<ChatFilePayload>>;
   galleryAdded: Set<Handler<GalleryAddedPayload>>;
   pullProgress: Set<Handler<ModelPullProgressPayload>>;
   pullDone: Set<Handler<ModelPullDonePayload>>;
@@ -127,6 +139,7 @@ const bus: Bus = {
   start: new Set(), chunk: new Set(), reasoning: new Set(),
   done: new Set(), error: new Set(),
   status: new Set(), title: new Set(), tool: new Set(),
+  file: new Set(),
   galleryAdded: new Set(),
   pullProgress: new Set(), pullDone: new Set(), pullError: new Set(),
   compacted: new Set(),
@@ -147,6 +160,7 @@ export const chatEvents = {
   onStatus: (h: Handler<ChatStatusPayload>) => subscribe(bus.status, h),
   onTitle: (h: Handler<ChatTitlePayload>) => subscribe(bus.title, h),
   onTool: (h: Handler<ChatToolPayload>) => subscribe(bus.tool, h),
+  onFile: (h: Handler<ChatFilePayload>) => subscribe(bus.file, h),
   onGalleryAdded: (h: Handler<GalleryAddedPayload>) => subscribe(bus.galleryAdded, h),
   onPullProgress: (h: Handler<ModelPullProgressPayload>) => subscribe(bus.pullProgress, h),
   onPullDone: (h: Handler<ModelPullDonePayload>) => subscribe(bus.pullDone, h),
@@ -162,6 +176,7 @@ export const chatEvents = {
   dispatchStatus: (p: ChatStatusPayload) => bus.status.forEach(h => { h(p); }),
   dispatchTitle: (p: ChatTitlePayload) => bus.title.forEach(h => { h(p); }),
   dispatchTool: (p: ChatToolPayload) => bus.tool.forEach(h => { h(p); }),
+  dispatchFile: (p: ChatFilePayload) => bus.file.forEach(h => { h(p); }),
   dispatchGalleryAdded: (p: GalleryAddedPayload) => bus.galleryAdded.forEach(h => { h(p); }),
   dispatchPullProgress: (p: ModelPullProgressPayload) => bus.pullProgress.forEach(h => { h(p); }),
   dispatchPullDone: (p: ModelPullDonePayload) => bus.pullDone.forEach(h => { h(p); }),

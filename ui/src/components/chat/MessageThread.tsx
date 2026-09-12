@@ -577,7 +577,7 @@ function MessageRow({
             {/* Render every assistant part in source order so the model's
                 interleaved reasoning / tools / text show up where they
                 were emitted, not bucketed at the top of the row. */}
-            {msg.parts.map((p, i) => renderAssistantPart(p, i, isStreaming, showToolDetails))}
+            {msg.parts.map((p, i) => renderAssistantPart(p, i, isStreaming, showToolDetails, onZoom))}
             {isStreaming && text.length === 0 && msg.parts.every(p => p.type !== 'reasoning' && p.type !== 'dynamic-tool') && (
               <ColdLoadLoader msgId={msg.id} />
             )}
@@ -801,7 +801,13 @@ function UrlPreviewCard({ url }: { url: string }) {
   );
 }
 
-function renderAssistantPart(part: StudioUIMessagePart, key: number, isStreaming: boolean, showToolDetails: boolean) {
+function renderAssistantPart(
+  part: StudioUIMessagePart,
+  key: number,
+  isStreaming: boolean,
+  showToolDetails: boolean,
+  onZoom: (url: string) => void,
+) {
   if (part.type === 'reasoning') {
     // No reasoning produced for this turn -> stay invisible so non-thinking
     // models don't render a stray "Thinking..." chip. Also drop
@@ -828,9 +834,27 @@ function renderAssistantPart(part: StudioUIMessagePart, key: number, isStreaming
     const text = stripAttachmentImageMarkdown(part.text);
     return <MessageResponse key={`m-${key}`}>{text || ' '}</MessageResponse>;
   }
-  // Source / file / data parts on assistant messages aren't rendered yet —
-  // Phase E intentionally leaves Sources & generated-image rendering to a
-  // follow-up (the wire-up bullet in the brief).
+  // Image file-parts on assistant messages (e.g. docscanner scan-only, which
+  // returns the cleaned image with no LLM turn). Rendered inline + clickable
+  // to zoom, matching how user-attached images behave.
+  if (part.type === 'file' && part.mediaType.startsWith('image/')) {
+    return (
+      <button
+        key={`f-${key}`}
+        type="button"
+        onClick={() => onZoom(part.url)}
+        className="mt-1 block cursor-zoom-in overflow-hidden rounded-lg border border-border"
+        aria-label={part.filename ?? 'Open image'}
+      >
+        <img
+          src={part.url}
+          alt={part.filename ?? 'image'}
+          className="max-h-[28rem] max-w-full object-contain"
+        />
+      </button>
+    );
+  }
+  // Other file / source / data parts on assistant messages aren't rendered.
   return null;
 }
 
