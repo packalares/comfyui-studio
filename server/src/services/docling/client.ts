@@ -30,7 +30,10 @@ interface ConvertResponse {
 export async function extractDocument(
   base64: string,
   filename: string,
-  timeoutMs = 120_000,
+  // 300s: scanned PDFs route through the VLM (per-page GPU inference via the
+  // Studio queue), so multi-page docs can take minutes. The public nginx path
+  // already allows 300s (proxy_read_timeout).
+  timeoutMs = 300_000,
 ): Promise<string> {
   const base = getDoclingUrl();
   if (!base) throw new DoclingError('docling_not_configured', 'Docling URL is not configured');
