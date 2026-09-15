@@ -18,6 +18,7 @@ import { getOllamaUrl, getLlmApiQueueLimit, getDocscannerUrl } from '../services
 import { submitGpuJob, scheduler } from '../services/gpu/scheduler.js';
 import { processLlmAttachments, AttachmentError } from '../services/llm/attachments.js';
 import { parseDocscannerField, scanRequestImages, DocscannerError } from '../services/llm/docscanner.js';
+import { maybeInlinePdfImages } from '../services/llm/pdfVision.js';
 import { logger } from '../lib/logger.js';
 import {
   LlmChatBodySchema,
@@ -151,6 +152,17 @@ async function proxyToOllama(
       sendLlmError(res, mode, 500, 'docscanner_error', err instanceof Error ? err.message : String(err));
       return;
     }
+  }
+
+  // Fast path: if the model is vision-capable and an attached PDF is scanned +
+  // small, render its pages to images and attach them directly (one vision call
+  // instead of Docling OCR'ing every page). Inlined PDFs are removed from the
+  // body so the Docling step below skips them. Non-fatal: on any failure the
+  // PDF is left in place for Docling.
+  try {
+    await maybeInlinePdfImages(body, mode);
+  } catch (err) {
+    logger.warn('pdfVision inline failed; falling back to docling', { error: String(err) });
   }
 
   // Document ingestion: extract any attachments → text via Docling, inject into
