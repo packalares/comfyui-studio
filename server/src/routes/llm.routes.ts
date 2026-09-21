@@ -14,10 +14,12 @@ import { request as undiciRequest, Agent } from 'undici';
 import { z } from 'zod';
 import { authMiddleware } from '../middleware/auth.js';
 import { registerSpecOnly } from '../lib/defineRoute.js';
-import { getOllamaUrl, getLlmApiQueueLimit, getDocscannerUrl } from '../services/settings/index.js';
+import { getOllamaUrl, getLlmApiQueueLimit, getDocscannerUrl, getDoclingUrl } from '../services/settings/index.js';
 import { submitGpuJob, scheduler } from '../services/gpu/scheduler.js';
 import { processLlmAttachments, AttachmentError } from '../services/llm/attachments.js';
 import { parseDocscannerField, scanRequestImages, DocscannerError } from '../services/llm/docscanner.js';
+import { parseDoclingField, findDocument, injectContext } from '../services/llm/docling.js';
+import { convertDocument, DoclingError } from '../services/docling/client.js';
 import { maybeInlinePdfImages } from '../services/llm/pdfVision.js';
 import { logger } from '../lib/logger.js';
 import {
@@ -150,6 +152,45 @@ async function proxyToOllama(
     } catch (err) {
       if (err instanceof DocscannerError) { sendLlmError(res, mode, 502, err.code, err.message); return; }
       sendLlmError(res, mode, 500, 'docscanner_error', err instanceof Error ? err.message : String(err));
+      return;
+    }
+  }
+
+  // docling: convert an attached document (opt-in via the `docling` field).
+  // convert_only defaults to TRUE → return the conversion directly, no model
+  // turn (the endpoint doubles as a public conversion API). convert_only:false
+  // → inject the converted content as context and let the model answer.
+  const dl = parseDoclingField(body);
+  try { delete (body as Record<string, unknown>).docling; } catch { /* frozen? ignore */ }
+  if (dl.enabled) {
+    if (!getDoclingUrl()) {
+      sendLlmError(res, mode, 501, 'docling_not_configured', 'Document conversion is not configured.');
+      return;
+    }
+    const found = findDocument(body);
+    if (!found) {
+      sendLlmError(res, mode, 400, 'no_document',
+        'docling was requested but no document attachment was found in the request.');
+      return;
+    }
+    try {
+      const r = await convertDocument(found.base64, found.filename, {
+        format: dl.format, recognizer: dl.recognizer, schema: dl.schema,
+      });
+      if (dl.convertOnly) {
+        if (!res.headersSent) {
+          res.status(200).json({
+            content: r.content, format: r.format, pipeline: r.pipeline, ms: r.ms,
+            ...(r.warning ? { warning: r.warning } : {}),
+          });
+        }
+        return;
+      }
+      found.remove();                       // so processLlmAttachments won't re-ingest it
+      injectContext(body, found.filename, r.content);
+    } catch (err) {
+      if (err instanceof DoclingError) { sendLlmError(res, mode, 502, err.code, err.message); return; }
+      sendLlmError(res, mode, 500, 'docling_error', err instanceof Error ? err.message : String(err));
       return;
     }
   }
