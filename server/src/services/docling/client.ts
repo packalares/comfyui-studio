@@ -41,7 +41,7 @@ export async function extractDocument(
 // json/csv/tables/layout) goes through here.
 
 export type ConvertFormat =
-  | 'markdown' | 'html' | 'text' | 'json' | 'layout-json' | 'csv' | 'tables';
+  | 'markdown' | 'html' | 'text' | 'json' | 'csv';
 
 export interface ConvertOptions {
   format: ConvertFormat;
@@ -55,7 +55,7 @@ export interface ConvertOptions {
 }
 
 export interface ConvertResult {
-  /** string for markdown/html/text/csv; object for json/layout-json; string[] for tables */
+  /** string for markdown/html/text/csv; object for json */
   content: unknown;
   format: string;
   recognizer?: string;

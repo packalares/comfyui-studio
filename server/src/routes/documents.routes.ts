@@ -1,7 +1,7 @@
 // `POST /api/documents/convert` — convert an uploaded document to a chosen
 // format via the docling conversion service (docling >= 1.2, /v1/convert).
 //
-// Formats: markdown | html | text | json | layout-json | csv | tables.
+// Formats: markdown | html | text | json | csv.
 // Recognizer: dots (end-to-end, default) | paddle-vl (layout+element pipeline).
 // `schema` shapes format=json extraction. All work runs in-cluster against the
 // docling Service; recognition rides the Studio LLM (GPU) queue.
@@ -15,14 +15,14 @@ import { ConflictError, UpstreamUnavailableError, InternalError } from '../lib/e
 export const ConvertBodySchema = z.object({
   base64: z.string().min(1),
   filename: z.string().min(1),
-  format: z.enum(['markdown', 'html', 'text', 'json', 'layout-json', 'csv', 'tables']),
+  format: z.enum(['markdown', 'html', 'text', 'json', 'csv']),
   recognizer: z.enum(['dots', 'paddle-vl']).optional(),
   schema: z.unknown().optional(),
   options: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const ConvertResponseSchema = z.object({
-  // string for markdown/html/text/csv; object for json/layout-json; string[] for tables
+  // string for markdown/html/text/csv; object for json
   content: z.unknown(),
   format: z.string(),
   recognizer: z.string().optional(),
