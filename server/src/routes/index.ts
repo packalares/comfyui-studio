@@ -52,6 +52,7 @@ import aceLora from './ace/lora.routes.js';
 import aceTts from './ace/tts.routes.js';
 import aceReferenceTrack from './ace/referenceTrack.routes.js';
 import aiToolkit from './aiToolkit.routes.js';
+import documents from './documents.routes.js';
 
 const router = Router();
 
@@ -84,6 +85,7 @@ router.use(networkConfig);
 router.use(thumbnail);
 router.use(chat);
 router.use(chatAttachments);
+router.use(documents);
 router.use(chatModels);
 router.use('/mcp', mcp);          // /api/mcp — Studio's MCP server endpoint
 router.use(mcpServers);            // /api/mcp/servers and /api/mcp/profiles
