@@ -263,7 +263,7 @@ async function runStream(args: RunStreamArgs): Promise<void> {
   try {
     // Extract text from any document attachments (PDF/Office) on the latest
     // user turn via Docling and inject it before building the Ollama messages.
-    await augmentWithDocumentText(messages, userMsgId);
+    await augmentWithDocumentText(messages, userMsgId, model);
 
     // Image scanning (docscanner). 'ai' cleans the image the vision model
     // reads; 'only' returns the cleaned image as the reply with no LLM turn.

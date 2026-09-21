@@ -11,9 +11,17 @@ import type { UIMessage } from 'ai';
 import * as repo from '../../lib/db/chat.repo.js';
 import { getDoclingUrl } from '../settings/index.js';
 import { extractDocument, DoclingError } from '../docling/client.js';
+import { modelHasVision, renderPdf } from '../llm/pdfVision.js';
 import { logger } from '../../lib/logger.js';
 
 interface Part { type?: string; text?: string; url?: string; mediaType?: string; name?: string }
+
+const MAX_VISION_PAGES = 10;
+
+function extOf(name: string): string {
+  const i = name.lastIndexOf('.');
+  return i >= 0 ? name.slice(i + 1).toLowerCase() : '';
+}
 
 /** A `file` data-URL part that is neither image nor a/v — i.e. a document. */
 function isDocumentPart(p: Part): boolean {
@@ -36,6 +44,7 @@ function base64FromDataUrl(url: string): string | null {
 export async function augmentWithDocumentText(
   messages: UIMessage[],
   userMsgId: string | null,
+  model?: string,
 ): Promise<void> {
   let target: UIMessage | undefined;
   for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -48,7 +57,13 @@ export async function augmentWithDocumentText(
   if (docs.length === 0) return;
 
   const configured = !!getDoclingUrl();
-  const blocks: string[] = [];
+  // Flow A (fast path): a vision-capable model can read scanned-PDF pages as
+  // images directly (1 call), skipping per-page OCR-to-text. Only probed for
+  // vision models; text PDFs and text-only models stay on the Docling text path.
+  const vision = configured && !!model && (await modelHasVision(model));
+  const blocks: string[] = [];       // text (Flow B) or short notes (Flow A)
+  const mediaParts: Part[] = [];     // rendered page images (Flow A)
+
   for (const d of docs) {
     const name = typeof d.name === 'string' && d.name ? d.name : 'document';
     if (!configured) {
@@ -57,6 +72,23 @@ export async function augmentWithDocumentText(
     }
     const b64 = base64FromDataUrl(d.url as string);
     if (!b64) { blocks.push(`[${name}] (could not decode)`); continue; }
+
+    // Flow A: scanned PDF + vision model → send page images.
+    if (vision && extOf(name) === 'pdf') {
+      const res = await renderPdf(b64, name, MAX_VISION_PAGES);
+      if (res && res.scanned && res.images.length > 0) {
+        res.images.forEach((img, i) => mediaParts.push({
+          type: 'file', url: `data:image/png;base64,${img}`,
+          mediaType: 'image/png', name: `${name} p${i + 1}`,
+        }));
+        blocks.push(`[${name}] (${res.images.length} page image(s) sent to the vision model)`);
+        logger.info('chat Flow A: inlined scanned-PDF pages as images', {
+          name, pages: res.images.length, model });
+        continue;
+      }
+    }
+
+    // Flow B: extract text via Docling.
     try {
       const text = await extractDocument(b64, name);
       blocks.push(`[${name}]\n${text}`);
@@ -70,8 +102,9 @@ export async function augmentWithDocumentText(
   const block = `=== Attached documents ===\n${blocks.join('\n\n')}\n=== End of attached documents ===`;
   const textPart: Part = { type: 'text', text: block };
 
-  // Inject for the current turn (front, so it reads before the user's question).
-  (target as { parts?: Part[] }).parts = [textPart, ...parts];
+  // Inject for the current turn: the note/text first (reads before the question),
+  // then any rendered page images, then the original parts.
+  (target as { parts?: Part[] }).parts = [textPart, ...mediaParts, ...parts];
 
   // Persist so refetch + follow-up turns keep the extracted context.
   if (userMsgId) {

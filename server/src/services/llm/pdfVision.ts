@@ -56,11 +56,12 @@ function extOf(filename: string): string {
   return i >= 0 ? filename.slice(i + 1).toLowerCase() : '';
 }
 
-interface RenderResult { scanned: boolean; page_count: number; images: string[] }
+export interface RenderResult { scanned: boolean; page_count: number; images: string[] }
 
 /** Ask the docling wrapper to render a scanned PDF to page images. Returns null
- *  on any failure (caller then leaves the PDF for Docling). */
-async function renderPdf(base64: string, filename: string, maxPages: number): Promise<RenderResult | null> {
+ *  on any failure (caller then leaves the PDF for Docling). Exported so the chat
+ *  path (documentContext) can reuse the same Flow-A rendering. */
+export async function renderPdf(base64: string, filename: string, maxPages: number): Promise<RenderResult | null> {
   const base = getDoclingUrl();
   if (!base) return null;
   try {
