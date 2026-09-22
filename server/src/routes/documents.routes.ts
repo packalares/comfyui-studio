@@ -10,7 +10,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { defineRoute } from '../lib/defineRoute.js';
 import { convertDocument, DoclingError } from '../services/docling/client.js';
-import { ConflictError, UpstreamUnavailableError, InternalError } from '../lib/errors.js';
+import { ConflictError, UpstreamUnavailableError, InternalError, ValidationError } from '../lib/errors.js';
 
 export const ConvertBodySchema = z.object({
   base64: z.string().min(1),
@@ -56,6 +56,7 @@ const convertRoute = defineRoute(
     } catch (err) {
       if (err instanceof DoclingError) {
         if (err.code === 'docling_not_configured') throw new ConflictError(err.message);
+        if (err.code === 'docling_too_large') throw new ValidationError(err.message);
         if (
           err.code === 'docling_upstream' ||
           err.code === 'docling_empty' ||

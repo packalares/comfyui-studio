@@ -189,7 +189,10 @@ async function proxyToOllama(
       found.remove();                       // so processLlmAttachments won't re-ingest it
       injectContext(body, found.filename, r.content);
     } catch (err) {
-      if (err instanceof DoclingError) { sendLlmError(res, mode, 502, err.code, err.message); return; }
+      if (err instanceof DoclingError) {
+        const status = err.code === 'docling_too_large' ? 413 : 502;
+        sendLlmError(res, mode, status, err.code, err.message); return;
+      }
       sendLlmError(res, mode, 500, 'docling_error', err instanceof Error ? err.message : String(err));
       return;
     }

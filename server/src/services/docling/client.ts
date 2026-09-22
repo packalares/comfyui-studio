@@ -87,7 +87,10 @@ export async function convertDocument(
   if (!base) throw new DoclingError('docling_not_configured', 'Docling URL is not configured');
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 300_000);
+  // 900s default: large multi-hundred-page text PDFs convert on CPU at ~1.3s/page
+  // (a 259-page statement ≈ 350s). The wrapper's max_doc_pages guard fast-fails
+  // anything bigger than that ceiling.
+  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 900_000);
   const t0 = Date.now();
   try {
     const r = await fetch(`${base}/v1/convert`, {
@@ -104,6 +107,7 @@ export async function convertDocument(
     });
     if (!r.ok) {
       const body = await r.text().catch(() => '');
+      if (r.status === 413) throw new DoclingError('docling_too_large', body.slice(0, 300) || 'document too large');
       throw new DoclingError('docling_upstream', `Docling ${r.status}: ${body.slice(0, 200)}`);
     }
     const json = (await r.json()) as ConvertApiResponse;
