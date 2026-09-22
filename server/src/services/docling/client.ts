@@ -3,6 +3,7 @@
 // the in-cluster Service — no data leaves the box. The URL comes from settings
 // (Tools → Docling); when unset, callers should treat file ingestion as disabled.
 
+import { request as undiciRequest } from 'undici';
 import { getDoclingUrl } from '../settings/index.js';
 import { logger } from '../../lib/logger.js';
 
@@ -86,14 +87,14 @@ export async function convertDocument(
   const base = getDoclingUrl();
   if (!base) throw new DoclingError('docling_not_configured', 'Docling URL is not configured');
 
-  const ctrl = new AbortController();
-  // 900s default: large multi-hundred-page text PDFs convert on CPU at ~1.3s/page
-  // (a 259-page statement ≈ 350s). The wrapper's max_doc_pages guard fast-fails
-  // anything bigger than that ceiling.
-  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 900_000);
+  // 900s default. Use undici's headers/body timeouts (NOT global fetch, whose
+  // own 300s headersTimeout would abort a long CPU convert before ours): docling
+  // sends no response until it finishes (~1.3s/page → ~350s for 259 pages). The
+  // wrapper's max_doc_pages guard fast-fails anything past this ceiling.
+  const to = opts.timeoutMs ?? 900_000;
   const t0 = Date.now();
   try {
-    const r = await fetch(`${base}/v1/convert`, {
+    const r = await undiciRequest(`${base}/v1/convert`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -103,14 +104,15 @@ export async function convertDocument(
         ...(opts.schema !== undefined ? { schema: opts.schema } : {}),
         ...(opts.options ? { options: opts.options } : {}),
       }),
-      signal: ctrl.signal,
+      headersTimeout: to,
+      bodyTimeout: to,
     });
-    if (!r.ok) {
-      const body = await r.text().catch(() => '');
-      if (r.status === 413) throw new DoclingError('docling_too_large', body.slice(0, 300) || 'document too large');
-      throw new DoclingError('docling_upstream', `Docling ${r.status}: ${body.slice(0, 200)}`);
+    if (r.statusCode < 200 || r.statusCode >= 300) {
+      const body = await r.body.text().catch(() => '');
+      if (r.statusCode === 413) throw new DoclingError('docling_too_large', body.slice(0, 300) || 'document too large');
+      throw new DoclingError('docling_upstream', `Docling ${r.statusCode}: ${body.slice(0, 200)}`);
     }
-    const json = (await r.json()) as ConvertApiResponse;
+    const json = (await r.body.json()) as ConvertApiResponse;
     if (json.error) throw new DoclingError('docling_upstream', json.error);
     const content = json.document?.content ?? '';
     logger.info('docling convert ok', {
@@ -126,11 +128,10 @@ export async function convertDocument(
     };
   } catch (err) {
     if (err instanceof DoclingError) throw err;
-    if (err instanceof Error && err.name === 'AbortError') {
+    const code = (err as { code?: string })?.code;
+    if (code === 'UND_ERR_HEADERS_TIMEOUT' || code === 'UND_ERR_BODY_TIMEOUT') {
       throw new DoclingError('docling_timeout', `Docling timed out converting "${filename}"`);
     }
     throw new DoclingError('docling_error', err instanceof Error ? err.message : String(err));
-  } finally {
-    clearTimeout(timer);
   }
 }
