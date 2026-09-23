@@ -25,7 +25,7 @@ git config --global --add safe.directory '*' 2>/dev/null || true
 #
 # Marker file bumps every time the install list materially changes — bumping
 # forces re-run on the next pod start.
-STUDIO_DEPS_MARKER=/root/.local/.studio-deps-installed-v3
+STUDIO_DEPS_MARKER=/root/.local/.studio-deps-installed-v4
 if [ ! -f "$STUDIO_DEPS_MARKER" ]; then
   echo "[studio-deps] First-boot install starting…"
   mkdir -p /root/.local
@@ -44,6 +44,13 @@ if [ ! -f "$STUDIO_DEPS_MARKER" ]; then
          /usr/local/lib/python3.*/site-packages/xformers* \
          /usr/local/lib/python3.*/site-packages/flash_attn* \
          /usr/local/lib/python3.*/site-packages/cv2* 2>/dev/null || true
+  # Drop any stale /root/.local transformers/huggingface_hub/tokenizers left by a
+  # prior install (we used to pin transformers 4.57.6 + hf-hub 0.36). They shadow
+  # the base image's consistent 0.37 set (transformers 5.16 / hf-hub 1.29) and
+  # break diffusers 0.40 → nunchaku. Removing them lets the base versions win.
+  rm -rf /root/.local/lib/python3.*/site-packages/transformers* \
+         /root/.local/lib/python3.*/site-packages/huggingface_hub* \
+         /root/.local/lib/python3.*/site-packages/tokenizers* 2>/dev/null || true
 
   # ---- Torch stack --------------------------------------------------------
   # The v0.33 base ALREADY ships torch 2.11.0+cu130 (CUDA 13, Blackwell sm_120)
@@ -72,8 +79,12 @@ if [ ! -f "$STUDIO_DEPS_MARKER" ]; then
     --index-url https://download.pytorch.org/whl/cu130
 
   # ---- Custom-node deps (split runs to dodge pip resolver depth) ----------
+  # transformers is deliberately NOT pinned: ComfyUI 0.37's base image ships a
+  # consistent transformers 5.x / huggingface_hub 1.x / diffusers 0.40 set, and
+  # pinning the old 4.57.6 here shadowed it and broke diffusers 0.40 (→ nunchaku
+  # failed to import). No custom node needs 4.x (verified), so let the base win.
   pip3 install --no-cache-dir \
-    transformers==4.57.6 torchcrepe comfyui-manager packaging
+    torchcrepe comfyui-manager packaging
 
   # protobuf: onnx's generated code requires runtime >= 6.31.1 (gencode 6.31.1).
   # Left unpinned, pip resolves this to 5.29.6, which makes `import insightface`
