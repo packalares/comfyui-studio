@@ -299,8 +299,28 @@ const probeRoute = defineRoute({
     const headers: Record<string, string> = type === 'searxng' ? { Accept: 'application/json' } : {};
     const r = await fetch(probeUrl, { headers, signal: ctrl.signal });
     if (!r.ok) return ok({ ok: false, error: `upstream ${r.status} ${r.statusText}` });
-    // Docling / docscanner /health return {"status":"ok"} — a 200 is enough.
-    if (type === 'docling' || type === 'docscanner') return ok({ ok: true });
+    // docscanner /health returns {"status":"ok"} — a 200 is enough.
+    if (type === 'docscanner') return ok({ ok: true });
+    // docling /health also reports whether the recognizer/extractor models are
+    // present on the LLM backend — surface missing/unreachable as an error.
+    if (type === 'docling') {
+      try {
+        const h = await r.json() as {
+          models?: { backend_reachable?: boolean; present?: Record<string, boolean>; missing?: string[]; error?: string };
+        };
+        const m = h.models;
+        if (!m) return ok({ ok: true });                              // older wrapper, no model check
+        if (m.backend_reachable === false) {
+          return ok({ ok: false, error: `LLM backend unreachable${m.error ? `: ${m.error}` : ''}` });
+        }
+        if (m.missing && m.missing.length > 0) {
+          return ok({ ok: false, error: `models missing on Ollama: ${m.missing.join(', ')}` });
+        }
+        return ok({ ok: true, count: m.present ? Object.values(m.present).filter(Boolean).length : undefined });
+      } catch {
+        return ok({ ok: true });
+      }
+    }
     if (type === 'searxng') {
       const ct = r.headers.get('content-type') ?? '';
       if (!ct.toLowerCase().includes('json')) {
