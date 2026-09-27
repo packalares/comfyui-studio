@@ -2,10 +2,10 @@
 // Integrated as a tab inside the main Settings page.
 
 import { useState, useEffect, useCallback } from 'react';
-import { Key, Copy, Check, Plus, Trash2, RefreshCw, ShieldAlert } from 'lucide-react';
+import { Key, Copy, Check, Plus, Trash2, RefreshCw, ShieldAlert, Ban, Eraser } from 'lucide-react';
 import { toast } from 'sonner';
 import { SCOPES, type Scope, type ApiKey } from '@server/contracts/auth.contract';
-import { createApiKey, listApiKeys, revokeApiKey } from '../../api/auth.js';
+import { createApiKey, listApiKeys, revokeApiKey, deleteApiKey, cleanupApiKeys } from '../../api/auth.js';
 import { Badge } from '../../components/ui/badge.js';
 import { Button } from '../../components/ui/button.js';
 import { Card, CardContent, CardFooter, CardHeader } from '../../components/ui/card.js';
@@ -247,7 +247,9 @@ function CreateModal({ open, onClose, onCreated }: CreateModalProps) {
 
 // ── Key list row ──────────────────────────────────────────────────────────────
 
-function KeyRow({ apiKey, onRevoke }: { apiKey: ApiKey; onRevoke: (id: string) => void }) {
+function KeyRow({ apiKey, onRevoke, onDelete }: {
+  apiKey: ApiKey; onRevoke: (id: string) => void; onDelete: (id: string) => void;
+}) {
   const isRevoked = apiKey.revokedAt !== null;
   const isExpired = apiKey.expiresAt !== null && new Date(apiKey.expiresAt) < new Date();
 
@@ -269,17 +271,28 @@ function KeyRow({ apiKey, onRevoke }: { apiKey: ApiKey; onRevoke: (id: string) =
           {apiKey.expiresAt && <span>Expires {fmt(apiKey.expiresAt)}</span>}
         </div>
       </div>
-      {!isRevoked && (
+      <div className="flex items-center gap-1 shrink-0">
+        {!isRevoked && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-warning"
+            title="Revoke (disable this key, keep the record)"
+            onClick={() => onRevoke(apiKey.id)}
+          >
+            <Ban className="h-3.5 w-3.5" />
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon"
-          className="shrink-0 text-muted-foreground hover:text-destructive"
-          title="Revoke key"
-          onClick={() => onRevoke(apiKey.id)}
+          className="text-muted-foreground hover:text-destructive"
+          title="Delete permanently"
+          onClick={() => onDelete(apiKey.id)}
         >
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
-      )}
+      </div>
     </div>
   );
 }
@@ -292,6 +305,10 @@ export default function ApiKeysSection() {
   const [creating, setCreating] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
   const [revoking2, setRevoking2] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleting2, setDeleting2] = useState(false);
+  const [cleaning, setCleaning] = useState(false);   // cleanup confirm open
+  const [cleaning2, setCleaning2] = useState(false);  // cleanup busy
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -330,7 +347,46 @@ export default function ApiKeysSection() {
     }
   };
 
+  const handleConfirmDelete = async () => {
+    if (!deleting) return;
+    setDeleting2(true);
+    try {
+      await deleteApiKey(deleting);
+      setKeys((prev) => prev.filter((k) => k.id !== deleting));
+      toast.success('Key deleted');
+    } catch (err) {
+      toast.error('Failed to delete key', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setDeleting2(false);
+      setDeleting(null);
+    }
+  };
+
+  const handleConfirmCleanup = async () => {
+    setCleaning2(true);
+    try {
+      const { deleted } = await cleanupApiKeys();
+      toast.success(deleted > 0
+        ? `Removed ${deleted} inactive key${deleted !== 1 ? 's' : ''}`
+        : 'No inactive keys to remove');
+      await load();
+    } catch (err) {
+      toast.error('Cleanup failed', {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setCleaning2(false);
+      setCleaning(false);
+    }
+  };
+
   const revokingKey = keys.find((k) => k.id === revoking);
+  const deletingKey = keys.find((k) => k.id === deleting);
+  const inactiveCount = keys.filter(
+    (k) => k.revokedAt !== null || (k.expiresAt !== null && new Date(k.expiresAt) < new Date()),
+  ).length;
 
   return (
     <>
@@ -349,6 +405,17 @@ export default function ApiKeysSection() {
             <Button variant="ghost" size="icon" onClick={() => void load()} title="Refresh" aria-label="Refresh">
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             </Button>
+            {inactiveCount > 0 && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setCleaning(true)}
+                title="Permanently delete all revoked/expired keys"
+              >
+                <Eraser className="h-3.5 w-3.5" />
+                Cleanup ({inactiveCount})
+              </Button>
+            )}
             <Button size="sm" onClick={() => setCreating(true)}>
               <Plus className="h-3.5 w-3.5" />
               Create Key
@@ -371,7 +438,7 @@ export default function ApiKeysSection() {
         ) : (
           <div className="divide-y border-t">
             {keys.map((k) => (
-              <KeyRow key={k.id} apiKey={k} onRevoke={(id) => setRevoking(id)} />
+              <KeyRow key={k.id} apiKey={k} onRevoke={(id) => setRevoking(id)} onDelete={(id) => setDeleting(id)} />
             ))}
           </div>
         )}
@@ -400,6 +467,28 @@ export default function ApiKeysSection() {
         confirmTone="danger"
         busy={revoking2}
         onConfirm={handleConfirmRevoke}
+      />
+
+      <ConfirmDialog
+        open={deleting !== null}
+        onClose={() => setDeleting(null)}
+        title={`Delete "${deletingKey?.name ?? 'key'}" permanently?`}
+        description="The key record is removed for good. If it is still active it stops working immediately. This cannot be undone."
+        confirmLabel="Delete"
+        confirmTone="danger"
+        busy={deleting2}
+        onConfirm={handleConfirmDelete}
+      />
+
+      <ConfirmDialog
+        open={cleaning}
+        onClose={() => setCleaning(false)}
+        title="Delete inactive keys?"
+        description={`Permanently remove all revoked and expired keys (${inactiveCount}). Active keys are untouched. This cannot be undone.`}
+        confirmLabel="Delete inactive"
+        confirmTone="danger"
+        busy={cleaning2}
+        onConfirm={handleConfirmCleanup}
       />
     </>
   );

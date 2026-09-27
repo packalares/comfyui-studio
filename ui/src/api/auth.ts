@@ -33,6 +33,20 @@ const revokeKeySpec = {
   response: ApiKeySchema,
 };
 
+const deleteKeySpec = {
+  method: 'DELETE' as const,
+  path: '/auth/api-keys/:id',
+  params: z.object({ id: z.string() }),
+  query: z.object({ hard: z.enum(['1', 'true']).optional() }),
+  response: ApiKeySchema,
+};
+
+const cleanupKeysSpec = {
+  method: 'POST' as const,
+  path: '/auth/api-keys/cleanup',
+  response: z.object({ deleted: z.number() }),
+};
+
 export async function createApiKey(input: CreateApiKeyInput): Promise<CreatedApiKey> {
   return apiCall(createKeySpec, { body: input });
 }
@@ -43,4 +57,14 @@ export async function listApiKeys(): Promise<ApiKey[]> {
 
 export async function revokeApiKey(id: string): Promise<ApiKey> {
   return apiCall(revokeKeySpec, { params: { id } });
+}
+
+/** Permanently delete one key (hard delete — row removed, not just revoked). */
+export async function deleteApiKey(id: string): Promise<ApiKey> {
+  return apiCall(deleteKeySpec, { params: { id }, query: { hard: '1' } });
+}
+
+/** Bulk-delete all revoked/expired keys. Returns how many were removed. */
+export async function cleanupApiKeys(): Promise<{ deleted: number }> {
+  return apiCall(cleanupKeysSpec, {});
 }

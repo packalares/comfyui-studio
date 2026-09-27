@@ -179,3 +179,25 @@ export function touchApiKey(
 ): void {
   db.prepare('UPDATE api_keys SET last_used_at = ? WHERE id = ?').run(Date.now(), id);
 }
+
+/**
+ * Permanently delete one key (hard delete — the row is removed, unlike
+ * revokeApiKey which only sets revoked_at). Returns true if a row was deleted.
+ */
+export function deleteApiKey(
+  id: string,
+  db: Database.Database = getDb(),
+): boolean {
+  return db.prepare('DELETE FROM api_keys WHERE id = ?').run(id).changes > 0;
+}
+
+/**
+ * Bulk-delete "dead" keys: revoked, or expired (past expires_at). Never-used
+ * keys are deliberately NOT swept here — a freshly-created key hasn't been used
+ * yet; those are left for per-key delete. Returns how many rows were removed.
+ */
+export function deleteInactiveApiKeys(db: Database.Database = getDb()): number {
+  return db.prepare(
+    'DELETE FROM api_keys WHERE revoked_at IS NOT NULL OR (expires_at IS NOT NULL AND expires_at < ?)',
+  ).run(Date.now()).changes;
+}

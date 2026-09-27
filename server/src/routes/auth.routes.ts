@@ -13,6 +13,10 @@ import {
   createApiKey,
   listApiKeys,
   revokeApiKey,
+  getApiKey,
+  deleteApiKey,
+  deleteInactiveApiKeys,
+  type ApiKeyRecord,
 } from '../lib/db/apiKeys.repo.js';
 import { generateKey } from '../lib/auth/keyGen.js';
 import { NotFoundError } from '../lib/errors.js';
@@ -90,36 +94,57 @@ const listKeysRoute = defineRoute(
   },
 );
 
-// DELETE /api/auth/api-keys/:id — revoke.
-const revokeKeyRoute = defineRoute(
+/** ApiKeyRecord → wire shape. */
+function toKeyResponse(r: ApiKeyRecord) {
+  return {
+    id: r.id, prefix: r.prefix, name: r.name, scopes: r.scopes,
+    createdAt: ms(r.createdAt), lastUsedAt: msn(r.lastUsedAt),
+    expiresAt: msn(r.expiresAt), revokedAt: msn(r.revokedAt),
+  };
+}
+
+// POST /api/auth/api-keys/cleanup — bulk-delete revoked + expired keys.
+const cleanupKeysRoute = defineRoute(
+  {
+    method: 'POST',
+    path: '/auth/api-keys/cleanup',
+    response: z.object({ deleted: z.number().int().nonnegative() }),
+    auth: AUTH_SCOPE,
+    tags: ['auth'],
+    summary: 'Delete all revoked/expired API keys',
+  },
+  (ctx) => ctx.ok({ deleted: deleteInactiveApiKeys() }),
+);
+
+// DELETE /api/auth/api-keys/:id — revoke (soft). With ?hard=1, permanently delete.
+const deleteKeyRoute = defineRoute(
   {
     method: 'DELETE',
     path: '/auth/api-keys/:id',
     params: z.object({ id: z.string().min(1) }),
+    query: z.object({ hard: z.enum(['1', 'true']).optional() }),
     response: ApiKeySchema,
     auth: AUTH_SCOPE,
     tags: ['auth'],
-    summary: 'Revoke API key',
+    summary: 'Revoke an API key, or permanently delete it with ?hard=1',
   },
   (ctx) => {
+    if (ctx.query.hard) {
+      const rec = getApiKey(ctx.params.id);
+      if (!rec) throw new NotFoundError('API key not found');
+      deleteApiKey(ctx.params.id);
+      return ctx.ok(toKeyResponse(rec));      // return the row as it was before deletion
+    }
     const updated = revokeApiKey(ctx.params.id);
     if (!updated) throw new NotFoundError('API key not found');
-    return ctx.ok({
-      id: updated.id,
-      prefix: updated.prefix,
-      name: updated.name,
-      scopes: updated.scopes,
-      createdAt: ms(updated.createdAt),
-      lastUsedAt: msn(updated.lastUsedAt),
-      expiresAt: msn(updated.expiresAt),
-      revokedAt: msn(updated.revokedAt),
-    });
+    return ctx.ok(toKeyResponse(updated));
   },
 );
 
 const router = Router();
 createKeyRoute.register(router);
 listKeysRoute.register(router);
-revokeKeyRoute.register(router);
+cleanupKeysRoute.register(router);
+deleteKeyRoute.register(router);
 
 export default router;
