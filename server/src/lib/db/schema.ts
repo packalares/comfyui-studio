@@ -348,4 +348,18 @@ CREATE TABLE IF NOT EXISTS prompt_snapshots (
   createdAt       INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_prompt_snapshots_createdAt ON prompt_snapshots(createdAt);
+
+-- Per-API-key request log: last N prompts+responses for keys used on the LLM API.
+-- Pruned to N-per-key on insert; deleted with the key (no orphans).
+CREATE TABLE IF NOT EXISTS llm_request_log (
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  key_id   TEXT NOT NULL,
+  ts       INTEGER NOT NULL,
+  endpoint TEXT NOT NULL,
+  model    TEXT,
+  prompt   TEXT NOT NULL,
+  response TEXT NOT NULL,
+  status   INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_llm_request_log_key ON llm_request_log(key_id, ts DESC);
 `;

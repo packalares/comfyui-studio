@@ -20,6 +20,8 @@ import { processLlmAttachments, AttachmentError } from '../services/llm/attachme
 import { parseDocscannerField, scanRequestImages, DocscannerError } from '../services/llm/docscanner.js';
 import { parseDoclingField, findDocument, injectContext } from '../services/llm/docling.js';
 import { convertDocument, DoclingError } from '../services/docling/client.js';
+import { buildPromptText, reassembleResponse } from '../services/llm/requestLog.js';
+import { insertLlmRequestLog } from '../lib/db/llmRequestLog.repo.js';
 import { maybeInlinePdfImages } from '../services/llm/pdfVision.js';
 import { logger } from '../lib/logger.js';
 import {
@@ -302,6 +304,13 @@ async function proxyToOllama(
           }
         }
 
+        // Per-key request log: capture the response (capped) to store alongside
+        // the prompt. Only for API-key callers; UI calls (actor 'ui') are skipped.
+        const logKeyId = (req as { actor?: { type?: string; id?: string } }).actor?.type === 'apiKey'
+          ? (req as { actor?: { id?: string } }).actor?.id ?? null : null;
+        const RESP_CAP = 262144;
+        let respRaw = '';
+
         if (isStream) {
           // Manual chunk loop instead of stream.pipeline so we log every
           // chunk Ollama sends — surfaces whether response.body is actually
@@ -312,6 +321,7 @@ async function proxyToOllama(
             for await (const chunk of response.body) {
               chunks += 1;
               bytes += chunk.length;
+              if (logKeyId && respRaw.length < RESP_CAP) respRaw += chunk.toString('utf8');
               if (res.writableEnded || res.destroyed) break;
               const ok = res.write(chunk);
               if (!ok) {
@@ -345,8 +355,25 @@ async function proxyToOllama(
           if (!res.writableEnded) res.end();
         } else {
           const json = await response.body.json();
+          if (logKeyId) { try { respRaw = JSON.stringify(json); } catch { /* ignore */ } }
           for (const [k, v] of Object.entries(fwdHeaders)) res.setHeader(k, v);
           if (!res.headersSent) res.status(200).json(json);
+        }
+        // best-effort: log this API-key request (prompt + captured response)
+        if (logKeyId) {
+          try {
+            const mdl = (body as { model?: unknown }).model;
+            insertLlmRequestLog({
+              keyId: logKeyId,
+              endpoint: targetPath,
+              model: typeof mdl === 'string' ? mdl : null,
+              prompt: buildPromptText(body),
+              response: reassembleResponse(respRaw, mode, isStream),
+              status: response.statusCode,
+            });
+          } catch (e) {
+            logger.warn(`[llm:${traceId}] request log failed`, { error: e instanceof Error ? e.message : String(e) });
+          }
         }
       } finally {
         req.removeListener('close', onClose);

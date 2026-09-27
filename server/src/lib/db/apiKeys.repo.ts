@@ -13,6 +13,7 @@ import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { getDb } from './connection.js';
 import { isScope, type Scope } from '../auth/scopes.js';
+import { deleteLlmRequestLogForKey, deleteOrphanedLlmRequestLog } from './llmRequestLog.repo.js';
 
 /** Public projection of an API-key row — never carries the hash or plain. */
 export interface ApiKeyRecord {
@@ -188,7 +189,9 @@ export function deleteApiKey(
   id: string,
   db: Database.Database = getDb(),
 ): boolean {
-  return db.prepare('DELETE FROM api_keys WHERE id = ?').run(id).changes > 0;
+  const removed = db.prepare('DELETE FROM api_keys WHERE id = ?').run(id).changes > 0;
+  deleteLlmRequestLogForKey(id, db);   // drop its request history — no orphans
+  return removed;
 }
 
 /**
@@ -197,7 +200,9 @@ export function deleteApiKey(
  * yet; those are left for per-key delete. Returns how many rows were removed.
  */
 export function deleteInactiveApiKeys(db: Database.Database = getDb()): number {
-  return db.prepare(
+  const n = db.prepare(
     'DELETE FROM api_keys WHERE revoked_at IS NOT NULL OR (expires_at IS NOT NULL AND expires_at < ?)',
   ).run(Date.now()).changes;
+  deleteOrphanedLlmRequestLog(db);   // clear history for the keys just removed
+  return n;
 }

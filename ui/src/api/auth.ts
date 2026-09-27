@@ -47,6 +47,24 @@ const cleanupKeysSpec = {
   response: z.object({ deleted: z.number() }),
 };
 
+const ApiKeyRequestSchema = z.object({
+  id: z.number(),
+  ts: z.string(),
+  endpoint: z.string(),
+  model: z.string().nullable(),
+  prompt: z.string(),
+  response: z.string(),
+  status: z.number().nullable(),
+});
+export type ApiKeyRequest = z.infer<typeof ApiKeyRequestSchema>;
+
+const keyRequestsSpec = {
+  method: 'GET' as const,
+  path: '/auth/api-keys/:id/requests',
+  params: z.object({ id: z.string() }),
+  response: z.array(ApiKeyRequestSchema),
+};
+
 export async function createApiKey(input: CreateApiKeyInput): Promise<CreatedApiKey> {
   return apiCall(createKeySpec, { body: input });
 }
@@ -67,4 +85,9 @@ export async function deleteApiKey(id: string): Promise<ApiKey> {
 /** Bulk-delete all revoked/expired keys. Returns how many were removed. */
 export async function cleanupApiKeys(): Promise<{ deleted: number }> {
   return apiCall(cleanupKeysSpec, {});
+}
+
+/** Last N logged requests (prompt + response) made with this key. */
+export async function listApiKeyRequests(id: string): Promise<ApiKeyRequest[]> {
+  return apiCall(keyRequestsSpec, { params: { id } });
 }

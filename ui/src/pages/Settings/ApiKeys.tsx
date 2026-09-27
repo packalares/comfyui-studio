@@ -2,10 +2,13 @@
 // Integrated as a tab inside the main Settings page.
 
 import { useState, useEffect, useCallback } from 'react';
-import { Key, Copy, Check, Plus, Trash2, RefreshCw, ShieldAlert, Ban, Eraser } from 'lucide-react';
+import { Key, Copy, Check, Plus, Trash2, RefreshCw, ShieldAlert, Ban, Eraser, History } from 'lucide-react';
 import { toast } from 'sonner';
 import { SCOPES, type Scope, type ApiKey } from '@server/contracts/auth.contract';
-import { createApiKey, listApiKeys, revokeApiKey, deleteApiKey, cleanupApiKeys } from '../../api/auth.js';
+import {
+  createApiKey, listApiKeys, revokeApiKey, deleteApiKey, cleanupApiKeys,
+  listApiKeyRequests, type ApiKeyRequest,
+} from '../../api/auth.js';
 import { Badge } from '../../components/ui/badge.js';
 import { Button } from '../../components/ui/button.js';
 import { Card, CardContent, CardFooter, CardHeader } from '../../components/ui/card.js';
@@ -247,8 +250,8 @@ function CreateModal({ open, onClose, onCreated }: CreateModalProps) {
 
 // ── Key list row ──────────────────────────────────────────────────────────────
 
-function KeyRow({ apiKey, onRevoke, onDelete }: {
-  apiKey: ApiKey; onRevoke: (id: string) => void; onDelete: (id: string) => void;
+function KeyRow({ apiKey, onRevoke, onDelete, onHistory }: {
+  apiKey: ApiKey; onRevoke: (id: string) => void; onDelete: (id: string) => void; onHistory: (k: ApiKey) => void;
 }) {
   const isRevoked = apiKey.revokedAt !== null;
   const isExpired = apiKey.expiresAt !== null && new Date(apiKey.expiresAt) < new Date();
@@ -272,6 +275,15 @@ function KeyRow({ apiKey, onRevoke, onDelete }: {
         </div>
       </div>
       <div className="flex items-center gap-1 shrink-0">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-muted-foreground hover:text-foreground"
+          title="View recent requests"
+          onClick={() => onHistory(apiKey)}
+        >
+          <History className="h-3.5 w-3.5" />
+        </Button>
         {!isRevoked && (
           <Button
             variant="ghost"
@@ -297,6 +309,65 @@ function KeyRow({ apiKey, onRevoke, onDelete }: {
   );
 }
 
+// ── Request history modal ───────────────────────────────────────────────────
+
+function HistoryModal({ apiKey, onClose }: { apiKey: ApiKey | null; onClose: () => void }) {
+  const [rows, setRows] = useState<ApiKeyRequest[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!apiKey) return;
+    setLoading(true);
+    setRows([]);
+    listApiKeyRequests(apiKey.id)
+      .then(setRows)
+      .catch((err) => toast.error('Failed to load requests', {
+        description: err instanceof Error ? err.message : String(err),
+      }))
+      .finally(() => setLoading(false));
+  }, [apiKey]);
+
+  return (
+    <AppModal
+      open={apiKey !== null}
+      onClose={onClose}
+      title={`Recent requests — ${apiKey?.name ?? ''}`}
+      subtitle="Last 10 prompts + responses via the LLM API (images stripped, truncated to 8 KB)."
+    >
+      {loading ? (
+        <div className="space-y-2">
+          {[1, 2, 3].map((i) => <div key={i} className="h-20 rounded bg-muted animate-pulse" />)}
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="empty-box">No requests logged for this key yet.</div>
+      ) : (
+        <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+          {rows.map((r) => (
+            <div key={r.id} className="rounded-lg border p-3 space-y-2">
+              <div className="flex items-center gap-2 flex-wrap text-[11px] text-muted-foreground">
+                <span>{new Date(r.ts).toLocaleString()}</span>
+                {r.model && <code className="bg-muted rounded px-1.5 py-0.5">{r.model}</code>}
+                <span className="font-mono">{r.endpoint}</span>
+                {r.status != null && (
+                  <Badge variant={r.status < 300 ? 'success' : 'danger'} className="text-[9px]">{r.status}</Badge>
+                )}
+              </div>
+              <div>
+                <div className="text-[10px] font-semibold uppercase text-muted-foreground mb-0.5">Prompt</div>
+                <pre className="text-[11px] whitespace-pre-wrap break-words bg-muted rounded p-2 max-h-40 overflow-y-auto">{r.prompt || '—'}</pre>
+              </div>
+              <div>
+                <div className="text-[10px] font-semibold uppercase text-muted-foreground mb-0.5">Response</div>
+                <pre className="text-[11px] whitespace-pre-wrap break-words bg-muted rounded p-2 max-h-40 overflow-y-auto">{r.response || '—'}</pre>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </AppModal>
+  );
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export default function ApiKeysSection() {
@@ -309,6 +380,7 @@ export default function ApiKeysSection() {
   const [deleting2, setDeleting2] = useState(false);
   const [cleaning, setCleaning] = useState(false);   // cleanup confirm open
   const [cleaning2, setCleaning2] = useState(false);  // cleanup busy
+  const [historyKey, setHistoryKey] = useState<ApiKey | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -438,7 +510,7 @@ export default function ApiKeysSection() {
         ) : (
           <div className="divide-y border-t">
             {keys.map((k) => (
-              <KeyRow key={k.id} apiKey={k} onRevoke={(id) => setRevoking(id)} onDelete={(id) => setDeleting(id)} />
+              <KeyRow key={k.id} apiKey={k} onRevoke={(id) => setRevoking(id)} onDelete={(id) => setDeleting(id)} onHistory={(kk) => setHistoryKey(kk)} />
             ))}
           </div>
         )}
@@ -457,6 +529,8 @@ export default function ApiKeysSection() {
         onClose={() => setCreating(false)}
         onCreated={handleCreated}
       />
+
+      <HistoryModal apiKey={historyKey} onClose={() => setHistoryKey(null)} />
 
       <ConfirmDialog
         open={revoking !== null}

@@ -18,6 +18,7 @@ import {
   deleteInactiveApiKeys,
   type ApiKeyRecord,
 } from '../lib/db/apiKeys.repo.js';
+import { listLlmRequestLog } from '../lib/db/llmRequestLog.repo.js';
 import { generateKey } from '../lib/auth/keyGen.js';
 import { NotFoundError } from '../lib/errors.js';
 
@@ -141,10 +142,38 @@ const deleteKeyRoute = defineRoute(
   },
 );
 
+// GET /api/auth/api-keys/:id/requests — last N logged requests for this key.
+const keyRequestsRoute = defineRoute(
+  {
+    method: 'GET',
+    path: '/auth/api-keys/:id/requests',
+    params: z.object({ id: z.string().min(1) }),
+    response: z.array(z.object({
+      id: z.number(),
+      ts: z.string(),
+      endpoint: z.string(),
+      model: z.string().nullable(),
+      prompt: z.string(),
+      response: z.string(),
+      status: z.number().nullable(),
+    })),
+    auth: AUTH_SCOPE,
+    tags: ['auth'],
+    summary: 'Recent LLM API requests made with this key (prompt + response)',
+  },
+  (ctx) => ctx.ok(
+    listLlmRequestLog(ctx.params.id).map((r) => ({
+      id: r.id, ts: ms(r.ts), endpoint: r.endpoint, model: r.model,
+      prompt: r.prompt, response: r.response, status: r.status,
+    })),
+  ),
+);
+
 const router = Router();
 createKeyRoute.register(router);
 listKeysRoute.register(router);
 cleanupKeysRoute.register(router);
+keyRequestsRoute.register(router);
 deleteKeyRoute.register(router);
 
 export default router;
