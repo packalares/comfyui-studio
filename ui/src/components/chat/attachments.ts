@@ -39,7 +39,7 @@ export function listVisionCapableBaseNames(
     .sort();
 }
 
-export const MAX_ATTACHMENTS = 5;
+export const MAX_ATTACHMENTS = 20;
 export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 // Separate cap for video/audio: base64 expansion means a 32 MB raw file
 // becomes ~43 MB in the POST body, which stays under the 50 MB express limit.
