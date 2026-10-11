@@ -4,6 +4,7 @@
 
 import type { FormInputBinding } from '../../../contracts/workflow.contract.js';
 import type { FlatNode } from '../flatten/index.js';
+import { getApiWidgetSpecs } from './nodeEmit.js';
 import type { ApiPrompt } from './types.js';
 
 /**
@@ -283,6 +284,113 @@ export function randomizeSeeds(prompt: ApiPrompt): void {
     if (nodeData.class_type === 'KSampler' || nodeData.class_type === 'RandomNoise') {
       const seedKey = nodeData.class_type === 'RandomNoise' ? 'noise_seed' : 'seed';
       nodeData.inputs[seedKey] = Math.floor(Math.random() * 2147483647);
+    }
+  }
+}
+
+/**
+ * Case-insensitive COMBO match. Returns the canonical option when `value`
+ * matches one (exactly, by case, or as the string form of a boolean/number),
+ * or `undefined` when it is NOT a valid option. Distinguishes "valid but
+ * re-cased" (returns the option) from "stale" (returns undefined) so the
+ * caller only rewrites values that are actually wrong.
+ */
+function matchComboOption(value: unknown, options: string[]): string | undefined {
+  const s = typeof value === 'string' ? value
+    : (typeof value === 'boolean' || typeof value === 'number') ? String(value)
+    : undefined;
+  if (s === undefined) return undefined;
+  if (options.includes(s)) return s;
+  const lower = s.toLowerCase();
+  return options.find(o => o.toLowerCase() === lower);
+}
+
+/**
+ * Phase 6 — heal stale widget values against the LIVE node schemas.
+ *
+ * Workflow templates saved against an older build of a custom node can carry
+ * widget values the node no longer accepts: a COMBO whose option set changed
+ * (LTXVideo `TextGenerateLTX2Prompt.mtp` went boolean -> ['auto','off','2'..];
+ * WAS "Image Save".root went free-text -> ['output','temp']) or a newly-added
+ * required widget the old graph never wrote ("Image Save".bit_depth). ComfyUI
+ * then rejects the prompt at submit with "value not in list" / "required input
+ * is missing" and the whole generation 400s.
+ *
+ * Rather than hand-patch each node, this walks every emitted node against
+ * objectInfo (the live /object_info schema) and, for COMBO widgets (both the
+ * legacy inline-array form and the modern V3 `"COMBO"`+options form):
+ *   - rewrites a present value that is NOT an allowed option to the combo's
+ *     EFFECTIVE default (the declared default if valid, else the first
+ *     option — what ComfyUI itself renders when no default is given); a
+ *     case-only difference is canonicalised in place rather than replaced;
+ *   - fills a MISSING required COMBO with that same effective default, and a
+ *     missing required primitive (INT/FLOAT/STRING/BOOLEAN) widget with its
+ *     schema default.
+ *
+ * An out-of-list COMBO value only arises from schema drift (stale templates)
+ * or hand-edited JSON — the editor never lets you pick one — so coercing it to
+ * the effective default is the right heal, not a masked typo.
+ *
+ * Guards: never touches a wired input (`[nodeId, slot]`); V3 DynamicCombo
+ * (COMFY_DYNAMICCOMBO_V3), which has nested sub-input semantics, is left alone
+ * (it carries no plain options list here); only fills a MISSING input when it
+ * is in the node's `required` bucket. Runs last, after seed randomisation, so
+ * it sees the final graph.
+ */
+export function normalizeStaleWidgets(
+  prompt: ApiPrompt,
+  objectInfo: Record<string, Record<string, unknown>>,
+): void {
+  for (const entry of Object.values(prompt)) {
+    const specs = getApiWidgetSpecs(objectInfo, entry.class_type);
+    if (specs.length === 0) continue;
+    const schema = objectInfo[entry.class_type] as
+      | { input?: { required?: Record<string, unknown> } }
+      | undefined;
+    const requiredNames = new Set(Object.keys(schema?.input?.required || {}));
+
+    for (const spec of specs) {
+      const current = entry.inputs[spec.name];
+      // Never rewrite a value that comes from an upstream wire.
+      if (Array.isArray(current)) continue;
+
+      const cfg = spec.cfg && typeof spec.cfg === 'object'
+        ? (spec.cfg as Record<string, unknown>)
+        : undefined;
+      const cfgDefault = cfg?.default;
+      // COMBO options live in one of two forms: the legacy inline array
+      // (spec[0] is `['a','b']` -> getApiWidgetSpecs fills `inlineOptions`) or
+      // the modern V3 form (spec[0] is the string "COMBO" with options under
+      // spec[1].options -> carried on `cfg.options`). Read both.
+      const options =
+        spec.inlineOptions && spec.inlineOptions.length > 0
+          ? spec.inlineOptions
+          : spec.type === 'COMBO' && Array.isArray(cfg?.options)
+            ? (cfg!.options as unknown[]).filter((o): o is string => typeof o === 'string')
+            : undefined;
+      const present = spec.name in entry.inputs;
+
+      if (options && options.length > 0) {
+        // Effective default = the node's declared default if valid, else the
+        // first option (what ComfyUI itself renders when no default is given).
+        const effectiveDefault =
+          typeof cfgDefault === 'string' && options.includes(cfgDefault)
+            ? cfgDefault
+            : options[0];
+        if (present) {
+          const canon = matchComboOption(current, options);
+          if (canon === undefined) {
+            entry.inputs[spec.name] = effectiveDefault; // stale value -> heal
+          } else if (canon !== current) {
+            entry.inputs[spec.name] = canon; // valid, re-cased in place
+          }
+        } else if (requiredNames.has(spec.name)) {
+          entry.inputs[spec.name] = effectiveDefault; // newly-required combo
+        }
+      } else if (!present && requiredNames.has(spec.name) && cfgDefault !== undefined) {
+        // Missing required non-combo primitive widget -> schema default.
+        entry.inputs[spec.name] = cfgDefault;
+      }
     }
   }
 }

@@ -1,4 +1,4 @@
-// workflowToApiPrompt — the five-phase UI-format -> API prompt pipeline.
+// workflowToApiPrompt — the six-phase UI-format -> API prompt pipeline.
 //
 //   1. Flatten the workflow (subgraph wrappers inlined, links rewired).
 //   2. Emit one API prompt entry per real node (UI-only types skipped).
@@ -6,6 +6,8 @@
 //   4. Inject the user prompt into exactly ONE node (first non-negative
 //      node with multiline STRING widgets; every such widget on it).
 //   5. Randomise KSampler / RandomNoise seeds.
+//   6. Heal stale widget values against the live schemas (changed COMBO
+//      option sets, newly-required widgets) so old templates don't 400.
 //
 // Phase 4 writes to ONE node only. Covers CLIPTextEncode (single `text`),
 // CLIPTextEncodeFlux (`clip_l` + `t5xxl`), CLIPTextEncodeSDXL
@@ -22,6 +24,7 @@ import {
   applyFormInputs,
   applyPrimitiveOverrides,
   injectUserPrompt,
+  normalizeStaleWidgets,
   randomizeSeeds,
 } from './inject.js';
 import { emitNodesFromWorkflow } from './nodeEmit.js';
@@ -97,6 +100,12 @@ export async function workflowToApiPrompt(
 
   // Phase 5 — randomise seeds.
   randomizeSeeds(prompt);
+
+  // Phase 6 — heal stale widget values against the live node schemas (COMBO
+  // options that changed, newly-required widgets) so workflow templates saved
+  // against older custom-node builds don't 400 at submit. See the function
+  // doc in ./inject.ts for the exact rules and guards.
+  normalizeStaleWidgets(prompt, objectInfo);
 
   // NOTE: enhancer-probe injection is done by the caller, NOT here. The
   // gating boolean that decides whether the probe fires (e.g. `enhance: false`
