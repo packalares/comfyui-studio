@@ -357,6 +357,15 @@ export function normalizeStaleWidgets(
       const cfg = spec.cfg && typeof spec.cfg === 'object'
         ? (spec.cfg as Record<string, unknown>)
         : undefined;
+      // Never touch file/media upload pickers (LoadImage.image,
+      // LoadAudio.audio, LoadVideo.video, ...). Their option list enumerates
+      // only part of the input dir, so a perfectly valid user selection (a
+      // subfolder-prefixed path like "audio/foo.mp3", or a freshly uploaded
+      // file not in this snapshot) legitimately isn't in it. Coercing that to
+      // options[0] silently swaps the user's chosen image/audio/video for the
+      // first file in the list. These widgets are marked in object_info with
+      // an `*_upload` config flag (image_upload / audio_upload / video_upload).
+      if (cfg && Object.keys(cfg).some((k) => k.endsWith('_upload'))) continue;
       const cfgDefault = cfg?.default;
       // COMBO options live in one of two forms: the legacy inline array
       // (spec[0] is `['a','b']` -> getApiWidgetSpecs fills `inlineOptions`) or
