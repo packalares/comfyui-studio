@@ -90,6 +90,14 @@ interface PersistedForm {
   duration: number;
   durationMode: 'preset' | 'custom';
   toggles: Record<string, boolean>;
+  // Media selections are MediaLibraryItem refs (plain JSON, no File handles),
+  // so they persist across refresh like the rest of the form. Restored items
+  // that no longer exist in the library just fail validation on submit, same
+  // as a stale manual pick.
+  imageRef: MediaLibraryItem | null;
+  audioRef: MediaLibraryItem | null;
+  lastFrameRef: MediaLibraryItem | null;
+  audioStart: number;
 }
 
 function loadPersistedForm(): PersistedForm | null {
@@ -126,7 +134,7 @@ export default function VideoBuilder({ registerAction, onSwitchToAdvanced, onTem
   const [qualityId, setQualityId] = useState<string>(persisted?.qualityId ?? '720');
   const [duration, setDuration] = useState<number>(persisted?.duration ?? 6);
   const [durationMode, setDurationMode] = useState<'preset' | 'custom'>(persisted?.durationMode ?? 'preset');
-  const [audioStart, setAudioStart] = useState<number>(0);
+  const [audioStart, setAudioStart] = useState<number>(persisted?.audioStart ?? 0);
   // Toggle for the workflow's built-in LLM prompt enhancer (PrimitiveBoolean
   // wired into the Inputs subgraph's switch). Distinct from the one-shot
   // wand button which rewrites the textarea via /api/llm/generate.
@@ -135,9 +143,9 @@ export default function VideoBuilder({ registerAction, onSwitchToAdvanced, onTem
   // Media inputs are now references to pre-uploaded library items, not raw
   // File handles. Selection happens in MediaLibraryModal; submit just passes
   // the `<subfolder>/<filename>` ref through — no per-submit upload step.
-  const [imageRef, setImageRef] = useState<MediaLibraryItem | null>(null);
-  const [audioRef, setAudioRef] = useState<MediaLibraryItem | null>(null);
-  const [lastFrameRef, setLastFrameRef] = useState<MediaLibraryItem | null>(null);
+  const [imageRef, setImageRef] = useState<MediaLibraryItem | null>(persisted?.imageRef ?? null);
+  const [audioRef, setAudioRef] = useState<MediaLibraryItem | null>(persisted?.audioRef ?? null);
+  const [lastFrameRef, setLastFrameRef] = useState<MediaLibraryItem | null>(persisted?.lastFrameRef ?? null);
   const [pickerKind, setPickerKind] = useState<'image' | 'audio' | 'video' | null>(null);
   const [pickerOnSelect, setPickerOnSelect] = useState<((item: MediaLibraryItem) => void) | null>(null);
 
@@ -312,6 +320,7 @@ export default function VideoBuilder({ registerAction, onSwitchToAdvanced, onTem
       try {
         const blob: PersistedForm = {
           templateName: selectedName, prompt, formatId, qualityId, duration, durationMode, toggles,
+          imageRef, audioRef, lastFrameRef, audioStart,
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(blob));
       } catch { /* ignore */ }
@@ -331,8 +340,8 @@ export default function VideoBuilder({ registerAction, onSwitchToAdvanced, onTem
   ]);
 
   const persistBlob = useMemo<PersistedForm>(
-    () => ({ templateName: selectedName, prompt, formatId, qualityId, duration, durationMode, toggles }),
-    [selectedName, prompt, formatId, qualityId, duration, durationMode, toggles],
+    () => ({ templateName: selectedName, prompt, formatId, qualityId, duration, durationMode, toggles, imageRef, audioRef, lastFrameRef, audioStart }),
+    [selectedName, prompt, formatId, qualityId, duration, durationMode, toggles, imageRef, audioRef, lastFrameRef, audioStart],
   );
   useDebouncedPersist(STORAGE_KEY, persistBlob);
 
@@ -346,6 +355,7 @@ export default function VideoBuilder({ registerAction, onSwitchToAdvanced, onTem
     setImageRef(null);
     setAudioRef(null);
     setLastFrameRef(null);
+    setAudioStart(0);
     try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
   }, []);
 
