@@ -49,7 +49,7 @@
   "overrides": {
     "dompurify": "^3.4.16",
     "ip-address": "^10.7.3",
-    "fast-uri": "^3.1.8",
+    "fast-uri": "^3.1.9",
     "proxy-addr": "^2.0.8",
     "source-map-js": "^1.2.2",
     "postcss-selector-parser": "^7.1.6",
