@@ -60,6 +60,9 @@
     "@ai-sdk/provider-utils": {
       "undici": "6.29.1"
     },
+    "@ts-morph/common": {
+      "minimatch": "11.0.1"
+    },
     "@modelcontextprotocol/sdk": {
       ".": "^1.31.0",
       "body-parser": "2.4.0"
